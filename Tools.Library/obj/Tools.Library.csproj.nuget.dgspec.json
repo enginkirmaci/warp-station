@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\enginkirmaci\\Repos\\Tools\\Tools.Library\\Tools.Library.csproj": {}
+  },
+  "projects": {
+    "C:\\enginkirmaci\\Repos\\Tools\\Tools.Library\\Tools.Library.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\enginkirmaci\\Repos\\Tools\\Tools.Library\\Tools.Library.csproj",
+        "projectName": "Tools.Library",
+        "projectPath": "C:\\enginkirmaci\\Repos\\Tools\\Tools.Library\\Tools.Library.csproj",
+        "packagesPath": "C:\\Users\\201579\\.nuget\\packages\\",
+        "outputPath": "C:\\enginkirmaci\\Repos\\Tools\\Tools.Library\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\201579\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net7.0-windows"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Repos\\STAKILPR\\Clearing.Common\\nuget": {},
+          "https://api.nuget.org/v3/index.json": {},
+          "https://scorenexus.isbank/repository/nuget-hosted/": {},
+          "https://scorenexus.isbank/repository/nuget.org-proxy/": {}
+        },
+        "frameworks": {
+          "net7.0-windows7.0": {
+            "targetAlias": "net7.0-windows",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "net7.0-windows7.0": {
+          "targetAlias": "net7.0-windows",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.WindowsDesktop.App.WPF": {
+              "privateAssets": "none"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\7.0.401\\RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
