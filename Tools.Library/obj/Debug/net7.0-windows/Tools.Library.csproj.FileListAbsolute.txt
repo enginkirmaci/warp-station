@@ -9,3 +9,15 @@ C:\enginkirmaci\Repos\Tools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library
 C:\enginkirmaci\Repos\Tools\Tools.Library\obj\Debug\net7.0-windows\refint\Tools.Library.dll
 C:\enginkirmaci\Repos\Tools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.pdb
 C:\enginkirmaci\Repos\Tools\Tools.Library\obj\Debug\net7.0-windows\ref\Tools.Library.dll
+X:\DevTools\Tools.Library\bin\Debug\net7.0-windows\Tools.Library.deps.json
+X:\DevTools\Tools.Library\bin\Debug\net7.0-windows\Tools.Library.dll
+X:\DevTools\Tools.Library\bin\Debug\net7.0-windows\Tools.Library.pdb
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.GeneratedMSBuildEditorConfig.editorconfig
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.AssemblyInfoInputs.cache
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.AssemblyInfo.cs
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.csproj.CoreCompileInputs.cache
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.sourcelink.json
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.dll
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\refint\Tools.Library.dll
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\Tools.Library.pdb
+X:\DevTools\Tools.Library\obj\Debug\net7.0-windows\ref\Tools.Library.dll
