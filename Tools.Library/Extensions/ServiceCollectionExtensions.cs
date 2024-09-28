@@ -15,7 +15,7 @@ public static class ServiceCollectionExtensions
             IEnumerable<Type> types = assembly.GetTypes()
                 .Where(x =>
                     x.IsClass &&
-                    x.Namespace!.StartsWith(namespaceName, StringComparison.InvariantCultureIgnoreCase)
+                    x.Namespace!=null && x.Namespace!.StartsWith(namespaceName, StringComparison.InvariantCultureIgnoreCase)
                 );
 
             foreach (Type? type in types)
