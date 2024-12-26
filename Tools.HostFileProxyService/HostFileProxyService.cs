@@ -79,7 +79,7 @@ public class HostFileProxyService : ServiceBase
     {
         _ftpUseProcess = Process.Start(new ProcessStartInfo(
                "C:\\Program Files\\Ferro Software\\FtpUse\\ftpuse.exe",
-               "Z: enginkirmaci.synology.me I3engkir! /USER:administrator"));
+               "Z: enginkirmaci.synology.me password /USER:administrator"));
     }
 
     private static void KillProcessAndChildrens(int pid)
