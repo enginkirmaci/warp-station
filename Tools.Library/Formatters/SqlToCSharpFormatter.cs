@@ -42,6 +42,17 @@ namespace Tools.Library.Formatters
             return classBuilder.ToString();
         }
 
+        public static string GetTableName(string createTableSql)
+        {
+            var tableNameMatch = Regex.Match(createTableSql, @"CREATE TABLE (\w+)\.(\w+)");
+            if (!tableNameMatch.Success)
+            {
+                throw new ArgumentException("Invalid CREATE TABLE SQL format.");
+            }
+
+            return tableNameMatch.Groups[2].Value.ToPascalCase();
+        }
+
         private static string ToCSharpType(this string sqlType)
         {
             return sqlType switch
