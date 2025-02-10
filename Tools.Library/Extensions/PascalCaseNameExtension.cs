@@ -1,6 +1,3 @@
-using System.Globalization;
-using System.Text;
-
 namespace Tools.Library.Extensions
 {
     public static class PascalCaseNameExtension
