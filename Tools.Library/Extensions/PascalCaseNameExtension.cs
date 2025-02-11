@@ -15,6 +15,12 @@ namespace Tools.Library.Extensions
                 {
                     capitalizeNext = true;
                 }
+                else if (capitalizeNext && char.IsDigit(c))
+                {
+                    builder.Append('_');
+                    builder.Append(c);
+                    capitalizeNext = false;
+                }
                 else
                 {
                     builder.Append(capitalizeNext ? char.ToUpper(c, culture) : char.ToLower(c, culture));

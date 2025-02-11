@@ -9,7 +9,7 @@ namespace Tools.Library.Formatters
     {
         public static string FormatCreateTableToClass(string createTableSql)
         {
-            var tableNameMatch = Regex.Match(createTableSql, @"CREATE TABLE (\w+)\.(\w+)");
+            var tableNameMatch = Regex.Match(createTableSql, @"CREATE TABLE ""?(\w+)""?\.?""?(\w+)""?");
             if (!tableNameMatch.Success)
             {
                 throw new ArgumentException("Invalid CREATE TABLE SQL format.");
@@ -26,7 +26,7 @@ namespace Tools.Library.Formatters
             classBuilder.AppendLine("    #region Properties");
             classBuilder.AppendLine();
 
-            var columnMatches = Regex.Matches(createTableSql, @"^\s*(?!CREATE TABLE)(\w+)\s+(\w+)(\(\d+(,\d+)?\))?", RegexOptions.Multiline);
+            var columnMatches = Regex.Matches(createTableSql, @"^\s*(?!CREATE TABLE)""?(\w+)""?\s+(\w+)(\(\d+(,\d+)?\))?", RegexOptions.Multiline);
             foreach (Match columnMatch in columnMatches)
             {
                 var columnName = columnMatch.Groups[1].Value.ToPascalCase();
@@ -44,7 +44,7 @@ namespace Tools.Library.Formatters
 
         public static string GetTableName(string createTableSql)
         {
-            var tableNameMatch = Regex.Match(createTableSql, @"CREATE TABLE (\w+)\.(\w+)");
+            var tableNameMatch = Regex.Match(createTableSql, @"CREATE TABLE ""?(\w+)""?\.?""?(\w+)""?");
             if (!tableNameMatch.Success)
             {
                 throw new ArgumentException("Invalid CREATE TABLE SQL format.");
