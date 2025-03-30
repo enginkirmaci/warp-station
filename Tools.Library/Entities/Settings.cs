@@ -32,4 +32,5 @@ public class WorkspacesSettings
     public string? SolutionFilePattern { get; set; } = "*.sln";
     public string? PlatformFolderName { get; set; } = "platform";
     public string? VSCodeExecutable { get; set; } = "code";
+    public string[]? ExcludedFolders { get; set; } // Added for excluding folders during scan
 }
