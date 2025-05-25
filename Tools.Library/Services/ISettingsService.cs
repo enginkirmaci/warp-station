@@ -5,6 +5,7 @@ namespace Tools.Library.Services
     public interface ISettingsService
     {
         Task<AppSettings> LoadSettingsAsync();
-        AppSettings GetSettings();
+
+        Task<AppSettings> GetSettingsAsync();
     }
 }

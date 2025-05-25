@@ -104,25 +104,18 @@ namespace Tools.Library.Services
             {
                 _cachedSettings = settings;
             }
+
             return _cachedSettings;
         }
 
-        public AppSettings GetSettings()
+        public async Task<AppSettings> GetSettingsAsync()
         {
-            // Ensure settings are loaded before returning
-            if (_cachedSettings == null)
+            if (_cachedSettings != null)
             {
-                // This is a synchronous call, ideally LoadSettingsAsync should be called first during startup.
-                // For simplicity here, we load synchronously if not already cached.
-                // Consider making this async or ensuring LoadSettingsAsync is called during app initialization.
-                LoadSettingsAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                return _cachedSettings;
             }
-            // The lock ensures thread safety, and the null-forgiving operator is safe
-            // because LoadSettingsAsync initializes _cachedSettings.
-            lock (_lock)
-            {
-                return _cachedSettings!;
-            }
+            // Ensure settings are loaded asynchronously
+            return await LoadSettingsAsync();
         }
     }
 }
