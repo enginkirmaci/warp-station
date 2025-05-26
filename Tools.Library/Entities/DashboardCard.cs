@@ -1,6 +1,6 @@
 namespace Tools.Library.Entities;
 
-public class DashboardCard
+public class NavigationItem
 {
     public string Title { get; set; }
     public string Subtitle { get; set; }
