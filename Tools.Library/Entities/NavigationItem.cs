@@ -7,4 +7,5 @@ public class NavigationItem
     public string Symbol { get; set; }
     public ICommand Command { get; set; }
     public object CommandParameter { get; set; }
+    public Type TargetPageType { get; set; }
 }
