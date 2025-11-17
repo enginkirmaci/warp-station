@@ -6,6 +6,7 @@ public class AppSettings
     public EFToolsPageSettings? EFToolsPage { get; set; }
     public NugetLocalSettings? NugetLocal { get; set; }
     public WorkspacesSettings? Workspaces { get; set; }
+    public ClipboardPasswordSettings? ClipboardPassword { get; set; } // Add this line
 }
 
 // Settings specific to EFToolsPageViewModel
@@ -33,4 +34,10 @@ public class WorkspacesSettings
     public string? PlatformFolderName { get; set; } = "platform";
     public string? VSCodeExecutable { get; set; } = "code";
     public string[]? ExcludedFolders { get; set; } // Added for excluding folders during scan
+}
+
+// Settings for ClipboardPassword
+public class ClipboardPasswordSettings
+{
+    public string? EncryptedPassword { get; set; }
 }
