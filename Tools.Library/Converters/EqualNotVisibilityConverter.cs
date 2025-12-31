@@ -1,31 +1,22 @@
-﻿using System.Globalization;
-using System.Windows;
-using System.Windows.Data;
-using Binding = System.Windows.Data.Binding;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class EqualNotVisibilityConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        if (value != null)
+        if (value != null && value.Equals(parameter))
         {
-            if (value.Equals(parameter))
-            {
-                return Visibility.Collapsed;
-            }
-            else
-            {
-                return Visibility.Visible;
-            }
+            return Visibility.Collapsed;
         }
 
-        return Visibility.Collapsed;
+        return Visibility.Visible;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        return Binding.DoNothing;
+        return null!;
     }
 }

@@ -1,30 +1,17 @@
-﻿using System.Globalization;
-using System.Windows.Data;
-using Binding = System.Windows.Data.Binding;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class EqualBooleanConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        if (value != null)
-        {
-            if (value.Equals(parameter))
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        return false;
+        return value.ToString() == parameter.ToString();
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        return Binding.DoNothing;
+        return (bool)value ? parameter : DependencyProperty.UnsetValue;
     }
 }

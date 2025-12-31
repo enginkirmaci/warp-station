@@ -1,31 +1,27 @@
-﻿using System.Globalization;
-using System.Windows.Data;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+﻿using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Tools.Library.Converters;
 
 public class StringToImageSourceConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        if (value is not string valueString)
+        if (value is not string path)
         {
-            return null;
+            return null!;
         }
-        try
+
+        if (string.IsNullOrEmpty(path))
         {
-            ImageSource image = BitmapFrame.Create(new Uri(valueString), BitmapCreateOptions.IgnoreImageCache, BitmapCacheOption.OnLoad);
-            return image;
+            return null!;
         }
-        catch
-        {
-            return null;
-        }
+
+        return new BitmapImage(new Uri(path, UriKind.RelativeOrAbsolute));
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        throw new NotImplementedException();
+        return null!;
     }
 }

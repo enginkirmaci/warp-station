@@ -1,0 +1,24 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Tools.Library -> H:\DevTools\Tools.Library\bin\x64\Debug\net9.0-windows10.0.19041.0\Tools.Library.dll
+H:\DevTools\Tools\ViewModels\Pages\WorkspacesViewModel.cs(97,46): warning CS8601: Possible null reference assignment. [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(14,18): warning CS0649: Field 'MainWindow._isUserClosedPane' is never assigned to, and will always have its default value false [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(15,18): warning CS0414: The field 'MainWindow._isPaneOpenedOrClosedFromCode' is assigned but its value is never used [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\ViewModels\Pages\WorkspacesViewModel.cs(97,46): warning CS8601: Possible null reference assignment. [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(14,18): warning CS0649: Field 'MainWindow._isUserClosedPane' is never assigned to, and will always have its default value false [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(15,18): warning CS0414: The field 'MainWindow._isPaneOpenedOrClosedFromCode' is assigned but its value is never used [H:\DevTools\Tools\Tools.csproj]
+H:\packages\NuGet\cache\microsoft.windowsappsdk\1.6.250108002\buildTransitive\MrtCore.PriGen.targets(914,5): error MSB4062: The "Microsoft.Build.Packaging.Pri.Tasks.ExpandPriContent" task could not be loaded from the assembly C:\Program Files\dotnet\sdk\10.0.101\\Microsoft\VisualStudio\v18.0\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll. Could not load file or assembly 'C:\Program Files\dotnet\sdk\10.0.101\Microsoft\VisualStudio\v18.0\AppxPackage\Microsoft.Build.Packaging.Pri.Tasks.dll'. The system cannot find the path specified. Confirm that the <UsingTask> declaration is correct, that the assembly and all its dependencies are available, and that the task contains a public class that implements Microsoft.Build.Framework.ITask. [H:\DevTools\Tools\Tools.csproj]
+
+Build FAILED.
+
+H:\DevTools\Tools\ViewModels\Pages\WorkspacesViewModel.cs(97,46): warning CS8601: Possible null reference assignment. [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(14,18): warning CS0649: Field 'MainWindow._isUserClosedPane' is never assigned to, and will always have its default value false [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(15,18): warning CS0414: The field 'MainWindow._isPaneOpenedOrClosedFromCode' is assigned but its value is never used [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\ViewModels\Pages\WorkspacesViewModel.cs(97,46): warning CS8601: Possible null reference assignment. [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(14,18): warning CS0649: Field 'MainWindow._isUserClosedPane' is never assigned to, and will always have its default value false [H:\DevTools\Tools\Tools.csproj]
+H:\DevTools\Tools\Views\Windows\MainWindow.xaml.cs(15,18): warning CS0414: The field 'MainWindow._isPaneOpenedOrClosedFromCode' is assigned but its value is never used [H:\DevTools\Tools\Tools.csproj]
+H:\packages\NuGet\cache\microsoft.windowsappsdk\1.6.250108002\buildTransitive\MrtCore.PriGen.targets(914,5): error MSB4062: The "Microsoft.Build.Packaging.Pri.Tasks.ExpandPriContent" task could not be loaded from the assembly C:\Program Files\dotnet\sdk\10.0.101\\Microsoft\VisualStudio\v18.0\AppxPackage\\Microsoft.Build.Packaging.Pri.Tasks.dll. Could not load file or assembly 'C:\Program Files\dotnet\sdk\10.0.101\Microsoft\VisualStudio\v18.0\AppxPackage\Microsoft.Build.Packaging.Pri.Tasks.dll'. The system cannot find the path specified. Confirm that the <UsingTask> declaration is correct, that the assembly and all its dependencies are available, and that the task contains a public class that implements Microsoft.Build.Framework.ITask. [H:\DevTools\Tools\Tools.csproj]
+    6 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:06.68

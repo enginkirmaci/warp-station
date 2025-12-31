@@ -1,17 +1,26 @@
-﻿using System.Globalization;
-using System.Windows.Data;
+﻿using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class UriConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        return !string.IsNullOrWhiteSpace(value as string) ? $"https://{value}" : string.Empty;
+        if (value is string s && Uri.TryCreate(s, UriKind.RelativeOrAbsolute, out Uri? uri))
+        {
+            return uri;
+        }
+
+        return null!;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        return null;
+        if (value is Uri u)
+        {
+            return u.OriginalString;
+        }
+
+        return null!;
     }
 }

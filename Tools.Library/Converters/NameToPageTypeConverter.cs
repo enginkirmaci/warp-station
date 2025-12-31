@@ -1,14 +1,26 @@
-﻿namespace Tools.Library.Converters;
+﻿using System;
+using System.Linq;
 
-public class NameToPageTypeConverter
+namespace Tools.Library.Converters;
+
+public static class NameToPageTypeConverter
 {
-    private static readonly Type[] PageTypes = Assembly.GetEntryAssembly().GetTypes()
-        .Where(t => t.Namespace?.StartsWith("Tools.Views.Pages") ?? false).ToArray();
+    private static readonly Type[] PageTypes;
 
-    public static Type? Convert(string pageName)
+    static NameToPageTypeConverter()
     {
-        pageName = pageName.Trim().ToLower() + "page";
+        PageTypes = AppDomain.CurrentDomain.GetAssemblies()
+            .SelectMany(a => a.GetTypes())
+            .Where(t => t.IsClass && !t.IsAbstract && t.Name.EndsWith("Page"))
+            .ToArray();
+    }
 
-        return PageTypes.FirstOrDefault(singlePageType => singlePageType.Name.ToLower() == pageName);
+    public static Type Convert(string pageName)
+    {
+        if (string.IsNullOrWhiteSpace(pageName))
+            return null!;
+
+        return PageTypes.FirstOrDefault(t => t.Name.Equals(pageName, StringComparison.OrdinalIgnoreCase) 
+                                          || t.Name.Equals(pageName + "Page", StringComparison.OrdinalIgnoreCase))!;
     }
 }

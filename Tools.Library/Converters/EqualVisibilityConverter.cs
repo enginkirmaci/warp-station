@@ -1,13 +1,11 @@
-﻿using System.Globalization;
-using System.Windows;
-using System.Windows.Data;
-using Binding = System.Windows.Data.Binding;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class EqualVisibilityConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
         if (value != null)
         {
@@ -24,8 +22,8 @@ public class EqualVisibilityConverter : IValueConverter
         return Visibility.Collapsed;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        return Binding.DoNothing;
+        return null!;
     }
 }

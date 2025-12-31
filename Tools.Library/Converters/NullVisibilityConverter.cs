@@ -1,28 +1,17 @@
-﻿using System.Collections;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class NullVisibilityConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        // Hide if null or (if collection) empty
-        if (value == null)
-            return Visibility.Collapsed;
-
-        if (value is ICollection collection && collection.Count == 0)
-            return Visibility.Collapsed;
-
-        if (parameter != null && (bool)parameter == true)
-        {
-            return value != null ? Visibility.Collapsed : Visibility.Visible;
-        }
-
-        return Visibility.Visible;
+        return value == null ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        throw new NotImplementedException();
+        return null!;
     }
 }

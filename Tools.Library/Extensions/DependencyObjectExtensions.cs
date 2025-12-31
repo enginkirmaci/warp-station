@@ -1,5 +1,5 @@
-﻿using System.Windows;
-using System.Windows.Media;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 
 namespace Tools.Library.Extensions;
 
@@ -12,9 +12,9 @@ public static class DependencyObjectExtensions
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(depObj); i++)
             {
                 var child = VisualTreeHelper.GetChild(depObj, i);
-                if (child != null && child is T)
+                if (child != null && child is T t)
                 {
-                    yield return (T)child;
+                    yield return t;
                 }
 
                 foreach (T childOfChild in FindChildren<T>(child))
@@ -40,10 +40,10 @@ public static class DependencyObjectExtensions
         }
     }
 
-    public static T FindChild<T>(this DependencyObject depObj, string childName) where T : DependencyObject
+    public static T? FindChild<T>(this DependencyObject depObj, string childName) where T : DependencyObject
     {
         var collection = FindChildren<T>(depObj);
-        T foundChild = null;
+        T? foundChild = null;
 
         foreach (var child in collection)
         {
@@ -59,7 +59,7 @@ public static class DependencyObjectExtensions
         return foundChild;
     }
 
-    public static T FindParent<T>(this DependencyObject child) where T : DependencyObject
+    public static T? FindParent<T>(this DependencyObject child) where T : DependencyObject
     {
         var parent = VisualTreeHelper.GetParent(child);
 

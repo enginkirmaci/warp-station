@@ -1,18 +1,27 @@
-﻿using System.Globalization;
-using System.Windows;
-using System.Windows.Data;
+﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Data;
 
 namespace Tools.Library.Converters;
 
 public class StringNullOrEmptyToVisibilityConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, string language)
     {
-        return string.IsNullOrWhiteSpace(value as string) ? Visibility.Collapsed : Visibility.Visible;
+        if (value == null)
+        {
+            return Visibility.Collapsed;
+        }
+
+        if (value is string s && string.IsNullOrEmpty(s))
+        {
+            return Visibility.Collapsed;
+        }
+
+        return Visibility.Visible;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
     {
-        return null;
+        return null!;
     }
 }

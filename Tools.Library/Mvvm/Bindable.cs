@@ -1,24 +1,9 @@
-﻿using System.ComponentModel;
-using System.Runtime.CompilerServices;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Tools.Library.Mvvm;
 
-public class Bindable : INotifyPropertyChanged
+public class Bindable : ObservableObject
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    protected virtual bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value)) return false;
-
-        storage = value;
-        OnPropertyChanged(propertyName);
-
-        return true;
-    }
-
-    public void OnPropertyChanged([CallerMemberName] string propertyName = "")
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    // Transition class: Inherits from ObservableObject
+    // In strict conversion, this might not be needed if all VMs inherit ObservableObject directly.
 }
