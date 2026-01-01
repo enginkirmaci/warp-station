@@ -1,27 +1,34 @@
-using Tools.Library.Models;
+using System.Windows.Input;
 
 namespace Tools.Library.Entities;
 
 /// <summary>
-/// Deprecated: Use Tools.Library.Models.NavigationItem instead.
-/// This class is kept for backward compatibility.
+/// Represents a navigation item in the application.
 /// </summary>
-[Obsolete("Use Tools.Library.Models.NavigationItem instead.")]
-public class NavigationItem : Tools.Library.Models.NavigationItem
+public class NavigationItem
 {
     /// <summary>
-    /// Deprecated: Use PageKey instead.
+    /// Gets or sets the title of the navigation item.
     /// </summary>
-    [Obsolete("Use PageKey instead.")]
-    public object? CommandParameter
-    {
-        get => PageKey;
-        set => PageKey = value?.ToString() ?? string.Empty;
-    }
+    public string Title { get; set; }
 
     /// <summary>
-    /// Deprecated: No longer used.
+    /// Gets or sets the subtitle or description.
     /// </summary>
-    [Obsolete("No longer used.")]
-    public Type? TargetPageType { get; set; }
+    public string Subtitle { get; set; }
+
+    /// <summary>
+    /// Gets or sets the icon symbol (glyph).
+    /// </summary>
+    public string Symbol { get; set; }
+
+    /// <summary>
+    /// Gets or sets the unique key identifying the target page.
+    /// </summary>
+    public string PageKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the command to execute when the item is clicked.
+    /// </summary>
+    public ICommand Command { get; set; }
 }

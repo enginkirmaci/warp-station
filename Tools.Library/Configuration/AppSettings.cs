@@ -99,6 +99,11 @@ public class WorkspacesSettings
     public string? VSCodeExecutable { get; set; } = "code";
 
     /// <summary>
+    /// Gets or sets the terminal executable path or command.
+    /// </summary>
+    public string? TerminalExecutable { get; set; } = "wt";
+
+    /// <summary>
     /// Gets or sets the folders to exclude during scanning.
     /// </summary>
     public string[]? ExcludedFolders { get; set; }

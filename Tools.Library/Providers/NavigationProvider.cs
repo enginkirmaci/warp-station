@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml.Controls;
 using System.Windows.Input;
-using Tools.Library.Models;
+using Tools.Library.Entities;
 
 namespace Tools.Library.Providers;
 
@@ -22,42 +22,42 @@ public static class NavigationProvider
                 "Workspaces",
                 "Manage your workspaces",
                 "\uE8B7", // AppFolder24
-                "Workspaces",
+                "WorkspacesPage",
                 cardClickCommand
             ),
             CreateNavigationItem(
                 "Nuget Local Copy",
                 "copy new nuget packages to destination",
                 "\uE8DE", // BoxMultipleArrowRight20
-                "NugetLocal",
+                "NugetLocalPage",
                 cardClickCommand
             ),
             CreateNavigationItem(
                 "Formatters",
                 string.Empty,
                 "\uE8D2", // TextNumberFormat24
-                "Formatters",
+                "FormattersPage",
                 cardClickCommand
             ),
             CreateNavigationItem(
                 "Clipboard Password",
                 "Generate and copy passwords",
                 "\uE77F", // ClipboardPaste24
-                "ClipboardPassword",
+                "ClipboardPasswordPage",
                 cardClickCommand
             ),
             CreateNavigationItem(
                 "EF Tools",
                 "Entity Framework tools and utilities",
                 "\uEE94", // Database24
-                "EFTools",
+                "EFToolsPage",
                 cardClickCommand
             ),
             CreateNavigationItem(
                 "Code Execute",
                 string.Empty,
                 "\uE943", // Code24
-                "CodeExecute",
+                "CodeExecutePage",
                 cardClickCommand
             )
         };
@@ -67,15 +67,15 @@ public static class NavigationProvider
     /// Gets navigation view items for the navigation menu.
     /// </summary>
     /// <returns>Collection of navigation view items.</returns>
-    public static IReadOnlyCollection<NavigationViewItem> GetNavigationMenuItems()
+    public static IReadOnlyCollection<NavigationViewItemBase> GetNavigationMenuItems()
     {
-        var items = new List<NavigationViewItem>
+        var items = new List<NavigationViewItemBase>
         {
             new NavigationViewItem
             {
                 Content = "Dashboard",
                 Icon = new FontIcon { Glyph = "\uE80F" }, // Home24
-                Tag = "Dashboard"
+                Tag = "DashboardPage"
             }
         };
 
@@ -87,6 +87,17 @@ public static class NavigationProvider
                 Icon = new FontIcon { Glyph = item.Symbol },
                 Tag = item.PageKey
             });
+
+            if (item.PageKey == "WorkspacesPage")
+            {
+                /*		<NavigationViewItemSeparator />
+				<NavigationViewItemHeader Content="Tools" />*/
+                items.Add(new NavigationViewItemSeparator());
+                items.Add(new NavigationViewItemHeader
+                {
+                    Content = "Tools"
+                });
+            }
         }
 
         return items;
