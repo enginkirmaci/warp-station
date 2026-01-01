@@ -1,43 +1,44 @@
+using Tools.Library.Configuration;
+
 namespace Tools.Library.Entities;
 
-// Root object mirroring the settings.json structure
-public class AppSettings
+/// <summary>
+/// Deprecated: Use Tools.Library.Configuration types instead.
+/// These classes are kept for backward compatibility.
+/// </summary>
+[Obsolete("Use Tools.Library.Configuration.AppSettings instead.")]
+public class AppSettings : Tools.Library.Configuration.AppSettings
 {
-    public EFToolsPageSettings? EFToolsPage { get; set; }
-    public NugetLocalSettings? NugetLocal { get; set; }
-    public WorkspacesSettings? Workspaces { get; set; }
-    public ClipboardPasswordSettings? ClipboardPassword { get; set; } // Add this line
 }
 
-// Settings specific to EFToolsPageViewModel
-public class EFToolsPageSettings
+/// <summary>
+/// Deprecated: Use Tools.Library.Configuration.EFToolsPageSettings instead.
+/// </summary>
+[Obsolete("Use Tools.Library.Configuration.EFToolsPageSettings instead.")]
+public class EFToolsPageSettings : Tools.Library.Configuration.EFToolsPageSettings
 {
-    public string? RepositoryTemplate { get; set; }
 }
 
-// Settings specific to NugetLocalViewModel
-public class NugetLocalSettings
+/// <summary>
+/// Deprecated: Use Tools.Library.Configuration.NugetLocalSettings instead.
+/// </summary>
+[Obsolete("Use Tools.Library.Configuration.NugetLocalSettings instead.")]
+public class NugetLocalSettings : Tools.Library.Configuration.NugetLocalSettings
 {
-    public string? WatchFolder { get; set; }
-    public string? CopyFolder { get; set; }
-    public string? NugetPackageFilter { get; set; } = "*.nupkg";
-    public int FileCopyDelayMs { get; set; } = 2000;
-    public int CountResetIntervalSeconds { get; set; } = 60;
 }
 
-// Settings specific to WorkspacesViewModel
-public class WorkspacesSettings
+/// <summary>
+/// Deprecated: Use Tools.Library.Configuration.WorkspacesSettings instead.
+/// </summary>
+[Obsolete("Use Tools.Library.Configuration.WorkspacesSettings instead.")]
+public class WorkspacesSettings : Tools.Library.Configuration.WorkspacesSettings
 {
-    public string[]? WorkspaceScanFolders { get; set; }
-    public string? GitFolderPattern { get; set; } = "*.git";
-    public string? SolutionFilePattern { get; set; } = "*.sln";
-    public string? PlatformFolderName { get; set; } = "platform";
-    public string? VSCodeExecutable { get; set; } = "code";
-    public string[]? ExcludedFolders { get; set; } // Added for excluding folders during scan
 }
 
-// Settings for ClipboardPassword
-public class ClipboardPasswordSettings
+/// <summary>
+/// Deprecated: Use Tools.Library.Configuration.ClipboardPasswordSettings instead.
+/// </summary>
+[Obsolete("Use Tools.Library.Configuration.ClipboardPasswordSettings instead.")]
+public class ClipboardPasswordSettings : Tools.Library.Configuration.ClipboardPasswordSettings
 {
-    public string? EncryptedPassword { get; set; }
 }

@@ -1,17 +1,9 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
-using Tools.Library.Services;
+using Tools.Library.Services.Abstractions;
 using Windows.ApplicationModel.DataTransfer;
-using System.Threading.Tasks;
 
 namespace Tools.Services;
-
-public interface IClipboardPasswordService
-{
-    void RegisterHotKeys(nint hwnd);
-    void UnregisterHotKeys();
-    Task HandleHotkeyAsync();
-}
 
 public class ClipboardPasswordService : IClipboardPasswordService
 {
@@ -35,13 +27,19 @@ public class ClipboardPasswordService : IClipboardPasswordService
         _settingsService = settingsService;
     }
 
+    public async Task InitializeAsync()
+    {
+        // Load settings if needed
+        await Task.CompletedTask;
+    }
+
     public void RegisterHotKeys(nint hwnd)
     {
         _hwnd = hwnd;
-        
+
         // Register Ctrl+Shift+V
         _isRegistered = RegisterHotKey(hwnd, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT, VK_V);
-        
+
         if (!_isRegistered)
         {
             Debug.WriteLine("Failed to register global hotkey Ctrl+Shift+V");

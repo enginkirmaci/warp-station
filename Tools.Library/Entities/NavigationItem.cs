@@ -1,11 +1,27 @@
+using Tools.Library.Models;
+
 namespace Tools.Library.Entities;
 
-public class NavigationItem
+/// <summary>
+/// Deprecated: Use Tools.Library.Models.NavigationItem instead.
+/// This class is kept for backward compatibility.
+/// </summary>
+[Obsolete("Use Tools.Library.Models.NavigationItem instead.")]
+public class NavigationItem : Tools.Library.Models.NavigationItem
 {
-    public string Title { get; set; }
-    public string Subtitle { get; set; }
-    public string Symbol { get; set; }
-    public ICommand Command { get; set; }
-    public object CommandParameter { get; set; }
-    public Type TargetPageType { get; set; }
+    /// <summary>
+    /// Deprecated: Use PageKey instead.
+    /// </summary>
+    [Obsolete("Use PageKey instead.")]
+    public object? CommandParameter
+    {
+        get => PageKey;
+        set => PageKey = value?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Deprecated: No longer used.
+    /// </summary>
+    [Obsolete("No longer used.")]
+    public Type? TargetPageType { get; set; }
 }

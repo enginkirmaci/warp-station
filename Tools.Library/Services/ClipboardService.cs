@@ -1,14 +1,14 @@
+using Tools.Library.Services.Abstractions;
 using Windows.ApplicationModel.DataTransfer;
 
-namespace Tools.Services;
+namespace Tools.Library.Services;
 
-public interface IClipboardService
-{
-    void CopyText(string text);
-}
-
+/// <summary>
+/// Implementation of clipboard service for copying text.
+/// </summary>
 public class ClipboardService : IClipboardService
 {
+    /// <inheritdoc/>
     public void CopyText(string text)
     {
         var dataPackage = new DataPackage();
