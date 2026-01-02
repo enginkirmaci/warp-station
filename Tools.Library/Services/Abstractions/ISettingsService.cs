@@ -18,4 +18,10 @@ public interface ISettingsService
     /// </summary>
     /// <returns>The application settings.</returns>
     Task<AppSettings> GetSettingsAsync();
+
+    /// <summary>
+    /// Saves settings to storage asynchronously.
+    /// </summary>
+    /// <param name="settings">The settings to save.</param>
+    Task SaveSettingsAsync(AppSettings settings);
 }

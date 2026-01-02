@@ -72,4 +72,27 @@ public class SettingsService : ISettingsService
         }
         return await LoadSettingsAsync();
     }
+
+    public async Task SaveSettingsAsync(AppSettings settings)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            await File.WriteAllTextAsync(_settingsFilePath, json);
+
+            lock (_lock)
+            {
+                _cachedSettings = settings;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error saving settings: {ex.Message}");
+            throw;
+        }
+    }
 }
