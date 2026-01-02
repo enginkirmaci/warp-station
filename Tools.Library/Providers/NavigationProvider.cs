@@ -79,6 +79,17 @@ public static class NavigationProvider
             }
         };
 
+        //if (item.PageKey == "WorkspacesPage")
+        {
+            /*		<NavigationViewItemSeparator />
+			<NavigationViewItemHeader Content="Tools" />*/
+            items.Add(new NavigationViewItemSeparator());
+            items.Add(new NavigationViewItemHeader
+            {
+                Content = "Tools"
+            });
+        }
+
         foreach (var item in GetDashboardItems(null))
         {
             items.Add(new NavigationViewItem
@@ -87,17 +98,6 @@ public static class NavigationProvider
                 Icon = new FontIcon { Glyph = item.Symbol },
                 Tag = item.PageKey
             });
-
-            if (item.PageKey == "WorkspacesPage")
-            {
-                /*		<NavigationViewItemSeparator />
-				<NavigationViewItemHeader Content="Tools" />*/
-                items.Add(new NavigationViewItemSeparator());
-                items.Add(new NavigationViewItemHeader
-                {
-                    Content = "Tools"
-                });
-            }
         }
 
         return items;
