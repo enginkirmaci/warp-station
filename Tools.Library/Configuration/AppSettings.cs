@@ -24,6 +24,11 @@ public class AppSettings
     /// Gets or sets the Clipboard Password settings.
     /// </summary>
     public ClipboardPasswordSettings? ClipboardPassword { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Focus Timer settings.
+    /// </summary>
+    public FocusTimerSettings? FocusTimer { get; set; }
 }
 
 /// <summary>
@@ -123,4 +128,88 @@ public class ClipboardPasswordSettings
     /// Gets or sets the encrypted password.
     /// </summary>
     public string? EncryptedPassword { get; set; }
+}
+
+/// <summary>
+/// Settings for Focus Timer functionality.
+/// </summary>
+public class FocusTimerSettings
+{
+    /// <summary>
+    /// Gets or sets the work start time (e.g., "09:00").
+    /// </summary>
+    public string WorkStartTime { get; set; } = "09:00";
+
+    /// <summary>
+    /// Gets or sets the work end time (e.g., "18:00").
+    /// </summary>
+    public string WorkEndTime { get; set; } = "18:00";
+
+    /// <summary>
+    /// Gets or sets the lunch start time (e.g., "13:00").
+    /// </summary>
+    public string LunchStartTime { get; set; } = "13:00";
+
+    /// <summary>
+    /// Gets or sets the lunch duration in minutes.
+    /// </summary>
+    public int LunchDurationMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Gets or sets the total daily break time in minutes.
+    /// </summary>
+    public int TotalDailyBreakMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Gets or sets the desired number of breaks per day.
+    /// </summary>
+    public int DesiredBreakCount { get; set; } = 4;
+
+    /// <summary>
+    /// Gets or sets the timer visibility mode.
+    /// 0 = Always visible, 1 = Only on notification.
+    /// </summary>
+    public int TimerVisibilityMode { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the window corner position.
+    /// 0 = BottomRight, 1 = BottomLeft, 2 = TopRight, 3 = TopLeft.
+    /// </summary>
+    public int WindowCornerPosition { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets whether to play a sound on notification.
+    /// </summary>
+    public bool PlaySoundOnNotification { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the persisted state for daily tracking.
+    /// </summary>
+    public FocusTimerPersistedState? PersistedState { get; set; }
+}
+
+/// <summary>
+/// Persisted state for Focus Timer that resets daily.
+/// </summary>
+public class FocusTimerPersistedState
+{
+    /// <summary>
+    /// Gets or sets the date this state was last updated.
+    /// </summary>
+    public string? LastResetDate { get; set; }
+
+    /// <summary>
+    /// Gets or sets the remaining break pool in minutes.
+    /// </summary>
+    public double CurrentBreakPoolMinutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the remaining break count for the day.
+    /// </summary>
+    public int RemainingBreakCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the total break time taken today in minutes.
+    /// </summary>
+    public double BreakTimeTakenMinutes { get; set; }
 }

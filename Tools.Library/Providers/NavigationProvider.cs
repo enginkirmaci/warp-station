@@ -59,6 +59,13 @@ public static class NavigationProvider
                 "\uE943", // Code24
                 "CodeExecutePage",
                 cardClickCommand
+            ),
+            CreateNavigationItem(
+                "Focus Timer",
+                "Intelligent break scheduling",
+                "\uE916", // Timer24
+                "FocusTimerSettingsPage",
+                cardClickCommand
             )
         };
     }
