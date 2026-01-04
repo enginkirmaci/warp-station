@@ -26,7 +26,7 @@ public static class NavigationProvider
                 cardClickCommand
             ),
             CreateNavigationItem(
-                "Nuget Local Copy",
+                "Nuget Package Manager",
                 "copy new nuget packages to destination",
                 "\uE8DE", // BoxMultipleArrowRight20
                 "NugetLocalPage",
