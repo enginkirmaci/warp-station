@@ -66,6 +66,11 @@ public class NugetLocalSettings
     /// Gets or sets the interval in seconds for resetting the counter.
     /// </summary>
     public int CountResetIntervalSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Gets or sets whether to clear NuGet cache after copying packages.
+    /// </summary>
+    public bool ClearCacheOnCopy { get; set; } = true;
 }
 
 /// <summary>
