@@ -1,7 +1,7 @@
 namespace Tools.Library.Entities;
 
 /// <summary>
-/// Represents the current state of the Focus Timer.
+/// Represents the current status of the Focus Timer.
 /// </summary>
 public enum FocusTimerStatus
 {
@@ -55,37 +55,6 @@ public enum WindowCornerPosition
 }
 
 /// <summary>
-/// Represents a scheduled break checkpoint.
-/// </summary>
-public class BreakCheckpoint
-{
-    /// <summary>
-    /// Gets or sets the scheduled time for this break.
-    /// </summary>
-    public DateTime ScheduledTime { get; set; }
-
-    /// <summary>
-    /// Gets or sets the calculated duration for this break in minutes.
-    /// </summary>
-    public double DurationMinutes { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether this break is in Zone A (morning) or Zone B (afternoon).
-    /// </summary>
-    public bool IsMorningZone { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether this checkpoint has been completed.
-    /// </summary>
-    public bool IsCompleted { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether this checkpoint was skipped.
-    /// </summary>
-    public bool IsSkipped { get; set; }
-}
-
-/// <summary>
 /// Runtime state for the Focus Timer service.
 /// </summary>
 public class FocusTimerState
@@ -126,11 +95,6 @@ public class FocusTimerState
     public TimeSpan? TimeUntilNextBreak { get; set; }
 
     /// <summary>
-    /// Gets or sets the scheduled break checkpoints for the day.
-    /// </summary>
-    public List<BreakCheckpoint> ScheduledBreaks { get; set; } = [];
-
-    /// <summary>
     /// Gets or sets the break that was snoozed (if any).
     /// </summary>
     public DateTime? SnoozedUntil { get; set; }
@@ -146,60 +110,13 @@ public class FocusTimerState
     public DateTime? CurrentBreakStartTime { get; set; }
 
     /// <summary>
-    /// Gets the break bank percentage (0-100) for fuel gauge display.
+    /// Gets or sets the end time of the last completed break.
+    /// Used as the starting point for the next work interval.
     /// </summary>
-    public double BreakBankPercentage => TotalDailyBreakMinutes > 0
-        ? Math.Min(100, (CurrentBreakPoolMinutes / TotalDailyBreakMinutes) * 100)
-        : 0;
+    public DateTime? LastBreakEndTime { get; set; }
 
     /// <summary>
     /// Gets or sets the total daily break minutes for percentage calculation.
     /// </summary>
     public double TotalDailyBreakMinutes { get; set; }
-
-    /// <summary>
-    /// Gets a message describing the current state.
-    /// </summary>
-    public string StatusMessage => Status switch
-    {
-        FocusTimerStatus.Stopped => "Timer stopped",
-        FocusTimerStatus.Working => TimeUntilNextBreak.HasValue
-            ? $"Next break in {FormatTimeSpan(TimeUntilNextBreak.Value)}"
-            : "Working...",
-        FocusTimerStatus.NotificationTriggered => "Break time!",
-        FocusTimerStatus.BreakActive => BreakTimeRemaining.HasValue
-            ? $"Break ends in {FormatTimeSpan(BreakTimeRemaining.Value)}"
-            : "On break",
-        FocusTimerStatus.LunchMode => "Lunch break",
-        FocusTimerStatus.DayEnded => "Work day ended",
-        _ => "Unknown"
-    };
-
-    /// <summary>
-    /// Gets the display text for the countdown timer.
-    /// </summary>
-    public string CountdownDisplay => Status switch
-    {
-        FocusTimerStatus.Working => TimeUntilNextBreak.HasValue
-            ? FormatTimeSpan(TimeUntilNextBreak.Value)
-            : "--:--",
-        FocusTimerStatus.BreakActive => BreakTimeRemaining.HasValue
-            ? FormatTimeSpan(BreakTimeRemaining.Value)
-            : "--:--",
-        FocusTimerStatus.NotificationTriggered => FormatMinutes(CurrentBreakDurationMinutes),
-        _ => "--:--"
-    };
-
-    private static string FormatTimeSpan(TimeSpan ts)
-    {
-        if (ts.TotalHours >= 1)
-            return $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}";
-        return $"{ts.Minutes:D2}:{ts.Seconds:D2}";
-    }
-
-    private static string FormatMinutes(double minutes)
-    {
-        var ts = TimeSpan.FromMinutes(minutes);
-        return FormatTimeSpan(ts);
-    }
 }

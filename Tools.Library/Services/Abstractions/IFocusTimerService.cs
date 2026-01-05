@@ -91,11 +91,6 @@ public interface IFocusTimerService
     void TakeBreakNow();
 
     /// <summary>
-    /// User skips the break - time returns to pool.
-    /// </summary>
-    void SkipBreak();
-
-    /// <summary>
     /// User snoozes the break notification.
     /// </summary>
     /// <param name="minutes">Number of minutes to snooze.</param>

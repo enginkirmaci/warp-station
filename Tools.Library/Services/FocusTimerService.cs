@@ -140,44 +140,6 @@ public class FocusTimerService : IFocusTimerService
         BreakStarted?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SkipBreak()
-    {
-        System.Diagnostics.Debug.WriteLine($"[FocusTimerService] SkipBreak called. CurrentStatus={_state.Status}");
-        if (_state.Status != FocusTimerStatus.NotificationTriggered)
-        {
-            System.Diagnostics.Debug.WriteLine("[FocusTimerService] SkipBreak - status not NotificationTriggered, ignoring");
-            return;
-        }
-
-        // Time returns to pool - don't deduct from CurrentBreakPoolMinutes
-        // But decrement RemainingBreakCount (opportunity is gone)
-        System.Diagnostics.Debug.WriteLine($"[FocusTimerService] SkipBreak - keeping {_state.CurrentBreakDurationMinutes}min in pool, decrementing break count from {_state.RemainingBreakCount}");
-        _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
-
-        // Mark current checkpoint as skipped
-        var currentCheckpoint = _state.ScheduledBreaks.FirstOrDefault(b => !b.IsCompleted && !b.IsSkipped);
-        if (currentCheckpoint != null)
-        {
-            currentCheckpoint.IsSkipped = true;
-        }
-
-        // Recalculate - next breaks will be longer since pool is same but count is lower
-        RecalculateSchedule();
-        UpdateStatus(FocusTimerStatus.Working);
-
-        // Check for overtime mode
-        CheckOvertimeMode();
-
-        // Update window visibility
-        var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
-        if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
-        {
-            WindowVisibilityRequested?.Invoke(this, false);
-        }
-
-        _ = PersistStateAsync();
-    }
-
     public void SnoozeBreak(int minutes = 5)
     {
         if (_state.Status != FocusTimerStatus.NotificationTriggered) return;
@@ -199,25 +161,13 @@ public class FocusTimerService : IFocusTimerService
 
         var breakTaken = DateTime.Now - _state.CurrentBreakStartTime;
         var minutesTaken = breakTaken?.TotalMinutes ?? 0;
-        var unusedMinutes = _state.CurrentBreakDurationMinutes - minutesTaken;
-
-        // Add unused time back to pool
-        if (unusedMinutes > 0)
-        {
-            _state.CurrentBreakPoolMinutes += unusedMinutes;
-        }
 
         // Deduct actual time taken from pool
         _state.CurrentBreakPoolMinutes = Math.Max(0, _state.CurrentBreakPoolMinutes - minutesTaken);
         _state.BreakTimeTakenMinutes += minutesTaken;
         _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
+        _state.LastBreakEndTime = DateTime.Now;
 
-        // Mark checkpoint as completed
-        var currentCheckpoint = _state.ScheduledBreaks.FirstOrDefault(b => !b.IsCompleted && !b.IsSkipped);
-        if (currentCheckpoint != null)
-        {
-            currentCheckpoint.IsCompleted = true;
-        }
 
         _state.CurrentBreakStartTime = null;
         _state.BreakTimeRemaining = null;
@@ -244,27 +194,21 @@ public class FocusTimerService : IFocusTimerService
         var lunchStart = ParseTime(_settings.LunchStartTime);
         var lunchEnd = lunchStart.AddMinutes(_settings.LunchDurationMinutes);
 
-        // Handle late start - if current time is after work start, use now
-        var effectiveStart = now.TimeOfDay > workStart.TimeOfDay ? now : workStart;
+        // If we haven't taken any breaks today, the reference point is the work start time (or now if we started late)
+        if (!_state.LastBreakEndTime.HasValue)
+        {
+            _state.LastBreakEndTime = now.TimeOfDay > workStart.TimeOfDay ? now : workStart;
+        }
 
-        // Calculate available work zones
-        var (zoneADuration, zoneBDuration) = CalculateZoneDurations(effectiveStart, workEnd, lunchStart, lunchEnd);
-        var totalWorkMinutes = zoneADuration.TotalMinutes + zoneBDuration.TotalMinutes;
-
-        if (totalWorkMinutes <= 0 || _state.RemainingBreakCount <= 0)
+        if (_state.RemainingBreakCount <= 0)
         {
             _state.NextBreakTime = null;
+            _state.TimeUntilNextBreak = null;
             return;
         }
 
-        // Calculate next break duration
-        _state.CurrentBreakDurationMinutes = _state.RemainingBreakCount > 0
-            ? _state.CurrentBreakPoolMinutes / _state.RemainingBreakCount
-            : _state.CurrentBreakPoolMinutes;
-
-        // Distribute breaks across zones proportionally
-        var zoneABreaks = (int)Math.Round(_state.RemainingBreakCount * (zoneADuration.TotalMinutes / totalWorkMinutes));
-        var zoneBBreaks = _state.RemainingBreakCount - zoneABreaks;
+        // Calculate next break duration (simple average of remaining pool)
+        _state.CurrentBreakDurationMinutes = _state.CurrentBreakPoolMinutes / _state.RemainingBreakCount;
 
         // Handle snooze
         if (_state.SnoozedUntil.HasValue && _state.SnoozedUntil > now)
@@ -276,28 +220,31 @@ public class FocusTimerService : IFocusTimerService
 
         _state.SnoozedUntil = null;
 
-        // Calculate next break time based on remaining work time
-        var remainingWorkMinutes = CalculateRemainingWorkMinutes(now, workEnd, lunchStart, lunchEnd);
-        if (remainingWorkMinutes <= 0)
+        // Fixed-interval logic:
+        // Remaining time = WorkEnd - LastBreakEndTime - Lunch (if applicable)
+        double totalRemainingWorkMinutes = CalculateRemainingWorkMinutes(_state.LastBreakEndTime.Value, workEnd, lunchStart, lunchEnd);
+        
+        if (totalRemainingWorkMinutes <= 0)
         {
             _state.NextBreakTime = null;
+            _state.TimeUntilNextBreak = null;
             return;
         }
 
-        var breakInterval = remainingWorkMinutes / (_state.RemainingBreakCount + 1);
-        var nextBreakMinutes = Math.Max(5, breakInterval); // Minimum 5 minutes between breaks
+        // Interval is total remaining work time divided by remaining "working blocks" (remaining breaks + 1)
+        double intervalMinutes = totalRemainingWorkMinutes / (_state.RemainingBreakCount + 1);
+        
+        // Next break is LastBreakEndTime + interval
+        var nextBreakTime = _state.LastBreakEndTime.Value.AddMinutes(intervalMinutes);
 
-        // Calculate actual next break time, respecting lunch
-        var proposedBreakTime = now.AddMinutes(nextBreakMinutes);
-
-        // If proposed time falls within lunch, push to after lunch
-        if (IsInLunchWindow(proposedBreakTime))
+        // If next break falls during lunch, push to after lunch
+        if (IsInLunchWindow(nextBreakTime))
         {
-            proposedBreakTime = DateTime.Today.Add(lunchEnd.TimeOfDay);
+            nextBreakTime = DateTime.Today.Add(lunchEnd.TimeOfDay).AddMinutes(5); // 5 min buffer after lunch
         }
 
-        _state.NextBreakTime = proposedBreakTime;
-        _state.TimeUntilNextBreak = proposedBreakTime - now;
+        _state.NextBreakTime = nextBreakTime;
+        _state.TimeUntilNextBreak = nextBreakTime - now;
     }
 
     public async Task UpdateSettingsAsync(FocusTimerSettings settings)
@@ -342,10 +289,6 @@ public class FocusTimerService : IFocusTimerService
         if (!_isRunning) return;
 
         var now = DateTime.Now;
-        if (now.Second % 10 == 0)
-        {
-            System.Diagnostics.Debug.WriteLine($"[FocusTimerService] Timer tick at {now:HH:mm:ss}, Status={_state.Status}");
-        }
         var workEnd = ParseTime(_settings.WorkEndTime);
 
         // Check if work day ended
@@ -383,7 +326,7 @@ public class FocusTimerService : IFocusTimerService
                 break;
         }
 
-        // Notify state change for UI updates (only if status didn't change in handlers)
+        // Notify state change for UI updates
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, _state.Status));
     }
 
@@ -417,7 +360,7 @@ public class FocusTimerService : IFocusTimerService
         }
         else
         {
-            // No more breaks scheduled - recalculate
+            // No more breaks scheduled or need recalculation
             RecalculateSchedule();
         }
     }
@@ -458,17 +401,11 @@ public class FocusTimerService : IFocusTimerService
 
     private void CompleteBreak()
     {
-        _state.CurrentBreakPoolMinutes = Math.Max(0,
-            _state.CurrentBreakPoolMinutes - _state.CurrentBreakDurationMinutes);
+        var now = DateTime.Now;
+        _state.CurrentBreakPoolMinutes = Math.Max(0, _state.CurrentBreakPoolMinutes - _state.CurrentBreakDurationMinutes);
         _state.BreakTimeTakenMinutes += _state.CurrentBreakDurationMinutes;
         _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
-
-        // Mark checkpoint as completed
-        var currentCheckpoint = _state.ScheduledBreaks.FirstOrDefault(b => !b.IsCompleted && !b.IsSkipped);
-        if (currentCheckpoint != null)
-        {
-            currentCheckpoint.IsCompleted = true;
-        }
+        _state.LastBreakEndTime = now;
 
         _state.CurrentBreakStartTime = null;
         _state.BreakTimeRemaining = null;
@@ -489,24 +426,10 @@ public class FocusTimerService : IFocusTimerService
 
     private void HandleDayEnd()
     {
-        UpdateStatus(FocusTimerStatus.DayEnded);
-
-        // Check for impossible schedule notification
-        if (_state.CurrentBreakPoolMinutes > 0)
+        if (_state.Status != FocusTimerStatus.DayEnded)
         {
-            // User has unused break time
-            Debug.WriteLine($"Day ended with {_state.CurrentBreakPoolMinutes} minutes of unused break time.");
-        }
-
-        WindowVisibilityRequested?.Invoke(this, true);
-    }
-
-    private void CheckOvertimeMode()
-    {
-        if (_state.RemainingBreakCount <= 0 && _state.CurrentBreakPoolMinutes > 0)
-        {
-            // Overtime mode - suggest one final break
-            Debug.WriteLine($"Overtime mode: {_state.CurrentBreakPoolMinutes} minutes in bank, no more scheduled breaks.");
+            UpdateStatus(FocusTimerStatus.DayEnded);
+            WindowVisibilityRequested?.Invoke(this, true);
         }
     }
 
@@ -523,7 +446,8 @@ public class FocusTimerService : IFocusTimerService
                 CurrentBreakPoolMinutes = _settings.TotalDailyBreakMinutes,
                 RemainingBreakCount = _settings.DesiredBreakCount,
                 TotalDailyBreakMinutes = _settings.TotalDailyBreakMinutes,
-                BreakTimeTakenMinutes = 0
+                BreakTimeTakenMinutes = 0,
+                LastBreakEndTime = null
             };
         }
         else
@@ -534,7 +458,8 @@ public class FocusTimerService : IFocusTimerService
                 CurrentBreakPoolMinutes = persistedState.CurrentBreakPoolMinutes,
                 RemainingBreakCount = persistedState.RemainingBreakCount,
                 TotalDailyBreakMinutes = _settings.TotalDailyBreakMinutes,
-                BreakTimeTakenMinutes = persistedState.BreakTimeTakenMinutes
+                BreakTimeTakenMinutes = persistedState.BreakTimeTakenMinutes,
+                LastBreakEndTime = DateTime.Now // Approximate for continuation
             };
         }
     }
@@ -582,48 +507,21 @@ public class FocusTimerService : IFocusTimerService
         return time.TimeOfDay >= lunchStart.TimeOfDay && time.TimeOfDay < lunchEnd.TimeOfDay;
     }
 
-    private (TimeSpan zoneA, TimeSpan zoneB) CalculateZoneDurations(DateTime start, DateTime workEnd, DateTime lunchStart, DateTime lunchEnd)
-    {
-        var now = DateTime.Now;
-        TimeSpan zoneA, zoneB;
-
-        if (now.TimeOfDay < lunchStart.TimeOfDay)
-        {
-            // Before lunch - Zone A is from now to lunch, Zone B is after lunch
-            zoneA = lunchStart.TimeOfDay - now.TimeOfDay;
-            zoneB = workEnd.TimeOfDay - lunchEnd.TimeOfDay;
-        }
-        else if (now.TimeOfDay >= lunchEnd.TimeOfDay)
-        {
-            // After lunch - Zone A is empty, Zone B is from now to end
-            zoneA = TimeSpan.Zero;
-            zoneB = workEnd.TimeOfDay - now.TimeOfDay;
-        }
-        else
-        {
-            // During lunch
-            zoneA = TimeSpan.Zero;
-            zoneB = workEnd.TimeOfDay - lunchEnd.TimeOfDay;
-        }
-
-        return (zoneA, zoneB);
-    }
-
-    private double CalculateRemainingWorkMinutes(DateTime now, DateTime workEnd, DateTime lunchStart, DateTime lunchEnd)
+    private double CalculateRemainingWorkMinutes(DateTime fromTime, DateTime workEnd, DateTime lunchStart, DateTime lunchEnd)
     {
         double remaining = 0;
 
-        if (now.TimeOfDay < lunchStart.TimeOfDay)
+        if (fromTime.TimeOfDay < lunchStart.TimeOfDay)
         {
             // Add time until lunch
-            remaining += (lunchStart.TimeOfDay - now.TimeOfDay).TotalMinutes;
+            remaining += (lunchStart.TimeOfDay - fromTime.TimeOfDay).TotalMinutes;
             // Add time after lunch until work end
             remaining += (workEnd.TimeOfDay - lunchEnd.TimeOfDay).TotalMinutes;
         }
-        else if (now.TimeOfDay >= lunchEnd.TimeOfDay)
+        else if (fromTime.TimeOfDay >= lunchEnd.TimeOfDay)
         {
             // Only time after lunch
-            remaining = (workEnd.TimeOfDay - now.TimeOfDay).TotalMinutes;
+            remaining = (workEnd.TimeOfDay - fromTime.TimeOfDay).TotalMinutes;
         }
         else
         {
