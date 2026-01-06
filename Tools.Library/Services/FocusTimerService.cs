@@ -177,11 +177,11 @@ public class FocusTimerService : IFocusTimerService
         BreakEnded?.Invoke(this, EventArgs.Empty);
 
         // Update window visibility
-        var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
-        if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
-        {
-            WindowVisibilityRequested?.Invoke(this, false);
-        }
+        //var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
+        //if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
+        //{
+        //    WindowVisibilityRequested?.Invoke(this, false);
+        //}
 
         _ = PersistStateAsync();
     }
