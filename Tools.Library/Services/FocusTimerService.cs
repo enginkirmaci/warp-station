@@ -1,9 +1,7 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using Microsoft.UI.Dispatching;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.States;
 
 namespace Tools.Library.Services;
 
@@ -23,11 +21,12 @@ public class FocusTimerService : IFocusTimerService
     private readonly ISettingsService _settingsService;
     private readonly IFocusTimerScheduler _scheduler;
     private readonly IFocusTimerStateManager _stateManager;
-    private readonly DispatcherQueue _dispatcherQueue;
-    private DispatcherQueueTimer? _timer;
+    private readonly ITimerProvider _timerProvider;
+    private readonly ITimerNotificationService _notificationService;
     private FocusTimerSettings _settings = new();
     private FocusTimerState _state = new();
     private bool _isRunning;
+    private IFocusTimerState _currentState = new StoppedState();
 
     #endregion Fields
 
@@ -53,20 +52,26 @@ public class FocusTimerService : IFocusTimerService
     public FocusTimerSettings Settings => _settings;
     public bool IsRunning => _isRunning;
 
+    internal IFocusTimerScheduler Scheduler => _scheduler;
+
     #endregion Properties
 
     #region Constructor
 
     public FocusTimerService(
-        ISettingsService settingsService, 
+        ISettingsService settingsService,
         IFocusTimerScheduler scheduler,
         IFocusTimerStateManager stateManager,
-        DispatcherQueue dispatcherQueue)
+        ITimerProvider timerProvider,
+        ITimerNotificationService notificationService)
     {
         _settingsService = settingsService;
         _scheduler = scheduler;
         _stateManager = stateManager;
-        _dispatcherQueue = dispatcherQueue;
+        _timerProvider = timerProvider;
+        _notificationService = notificationService;
+
+        _timerProvider.Tick += OnTimerTick;
     }
 
     #endregion Constructor
@@ -98,16 +103,15 @@ public class FocusTimerService : IFocusTimerService
             _state.RemainingBreakCount = _settings.DesiredBreakCount;
         }
 
-        RecalculateSchedule();
-        UpdateStatus(FocusTimerStatus.Working);
+        SetState(new WorkingState());
 
         // Request window visibility based on settings
         var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
         Debug.WriteLine($"[FocusTimerService] StartAsync: Requesting window visibility. Mode={visibilityMode}, ShouldShow={visibilityMode == TimerVisibilityMode.Always}");
-        WindowVisibilityRequested?.Invoke(this, visibilityMode == TimerVisibilityMode.Always);
+        RequestVisibility(visibilityMode == TimerVisibilityMode.Always);
 
         Debug.WriteLine($"[FocusTimerService] StartAsync: Starting timer. NextBreakTime={_state.NextBreakTime:HH:mm}, TimeUntilNextBreak={_state.TimeUntilNextBreak?.TotalMinutes:F1}min");
-        StartTimer();
+        _timerProvider.Start(TimeSpan.FromMilliseconds(TimerIntervalMs));
 
         // Fire initial state change to update UI with calculated schedule
         Debug.WriteLine($"[FocusTimerService] StartAsync: Firing initial StateChanged event. Status={_state.Status}");
@@ -121,9 +125,9 @@ public class FocusTimerService : IFocusTimerService
         if (!_isRunning) return;
 
         _isRunning = false;
-        StopTimer();
-        UpdateStatus(FocusTimerStatus.Stopped);
-        WindowVisibilityRequested?.Invoke(this, false);
+        _timerProvider.Stop();
+        SetState(new StoppedState());
+        RequestVisibility(false);
         await _stateManager.PersistStateAsync(_state);
     }
 
@@ -133,7 +137,7 @@ public class FocusTimerService : IFocusTimerService
 
         _state.CurrentBreakStartTime = DateTime.Now;
         _state.BreakTimeRemaining = TimeSpan.FromMinutes(_state.CurrentBreakDurationMinutes);
-        UpdateStatus(FocusTimerStatus.BreakActive);
+        SetState(new BreakActiveState());
         BreakStarted?.Invoke(this, EventArgs.Empty);
     }
 
@@ -150,7 +154,7 @@ public class FocusTimerService : IFocusTimerService
         _state.CurrentBreakStartTime = DateTime.Now;
         _state.BreakTimeRemaining = TimeSpan.FromMinutes(breakDuration);
         _state.CurrentBreakDurationMinutes = breakDuration;
-        UpdateStatus(FocusTimerStatus.BreakActive);
+        SetState(new BreakActiveState());
         BreakStarted?.Invoke(this, EventArgs.Empty);
     }
 
@@ -159,13 +163,13 @@ public class FocusTimerService : IFocusTimerService
         if (_state.Status != FocusTimerStatus.NotificationTriggered) return;
 
         _state.SnoozedUntil = DateTime.Now.AddMinutes(minutes);
-        UpdateStatus(FocusTimerStatus.Working);
+        SetState(new WorkingState());
 
         // Keep window visible during snooze if in "always" mode
         var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
         if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
         {
-            WindowVisibilityRequested?.Invoke(this, false);
+            RequestVisibility(false);
         }
     }
 
@@ -193,18 +197,18 @@ public class FocusTimerService : IFocusTimerService
 
         if (_isRunning)
         {
-            RecalculateSchedule();
+            _scheduler.Recalculate(_state, _settings);
 
             // Handle visibility change if it was modified
             if (oldVisibility != newVisibility)
             {
                 if (newVisibility == TimerVisibilityMode.Always)
                 {
-                    WindowVisibilityRequested?.Invoke(this, true);
+                    RequestVisibility(true);
                 }
                 else if (newVisibility == TimerVisibilityMode.OnNotificationOnly && _state.Status == FocusTimerStatus.Working)
                 {
-                    WindowVisibilityRequested?.Invoke(this, false);
+                    RequestVisibility(false);
                 }
             }
         }
@@ -217,26 +221,7 @@ public class FocusTimerService : IFocusTimerService
 
     #region Private Methods
 
-    private void StartTimer()
-    {
-        if (_timer != null) return;
-
-        _timer = _dispatcherQueue.CreateTimer();
-        _timer.Interval = TimeSpan.FromMilliseconds(TimerIntervalMs);
-        _timer.Tick += OnTimerTick;
-        _timer.Start();
-    }
-
-    private void StopTimer()
-    {
-        if (_timer == null) return;
-
-        _timer.Stop();
-        _timer.Tick -= OnTimerTick;
-        _timer = null;
-    }
-
-    private void OnTimerTick(DispatcherQueueTimer sender, object args)
+    private void OnTimerTick(object? sender, EventArgs args)
     {
         if (!_isRunning) return;
 
@@ -246,7 +231,10 @@ public class FocusTimerService : IFocusTimerService
         // Check if work day ended
         if (now.TimeOfDay >= workEnd.TimeOfDay)
         {
-            HandleDayEnd();
+            if (_state.Status != FocusTimerStatus.DayEnded)
+            {
+                SetState(new DayEndedState());
+            }
             return;
         }
 
@@ -255,103 +243,42 @@ public class FocusTimerService : IFocusTimerService
         {
             if (_state.Status != FocusTimerStatus.LunchMode)
             {
-                UpdateStatus(FocusTimerStatus.LunchMode);
+                SetState(new LunchModeState());
             }
             return;
         }
 
-        // Transition out of lunch mode
-        if (_state.Status == FocusTimerStatus.LunchMode)
-        {
-            UpdateStatus(FocusTimerStatus.Working);
-            RecalculateSchedule();
-        }
-
-        switch (_state.Status)
-        {
-            case FocusTimerStatus.Working:
-                HandleWorkingTick(now);
-                break;
-
-            case FocusTimerStatus.BreakActive:
-                HandleBreakTick(now);
-                break;
-        }
+        _currentState.HandleTick(this, now);
 
         // Notify state change for UI updates
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, _state.Status));
     }
 
-    private void HandleWorkingTick(DateTime now)
+    #endregion Private Methods
+
+    public void SetState(IFocusTimerState newState)
     {
-        // Check for snooze
-        if (_state.SnoozedUntil.HasValue)
+        var previousStatus = _state.Status;
+        _currentState = newState;
+        _state.Status = newState.Status;
+
+        newState.OnEnter(this);
+
+        if (newState.Status == FocusTimerStatus.NotificationTriggered)
         {
-            if (now >= _state.SnoozedUntil.Value)
+            // Trigger notification specific logic
+            if (_settings.PlaySoundOnNotification)
             {
-                _state.SnoozedUntil = null;
-                TriggerBreakNotification();
+                _notificationService.PlayNotificationSound();
             }
-            else
-            {
-                _state.TimeUntilNextBreak = _state.SnoozedUntil.Value - now;
-            }
-            return;
+            RequestVisibility(true);
+            BreakNotificationTriggered?.Invoke(this, EventArgs.Empty);
         }
 
-        // Update time until next break
-        if (_state.NextBreakTime.HasValue)
-        {
-            _state.TimeUntilNextBreak = _state.NextBreakTime.Value - now;
-
-            // Check if it's break time
-            if (now >= _state.NextBreakTime.Value)
-            {
-                TriggerBreakNotification();
-            }
-        }
-        else
-        {
-            // No more breaks scheduled or need recalculation
-            RecalculateSchedule();
-        }
+        StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, previousStatus));
     }
 
-    private void HandleBreakTick(DateTime now)
-    {
-        if (!_state.CurrentBreakStartTime.HasValue) return;
-
-        var elapsed = now - _state.CurrentBreakStartTime.Value;
-        var totalBreakDuration = TimeSpan.FromMinutes(_state.CurrentBreakDurationMinutes);
-        var remaining = totalBreakDuration - elapsed;
-
-        if (remaining <= TimeSpan.Zero)
-        {
-            // Break ended naturally
-            CompleteBreak();
-        }
-        else
-        {
-            _state.BreakTimeRemaining = remaining;
-        }
-    }
-
-    private void TriggerBreakNotification()
-    {
-        UpdateStatus(FocusTimerStatus.NotificationTriggered);
-
-        // Play sound if enabled
-        if (_settings.PlaySoundOnNotification)
-        {
-            PlayNotificationSound();
-        }
-
-        // Request window to show and come to front
-        WindowVisibilityRequested?.Invoke(this, true);
-        BreakNotificationTriggered?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void CompleteBreak()
+    public void CompleteBreak()
     {
         CompleteBreakInternal(isEarly: false);
     }
@@ -379,51 +306,22 @@ public class FocusTimerService : IFocusTimerService
         _state.CurrentBreakStartTime = null;
         _state.BreakTimeRemaining = null;
 
-        RecalculateSchedule();
-        UpdateStatus(FocusTimerStatus.Working);
+        SetState(new WorkingState());
         BreakEnded?.Invoke(this, EventArgs.Empty);
 
         // Update window visibility
         var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
         if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
         {
-            WindowVisibilityRequested?.Invoke(this, false);
+            RequestVisibility(false);
         }
 
         _ = _stateManager.PersistStateAsync(_state);
     }
 
-    private void HandleDayEnd()
+    public void RequestVisibility(bool show)
     {
-        if (_state.Status != FocusTimerStatus.DayEnded)
-        {
-            UpdateStatus(FocusTimerStatus.DayEnded);
-            WindowVisibilityRequested?.Invoke(this, true);
-        }
+        _notificationService.RequestWindowVisibility(show);
+        WindowVisibilityRequested?.Invoke(this, show);
     }
-
-    private void UpdateStatus(FocusTimerStatus newStatus)
-    {
-        var previousStatus = _state.Status;
-        _state.Status = newStatus;
-        StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, previousStatus));
-    }
-
-    private void PlayNotificationSound()
-    {
-        try
-        {
-            // Use Windows MessageBeep API for notification sound
-            MessageBeep(0x00000040); // MB_ICONINFORMATION
-        }
-        catch
-        {
-            // Ignore sound errors
-        }
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool MessageBeep(uint uType);
-
-    #endregion Private Methods
 }

@@ -21,6 +21,8 @@ public static class ServiceRegistrationExtensions
 
         services.AddSingleton<IFocusTimerScheduler, FocusTimerScheduler>();
         services.AddSingleton<IFocusTimerStateManager, FocusTimerStateManager>();
+        services.AddSingleton<ITimerProvider, DispatcherTimerProvider>();
+        services.AddSingleton<ITimerNotificationService, TimerNotificationService>();
 
         return services;
     }
