@@ -32,9 +32,13 @@ public class FocusTimerService : IFocusTimerService
     #region Events
 
     public event EventHandler<FocusTimerStateChangedEventArgs>? StateChanged;
+
     public event EventHandler? BreakNotificationTriggered;
+
     public event EventHandler? BreakStarted;
+
     public event EventHandler? BreakEnded;
+
     public event EventHandler<bool>? WindowVisibilityRequested;
 
     #endregion Events
@@ -89,14 +93,14 @@ public class FocusTimerService : IFocusTimerService
 
         // Request window visibility based on settings
         var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
-        System.Diagnostics.Debug.WriteLine($"[FocusTimerService] StartAsync: Requesting window visibility. Mode={visibilityMode}, ShouldShow={visibilityMode == TimerVisibilityMode.Always}");
+        Debug.WriteLine($"[FocusTimerService] StartAsync: Requesting window visibility. Mode={visibilityMode}, ShouldShow={visibilityMode == TimerVisibilityMode.Always}");
         WindowVisibilityRequested?.Invoke(this, visibilityMode == TimerVisibilityMode.Always);
 
-        System.Diagnostics.Debug.WriteLine($"[FocusTimerService] StartAsync: Starting timer. NextBreakTime={_state.NextBreakTime:HH:mm}, TimeUntilNextBreak={_state.TimeUntilNextBreak?.TotalMinutes:F1}min");
+        Debug.WriteLine($"[FocusTimerService] StartAsync: Starting timer. NextBreakTime={_state.NextBreakTime:HH:mm}, TimeUntilNextBreak={_state.TimeUntilNextBreak?.TotalMinutes:F1}min");
         StartTimer();
 
         // Fire initial state change to update UI with calculated schedule
-        System.Diagnostics.Debug.WriteLine($"[FocusTimerService] StartAsync: Firing initial StateChanged event. Status={_state.Status}");
+        Debug.WriteLine($"[FocusTimerService] StartAsync: Firing initial StateChanged event. Status={_state.Status}");
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, FocusTimerStatus.Stopped));
 
         await PersistStateAsync();
@@ -168,7 +172,6 @@ public class FocusTimerService : IFocusTimerService
         _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
         _state.LastBreakEndTime = DateTime.Now;
 
-
         _state.CurrentBreakStartTime = null;
         _state.BreakTimeRemaining = null;
 
@@ -223,7 +226,7 @@ public class FocusTimerService : IFocusTimerService
         // Fixed-interval logic:
         // Remaining time = WorkEnd - LastBreakEndTime - Lunch (if applicable)
         double totalRemainingWorkMinutes = CalculateRemainingWorkMinutes(_state.LastBreakEndTime.Value, workEnd, lunchStart, lunchEnd);
-        
+
         if (totalRemainingWorkMinutes <= 0)
         {
             _state.NextBreakTime = null;
@@ -233,7 +236,7 @@ public class FocusTimerService : IFocusTimerService
 
         // Interval is total remaining work time divided by remaining "working blocks" (remaining breaks + 1)
         double intervalMinutes = totalRemainingWorkMinutes / (_state.RemainingBreakCount + 1);
-        
+
         // Next break is LastBreakEndTime + interval
         var nextBreakTime = _state.LastBreakEndTime.Value.AddMinutes(intervalMinutes);
 
