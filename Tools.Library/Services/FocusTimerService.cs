@@ -41,6 +41,8 @@ public class FocusTimerService : IFocusTimerService
 
     public event EventHandler<bool>? WindowVisibilityRequested;
 
+    public event EventHandler? SettingsChanged;
+
     #endregion Events
 
     #region Properties
@@ -252,7 +254,9 @@ public class FocusTimerService : IFocusTimerService
 
     public async Task UpdateSettingsAsync(FocusTimerSettings settings)
     {
+        var oldVisibility = (TimerVisibilityMode)_settings.TimerVisibilityMode;
         _settings = settings;
+        var newVisibility = (TimerVisibilityMode)_settings.TimerVisibilityMode;
 
         var appSettings = await _settingsService.GetSettingsAsync();
         appSettings.FocusTimer = settings;
@@ -261,7 +265,23 @@ public class FocusTimerService : IFocusTimerService
         if (_isRunning)
         {
             RecalculateSchedule();
+
+            // Handle visibility change if it was modified
+            if (oldVisibility != newVisibility)
+            {
+                if (newVisibility == TimerVisibilityMode.Always)
+                {
+                    WindowVisibilityRequested?.Invoke(this, true);
+                }
+                else if (newVisibility == TimerVisibilityMode.OnNotificationOnly && _state.Status == FocusTimerStatus.Working)
+                {
+                    WindowVisibilityRequested?.Invoke(this, false);
+                }
+            }
         }
+
+        // Notify that settings have changed (for position and other UI updates)
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     #endregion Public Methods

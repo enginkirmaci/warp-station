@@ -56,6 +56,11 @@ public interface IFocusTimerService
     event EventHandler<bool>? WindowVisibilityRequested;
 
     /// <summary>
+    /// Occurs when settings are updated.
+    /// </summary>
+    event EventHandler? SettingsChanged;
+
+    /// <summary>
     /// Gets the current state of the timer.
     /// </summary>
     FocusTimerState CurrentState { get; }
