@@ -1,4 +1,5 @@
-using System.Runtime.InteropServices;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
@@ -8,13 +9,55 @@ namespace Tools.Library.Services;
 /// </summary>
 public class TimerNotificationService : ITimerNotificationService
 {
+    private readonly ISettingsService _settingsService;
+    private readonly MediaPlayer _mediaPlayer;
+
+    public TimerNotificationService(ISettingsService settingsService)
+    {
+        _settingsService = settingsService;
+        _mediaPlayer = new MediaPlayer();
+    }
+
     public event EventHandler<bool>? VisibilityRequested;
 
-    public void PlayNotificationSound()
+    public async void PlayBreakSound()
     {
         try
         {
-            MessageBeep(0x00000040); // MB_ICONINFORMATION
+            var settings = await _settingsService.GetSettingsAsync();
+            var soundPath = settings.FocusTimer?.BreakSoundPath ?? "Assets/break.mp3";
+            PlaySound(soundPath);
+        }
+        catch
+        {
+            // Ignore sound errors
+        }
+    }
+
+    public async void PlayFocusSound()
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            var soundPath = settings.FocusTimer?.FocusSoundPath ?? "Assets/focus.mp3";
+            PlaySound(soundPath);
+        }
+        catch
+        {
+            // Ignore sound errors
+        }
+    }
+
+    private void PlaySound(string relativePath)
+    {
+        try
+        {
+            var fullPath = Path.Combine(AppContext.BaseDirectory, relativePath);
+            if (File.Exists(fullPath))
+            {
+                _mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(fullPath));
+                _mediaPlayer.Play();
+            }
         }
         catch
         {
@@ -26,7 +69,4 @@ public class TimerNotificationService : ITimerNotificationService
     {
         VisibilityRequested?.Invoke(this, show);
     }
-
-    [DllImport("user32.dll")]
-    private static extern bool MessageBeep(uint uType);
 }

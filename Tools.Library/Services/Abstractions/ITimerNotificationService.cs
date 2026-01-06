@@ -8,7 +8,12 @@ public interface ITimerNotificationService
     /// <summary>
     /// Plays the break notification sound.
     /// </summary>
-    void PlayNotificationSound();
+    void PlayBreakSound();
+
+    /// <summary>
+    /// Plays the focus notification sound.
+    /// </summary>
+    void PlayFocusSound();
 
     /// <summary>
     /// Requests a change in the timer window visibility.

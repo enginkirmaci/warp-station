@@ -183,6 +183,16 @@ public class FocusTimerSettings
     public bool PlaySoundOnNotification { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets the path to the break sound file.
+    /// </summary>
+    public string BreakSoundPath { get; set; } = "Assets/break.mp3";
+
+    /// <summary>
+    /// Gets or sets the path to the focus sound file.
+    /// </summary>
+    public string FocusSoundPath { get; set; } = "Assets/focus.mp3";
+
+    /// <summary>
     /// Gets or sets the persisted state for daily tracking.
     /// </summary>
     public FocusTimerPersistedState? PersistedState { get; set; }

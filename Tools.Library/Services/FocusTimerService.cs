@@ -269,10 +269,18 @@ public class FocusTimerService : IFocusTimerService
             // Trigger notification specific logic
             if (_settings.PlaySoundOnNotification)
             {
-                _notificationService.PlayNotificationSound();
+                _notificationService.PlayBreakSound();
             }
             RequestVisibility(true);
             BreakNotificationTriggered?.Invoke(this, EventArgs.Empty);
+        }
+        else if (newState.Status == FocusTimerStatus.Working && previousStatus == FocusTimerStatus.BreakActive)
+        {
+            // Trigger focus sound when break ends and focus starts
+            if (_settings.PlaySoundOnNotification)
+            {
+                _notificationService.PlayFocusSound();
+            }
         }
 
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, previousStatus));
