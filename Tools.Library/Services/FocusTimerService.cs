@@ -21,6 +21,8 @@ public class FocusTimerService : IFocusTimerService
     #region Fields
 
     private readonly ISettingsService _settingsService;
+    private readonly IFocusTimerScheduler _scheduler;
+    private readonly IFocusTimerStateManager _stateManager;
     private readonly DispatcherQueue _dispatcherQueue;
     private DispatcherQueueTimer? _timer;
     private FocusTimerSettings _settings = new();
@@ -55,9 +57,15 @@ public class FocusTimerService : IFocusTimerService
 
     #region Constructor
 
-    public FocusTimerService(ISettingsService settingsService, DispatcherQueue dispatcherQueue)
+    public FocusTimerService(
+        ISettingsService settingsService, 
+        IFocusTimerScheduler scheduler,
+        IFocusTimerStateManager stateManager,
+        DispatcherQueue dispatcherQueue)
     {
         _settingsService = settingsService;
+        _scheduler = scheduler;
+        _stateManager = stateManager;
         _dispatcherQueue = dispatcherQueue;
     }
 
@@ -70,8 +78,8 @@ public class FocusTimerService : IFocusTimerService
         var appSettings = await _settingsService.GetSettingsAsync();
         _settings = appSettings.FocusTimer ?? new FocusTimerSettings();
 
-        // Check for daily reset
-        CheckAndResetDailyState();
+        // Check for daily reset and load state
+        _state = await _stateManager.LoadStateAsync(_settings);
     }
 
     public async Task StartAsync()
@@ -84,7 +92,7 @@ public class FocusTimerService : IFocusTimerService
         _state.TotalDailyBreakMinutes = _settings.TotalDailyBreakMinutes;
 
         // Initialize break pool if starting fresh
-        if (_state.CurrentBreakPoolMinutes <= 0)
+        if (_state.CurrentBreakPoolMinutes <= 0 && _state.RemainingBreakCount <= 0)
         {
             _state.CurrentBreakPoolMinutes = _settings.TotalDailyBreakMinutes;
             _state.RemainingBreakCount = _settings.DesiredBreakCount;
@@ -105,7 +113,7 @@ public class FocusTimerService : IFocusTimerService
         Debug.WriteLine($"[FocusTimerService] StartAsync: Firing initial StateChanged event. Status={_state.Status}");
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, FocusTimerStatus.Stopped));
 
-        await PersistStateAsync();
+        await _stateManager.PersistStateAsync(_state);
     }
 
     public async Task StopAsync()
@@ -116,7 +124,7 @@ public class FocusTimerService : IFocusTimerService
         StopTimer();
         UpdateStatus(FocusTimerStatus.Stopped);
         WindowVisibilityRequested?.Invoke(this, false);
-        await PersistStateAsync();
+        await _stateManager.PersistStateAsync(_state);
     }
 
     public void TakeBreak()
@@ -165,91 +173,12 @@ public class FocusTimerService : IFocusTimerService
     {
         if (_state.Status != FocusTimerStatus.BreakActive) return;
 
-        var breakTaken = DateTime.Now - _state.CurrentBreakStartTime;
-        var minutesTaken = breakTaken?.TotalMinutes ?? 0;
-
-        // Deduct actual time taken from pool
-        _state.CurrentBreakPoolMinutes = Math.Max(0, _state.CurrentBreakPoolMinutes - minutesTaken);
-        _state.BreakTimeTakenMinutes += minutesTaken;
-        _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
-        _state.LastBreakEndTime = DateTime.Now;
-
-        _state.CurrentBreakStartTime = null;
-        _state.BreakTimeRemaining = null;
-
-        RecalculateSchedule();
-        UpdateStatus(FocusTimerStatus.Working);
-        BreakEnded?.Invoke(this, EventArgs.Empty);
-
-        // Update window visibility
-        //var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
-        //if (visibilityMode == TimerVisibilityMode.OnNotificationOnly)
-        //{
-        //    WindowVisibilityRequested?.Invoke(this, false);
-        //}
-
-        _ = PersistStateAsync();
+        CompleteBreakInternal(isEarly: true);
     }
 
     public void RecalculateSchedule()
     {
-        var now = DateTime.Now;
-        var workStart = ParseTime(_settings.WorkStartTime);
-        var workEnd = ParseTime(_settings.WorkEndTime);
-        var lunchStart = ParseTime(_settings.LunchStartTime);
-        var lunchEnd = lunchStart.AddMinutes(_settings.LunchDurationMinutes);
-
-        // If we haven't taken any breaks today, the reference point is the work start time (or now if we started late)
-        if (!_state.LastBreakEndTime.HasValue)
-        {
-            _state.LastBreakEndTime = now.TimeOfDay > workStart.TimeOfDay ? now : workStart;
-        }
-
-        if (_state.RemainingBreakCount <= 0)
-        {
-            _state.NextBreakTime = null;
-            _state.TimeUntilNextBreak = null;
-            return;
-        }
-
-        // Calculate next break duration (simple average of remaining pool)
-        _state.CurrentBreakDurationMinutes = _state.CurrentBreakPoolMinutes / _state.RemainingBreakCount;
-
-        // Handle snooze
-        if (_state.SnoozedUntil.HasValue && _state.SnoozedUntil > now)
-        {
-            _state.NextBreakTime = _state.SnoozedUntil.Value;
-            _state.TimeUntilNextBreak = _state.SnoozedUntil.Value - now;
-            return;
-        }
-
-        _state.SnoozedUntil = null;
-
-        // Fixed-interval logic:
-        // Remaining time = WorkEnd - LastBreakEndTime - Lunch (if applicable)
-        double totalRemainingWorkMinutes = CalculateRemainingWorkMinutes(_state.LastBreakEndTime.Value, workEnd, lunchStart, lunchEnd);
-
-        if (totalRemainingWorkMinutes <= 0)
-        {
-            _state.NextBreakTime = null;
-            _state.TimeUntilNextBreak = null;
-            return;
-        }
-
-        // Interval is total remaining work time divided by remaining "working blocks" (remaining breaks + 1)
-        double intervalMinutes = totalRemainingWorkMinutes / (_state.RemainingBreakCount + 1);
-
-        // Next break is LastBreakEndTime + interval
-        var nextBreakTime = _state.LastBreakEndTime.Value.AddMinutes(intervalMinutes);
-
-        // If next break falls during lunch, push to after lunch
-        if (IsInLunchWindow(nextBreakTime))
-        {
-            nextBreakTime = DateTime.Today.Add(lunchEnd.TimeOfDay).AddMinutes(5); // 5 min buffer after lunch
-        }
-
-        _state.NextBreakTime = nextBreakTime;
-        _state.TimeUntilNextBreak = nextBreakTime - now;
+        _scheduler.Recalculate(_state, _settings);
     }
 
     public async Task UpdateSettingsAsync(FocusTimerSettings settings)
@@ -312,7 +241,7 @@ public class FocusTimerService : IFocusTimerService
         if (!_isRunning) return;
 
         var now = DateTime.Now;
-        var workEnd = ParseTime(_settings.WorkEndTime);
+        var workEnd = _scheduler.ParseTime(_settings.WorkEndTime);
 
         // Check if work day ended
         if (now.TimeOfDay >= workEnd.TimeOfDay)
@@ -322,7 +251,7 @@ public class FocusTimerService : IFocusTimerService
         }
 
         // Check if in lunch window
-        if (IsInLunchWindow(now))
+        if (_scheduler.IsInLunchWindow(now, _settings))
         {
             if (_state.Status != FocusTimerStatus.LunchMode)
             {
@@ -424,9 +353,26 @@ public class FocusTimerService : IFocusTimerService
 
     private void CompleteBreak()
     {
+        CompleteBreakInternal(isEarly: false);
+    }
+
+    private void CompleteBreakInternal(bool isEarly)
+    {
         var now = DateTime.Now;
-        _state.CurrentBreakPoolMinutes = Math.Max(0, _state.CurrentBreakPoolMinutes - _state.CurrentBreakDurationMinutes);
-        _state.BreakTimeTakenMinutes += _state.CurrentBreakDurationMinutes;
+        double minutesTaken;
+
+        if (isEarly && _state.CurrentBreakStartTime.HasValue)
+        {
+            var breakTaken = now - _state.CurrentBreakStartTime.Value;
+            minutesTaken = breakTaken.TotalMinutes;
+        }
+        else
+        {
+            minutesTaken = _state.CurrentBreakDurationMinutes;
+        }
+
+        _state.CurrentBreakPoolMinutes = Math.Max(0, _state.CurrentBreakPoolMinutes - minutesTaken);
+        _state.BreakTimeTakenMinutes += minutesTaken;
         _state.RemainingBreakCount = Math.Max(0, _state.RemainingBreakCount - 1);
         _state.LastBreakEndTime = now;
 
@@ -444,7 +390,7 @@ public class FocusTimerService : IFocusTimerService
             WindowVisibilityRequested?.Invoke(this, false);
         }
 
-        _ = PersistStateAsync();
+        _ = _stateManager.PersistStateAsync(_state);
     }
 
     private void HandleDayEnd()
@@ -456,103 +402,11 @@ public class FocusTimerService : IFocusTimerService
         }
     }
 
-    private void CheckAndResetDailyState()
-    {
-        var today = DateTime.Today.ToString("yyyy-MM-dd");
-        var persistedState = _settings.PersistedState;
-
-        if (persistedState == null || persistedState.LastResetDate != today)
-        {
-            // Reset for new day
-            _state = new FocusTimerState
-            {
-                CurrentBreakPoolMinutes = _settings.TotalDailyBreakMinutes,
-                RemainingBreakCount = _settings.DesiredBreakCount,
-                TotalDailyBreakMinutes = _settings.TotalDailyBreakMinutes,
-                BreakTimeTakenMinutes = 0,
-                LastBreakEndTime = null
-            };
-        }
-        else
-        {
-            // Restore persisted state
-            _state = new FocusTimerState
-            {
-                CurrentBreakPoolMinutes = persistedState.CurrentBreakPoolMinutes,
-                RemainingBreakCount = persistedState.RemainingBreakCount,
-                TotalDailyBreakMinutes = _settings.TotalDailyBreakMinutes,
-                BreakTimeTakenMinutes = persistedState.BreakTimeTakenMinutes,
-                LastBreakEndTime = DateTime.Now // Approximate for continuation
-            };
-        }
-    }
-
-    private async Task PersistStateAsync()
-    {
-        var appSettings = await _settingsService.GetSettingsAsync();
-        if (appSettings.FocusTimer == null)
-        {
-            appSettings.FocusTimer = new FocusTimerSettings();
-        }
-
-        appSettings.FocusTimer.PersistedState = new FocusTimerPersistedState
-        {
-            LastResetDate = DateTime.Today.ToString("yyyy-MM-dd"),
-            CurrentBreakPoolMinutes = _state.CurrentBreakPoolMinutes,
-            RemainingBreakCount = _state.RemainingBreakCount,
-            BreakTimeTakenMinutes = _state.BreakTimeTakenMinutes
-        };
-
-        await _settingsService.SaveSettingsAsync(appSettings);
-    }
-
     private void UpdateStatus(FocusTimerStatus newStatus)
     {
         var previousStatus = _state.Status;
         _state.Status = newStatus;
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, previousStatus));
-    }
-
-    private DateTime ParseTime(string timeString)
-    {
-        if (TimeSpan.TryParse(timeString, out var time))
-        {
-            return DateTime.Today.Add(time);
-        }
-        return DateTime.Today.AddHours(9); // Default to 9 AM
-    }
-
-    private bool IsInLunchWindow(DateTime time)
-    {
-        var lunchStart = ParseTime(_settings.LunchStartTime);
-        var lunchEnd = lunchStart.AddMinutes(_settings.LunchDurationMinutes);
-
-        return time.TimeOfDay >= lunchStart.TimeOfDay && time.TimeOfDay < lunchEnd.TimeOfDay;
-    }
-
-    private double CalculateRemainingWorkMinutes(DateTime fromTime, DateTime workEnd, DateTime lunchStart, DateTime lunchEnd)
-    {
-        double remaining = 0;
-
-        if (fromTime.TimeOfDay < lunchStart.TimeOfDay)
-        {
-            // Add time until lunch
-            remaining += (lunchStart.TimeOfDay - fromTime.TimeOfDay).TotalMinutes;
-            // Add time after lunch until work end
-            remaining += (workEnd.TimeOfDay - lunchEnd.TimeOfDay).TotalMinutes;
-        }
-        else if (fromTime.TimeOfDay >= lunchEnd.TimeOfDay)
-        {
-            // Only time after lunch
-            remaining = (workEnd.TimeOfDay - fromTime.TimeOfDay).TotalMinutes;
-        }
-        else
-        {
-            // During lunch - only time after lunch
-            remaining = (workEnd.TimeOfDay - lunchEnd.TimeOfDay).TotalMinutes;
-        }
-
-        return Math.Max(0, remaining);
     }
 
     private void PlayNotificationSound()
