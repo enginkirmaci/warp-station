@@ -49,8 +49,7 @@ jobs:
     - name: Create MSIX Package
       shell: pwsh
       run: |
-        $appxPackageDir = Join-Path $env:GITHUB_WORKSPACE $env:App_Packages_Directory
-        Write-Host "Building MSIX package to: $appxPackageDir"
+        Write-Host "Building MSIX package..."
         
         dotnet publish $env:Project_Path `
           -c $env:Configuration `
@@ -59,7 +58,6 @@ jobs:
           -p:WindowsPackageType=MSIX `
           -p:UapAppxPackageBuildMode=SideloadOnly `
           -p:AppxBundle=Never `
-          -p:AppxPackageDir="$appxPackageDir\" `
           -p:AppxPackageSigningEnabled=false `
           -p:GenerateAppInstallerFile=false
         
@@ -68,14 +66,35 @@ jobs:
           exit $LASTEXITCODE
         }
         
-        Write-Host "Build completed. Checking output directory..."
-        if (Test-Path $appxPackageDir) {
-          Write-Host "Contents of AppPackages directory:"
-          Get-ChildItem -Path $appxPackageDir -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
-        } else {
-          Write-Host "ERROR: AppPackages directory was not created at: $appxPackageDir"
+        Write-Host "Build completed. Locating MSIX package..."
+        
+        # MSIX is typically created in bin\{Platform}\{Configuration}\{TargetFramework}\{RuntimeIdentifier}\AppPackages
+        $projectDir = Split-Path $env:Project_Path -Parent
+        $searchPath = Join-Path $projectDir "bin"
+        
+        Write-Host "Searching for MSIX in: $searchPath"
+        $msixFiles = Get-ChildItem -Path $searchPath -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+        
+        if ($msixFiles.Count -eq 0) {
+          Write-Host "ERROR: No MSIX package found. Listing bin directory structure:"
+          Get-ChildItem -Path $searchPath -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
           exit 1
         }
+        
+        # Create the target AppPackages directory
+        $targetDir = Join-Path $env:GITHUB_WORKSPACE $env:App_Packages_Directory
+        New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
+        
+        Write-Host "Found MSIX packages:"
+        foreach ($msix in $msixFiles) {
+          Write-Host "  - $($msix.FullName)"
+          $destPath = Join-Path $targetDir $msix.Name
+          Copy-Item -Path $msix.FullName -Destination $destPath -Force
+          Write-Host "Copied to: $destPath"
+        }
+        
+        Write-Host "Contents of AppPackages directory:"
+        Get-ChildItem -Path $targetDir -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
 
     # 3. Sign MSIX (Only if secrets are provided)
     - name: Decode and Sign MSIX
