@@ -51,50 +51,57 @@ jobs:
       run: |
         Write-Host "Building MSIX package..."
         
-        dotnet publish $env:Project_Path `
-          -c $env:Configuration `
-          -r win-$env:Platform `
-          -p:Platform=$env:Platform `
-          -p:WindowsPackageType=MSIX `
-          -p:UapAppxPackageBuildMode=SideloadOnly `
-          -p:AppxBundle=Never `
-          -p:AppxPackageSigningEnabled=false `
-          -p:GenerateAppInstallerFile=false
-        
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "dotnet publish failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-        
-        Write-Host "Build completed. Locating MSIX package..."
-        
-        # MSIX is typically created in bin\{Platform}\{Configuration}\{TargetFramework}\{RuntimeIdentifier}\AppPackages
-        $projectDir = Split-Path $env:Project_Path -Parent
-        $searchPath = Join-Path $projectDir "bin"
-        
-        Write-Host "Searching for MSIX in: $searchPath"
-        $msixFiles = Get-ChildItem -Path $searchPath -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
-        
-        if ($msixFiles.Count -eq 0) {
-          Write-Host "ERROR: No MSIX package found. Listing bin directory structure:"
-          Get-ChildItem -Path $searchPath -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
-          exit 1
-        }
-        
         # Create the target AppPackages directory
         $targetDir = Join-Path $env:GITHUB_WORKSPACE $env:App_Packages_Directory
         New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
         
+        # Use MSBuild to create MSIX package
+        msbuild $env:Project_Path `
+          /p:Configuration=$env:Configuration `
+          /p:Platform=$env:Platform `
+          /p:UapAppxPackageBuildMode=SideloadOnly `
+          /p:AppxBundle=Never `
+          /p:AppxPackageDir="$targetDir\" `
+          /p:GenerateAppxPackageOnBuild=true `
+          /p:AppxPackageSigningEnabled=false `
+          /p:GenerateAppInstallerFile=false
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "MSBuild failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+        
+        Write-Host "Build completed. Locating MSIX package..."
+        Write-Host "Searching for MSIX in: $targetDir"
+        
+        $msixFiles = Get-ChildItem -Path $targetDir -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+        
+        if ($msixFiles.Count -eq 0) {
+          Write-Host "ERROR: No MSIX package found. Listing AppPackages directory structure:"
+          Get-ChildItem -Path $targetDir -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
+          
+          # Also check the project bin directory as fallback
+          $projectDir = Split-Path $env:Project_Path -Parent
+          $binPath = Join-Path $projectDir "bin\$env:Platform\$env:Configuration"
+          Write-Host "Checking fallback location: $binPath"
+          if (Test-Path $binPath) {
+            Get-ChildItem -Path $binPath -Recurse -Force | Where-Object { $_.Extension -eq ".msix" } | ForEach-Object { 
+              Write-Host "Found MSIX at fallback location: $($_.FullName)"
+              Copy-Item -Path $_.FullName -Destination $targetDir -Force
+            }
+          }
+          
+          # Re-check after fallback
+          $msixFiles = Get-ChildItem -Path $targetDir -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+          if ($msixFiles.Count -eq 0) {
+            exit 1
+          }
+        }
+        
         Write-Host "Found MSIX packages:"
         foreach ($msix in $msixFiles) {
           Write-Host "  - $($msix.FullName)"
-          $destPath = Join-Path $targetDir $msix.Name
-          Copy-Item -Path $msix.FullName -Destination $destPath -Force
-          Write-Host "Copied to: $destPath"
         }
-        
-        Write-Host "Contents of AppPackages directory:"
-        Get-ChildItem -Path $targetDir -Recurse -Force | ForEach-Object { Write-Host $_.FullName }
 
     # 3. Sign MSIX (Only if secrets are provided)
     - name: Decode and Sign MSIX
