@@ -35,15 +35,7 @@ jobs:
     - name: Restore NuGet Packages
       run: msbuild $env:Solution_Path /t:Restore /p:Configuration=$env:Configuration
 
-    # 1. Build and Publish Unpackaged (Zip)
-    - name: Publish Unpackaged
-      run: |
-        dotnet publish $env:Project_Path -c $env:Configuration -r win-$env:Platform --self-contained true -p:PublishReadyToRun=true -o ./publish
-
-    - name: ZIP Unpackaged Output
-      shell: pwsh
-      run: |
-        Compress-Archive -Path ./publish/* -DestinationPath ./Tools-Unpackaged-win-x64.zip
+    # (Unpackaged publish and zip steps removed - build now only produces MSIX)
 
     # 2. Build MSIX Package
     - name: Create MSIX Package
@@ -106,12 +98,44 @@ jobs:
       env:
         CERTIFICATE_BASE64: ${{ secrets.APP_CERTIFICATE_BASE64 }}
         CERTIFICATE_PASSWORD: ${{ secrets.APP_CERTIFICATE_PASSWORD }}
-      if: env.CERTIFICATE_BASE64 != ''
+      if: always()
       shell: pwsh
       run: |
-        $certBuffer = [System.Convert]::FromBase64String("$env:CERTIFICATE_BASE64")
-        $pfxPath = Join-Path $env:GITHUB_WORKSPACE "Cert.pfx"
-        [System.IO.File]::WriteAllBytes($pfxPath, $certBuffer)
+        # Prefer repository PFX if present, otherwise decode secret
+        $repoPfx = Join-Path $env:GITHUB_WORKSPACE "AppCertificate.pfx"
+        if (Test-Path $repoPfx) {
+          Write-Host "Using repository certificate: $repoPfx"
+          $pfxPath = $repoPfx
+        } else {
+          if (-not $env:CERTIFICATE_BASE64) {
+            Write-Host "No repository PFX and no CERTIFICATE_BASE64 provided. Cannot sign."
+            exit 1
+          }
+          # Decode certificate and write to disk
+          $certBuffer = [System.Convert]::FromBase64String("$env:CERTIFICATE_BASE64")
+          $pfxPath = Join-Path $env:GITHUB_WORKSPACE "Cert.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, $certBuffer)
+          Write-Host "Wrote PFX to: $pfxPath"
+          Get-Item $pfxPath | Select-Object FullName,Length | ForEach-Object { Write-Host "PFX: $($_.FullName) Size: $($_.Length) bytes" }
+        }
+
+        # Prepare password (allow empty / no password)
+        $pwd = $env:CERTIFICATE_PASSWORD
+        if ($pwd -eq '') { $pwd = $null }
+
+        # Try to load the PFX to get an early and clearer error if it's invalid
+        try {
+          if ($pwd) {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $pwd, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet)
+          } else {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath)
+          }
+          Write-Host "Loaded PFX: $($cert.Subject) - HasPrivateKey: $($cert.HasPrivateKey)"
+        } catch {
+          Write-Host "Failed to load PFX: $_"
+          if ($pfxPath -ne $repoPfx) { Remove-Item $pfxPath -ErrorAction SilentlyContinue }
+          exit 1
+        }
 
         $appxPackageDir = Join-Path $env:GITHUB_WORKSPACE $env:App_Packages_Directory
         $msixPath = Get-ChildItem -Path $appxPackageDir -Filter "*.msix" -Recurse | Select-Object -First 1
@@ -127,22 +151,34 @@ jobs:
           exit 1
         }
 
-        # Locate signtool.exe if available on PATH, otherwise fall back to a known SDK path
+        # Locate signtool.exe (PATH first, then try Windows Kits folder dynamically)
         $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue)?.Source
         if (-not $signtool) {
-          $signtool = "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe"
+          $kits = Get-ChildItem "C:\\Program Files (x86)\\Windows Kits\\10\\bin" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+          if ($kits -and $kits.Count -gt 0) {
+            $signtoolCandidate = Join-Path $kits[0].FullName "x64\\signtool.exe"
+            if (Test-Path $signtoolCandidate) { $signtool = $signtoolCandidate }
+          }
+        }
+        if (-not $signtool -or -not (Test-Path $signtool)) {
+          Write-Host "signtool not found. Searched PATH and Windows Kits. Please ensure signtool is available."
+          Remove-Item $pfxPath -ErrorAction SilentlyContinue
+          exit 1
         }
 
         Write-Host "Signing MSIX: $($msixPath.FullName) using: $signtool"
-        & $signtool sign /f $pfxPath /p "$env:CERTIFICATE_PASSWORD" /td sha256 /fd sha256 "$($msixPath.FullName)"
+        & $signtool sign /v /f $pfxPath /p "$env:CERTIFICATE_PASSWORD" /fd sha256 /td sha256 "$($msixPath.FullName)"
+        $exit = $LASTEXITCODE
+        if ($exit -ne 0) {
+          Write-Host "signtool failed with exit code $exit"
+          Remove-Item $pfxPath -ErrorAction SilentlyContinue
+          exit $exit
+        }
 
-        Remove-Item $pfxPath
+        Write-Host "Sign completed successfully."
+        Remove-Item $pfxPath -ErrorAction SilentlyContinue
 
-    - name: Upload Unpackaged Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Tools-Unpackaged-win-x64
-        path: Tools-Unpackaged-win-x64.zip
+    # (Unpackaged artifact upload removed - no unpackaged output produced)
 
     - name: Upload MSIX Artifact
       uses: actions/upload-artifact@v4
