@@ -39,6 +39,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 
 [Code]
 procedure LaunchApplication();
+var
+  ResultCode: Integer;
 begin
   if MsgBox('Do you want to launch Dev Tools now?', mbConfirmation, MB_YESNO) = IDYES then
   begin
