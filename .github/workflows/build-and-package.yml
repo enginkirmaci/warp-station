@@ -51,6 +51,7 @@ jobs:
         msbuild $env:Project_Path `
           /p:Configuration=$env:Configuration `
           /p:Platform=$env:Platform `
+          /p:WindowsPackageType=MSIX `
           /p:UapAppxPackageBuildMode=SideloadOnly `
           /p:AppxBundle=Never `
           /p:GenerateAppxPackageOnBuild=true `
