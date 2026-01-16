@@ -55,19 +55,17 @@ jobs:
         $targetDir = Join-Path $env:GITHUB_WORKSPACE $env:App_Packages_Directory
         New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
         
-        # Use MSBuild to create MSIX package
-        msbuild $env:Project_Path `
-          /p:Configuration=$env:Configuration `
-          /p:Platform=$env:Platform `
-          /p:UapAppxPackageBuildMode=SideloadOnly `
-          /p:AppxBundle=Never `
-          /p:AppxPackageDir="$targetDir\" `
-          /p:GenerateAppxPackageOnBuild=true `
-          /p:AppxPackageSigningEnabled=false `
-          /p:GenerateAppInstallerFile=false
+        # Use dotnet publish to create MSIX package
+        dotnet publish $env:Project_Path `
+          -c $env:Configuration `
+          -r win-$env:Platform `
+          --self-contained true `
+          -p:GenerateAppxPackageOnBuild=true `
+          -p:AppxPackageSigningEnabled=false `
+          -p:AppxPackageDir="$targetDir\"
         
         if ($LASTEXITCODE -ne 0) {
-          Write-Host "MSBuild failed with exit code $LASTEXITCODE"
+          Write-Host "dotnet publish failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
         }
         
