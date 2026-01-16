@@ -10,10 +10,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tools.HostFileProxyService", "Tools.HostFileProxyService\Tools.HostFileProxyService.csproj", "{A9C599B0-B7D6-4916-BD76-64BD469C1197}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "build", "build", "{D2C1AC5B-C03C-461B-8D06-8C4655879A42}"
-	ProjectSection(SolutionItems) = preProject
-		AppCertificate.pfx = AppCertificate.pfx
-		.github\workflows\build-and-package.yml = .github\workflows\build-and-package.yml
-	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

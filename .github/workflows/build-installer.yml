@@ -1,0 +1,54 @@
+name: Build and Release Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+        dotnet-quality: 'preview'
+        
+    - name: Restore dependencies
+      run: dotnet restore Tools.sln
+      
+    - name: Build solution
+      run: dotnet build Tools.sln --configuration Release --no-restore
+      
+    - name: Publish application
+      run: dotnet publish Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64
+      
+    - name: Install Inno Setup
+      run: |
+        choco install innosetup -y
+        
+    - name: Build installer
+      run: |
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+        
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: DevTools-Installer
+        path: installer\*.exe
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: installer\*.exe
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
