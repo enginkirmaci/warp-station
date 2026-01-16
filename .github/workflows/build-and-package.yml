@@ -53,14 +53,15 @@ jobs:
         Write-Host "Building MSIX package to: $appxPackageDir"
         
         msbuild $env:Project_Path `
+          /t:Build `
+          /t:_GenerateAppxPackage `
           /p:Configuration=$env:Configuration `
           /p:Platform=$env:Platform `
-          /p:WindowsPackageType=MSIX `
           /p:UapAppxPackageBuildMode=SideloadOnly `
           /p:AppxBundle=Never `
-          /p:GenerateAppxPackageOnBuild=true `
           /p:AppxPackageDir="$appxPackageDir\" `
-          /p:AppxPackageSigningEnabled=false
+          /p:AppxPackageSigningEnabled=false `
+          /p:GenerateAppInstallerFile=false
         
         if ($LASTEXITCODE -ne 0) {
           Write-Host "MSBuild failed with exit code $LASTEXITCODE"
