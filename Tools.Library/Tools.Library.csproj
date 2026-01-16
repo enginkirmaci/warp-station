@@ -10,7 +10,7 @@
 		<Company>Engin KIRMACI</Company>
 		<Authors>Engin KIRMACI</Authors>
 		<Platforms>x86;x64;arm64</Platforms>
-		<EnableMsixTooling>true</EnableMsixTooling>
+		<EnableMsixTooling>false</EnableMsixTooling>
 	</PropertyGroup>
 
 	<ItemGroup>
