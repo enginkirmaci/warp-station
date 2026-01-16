@@ -17,8 +17,6 @@ jobs:
       Configuration: Release
       Platform: x64
       App_Packages_Directory: AppPackages
-      Signing_Certificate_Secret_Name: APP_CERTIFICATE_BASE64
-      Signing_Certificate_Password_Secret_Name: APP_CERTIFICATE_PASSWORD
 
     steps:
     - name: Checkout
@@ -61,23 +59,17 @@ jobs:
 
     # 3. Sign MSIX (Only if secrets are provided)
     - name: Decode and Sign MSIX
-      # FIX: Remove "${{ }}" and quotes. Check for truthiness directly.
-      if: secrets.APP_CERTIFICATE_BASE64 != '' 
+      if: ${{ secrets.APP_CERTIFICATE_BASE64 != '' }}
       shell: pwsh
-      env:
-        # BEST PRACTICE: Map secret to env var to avoid injection in script generation
-        CERT_BASE64: ${{ secrets.APP_CERTIFICATE_BASE64 }}
-        CERT_PASS: ${{ secrets.APP_CERTIFICATE_PASSWORD }}
       run: |
-        # Read from environment variable instead of direct injection
-        $certBuffer = [System.Convert]::FromBase64String($env:CERT_BASE64)
+        $certBuffer = [System.Convert]::FromBase64String("${{ secrets.APP_CERTIFICATE_BASE64 }}")
         $pfxPath = Join-Path $env:GITHUB_WORKSPACE "Cert.pfx"
         [System.IO.File]::WriteAllBytes($pfxPath, $certBuffer)
         
         $msixPath = Get-ChildItem -Path $env:App_Packages_Directory -Filter "*.msix" -Recurse | Select-Object -First 1
         
         # Use SignTool to sign the package
-        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign /f $pfxPath /p $env:CERT_PASS /td sha256 /fd sha256 $msixPath.FullName
+        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign /f $pfxPath /p "${{ secrets.APP_CERTIFICATE_PASSWORD }}" /td sha256 /fd sha256 $msixPath.FullName
         
         Remove-Item $pfxPath
 
