@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -13,6 +16,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -41,13 +46,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: DevTools-Installer
-        path: installer\*.exe
+        path: installer/*.exe
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: installer\*.exe
+        files: installer/*.exe
         draft: false
         prerelease: false
       env:

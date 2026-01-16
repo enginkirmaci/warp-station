@@ -9,7 +9,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tools.Library", "Tools.Libr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tools.HostFileProxyService", "Tools.HostFileProxyService\Tools.HostFileProxyService.csproj", "{A9C599B0-B7D6-4916-BD76-64BD469C1197}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "build", "build", "{D2C1AC5B-C03C-461B-8D06-8C4655879A42}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "info", "info", "{D2C1AC5B-C03C-461B-8D06-8C4655879A42}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
