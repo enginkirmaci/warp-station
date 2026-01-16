@@ -34,40 +34,31 @@ jobs:
 
     - name: Prepare Certificate
       env:
-        CERTIFICATE_BASE64: ${{ secrets.APP_CERTIFICATE_BASE64 }}
         CERTIFICATE_PASSWORD: ${{ secrets.APP_CERTIFICATE_PASSWORD }}
       shell: pwsh
       run: |
-        # Prefer repository PFX if present, otherwise decode secret
+        # Use repository PFX if present (AppCertificate.pfx)
         $repoPfx = Join-Path $env:GITHUB_WORKSPACE "AppCertificate.pfx"
         if (Test-Path $repoPfx) {
           Write-Host "Using repository certificate: $repoPfx"
-          echo "CERT_PATH=$repoPfx" >> $env:GITHUB_ENV
-        } elseif ($env:CERTIFICATE_BASE64) {
-          # Decode certificate and write to disk
-          $certBuffer = [System.Convert]::FromBase64String("$env:CERTIFICATE_BASE64")
-          $pfxPath = Join-Path $env:GITHUB_WORKSPACE "Cert.pfx"
-          [System.IO.File]::WriteAllBytes($pfxPath, $certBuffer)
-          Write-Host "Decoded certificate to: $pfxPath"
-          
-          # Validate the certificate
+          # Validate the certificate if a password is provided
           try {
             $pwd = if ($env:CERTIFICATE_PASSWORD) { $env:CERTIFICATE_PASSWORD } else { $null }
             if ($pwd) {
-              $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $pwd, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet)
+              $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($repoPfx, $pwd, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet)
             } else {
-              $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath)
+              $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($repoPfx)
             }
             Write-Host "Loaded PFX: $($cert.Subject) - HasPrivateKey: $($cert.HasPrivateKey)"
           } catch {
-            Write-Host "Failed to load PFX: $_"
-            Remove-Item $pfxPath -ErrorAction SilentlyContinue
+            Write-Host "Failed to load repository PFX: $_"
+            echo "CERT_PATH=" >> $env:GITHUB_ENV
             exit 1
           }
-          
-          echo "CERT_PATH=$pfxPath" >> $env:GITHUB_ENV
+
+          echo "CERT_PATH=$repoPfx" >> $env:GITHUB_ENV
         } else {
-          Write-Host "No certificate provided. Package will not be signed."
+          Write-Host "Repository certificate 'AppCertificate.pfx' not found. Package will not be signed."
           echo "CERT_PATH=" >> $env:GITHUB_ENV
         }
 
