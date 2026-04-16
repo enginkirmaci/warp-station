@@ -24,6 +24,10 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<ITimerProvider, DispatcherTimerProvider>();
         services.AddSingleton<ITimerNotificationService, TimerNotificationService>();
 
+        // Process launcher and DevTools client for IPC
+        services.AddSingleton<IProcessLauncher, ProcessLauncher>();
+        services.AddSingleton<IDevToolsClient, DevToolsClient>();
+
         return services;
     }
 }
