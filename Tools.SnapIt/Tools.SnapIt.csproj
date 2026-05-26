@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Product>Tools.SnapIt</Product>
+    <AssemblyName>Tools.SnapIt</AssemblyName>
+    <RootNamespace>Tools.SnapIt</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>false</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.135" /> 
+
+    <PackageReference Include="GlobalHotKeyCore" Version="1.2.0" />
+    <PackageReference Include="SharpHook" Version="7.0.3" />
+    <PackageReference Include="WindowsDisplayAPI" Version="1.3.0.13" />
+    <PackageReference Include="System.Management" Version="9.0.9" />
+    <PackageReference Include="WpfScreenHelper" Version="2.1.1" />
+    <PackageReference Include="PInvoke.SHCore" Version="0.7.124" />
+  </ItemGroup>
+</Project>

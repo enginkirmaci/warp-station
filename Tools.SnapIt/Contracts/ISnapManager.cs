@@ -1,0 +1,29 @@
+using Tools.SnapIt.Common.Contracts;
+using Tools.SnapIt.Common.Entities;
+
+namespace Tools.SnapIt.Application.Contracts;
+
+public interface ISnapManager : IInitialize
+{
+	bool IsRunning { get; set; }
+
+	event GetStatus StatusChanged;
+
+	event ScreenLayoutLoadedEvent ScreenLayoutLoaded;
+
+	event LayoutChangedEvent LayoutChanged;
+
+	event ScreenChangedEvent ScreenChanged;
+
+	void ScreenChangedEvent();
+
+	void StartStop();
+}
+
+public delegate void GetStatus(bool isRunning);
+
+public delegate void LayoutChangedEvent(SnapScreen snapScreen, Layout layout);
+
+public delegate void ScreenLayoutLoadedEvent(IList<SnapScreen> snapScreens, IList<Layout> layouts);
+
+public delegate void ScreenChangedEvent(IList<SnapScreen> snapScreens);

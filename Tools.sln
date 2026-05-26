@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tools.HostFileProxyService"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DevTools", "DevTools\DevTools.csproj", "{D4E8F2A1-3B5C-4D6E-9F8A-7C0B1E2D3F4A}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tools.SnapIt", "Tools.SnapIt\Tools.SnapIt.csproj", "{A557FAD2-175F-44DA-967B-11B514ACB5BE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +52,14 @@ Global
 		{D4E8F2A1-3B5C-4D6E-9F8A-7C0B1E2D3F4A}.Release|Any CPU.Build.0 = Release|Any CPU
 		{D4E8F2A1-3B5C-4D6E-9F8A-7C0B1E2D3F4A}.Release|x64.ActiveCfg = Release|Any CPU
 		{D4E8F2A1-3B5C-4D6E-9F8A-7C0B1E2D3F4A}.Release|x64.Build.0 = Release|Any CPU
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Debug|Any CPU.Build.0 = Debug|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Debug|x64.ActiveCfg = Debug|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Debug|x64.Build.0 = Debug|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Release|Any CPU.ActiveCfg = Release|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Release|Any CPU.Build.0 = Release|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Release|x64.ActiveCfg = Release|x64
+		{A557FAD2-175F-44DA-967B-11B514ACB5BE}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
