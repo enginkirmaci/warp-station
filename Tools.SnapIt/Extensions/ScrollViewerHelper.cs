@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
-namespace Tools.SnapIt.Common.Extensions;
+namespace Tools.SnapIt.Extensions;
 
 public static class ScrollViewerHelper
 {

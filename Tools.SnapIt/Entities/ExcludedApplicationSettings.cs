@@ -1,4 +1,4 @@
-namespace Tools.SnapIt.Common.Entities;
+namespace Tools.SnapIt.Entities;
 
 public class ExcludedApplicationSettings
 {

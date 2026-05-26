@@ -5,11 +5,11 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace Tools.SnapIt.Common;
+namespace Tools.SnapIt;
 
 public static class Dev
 {
-	public static bool IsInDesignMode { get => DesignerProperties.GetIsInDesignMode(new System.Windows.DependencyObject()); }
+	public static bool IsInDesignMode { get => DesignerProperties.GetIsInDesignMode(new DependencyObject()); }
 
 #if DEBUG
 	public const bool IsActive = false;

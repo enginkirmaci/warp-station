@@ -1,16 +1,15 @@
 using System.Windows.Interop;
-using Tools.SnapIt.Application.Contracts;
-using Tools.SnapIt.Common;
 
-namespace Tools.SnapIt.Application;
+namespace Tools.SnapIt.Contracts;
 
 public class ScreenManager : IScreenManager
 {
     private const uint WM_DISPLAYCHANGE = 126;
     private const uint WM_SETTINGCHANGE = 26;
-    private static bool screenChanged = false;
+    private static volatile bool screenChanged;
 
     private ISnapManager? snapManager;
+    private HwndSource? hwndSource;
 
     public bool IsInitialized { get; private set; }
 
@@ -26,14 +25,20 @@ public class ScreenManager : IScreenManager
             return;
         }
 
-        HwndSource source = HwndSource.FromHwnd(new WindowInteropHelper(System.Windows.Application.Current.MainWindow).Handle);
-        source.AddHook(new HwndSourceHook(WndProc));
+        hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(System.Windows.Application.Current.MainWindow).Handle);
+        hwndSource.AddHook(new HwndSourceHook(WndProc));
 
         IsInitialized = true;
     }
 
     public void Dispose()
     {
+        if (hwndSource != null)
+        {
+            hwndSource.RemoveHook(new HwndSourceHook(WndProc));
+            hwndSource = null;
+        }
+
         IsInitialized = false;
     }
 

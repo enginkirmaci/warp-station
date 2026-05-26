@@ -1,9 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media.Animation;
-using Tools.SnapIt.Common.Entities;
-using Tools.SnapIt.Common.Extensions;
-using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Entities;
+using Tools.SnapIt.Extensions;
+using Tools.SnapIt.Graphics;
 using Point = System.Windows.Point;
 using Size = System.Windows.Size;
 
@@ -51,28 +50,13 @@ public class SnapFullOverlay : Control
         Visibility = Visibility.Hidden;
     }
 
-    public void OnHoverStyle(bool animate = true)
+    public void OnHoverStyle()
     {
-        DoubleAnimation animation = new DoubleAnimation
-        {
-            From = 0,
-            To = Theme.Opacity,
-            Duration = new Duration(TimeSpan.FromMilliseconds(160))
-        };
-
         var overlay = this.FindChild<Grid>("Overlay");
         if (overlay != null)
         {
             Visibility = Visibility.Visible;
-
-            if (animate)
-            {
-                overlay.BeginAnimation(OpacityProperty, animation);
-            }
-            else
-            {
-                overlay.Opacity = Theme.Opacity;
-            }
+            overlay.Opacity = Theme.Opacity;
         }
     }
 

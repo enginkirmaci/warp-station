@@ -1,6 +1,6 @@
-using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Entities;
 
-namespace Tools.SnapIt.Common.Graphics;
+namespace Tools.SnapIt.Graphics;
 
 public class Line
 {

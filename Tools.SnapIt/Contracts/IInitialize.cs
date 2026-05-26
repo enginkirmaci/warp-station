@@ -1,4 +1,4 @@
-namespace Tools.SnapIt.Common.Contracts;
+namespace Tools.SnapIt.Contracts;
 
 public interface IInitialize : IDisposable
 {

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Management;
 
-namespace Tools.SnapIt.Common.Extensions;
+namespace Tools.SnapIt.Extensions;
 
 public static class ProcessExtensions
 {

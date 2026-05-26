@@ -1,13 +1,8 @@
-using System.IO;
-using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
-using Tools.SnapIt.Application.Contracts;
-using Tools.SnapIt.Application;
-using Tools.SnapIt.Common.Applications;
-using Tools.SnapIt.Common.Extensions;
-using Tools.SnapIt.Common;
+using Tools.SnapIt.Applications;
+using Tools.SnapIt.Contracts;
 using Tools.SnapIt.Services;
-using Tools.SnapIt.Services.Contracts;
+using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt;
 
@@ -27,10 +22,8 @@ public partial class App
 
 		_ = services.AddSingleton<IGlobalHookService, GlobalHookService>();
 		_ = services.AddSingleton<IMouseService, MouseService>();
-		_ = services.AddSingleton<IKeyboardService, KeyboardService>();
 		_ = services.AddSingleton<IFileOperationService, FileOperationService>();
 		_ = services.AddSingleton<ISettingService, SettingService>();
-		_ = services.AddSingleton<IHotkeyService, HotkeyService>();
 		_ = services.AddSingleton<IWinApiService, WinApiService>();
 		_ = services.AddSingleton<IWindowsService, WindowsService>();
 		_ = services.AddSingleton<IWindowEventService, WindowEventService>();
