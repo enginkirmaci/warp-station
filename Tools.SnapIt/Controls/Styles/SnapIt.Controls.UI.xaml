@@ -1,6 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
 
 	<ResourceDictionary.MergedDictionaries>
+		<ResourceDictionary Source="SnapScreenViewer.xaml" />
 		<ResourceDictionary Source="SnapArea.xaml" />
 		<ResourceDictionary Source="SnapFullOverlay.xaml" />
 	</ResourceDictionary.MergedDictionaries>

@@ -1,7 +1,8 @@
-using Point = Tools.SnapIt.Graphics.Point;
-using Size = Tools.SnapIt.Graphics.Size;
+using Tools.SnapIt.Common.Graphics;
+using Point = Tools.SnapIt.Common.Graphics.Point;
+using Size = Tools.SnapIt.Common.Graphics.Size;
 
-namespace Tools.SnapIt.Entities;
+namespace Tools.SnapIt.Common.Entities;
 
 public class LayoutOverlay
 {

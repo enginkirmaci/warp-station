@@ -1,8 +1,8 @@
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
-using Point = Tools.SnapIt.Graphics.Point;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
+using Point = Tools.SnapIt.Common.Graphics.Point;
 
-namespace Tools.SnapIt.Math;
+namespace Tools.SnapIt.Common.Math;
 
 public class FindClosest
 {

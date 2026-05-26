@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Windows.Media;
 
-namespace Tools.SnapIt.Json;
+namespace Tools.SnapIt.Common.Converters.Json;
 
 public class ColorToStringJsonConverter : JsonConverter<Color>
 {

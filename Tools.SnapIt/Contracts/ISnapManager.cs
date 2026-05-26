@@ -1,6 +1,7 @@
-using Tools.SnapIt.Entities;
+using Tools.SnapIt.Common.Contracts;
+using Tools.SnapIt.Common.Entities;
 
-namespace Tools.SnapIt.Contracts;
+namespace Tools.SnapIt.Application.Contracts;
 
 public interface ISnapManager : IInitialize
 {

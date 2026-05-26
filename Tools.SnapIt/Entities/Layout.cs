@@ -1,8 +1,8 @@
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.Mvvm;
-using Size = Tools.SnapIt.Graphics.Size;
+using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Common.Mvvm;
+using Size = Tools.SnapIt.Common.Graphics.Size;
 
-namespace Tools.SnapIt.Entities;
+namespace Tools.SnapIt.Common.Entities;
 
 public class Layout : Bindable
 {

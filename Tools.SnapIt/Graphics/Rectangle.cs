@@ -1,4 +1,4 @@
-namespace Tools.SnapIt.Graphics;
+namespace Tools.SnapIt.Common.Graphics;
 
 public class Rectangle
 {

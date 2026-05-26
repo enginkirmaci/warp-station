@@ -1,6 +1,6 @@
 using Point = System.Drawing.Point;
 
-namespace Tools.SnapIt.Math.FindRectangle;
+namespace Tools.SnapIt.Common.Math.FindRectangle;
 
 internal static class Intersection
 {

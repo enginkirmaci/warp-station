@@ -1,6 +1,6 @@
-using Tools.SnapIt.Entities;
+using Tools.SnapIt.Common.Entities;
 
-namespace Tools.SnapIt.Events;
+namespace Tools.SnapIt.Common.Events;
 
 public delegate void SnappingCancelEvent();
 

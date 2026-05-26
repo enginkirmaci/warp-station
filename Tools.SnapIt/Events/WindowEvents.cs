@@ -1,7 +1,7 @@
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
 
-namespace Tools.SnapIt.Events;
+namespace Tools.SnapIt.Common.Events;
 
 public delegate void HideWindowsEvent();
 

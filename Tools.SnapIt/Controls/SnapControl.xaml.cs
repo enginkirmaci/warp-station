@@ -1,8 +1,9 @@
+using System.Windows;
 using System.Windows.Controls;
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Extensions;
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.Math.FindRectangle;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Extensions;
+using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Common.Math.FindRectangle;
 using Point = System.Windows.Point;
 using Size = System.Windows.Size;
 
@@ -10,360 +11,676 @@ namespace Tools.SnapIt.Controls;
 
 public partial class SnapControl : UserControl
 {
-	private readonly SnapBorder topBorder;
-	private readonly SnapBorder bottomBorder;
-	private readonly SnapBorder leftBorder;
-	private readonly SnapBorder rightBorder;
+    private readonly SnapBorder topBorder;
+    private readonly SnapBorder bottomBorder;
+    private readonly SnapBorder leftBorder;
+    private readonly SnapBorder rightBorder;
 
-	private double overlayMargin = 0;
-	private bool firstLoad = true;
-	private string currentName;
-	private int currentAreaPadding;
-	private List<Line> currentLayoutLines;
-	private List<LayoutOverlay> currentLayoutOverlays;
+    private double overlayMargin = 0;
+    private bool firstLoad = true;
+    private string currentName;
+    private int currentAreaPadding;
+    private List<Line> currentLayoutLines;
+    private List<LayoutOverlay> currentLayoutOverlays;
 
-	public int AreaPadding
-	{
-		get => (int)GetValue(AreaPaddingProperty);
-		set => SetValue(AreaPaddingProperty, value);
-	}
+    public int AreaCount { get; set; }
 
-	public static readonly DependencyProperty AreaPaddingProperty
-	 = DependencyProperty.Register("AreaPadding", typeof(int), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = 0,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(AreaPaddingPropertyChanged)
-	   });
+    public bool IsNumberVisible
+    {
+        get => (bool)GetValue(IsNumberVisibleProperty);
+        set => SetValue(IsNumberVisibleProperty, value);
+    }
 
-	private static void AreaPaddingPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.AreaPadding = (int)e.NewValue;
-		//snapControl.Layout.AreaPadding = snapControl.AreaPadding;
+    public static readonly DependencyProperty IsNumberVisibleProperty
+     = DependencyProperty.Register("IsNumberVisible", typeof(bool), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           DefaultValue = false,
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(IsNumberVisiblePropertyChanged)
+       });
 
-		var snapAreas = snapControl.FindChildren<SnapArea>();
-		foreach (var snapArea in snapAreas)
-		{
-			snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
-		}
-	}
+    public void HighlightArea(int number)
+    {
+        var snapAreas = this.FindChildren<SnapArea>();
+        foreach (var snapArea in snapAreas)
+        {
+            if (snapArea.AreaNumber == number)
+            {
+                snapArea.OnHoverStyle();
+            }
+            else
+            {
+                snapArea.NormalStyle();
+            }
+        }
 
-	public bool IsOverlayVisible
-	{
-		get => (bool)GetValue(IsOverlayVisibleProperty);
-		set => SetValue(IsOverlayVisibleProperty, value);
-	}
+        var overlays = this.FindChildren<SnapOverlay>();
+        foreach (var overlay in overlays)
+        {
+            if (overlay.AreaNumber == number)
+            {
+                overlay.OnHoverStyle();
+            }
+            else
+            {
+                overlay.NormalStyle();
+            }
+        }
+    }
 
-	public static readonly DependencyProperty IsOverlayVisibleProperty
-	 = DependencyProperty.Register("IsOverlayVisible", typeof(bool), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = true,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(IsOverlayVisiblePropertyChanged)
-	   });
+    private static void IsNumberVisiblePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        snapControl.IsNumberVisible = (bool)e.NewValue;
+    }
 
-	private static void IsOverlayVisiblePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.IsOverlayVisible = (bool)e.NewValue;
+    public int AreaPadding
+    {
+        get => (int)GetValue(AreaPaddingProperty);
+        set => SetValue(AreaPaddingProperty, value);
+    }
 
-		snapControl.MainOverlay.Visibility = snapControl.IsOverlayVisible ? Visibility.Visible : Visibility.Collapsed;
-	}
+    public static readonly DependencyProperty AreaPaddingProperty
+     = DependencyProperty.Register("AreaPadding", typeof(int), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           DefaultValue = 0,
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(AreaPaddingPropertyChanged)
+       });
 
-	public SnapAreaTheme Theme
-	{
-		get => (SnapAreaTheme)GetValue(ThemeProperty);
-		set => SetValue(ThemeProperty, value);
-	}
+    private static void AreaPaddingPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        snapControl.AreaPadding = (int)e.NewValue;
+        //snapControl.Layout.AreaPadding = snapControl.AreaPadding;
 
-	public static readonly DependencyProperty ThemeProperty
-	 = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-	   });
+        if (snapControl.IsDesignMode)
+        {
+            var snapAreas = snapControl.FindChildren<SnapAreaEditor>();
+            foreach (var snapArea in snapAreas)
+            {
+                snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
+            }
+        }
+        else
+        {
+            var snapAreas = snapControl.FindChildren<SnapArea>();
+            foreach (var snapArea in snapAreas)
+            {
+                snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
+            }
+        }
+    }
 
-	private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.Theme = (SnapAreaTheme)e.NewValue;
+    public bool IsOverlayVisible
+    {
+        get => (bool)GetValue(IsOverlayVisibleProperty);
+        set => SetValue(IsOverlayVisibleProperty, value);
+    }
 
-		if (snapControl.Theme != null)
-		{
-			var snapAreas = snapControl.FindChildren<SnapArea>();
-			foreach (var snapArea in snapAreas)
-			{
-				snapArea.Theme = snapControl.Theme;
-			}
-		}
-	}
+    public static readonly DependencyProperty IsOverlayVisibleProperty
+     = DependencyProperty.Register("IsOverlayVisible", typeof(bool), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           DefaultValue = true,
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(IsOverlayVisiblePropertyChanged)
+       });
 
-	public bool IsPreview
-	{
-		get => (bool)GetValue(IsPreviewProperty);
-		set => SetValue(IsPreviewProperty, value);
-	}
+    private static void IsOverlayVisiblePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        snapControl.IsOverlayVisible = (bool)e.NewValue;
 
-	public static readonly DependencyProperty IsPreviewProperty
-	 = DependencyProperty.Register("IsPreview", typeof(bool), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = false,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(IsPreviewPropertyChanged)
-	   });
+        snapControl.MainOverlay.Visibility = snapControl.IsOverlayVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
 
-	private static void IsPreviewPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.IsPreview = (bool)e.NewValue;
-	}
+    public SnapAreaTheme Theme
+    {
+        get => (SnapAreaTheme)GetValue(ThemeProperty);
+        set => SetValue(ThemeProperty, value);
+    }
 
-	public Layout Layout
-	{
-		get => (Layout)GetValue(LayoutProperty);
-		set => SetValue(LayoutProperty, value);
-	}
+    public static readonly DependencyProperty ThemeProperty
+     = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
+       });
 
-	public static readonly DependencyProperty LayoutProperty
-	 = DependencyProperty.Register("Layout", typeof(Layout), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(LayoutPropertyChanged)
-	   });
+    private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        snapControl.Theme = (SnapAreaTheme)e.NewValue;
 
-	private static void LayoutPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		var layout = (Layout)e.NewValue;
+        if (snapControl.Theme != null)
+        {
+            if (snapControl.IsDesignMode)
+            {
+                var snapAreas = snapControl.FindChildren<SnapAreaEditor>();
+                foreach (var snapArea in snapAreas)
+                {
+                    snapArea.Theme = snapControl.Theme;
+                }
+            }
+            else
+            {
+                var snapAreas = snapControl.FindChildren<SnapArea>();
+                foreach (var snapArea in snapAreas)
+                {
+                    snapArea.Theme = snapControl.Theme;
+                }
+            }
+        }
+    }
 
-		snapControl.LoadLayout(layout);
-	}
+    public bool IsDesignMode
+    {
+        get => (bool)GetValue(IsDesignModeProperty);
+        set => SetValue(IsDesignModeProperty, value);
+    }
 
-	public SnapControl()
-	{
-		InitializeComponent();
+    public static readonly DependencyProperty IsDesignModeProperty
+     = DependencyProperty.Register("IsDesignMode", typeof(bool), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(IsDesignModePropertyChanged)
+       });
 
-		Theme = new SnapAreaTheme();
+    private static void IsDesignModePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
 
-		MainGrid.Visibility = Visibility.Collapsed;
+        if ((bool)e.NewValue)
+        {
+            snapControl.MainGrid.Visibility = Visibility.Visible;
+        }
+    }
 
-		topBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		bottomBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		leftBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		rightBorder = new SnapBorder(this, Theme) { IsDraggable = false };
+    public bool IsPreview
+    {
+        get => (bool)GetValue(IsPreviewProperty);
+        set => SetValue(IsPreviewProperty, value);
+    }
 
-		SizeChanged += SnapControl_SizeChanged;
-	}
+    public static readonly DependencyProperty IsPreviewProperty
+     = DependencyProperty.Register("IsPreview", typeof(bool), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           DefaultValue = false,
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(IsPreviewPropertyChanged)
+       });
 
-	private void SnapControl_SizeChanged(object sender, SizeChangedEventArgs e)
-	{
-		AdoptToScreen();
-	}
+    private static void IsPreviewPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        snapControl.IsPreview = (bool)e.NewValue;
+    }
 
-	public void AddBorder(SnapBorder snapBorder)
-	{
-		MainGrid.Children.Add(snapBorder);
-		GenerateSnapAreas();
-	}
+    public Layout Layout
+    {
+        get => (Layout)GetValue(LayoutProperty);
+        set => SetValue(LayoutProperty, value);
+    }
 
-	public void LoadLayout(Layout layout)
-	{
-		if (firstLoad)
-		{
-			firstLoad = false;
-			currentName = layout.Name;
-			currentAreaPadding = layout.AreaPadding;
-			currentLayoutLines = new List<Line>(layout.LayoutLines);
-			currentLayoutOverlays = new List<LayoutOverlay>(layout.LayoutOverlays);
-		}
-		;
+    public static readonly DependencyProperty LayoutProperty
+     = DependencyProperty.Register("Layout", typeof(Layout), typeof(SnapControl),
+       new FrameworkPropertyMetadata()
+       {
+           BindsTwoWayByDefault = true,
+           PropertyChangedCallback = new PropertyChangedCallback(LayoutPropertyChanged)
+       });
 
-		MainGrid.Children.Clear();
-		MainFullOverlay.Children.Clear();
-		MainOverlay.Children.Clear();
+    private static void LayoutPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var snapControl = (SnapControl)d;
+        var layout = (Layout)e.NewValue;
 
-		MainGrid.Children.Add(topBorder);
-		MainGrid.Children.Add(bottomBorder);
-		MainGrid.Children.Add(leftBorder);
-		MainGrid.Children.Add(rightBorder);
+        snapControl.LoadLayout(layout);
+    }
 
-		if (layout != null)
-		{
-			AreaPadding = layout.AreaPadding;
+    public SnapControl()
+    {
+        InitializeComponent();
 
-			foreach (var layoutLine in layout.LayoutLines)
-			{
-				var snapBorder = new SnapBorder(this, Theme)
-				{
-					LayoutLine = layoutLine
-				};
+        Theme = new SnapAreaTheme();
 
-				AddBorder(snapBorder);
-			}
+        MainGrid.Visibility = Visibility.Collapsed;
 
-			if (layout.LayoutOverlays != null)
-			{
-				foreach (var layoutOverlay in layout.LayoutOverlays)
-				{
-					var fullOverlay = new SnapFullOverlay(Theme)
-					{
-						LayoutOverlay = layoutOverlay
-					};
+        topBorder = new SnapBorder(this, Theme) { IsDraggable = false };
+        bottomBorder = new SnapBorder(this, Theme) { IsDraggable = false };
+        leftBorder = new SnapBorder(this, Theme) { IsDraggable = false };
+        rightBorder = new SnapBorder(this, Theme) { IsDraggable = false };
 
-					var overlay = new SnapOverlay(Theme, fullOverlay)
-					{
-						LayoutOverlay = layoutOverlay,
-					};
+        SizeChanged += SnapControl_SizeChanged;
+        //LayoutUpdated += SnapControl_LayoutUpdated;
+    }
 
-					MainFullOverlay.Children.Add(fullOverlay);
-					MainOverlay.Children.Add(overlay);
-				}
-			}
-		}
+    //private void SnapControl_LayoutUpdated(object sender, System.EventArgs e)
+    //{
+    //    ResetBorderTool();
+    //}
 
-		AdoptToScreen();
-	}
+    private void SnapControl_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        AdoptToScreen();
+    }
 
-	private void AdoptToScreen()
-	{
-		topBorder.SetPos(new Point(0, -SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
-		bottomBorder.SetPos(new Point(0, MainGrid.ActualHeight - SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
-		leftBorder.SetPos(new Point(-SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
-		rightBorder.SetPos(new Point(MainGrid.ActualWidth - SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
+    public void AddBorder(SnapBorder snapBorder)
+    {
+        if (IsDesignMode)
+        {
+            var borderTool = new SnapBorderTool
+            {
+                SnapBorder = snapBorder
+            };
+            MainGrid.Children.Add(borderTool);
 
-		if (Layout != null && ActualWidth != 0)
-		{
-			var factorX = ActualWidth / Layout.Size.Width;
-			var factorY = ActualHeight / Layout.Size.Height;
+            snapBorder.SnapBorderTool = borderTool;
+        }
 
-			var borders = this.FindChildren<SnapBorder>();
-			foreach (var border in borders.Where(b => b.IsDraggable))
-			{
-				if (border.LayoutLine != null)
-				{
-					var newPoint = new Point
-					{
-						X = border.LayoutLine.Point.X * factorX,
-						Y = border.LayoutLine.Point.Y * factorY
-					};
-					var newSize = new Size
-					{
-						Width = border.LayoutLine.Size.Width * factorX,
-						Height = border.LayoutLine.Size.Height * factorY
-					};
+        MainGrid.Children.Add(snapBorder);
+        GenerateSnapAreas();
+    }
 
-					border.SetPos(newPoint, newSize, border.LayoutLine.SplitDirection);
-				}
+    public void ResetBorderTool()
+    {
+        var borderTools = MainGrid.FindChildren<SnapBorderTool>();
+        foreach (var borderTool in borderTools)
+        {
+            borderTool.ResetPos();
+        }
+    }
 
-				if (IsPreview)
-				{
-					AreaPadding = (int)(Layout.AreaPadding * factorX);
-				}
-			}
+    public void AddOverlay()
+    {
+        var overlayEditor = new SnapOverlayEditor(this, Theme);
 
-			var fullOverlays = this.FindChildren<SnapFullOverlay>();
-			foreach (var fullOverlay in fullOverlays)
-			{
-				if (fullOverlay.LayoutOverlay != null)
-				{
-					var newPoint = new Point
-					{
-						X = fullOverlay.LayoutOverlay.Point.X * factorX,
-						Y = fullOverlay.LayoutOverlay.Point.Y * factorY
-					};
-					var newSize = new Size
-					{
-						Width = fullOverlay.LayoutOverlay.Size.Width * factorX,
-						Height = fullOverlay.LayoutOverlay.Size.Height * factorY
-					};
+        var scale = 0.4;
+        var size = new Size
+        {
+            Width = ActualWidth * scale,
+            Height = ActualHeight * scale
+        };
+        var point = new Point
+        {
+            X = ((ActualWidth - size.Width) / 2) + overlayMargin,
+            Y = ((ActualHeight - size.Height) / 2) + overlayMargin
+        };
 
-					fullOverlay.SetPos(newPoint, newSize);
-				}
-			}
+        overlayMargin += 20;
 
-			var overlays = this.FindChildren<SnapOverlay>();
-			foreach (var overlay in overlays)
-			{
-				if (overlay.LayoutOverlay != null)
-				{
-					if (overlay.LayoutOverlay.MiniOverlay != null)
-					{
-						var miniPoint = new Point
-						{
-							X = overlay.LayoutOverlay.MiniOverlay.Point.X * factorX,
-							Y = overlay.LayoutOverlay.MiniOverlay.Point.Y * factorY
-						};
+        overlayEditor.SetPos(point, size, null);
 
-						var miniSize = new Size
-						{
-							Width = overlay.LayoutOverlay.MiniOverlay.Size.Width * factorX,
-							Height = overlay.LayoutOverlay.MiniOverlay.Size.Height * factorY
-						};
+        MainOverlay.Children.Add(overlayEditor);
 
-						overlay.SetPos(new LayoutOverlay { Point = miniPoint.Convert(), Size = miniSize.Convert() });
-					}
-					else
-					{
-						overlay.SetPos(null);
-					}
-				}
-			}
-		}
+        GenerateSnapOverlays();
+    }
 
-		GenerateSnapAreas();
-	}
+    public void RemoveOverlay(SnapOverlayEditor snapOverlayEditor)
+    {
+        if (snapOverlayEditor.LayoutOverlay != null)
+        {
+            var layout = Layout.LayoutOverlays.FirstOrDefault(l => l.Point == snapOverlayEditor.LayoutOverlay.Point && l.Size == snapOverlayEditor.LayoutOverlay.Size);
+            if (layout != null)
+            {
+                Layout.LayoutOverlays.Remove(layout);
+            }
+        }
 
-	public void GenerateSnapAreas()
-	{
-		MainAreas.Children.Clear();
+        MainOverlay.Children.Remove(snapOverlayEditor);
+    }
 
-		var borders = this.FindChildren<SnapBorder>();
+    public void SetLayoutSize()
+    {
+        Layout.Size = new Tools.SnapIt.Common.Graphics.Size((float)ActualWidth, (float)ActualHeight);
+    }
 
-		Math.FindRectangle.Settings settings = new Math.FindRectangle.Settings
-		{
-			Size = new System.Drawing.Size((int)ActualWidth, (int)ActualHeight),
-			Segments = []
-		};
+    public void Prepare(LayoutStatus status)
+    {
+        switch (status)
+        {
+            case LayoutStatus.Saved:
+                Layout.AreaPadding = AreaPadding;
+                Layout.Size = new Tools.SnapIt.Common.Graphics.Size((float)ActualWidth, (float)ActualHeight);
+                Layout.Status = LayoutStatus.NotSaved;
 
-		var newLayoutLines = new List<Line>();
+                break;
 
-		foreach (var border in borders.Where(b => b.IsDraggable))
-		{
-			var line = border.GetLine();
+            case LayoutStatus.Ignored:
+                Layout.Name = currentName;
+                Layout.AreaPadding = currentAreaPadding;
+                Layout.LayoutLines = currentLayoutLines;
+                Layout.LayoutOverlays = currentLayoutOverlays;
+                Layout.Status = LayoutStatus.Ignored;
 
-			newLayoutLines.Add(line);
+                break;
+        }
+    }
 
-			settings.Segments.Add(new Segment
-			{
-				Location = new System.Drawing.Point((int)line.Start.X, (int)line.Start.Y),
-				EndLocation = new System.Drawing.Point((int)line.End.X, (int)line.End.Y),
-				Orientation = line.SplitDirection
-			});
-		}
+    public void ClearLayout()
+    {
+        Layout.LayoutLines = [];
+        Layout.LayoutOverlays = [];
 
-		settings.Calculate();
+        LoadLayout(Layout);
+    }
 
-		var rectangles = settings.GetRectangles();
+    public void LoadLayout(Layout layout)
+    {
+        if (firstLoad)
+        {
+            firstLoad = false;
+            currentName = layout.Name;
+            currentAreaPadding = layout.AreaPadding;
+            currentLayoutLines = new List<Line>(layout.LayoutLines);
+            currentLayoutOverlays = new List<LayoutOverlay>(layout.LayoutOverlays);
+        };
 
-		foreach (var rectangle in rectangles)
-		{
-			var snapArea = new SnapArea()
-			{
-				Margin = new Thickness(rectangle.TopLeft.X, rectangle.TopLeft.Y, 0, 0),
-				Width = rectangle.Width,
-				Height = rectangle.Height,
-				SnapControl = this,
-				Theme = Theme,
-				AreaPadding = new Thickness(AreaPadding)
-			};
+        MainGrid.Children.Clear();
+        MainFullOverlay.Children.Clear();
+        MainOverlay.Children.Clear();
 
-			MainAreas.Children.Add(snapArea);
-		}
-	}
+        MainGrid.Children.Add(topBorder);
+        MainGrid.Children.Add(bottomBorder);
+        MainGrid.Children.Add(leftBorder);
+        MainGrid.Children.Add(rightBorder);
+
+        if (layout != null)
+        {
+            AreaPadding = layout.AreaPadding;
+
+            foreach (var layoutLine in layout.LayoutLines)
+            {
+                var snapBorder = new SnapBorder(this, Theme)
+                {
+                    LayoutLine = layoutLine
+                };
+
+                AddBorder(snapBorder);
+            }
+
+            if (IsDesignMode)
+            {
+                if (layout.LayoutOverlays != null)
+                {
+                    foreach (var layoutOverlay in layout.LayoutOverlays)
+                    {
+                        var overlayEditor = new SnapOverlayEditor(this, Theme)
+                        {
+                            LayoutOverlay = layoutOverlay,
+                            ShowMiniOverlay = true
+                        };
+
+                        MainOverlay.Children.Add(overlayEditor);
+                    }
+                }
+            }
+            else
+            {
+                if (layout.LayoutOverlays != null)
+                {
+                    foreach (var layoutOverlay in layout.LayoutOverlays)
+                    {
+                        var fullOverlay = new SnapFullOverlay(Theme)
+                        {
+                            LayoutOverlay = layoutOverlay
+                        };
+
+                        var overlay = new SnapOverlay(Theme, fullOverlay)
+                        {
+                            LayoutOverlay = layoutOverlay,
+                        };
+
+                        MainFullOverlay.Children.Add(fullOverlay);
+                        MainOverlay.Children.Add(overlay);
+                    }
+                }
+            }
+        }
+
+        AdoptToScreen();
+    }
+
+    private void AdoptToScreen()
+    {
+        AreaCount = 0;
+
+        topBorder.SetPos(new Point(0, -SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
+        bottomBorder.SetPos(new Point(0, MainGrid.ActualHeight - SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
+        leftBorder.SetPos(new Point(-SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
+        rightBorder.SetPos(new Point(MainGrid.ActualWidth - SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
+
+        if (Layout != null && ActualWidth != 0)
+        {
+            var factorX = ActualWidth / Layout.Size.Width;
+            var factorY = ActualHeight / Layout.Size.Height;
+
+            var borders = this.FindChildren<SnapBorder>();
+            foreach (var border in borders.Where(b => b.IsDraggable))
+            {
+                if (border.LayoutLine != null)
+                {
+                    var newPoint = new Point
+                    {
+                        X = border.LayoutLine.Point.X * factorX,
+                        Y = border.LayoutLine.Point.Y * factorY
+                    };
+                    var newSize = new Size
+                    {
+                        Width = border.LayoutLine.Size.Width * factorX,
+                        Height = border.LayoutLine.Size.Height * factorY
+                    };
+
+                    border.SetPos(newPoint, newSize, border.LayoutLine.SplitDirection);
+                }
+
+                if (IsPreview)
+                {
+                    AreaPadding = (int)(Layout.AreaPadding * factorX);
+                }
+            }
+
+            if (IsDesignMode)
+            {
+                var overlayEditors = this.FindChildren<SnapOverlayEditor>();
+                foreach (var overlayEditor in overlayEditors)
+                {
+                    if (overlayEditor.LayoutOverlay != null)
+                    {
+                        var newPoint = new Point
+                        {
+                            X = overlayEditor.LayoutOverlay.Point.X * factorX,
+                            Y = overlayEditor.LayoutOverlay.Point.Y * factorY
+                        };
+                        var newSize = new Size
+                        {
+                            Width = overlayEditor.LayoutOverlay.Size.Width * factorX,
+                            Height = overlayEditor.LayoutOverlay.Size.Height * factorY
+                        };
+
+                        if (overlayEditor.LayoutOverlay.MiniOverlay != null)
+                        {
+                            var miniPoint = !IsDesignMode ?
+                                new Point
+                                {
+                                    X = (overlayEditor.LayoutOverlay.MiniOverlay.Point.X) * factorX,
+                                    Y = (overlayEditor.LayoutOverlay.MiniOverlay.Point.Y) * factorY
+                                } : new Point
+                                {
+                                    X = (overlayEditor.LayoutOverlay.MiniOverlay.Point.X - overlayEditor.LayoutOverlay.Point.X) * factorX,
+                                    Y = (overlayEditor.LayoutOverlay.MiniOverlay.Point.Y - overlayEditor.LayoutOverlay.Point.Y) * factorY
+                                };
+
+                            var miniSize = new Size
+                            {
+                                Width = overlayEditor.LayoutOverlay.MiniOverlay.Size.Width * factorX,
+                                Height = overlayEditor.LayoutOverlay.MiniOverlay.Size.Height * factorY
+                            };
+
+                            overlayEditor.SetPos(newPoint, newSize, new LayoutOverlay { Point = miniPoint.Convert(), Size = miniSize.Convert() });
+                        }
+                        else
+                        {
+                            overlayEditor.SetPos(newPoint, newSize, null);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var fullOverlays = this.FindChildren<SnapFullOverlay>();
+                foreach (var fullOverlay in fullOverlays)
+                {
+                    if (fullOverlay.LayoutOverlay != null)
+                    {
+                        var newPoint = new Point
+                        {
+                            X = fullOverlay.LayoutOverlay.Point.X * factorX,
+                            Y = fullOverlay.LayoutOverlay.Point.Y * factorY
+                        };
+                        var newSize = new Size
+                        {
+                            Width = fullOverlay.LayoutOverlay.Size.Width * factorX,
+                            Height = fullOverlay.LayoutOverlay.Size.Height * factorY
+                        };
+
+                        fullOverlay.SetPos(newPoint, newSize);
+                    }
+                }
+
+                var overlays = this.FindChildren<SnapOverlay>();
+                foreach (var overlay in overlays)
+                {
+                    overlay.AreaNumber = AreaCount++;
+                    overlay.AreaNumberVisible = IsNumberVisible;
+
+                    if (overlay.LayoutOverlay != null)
+                    {
+                        if (overlay.LayoutOverlay.MiniOverlay != null)
+                        {
+                            var miniPoint = new Point
+                            {
+                                X = overlay.LayoutOverlay.MiniOverlay.Point.X * factorX,
+                                Y = overlay.LayoutOverlay.MiniOverlay.Point.Y * factorY
+                            };
+
+                            var miniSize = new Size
+                            {
+                                Width = overlay.LayoutOverlay.MiniOverlay.Size.Width * factorX,
+                                Height = overlay.LayoutOverlay.MiniOverlay.Size.Height * factorY
+                            };
+
+                            overlay.SetPos(new LayoutOverlay { Point = miniPoint.Convert(), Size = miniSize.Convert() });
+                        }
+                        else
+                        {
+                            overlay.SetPos(null);
+                        }
+                    }
+                }
+            }
+        }
+
+        GenerateSnapAreas();
+    }
+
+    public void GenerateSnapOverlays()
+    {
+        if (IsDesignMode)
+        {
+            var overlays = this.FindChildren<SnapOverlayEditor>();
+
+            var newLayoutOverlays = new List<LayoutOverlay>();
+
+            foreach (var overlay in overlays)
+            {
+                var layoutOverlay = overlay.GetOverlay();
+
+                newLayoutOverlays.Add(layoutOverlay);
+            }
+
+            if (Layout != null)
+            {
+                Layout.LayoutOverlays = newLayoutOverlays;
+            }
+        }
+    }
+
+    public void GenerateSnapAreas()
+    {
+        MainAreas.Children.Clear();
+
+        var borders = this.FindChildren<SnapBorder>();
+
+        Tools.SnapIt.Common.Math.FindRectangle.Settings settings = new Tools.SnapIt.Common.Math.FindRectangle.Settings
+        {
+            Size = new System.Drawing.Size((int)ActualWidth, (int)ActualHeight),
+            Segments = []
+        };
+
+        var newLayoutLines = new List<Line>();
+
+        foreach (var border in borders.Where(b => b.IsDraggable))
+        {
+            var line = border.GetLine();
+
+            newLayoutLines.Add(line);
+
+            settings.Segments.Add(new Segment
+            {
+                Location = new System.Drawing.Point((int)line.Start.X, (int)line.Start.Y),
+                EndLocation = new System.Drawing.Point((int)line.End.X, (int)line.End.Y),
+                Orientation = line.SplitDirection
+            });
+        }
+
+        if (IsDesignMode && Layout != null)
+        {
+            Layout.LayoutLines = newLayoutLines;
+        }
+
+        settings.Calculate();
+
+        var rectangles = settings.GetRectangles();
+
+        foreach (var rectangle in rectangles)
+        {
+            if (IsDesignMode)
+            {
+                var snapArea = new SnapAreaEditor()
+                {
+                    Margin = new Thickness(rectangle.TopLeft.X, rectangle.TopLeft.Y, 0, 0),
+                    Width = rectangle.Width,
+                    Height = rectangle.Height,
+                    SnapControl = this,
+                    Theme = Theme,
+                    AreaPadding = new Thickness(AreaPadding)
+                };
+
+                MainAreas.Children.Add(snapArea);
+            }
+            else
+            {
+                var snapArea = new SnapArea()
+                {
+                    Margin = new Thickness(rectangle.TopLeft.X, rectangle.TopLeft.Y, 0, 0),
+                    Width = rectangle.Width,
+                    Height = rectangle.Height,
+                    SnapControl = this,
+                    Theme = Theme,
+                    AreaNumber = AreaCount++,
+                    AreaNumberVisible = IsNumberVisible,
+                    AreaPadding = new Thickness(AreaPadding)
+                };
+
+                MainAreas.Children.Add(snapArea);
+            }
+        }
+    }
 }

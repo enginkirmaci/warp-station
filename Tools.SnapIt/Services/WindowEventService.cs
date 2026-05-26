@@ -1,6 +1,8 @@
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.Services.Abstractions;
+using Tools.SnapIt.Common;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
+
+using Tools.SnapIt.Services.Contracts;
 
 namespace Tools.SnapIt.Services;
 
@@ -146,7 +148,7 @@ public class WindowEventService : IWindowEventService
                 return;
             }
 
-            if (windowsService.IsExcludedApplication(windowTitle))
+            if (windowsService.IsExcludedApplication(windowTitle, false))
             {
                 Dev.Log($"Window excluded from cornering: {windowTitle}");
                 return;

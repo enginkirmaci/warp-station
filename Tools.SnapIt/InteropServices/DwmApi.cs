@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
-using Tools.SnapIt.Entities;
+using Tools.SnapIt.Common.Entities;
 
-namespace Tools.SnapIt.InteropServices;
+namespace Tools.SnapIt.Common.InteropServices;
 
 public class DwmApi
 {

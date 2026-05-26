@@ -1,8 +1,9 @@
 using System.Runtime.InteropServices;
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.InteropServices;
-using Tools.SnapIt.Services.Abstractions;
+using Tools.SnapIt.Common;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Common.InteropServices;
+using Tools.SnapIt.Services.Contracts;
 
 namespace Tools.SnapIt.Services;
 

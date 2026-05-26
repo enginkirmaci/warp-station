@@ -1,8 +1,8 @@
-using Tools.SnapIt.Entities;
+using Tools.SnapIt.Common.Entities;
 using Point = System.Drawing.Point;
 using Size = System.Drawing.Size;
 
-namespace Tools.SnapIt.Math.FindRectangle;
+namespace Tools.SnapIt.Common.Math.FindRectangle;
 
 // Cyotek Slice Rectangle Sample
 // Copyright (c) 2013 Cyotek. All Rights Reserved.

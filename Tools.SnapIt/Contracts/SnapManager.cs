@@ -1,8 +1,11 @@
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.Services.Abstractions;
+using Tools.SnapIt.Application.Contracts;
+using Tools.SnapIt.Common;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Controls;
+using Tools.SnapIt.Services.Contracts;
 
-namespace Tools.SnapIt.Contracts;
+namespace Tools.SnapIt.Application;
 
 public class SnapManager : ISnapManager
 {
@@ -11,8 +14,11 @@ public class SnapManager : ISnapManager
 	private readonly IWinApiService winApiService;
 	private readonly IScreenManager screenManager;
 	private readonly IMouseService mouseService;
+	private readonly IKeyboardService keyboardService;
 	private readonly IWindowsService windowsService;
 	private readonly IWindowEventService windowEventService;
+
+	private SnapLoadingWindow loadingWindow;
 
 	public bool IsInitialized { get; private set; }
 	public bool IsRunning { get; set; }
@@ -31,6 +37,7 @@ public class SnapManager : ISnapManager
 		IWinApiService winApiService,
 		IScreenManager screenManager,
 		IMouseService mouseService,
+		IKeyboardService keyboardService,
 		IWindowsService windowsService,
 		IWindowEventService windowEventService)
 	{
@@ -39,8 +46,11 @@ public class SnapManager : ISnapManager
 		this.winApiService = winApiService;
 		this.screenManager = screenManager;
 		this.mouseService = mouseService;
+		this.keyboardService = keyboardService;
 		this.windowsService = windowsService;
 		this.windowEventService = windowEventService;
+
+		keyboardService.SnapStartStop += KeyboardService_SnapStartStop;
 	}
 
 	public async Task InitializeAsync()
@@ -50,10 +60,13 @@ public class SnapManager : ISnapManager
 			return;
 		}
 
+		//globalHook = Hook.GlobalEvents();
+
 		await windowManager.InitializeAsync();
 		await screenManager.InitializeAsync();
 		await winApiService.InitializeAsync();
 		await settingService.InitializeAsync();
+		await keyboardService.InitializeAsync();
 		await mouseService.InitializeAsync();
 		await windowsService.InitializeAsync();
 		await windowEventService.InitializeAsync();
@@ -68,6 +81,10 @@ public class SnapManager : ISnapManager
 
 		mouseService.MoveWindow += MoveWindow;
 		mouseService.SnappingCancelled += SnappingCancelled;
+
+		keyboardService.MoveWindow += MoveWindow;
+		keyboardService.SnappingCancelled += SnappingCancelled;
+		keyboardService.ChangeLayout += KeyboardService_ChangeLayout;
 
 		IsRunning = true;
 		StatusChanged?.Invoke(true);
@@ -99,6 +116,19 @@ public class SnapManager : ISnapManager
 		mouseService.Interrupt();
 	}
 
+	private void KeyboardService_SnapStartStop()
+	{
+		StartStop();
+	}
+
+	private void KeyboardService_ChangeLayout(SnapScreen snapScreen, Layout layout)
+	{
+		Dispose();
+		_ = InitializeAsync();
+
+		LayoutChanged?.Invoke(snapScreen, layout);
+	}
+
 	public void Dispose()
 	{
 		windowManager.Dispose();
@@ -107,11 +137,14 @@ public class SnapManager : ISnapManager
 		mouseService.SnappingCancelled -= SnappingCancelled;
 		mouseService.Dispose();
 
-		screenManager.Dispose();
-		winApiService.Dispose();
-		settingService.Dispose();
-		windowsService.Dispose();
-		windowEventService.Dispose();
+		keyboardService.MoveWindow -= MoveWindow;
+		keyboardService.SnappingCancelled -= SnappingCancelled;
+		//keyboardService.SnapStartStop -= KeyboardService_SnapStartStop;
+		windowEventService.StopMonitoring();
+		keyboardService.ChangeLayout -= KeyboardService_ChangeLayout;
+		keyboardService.Dispose();
+
+		keyboardService.SetSnappingStopped();
 
 		IsRunning = false;
 		StatusChanged?.Invoke(false);
@@ -135,11 +168,11 @@ public class SnapManager : ISnapManager
 	{
 		if (currentWindow != ActiveWindow.Empty)
 		{
-			if (rectangle != null && !rectangle.IsEmpty)
+			if (rectangle != null && !rectangle.Equals(Rectangle.Empty))
 			{
 				winApiService.GetWindowMargin(currentWindow, out Rectangle withMargin);
 
-				if (!withMargin.IsEmpty)
+				if (!withMargin.Equals(Rectangle.Empty))
 				{
 					var marginHorizontal = (currentWindow.Boundry.Width - withMargin.Width) / 2;
 					var systemMargin = new Rectangle
@@ -158,16 +191,17 @@ public class SnapManager : ISnapManager
 
 				if (isLeftClick)
 				{
-					_ = Task.Run(async () =>
+					new Thread(() =>
 					{
-						await Task.Delay(100);
+						Thread.Sleep(100);
+
 						winApiService.MoveWindow(currentWindow, rectangle);
 
 						if (!rectangle.Dpi.Equals(currentWindow?.Dpi))
 						{
 							winApiService.MoveWindow(currentWindow, rectangle);
 						}
-					});
+					}).Start();
 				}
 				else
 				{

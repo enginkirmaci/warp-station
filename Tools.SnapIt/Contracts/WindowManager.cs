@@ -1,26 +1,31 @@
+using Tools.SnapIt.Application.Contracts;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
 using Tools.SnapIt.Controls;
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
-using Tools.SnapIt.Services.Abstractions;
+using Tools.SnapIt.Services.Contracts;
 
-namespace Tools.SnapIt.Contracts;
+namespace Tools.SnapIt.Application;
 
 public class WindowManager : IWindowManager
 {
 	private readonly ISettingService settingService;
 	private readonly IWinApiService winApiService;
 	private readonly IMouseService mouseService;
+	private readonly IKeyboardService keyboardService;
 	private List<SnapWindow> snapWindows;
 	public bool IsInitialized { get; private set; }
 
 	public WindowManager(
 		ISettingService settingService,
 		IWinApiService winApiService,
-		IMouseService mouseService)
+		IMouseService mouseService,
+		IKeyboardService keyboardService
+		)
 	{
 		this.settingService = settingService;
 		this.winApiService = winApiService;
 		this.mouseService = mouseService;
+		this.keyboardService = keyboardService;
 	}
 
 	public async Task InitializeAsync()
@@ -33,10 +38,13 @@ public class WindowManager : IWindowManager
 		await settingService.InitializeAsync();
 		await winApiService.InitializeAsync();
 		await mouseService.InitializeAsync();
+		await keyboardService.InitializeAsync();
 
 		mouseService.HideWindows += MouseService_HideWindows;
 		mouseService.ShowWindowsIfNecessary += MouseService_ShowWindowsIfNecessary;
 		mouseService.SelectElementWithPoint += MouseService_SelectElementWithPoint;
+
+		keyboardService.GetSnapAreaBoundries += KeyboardService_GetSnapAreaBoundries;
 
 		snapWindows = [];
 
@@ -84,12 +92,20 @@ public class WindowManager : IWindowManager
 		});
 	}
 
+	public Dictionary<int, Rectangle> GetSnapAreaRectangles(SnapScreen snapScreen)
+	{
+		var window = snapWindows.FirstOrDefault(window => window.Screen.DeviceName == snapScreen.DeviceName);
+
+		if (window != null)
+		{
+			return window.SnapAreaRectangles;
+		}
+
+		return null;
+	}
+
 	public void Dispose()
 	{
-		mouseService.HideWindows -= MouseService_HideWindows;
-		mouseService.ShowWindowsIfNecessary -= MouseService_ShowWindowsIfNecessary;
-		mouseService.SelectElementWithPoint -= MouseService_SelectElementWithPoint;
-
 		if (snapWindows != null && snapWindows.Count != 0)
 		{
 			for (int i = 0; i < snapWindows.Count; i++)
@@ -141,4 +157,14 @@ public class WindowManager : IWindowManager
 		}
 
 		return result;
-	}}
+	}
+
+	private IList<Rectangle> KeyboardService_GetSnapAreaBoundries()
+	{
+		var boundries = new List<Rectangle>();
+
+		snapWindows.ForEach(window => boundries.AddRange(window.SnapAreaBoundries));
+
+		return boundries;
+	}
+}

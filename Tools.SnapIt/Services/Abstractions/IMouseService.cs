@@ -1,7 +1,7 @@
-using Tools.SnapIt.Contracts;
-using Tools.SnapIt.Events;
+using Tools.SnapIt.Common.Contracts;
+using Tools.SnapIt.Common.Events;
 
-namespace Tools.SnapIt.Services.Abstractions;
+namespace Tools.SnapIt.Services.Contracts;
 
 public interface IMouseService : IInitialize
 {

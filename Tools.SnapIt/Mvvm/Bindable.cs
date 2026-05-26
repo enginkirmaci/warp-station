@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace Tools.SnapIt.Mvvm;
+namespace Tools.SnapIt.Common.Mvvm;
 
 public class Bindable : INotifyPropertyChanged
 {

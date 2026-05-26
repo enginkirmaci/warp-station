@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
 
-namespace Tools.SnapIt.Extensions;
+namespace Tools.SnapIt.Common.Extensions;
 
 public static class DependencyObjectExtensions
 {

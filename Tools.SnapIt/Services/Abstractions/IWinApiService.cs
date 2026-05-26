@@ -1,8 +1,8 @@
-using Tools.SnapIt.Contracts;
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Common.Contracts;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Graphics;
 
-namespace Tools.SnapIt.Services.Abstractions;
+namespace Tools.SnapIt.Services.Contracts;
 
 public interface IWinApiService : IInitialize
 {

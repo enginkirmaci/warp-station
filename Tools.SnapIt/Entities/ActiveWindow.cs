@@ -1,6 +1,6 @@
-using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Common.Graphics;
 
-namespace Tools.SnapIt.Entities;
+namespace Tools.SnapIt.Common.Entities;
 
 public class ActiveWindow
 {

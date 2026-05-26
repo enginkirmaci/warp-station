@@ -1,361 +1,360 @@
 using System.Runtime.InteropServices;
 using SharpHook;
-using Tools.SnapIt.Entities;
-using Tools.SnapIt.Events;
-using Tools.SnapIt.Extensions;
-using Tools.SnapIt.Services.Abstractions;
-using MouseButton = Tools.SnapIt.Entities.MouseButton;
+using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Common.Events;
+using Tools.SnapIt.Common.Extensions;
+using Tools.SnapIt.Services.Contracts;
 
 namespace Tools.SnapIt.Services;
 
 public class MouseService : IMouseService
 {
-	private readonly ISettingService settingService;
-	private readonly IWinApiService winApiService;
-	private readonly IWindowsService windowsService;
-	private readonly IGlobalHookService globalHookService;
-	private bool isWindowDetected = false;
-	private bool isListening = false;
-	private bool isHoldingKey = false;
-	private bool holdKeyUsed = false;
-	private ActiveWindow activeWindow;
-	private SnapAreaInfo? snapAreaInfo;
-	private System.Drawing.Point startLocation;
+    private readonly ISettingService settingService;
+    private readonly IWinApiService winApiService;
+    private readonly IWindowsService windowsService;
+    private readonly IGlobalHookService globalHookService;
+    private bool isWindowDetected = false;
+    private bool isListening = false;
+    private bool isHoldingKey = false;
+    private bool holdKeyUsed = false;
+    private ActiveWindow activeWindow;
+    private SnapAreaInfo? snapAreaInfo;
+    private System.Drawing.Point startLocation;
 
-	public bool IsInitialized { get; private set; }
+    public bool IsInitialized { get; private set; }
 
-	public event HideWindowsEvent HideWindows;
+    public event HideWindowsEvent HideWindows;
 
-	public event MoveWindowEvent MoveWindow;
+    public event MoveWindowEvent MoveWindow;
 
-	public event SnappingCancelEvent SnappingCancelled;
+    public event SnappingCancelEvent SnappingCancelled;
 
-	public event ShowWindowsIfNecessaryEvent ShowWindowsIfNecessary;
+    public event ShowWindowsIfNecessaryEvent ShowWindowsIfNecessary;
 
-	public event SelectElementWithPointEvent SelectElementWithPoint;
+    public event SelectElementWithPointEvent SelectElementWithPoint;
 
-	public MouseService(
-		ISettingService settingService,
-		IWinApiService winApiService,
-		IWindowsService windowsService,
-		IGlobalHookService globalHookService)
-	{
-		this.settingService = settingService;
-		this.winApiService = winApiService;
-		this.windowsService = windowsService;
-		this.globalHookService = globalHookService;
-	}
+    public MouseService(
+        ISettingService settingService,
+        IWinApiService winApiService,
+        IWindowsService windowsService,
+        IGlobalHookService globalHookService)
+    {
+        this.settingService = settingService;
+        this.winApiService = winApiService;
+        this.windowsService = windowsService;
+        this.globalHookService = globalHookService;
+    }
 
-	public async Task InitializeAsync()
-	{
-		if (IsInitialized)
-		{
-			return;
-		}
+    public async Task InitializeAsync()
+    {
+        if (IsInitialized)
+        {
+            return;
+        }
 
-		await settingService.InitializeAsync();
-		await winApiService.InitializeAsync();
-		await windowsService.InitializeAsync();
-		await globalHookService.InitializeAsync();
+        await settingService.InitializeAsync();
+        await winApiService.InitializeAsync();
+        await windowsService.InitializeAsync();
+        await globalHookService.InitializeAsync();
 
-		if (globalHookService.Hook != null && settingService.Settings.EnableMouse)
-		{
-			globalHookService.Hook.MouseDragged += MouseMoveEvent;
-			globalHookService.Hook.MousePressed += MouseDownEvent;
-			globalHookService.Hook.MouseReleased += MouseUpEvent;
-			globalHookService.Hook.KeyPressed += Esc_KeyDown;
+        if (globalHookService.Hook != null && settingService.Settings.EnableMouse)
+        {
+            globalHookService.Hook.MouseDragged += MouseMoveEvent;
+            globalHookService.Hook.MousePressed += MouseDownEvent;
+            globalHookService.Hook.MouseReleased += MouseUpEvent;
+            globalHookService.Hook.KeyPressed += Esc_KeyDown;
 
-			if (settingService.Settings.EnableHoldKey)
-			{
-				globalHookService.Hook.KeyPressed += KeyDown;
-				globalHookService.Hook.KeyReleased += KeyUp;
-			}
-		}
+            if (settingService.Settings.EnableHoldKey)
+            {
+                globalHookService.Hook.KeyPressed += KeyDown;
+                globalHookService.Hook.KeyReleased += KeyUp;
+            }
+        }
 
-		isWindowDetected = false;
-		isListening = false;
+        isWindowDetected = false;
+        isListening = false;
 
-		IsInitialized = true;
-	}
+        IsInitialized = true;
+    }
 
-	public void Dispose()
-	{
-		if (globalHookService.Hook != null)
-		{
-			globalHookService.Hook.MouseDragged -= MouseMoveEvent;
-			globalHookService.Hook.MousePressed -= MouseDownEvent;
-			globalHookService.Hook.MouseReleased -= MouseUpEvent;
+    public void Dispose()
+    {
+        if (globalHookService.Hook != null)
+        {
+            globalHookService.Hook.MouseDragged -= MouseMoveEvent;
+            globalHookService.Hook.MousePressed -= MouseDownEvent;
+            globalHookService.Hook.MouseReleased -= MouseUpEvent;
 
-			if (settingService.Settings.EnableHoldKey)
-			{
-				globalHookService.Hook.KeyPressed -= KeyDown;
-				globalHookService.Hook.KeyReleased -= KeyUp;
-			}
-		}
+            if (settingService.Settings.EnableHoldKey)
+            {
+                globalHookService.Hook.KeyPressed -= KeyDown;
+                globalHookService.Hook.KeyReleased -= KeyUp;
+            }
+        }
 
-		IsInitialized = false;
-	}
+        IsInitialized = false;
+    }
 
-	public void Interrupt()
-	{
-		isListening = false;
-	}
+    public void Interrupt()
+    {
+        isListening = false;
+    }
 
-	private void MouseMoveEvent(object? sender, MouseHookEventArgs e)
-	{
-		if (isListening)
-		{
-			var p = WpfScreenHelper.MouseHelper.MousePosition;
+    private void MouseMoveEvent(object? sender, MouseHookEventArgs e)
+    {
+        if (isListening)
+        {
+            var p = WpfScreenHelper.MouseHelper.MousePosition;
 
-			if (HoldingKeyResult() && IsDelayDone(p))
-			{
-				if (!isWindowDetected)
-				{
-					holdKeyUsed = true;
+            if (HoldingKeyResult() && IsDelayDone(p))
+            {
+                if (!isWindowDetected)
+                {
+                    holdKeyUsed = true;
 
-					activeWindow = winApiService.GetActiveWindow();
-					activeWindow.Dpi = DpiHelper.GetDpiFromPoint((int)p.X, (int)p.Y);
+                    activeWindow = winApiService.GetActiveWindow();
+                    activeWindow.Dpi = DpiHelper.GetDpiFromPoint((int)p.X, (int)p.Y);
 
-					if (activeWindow?.Title != null && windowsService.IsExcludedApplication(activeWindow.Title))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DisableForFullscreen && winApiService.IsFullscreen(activeWindow))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DisableForModal && !winApiService.IsAllowedWindowStyle(activeWindow))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DragByTitle)
-					{
-						var titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
-						var FixedFrameBorderSize = GetSystemMetrics(SM_CYFIXEDFRAME);
+                    if (activeWindow?.Title != null && windowsService.IsExcludedApplication(activeWindow.Title, false))
+                    {
+                        isListening = false;
+                    }
+                    else if (settingService.Settings.DisableForFullscreen && winApiService.IsFullscreen(activeWindow))
+                    {
+                        isListening = false;
+                    }
+                    else if (settingService.Settings.DisableForModal && !winApiService.IsAllowedWindowStyle(activeWindow))
+                    {
+                        isListening = false;
+                    }
+                    else if (settingService.Settings.DragByTitle)
+                    {
+                        var titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+                        var FixedFrameBorderSize = GetSystemMetrics(SM_CYFIXEDFRAME);
 
-						if (activeWindow.Boundry.Top + titleBarHeight + 2 + FixedFrameBorderSize * 2 >= p.Y)
-						{
-							isWindowDetected = true;
-						}
-						else
-						{
-							isListening = false;
-						}
-					}
-					else
-					{
-						isWindowDetected = true;
-					}
-				}
-				else if (ShowWindowsIfNecessary != null && ShowWindowsIfNecessary.Invoke())
-				{
-				}
-				else
-				{
-					snapAreaInfo = SelectElementWithPoint?.Invoke((int)p.X, (int)p.Y);
+                        if (activeWindow.Boundry.Top + titleBarHeight + 2 + FixedFrameBorderSize * 2 >= p.Y)
+                        {
+                            isWindowDetected = true;
+                        }
+                        else
+                        {
+                            isListening = false;
+                        }
+                    }
+                    else
+                    {
+                        isWindowDetected = true;
+                    }
+                }
+                else if (ShowWindowsIfNecessary != null && ShowWindowsIfNecessary.Invoke())
+                {
+                }
+                else
+                {
+                    snapAreaInfo = SelectElementWithPoint?.Invoke((int)p.X, (int)p.Y);
 
-					if (snapAreaInfo?.Screen != null)
-					{
-						settingService.LatestActiveScreen = snapAreaInfo.Screen;
-					}
-				}
-			}
-		}
-	}
+                    if (snapAreaInfo?.Screen != null)
+                    {
+                        settingService.LatestActiveScreen = snapAreaInfo.Screen;
+                    }
+                }
+            }
+        }
+    }
 
-	private void MouseDownEvent(object? sender, MouseHookEventArgs e)
-	{
-		if (e.Data.Button == MouseButtonsMap(settingService.Settings.MouseButton))
-		{
-			globalHookService.Hook.MouseDragged += MouseMoveEvent;
+    private void MouseDownEvent(object? sender, MouseHookEventArgs e)
+    {
+        if (e.Data.Button == MouseButtonsMap(settingService.Settings.MouseButton))
+        {
+            globalHookService.Hook.MouseDragged += MouseMoveEvent;
 
-			activeWindow = ActiveWindow.Empty;
-			snapAreaInfo = SnapAreaInfo.Empty;
-			isWindowDetected = false;
-			isListening = true;
+            activeWindow = ActiveWindow.Empty;
+            snapAreaInfo = SnapAreaInfo.Empty;
+            isWindowDetected = false;
+            isListening = true;
 
-			startLocation = new System.Drawing.Point(e.Data.X, e.Data.Y);
-		}
-	}
+            startLocation = new System.Drawing.Point(e.Data.X, e.Data.Y);
+        }
+    }
 
-	private void MouseUpEvent(object? sender, MouseHookEventArgs e)
-	{
-		if (e.Data.Button == MouseButtonsMap(settingService.Settings.MouseButton) && isListening)
-		{
-			globalHookService.Hook.MouseDragged -= MouseMoveEvent;
+    private void MouseUpEvent(object? sender, MouseHookEventArgs e)
+    {
+        if (e.Data.Button == MouseButtonsMap(settingService.Settings.MouseButton) && isListening)
+        {
+            globalHookService.Hook.MouseDragged -= MouseMoveEvent;
 
-			isListening = false;
-			HideWindows?.Invoke();
+            isListening = false;
+            HideWindows?.Invoke();
 
-			MoveWindow?.Invoke(new SnapAreaInfo
-			{
-				ActiveWindow = activeWindow,
-				Rectangle = snapAreaInfo?.Rectangle
-			}, e.Data.Button == SharpHook.Data.MouseButton.Button1);
-		}
-	}
+            MoveWindow?.Invoke(new SnapAreaInfo
+            {
+                ActiveWindow = activeWindow,
+                Rectangle = snapAreaInfo?.Rectangle
+            }, e.Data.Button == SharpHook.Data.MouseButton.Button1);
+        }
+    }
 
-	private void Esc_KeyDown(object? sender, KeyboardHookEventArgs e)
-	{
-		if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcEscape)
-		{
-			SnappingCancelled?.Invoke();
-		}
-	}
+    private void Esc_KeyDown(object? sender, KeyboardHookEventArgs e)
+    {
+        if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcEscape)
+        {
+            SnappingCancelled?.Invoke();
+        }
+    }
 
-	private void KeyUp(object? sender, KeyboardHookEventArgs e)
-	{
-		switch (settingService.Settings.HoldKey)
-		{
-			case HoldKey.Control:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftControl || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightControl)
-				{
-					isHoldingKey = false;
-				}
+    private void KeyUp(object? sender, KeyboardHookEventArgs e)
+    {
+        switch (settingService.Settings.HoldKey)
+        {
+            case HoldKey.Control:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftControl || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightControl)
+                {
+                    isHoldingKey = false;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Alt:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftAlt || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightAlt)
-				{
-					isHoldingKey = false;
-				}
+            case HoldKey.Alt:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftAlt || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightAlt)
+                {
+                    isHoldingKey = false;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Shift:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftShift || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightShift)
-				{
-					isHoldingKey = false;
-				}
+            case HoldKey.Shift:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftShift || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightShift)
+                {
+                    isHoldingKey = false;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Win:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftMeta || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightMeta)
-				{
-					isHoldingKey = false;
+            case HoldKey.Win:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftMeta || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightMeta)
+                {
+                    isHoldingKey = false;
 
-					if (holdKeyUsed)
-					{
-						e.SuppressEvent = true;
-					}
-				}
+                    if (holdKeyUsed)
+                    {
+                        e.SuppressEvent = true;
+                    }
+                }
 
-				break;
-		}
+                break;
+        }
 
-		if (holdKeyUsed)
-		{
-			holdKeyUsed = false;
-		}
-	}
+        if (holdKeyUsed)
+        {
+            holdKeyUsed = false;
+        }
+    }
 
-	private void KeyDown(object? sender, KeyboardHookEventArgs e)
-	{
-		switch (settingService.Settings.HoldKey)
-		{
-			case HoldKey.Control:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftControl || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightControl)
-				{
-					isHoldingKey = true;
-				}
+    private void KeyDown(object? sender, KeyboardHookEventArgs e)
+    {
+        switch (settingService.Settings.HoldKey)
+        {
+            case HoldKey.Control:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftControl || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightControl)
+                {
+                    isHoldingKey = true;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Alt:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftAlt || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightAlt)
-				{
-					isHoldingKey = true;
-				}
+            case HoldKey.Alt:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftAlt || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightAlt)
+                {
+                    isHoldingKey = true;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Shift:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftShift || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightShift)
-				{
-					isHoldingKey = true;
-				}
+            case HoldKey.Shift:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftShift || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightShift)
+                {
+                    isHoldingKey = true;
+                }
 
-				break;
+                break;
 
-			case HoldKey.Win:
-				if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftMeta || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightMeta)
-				{
-					isHoldingKey = true;
-				}
+            case HoldKey.Win:
+                if (e.Data.KeyCode == SharpHook.Data.KeyCode.VcLeftMeta || e.Data.KeyCode == SharpHook.Data.KeyCode.VcRightMeta)
+                {
+                    isHoldingKey = true;
+                }
 
-				break;
-		}
-	}
+                break;
+        }
+    }
 
-	private bool IsDelayDone(Point endLocation)
-	{
-		if (settingService.Settings.EnableHoldKey)
-			return true;
+    private bool IsDelayDone(System.Windows.Point endLocation)
+    {
+        if (settingService.Settings.EnableHoldKey)
+            return true;
 
-		var move = System.Math.Abs(endLocation.X - startLocation.X) + System.Math.Abs(endLocation.Y - startLocation.Y);
-		return move > settingService.Settings.MouseDragDelay;
-	}
+        var move = Math.Abs(endLocation.X - startLocation.X) + Math.Abs(endLocation.Y - startLocation.Y);
+        return move > settingService.Settings.MouseDragDelay;
+    }
 
-	private SharpHook.Data.MouseButton MouseButtonsMap(MouseButton mouseButton)
-	{
-		switch (mouseButton)
-		{
-			case MouseButton.Right:
-				return SharpHook.Data.MouseButton.Button2;
+    private SharpHook.Data.MouseButton MouseButtonsMap(MouseButton mouseButton)
+    {
+        switch (mouseButton)
+        {
+            case MouseButton.Right:
+                return SharpHook.Data.MouseButton.Button2;
 
-			case MouseButton.Middle:
-				return SharpHook.Data.MouseButton.Button3;
+            case MouseButton.Middle:
+                return SharpHook.Data.MouseButton.Button3;
 
-			case MouseButton.XButton1:
-				return SharpHook.Data.MouseButton.Button4;
+            case MouseButton.XButton1:
+                return SharpHook.Data.MouseButton.Button4;
 
-			case MouseButton.XButton2:
-				return SharpHook.Data.MouseButton.Button5;
+            case MouseButton.XButton2:
+                return SharpHook.Data.MouseButton.Button5;
 
-			case MouseButton.Left:
-			default:
-				return SharpHook.Data.MouseButton.Button1;
-		}
-	}
+            case MouseButton.Left:
+            default:
+                return SharpHook.Data.MouseButton.Button1;
+        }
+    }
 
-	private bool HoldingKeyResult()
-	{
-		if (settingService.Settings.EnableHoldKey)
-		{
-			if (isHoldingKey)
-			{
-				switch (settingService.Settings.HoldKeyBehaviour)
-				{
-					case HoldKeyBehaviour.HoldToEnable:
-						return true;
+    private bool HoldingKeyResult()
+    {
+        if (settingService.Settings.EnableHoldKey)
+        {
+            if (isHoldingKey)
+            {
+                switch (settingService.Settings.HoldKeyBehaviour)
+                {
+                    case HoldKeyBehaviour.HoldToEnable:
+                        return true;
 
-					case HoldKeyBehaviour.HoldToDisable:
-						SnappingCancelled?.Invoke();
+                    case HoldKeyBehaviour.HoldToDisable:
+                        SnappingCancelled?.Invoke();
 
-						return false;
-				}
-			}
-			else
-			{
-				switch (settingService.Settings.HoldKeyBehaviour)
-				{
-					case HoldKeyBehaviour.HoldToEnable:
-						return false;
+                        return false;
+                }
+            }
+            else
+            {
+                switch (settingService.Settings.HoldKeyBehaviour)
+                {
+                    case HoldKeyBehaviour.HoldToEnable:
+                        return false;
 
-					case HoldKeyBehaviour.HoldToDisable:
-						return true;
-				}
-			}
-		}
+                    case HoldKeyBehaviour.HoldToDisable:
+                        return true;
+                }
+            }
+        }
 
-		return true;
-	}
+        return true;
+    }
 
-	[DllImport("user32.dll")]
-	private static extern int GetSystemMetrics(int nIndex);
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 
-	private const int SM_CYCAPTION = 4;
-	private const int SM_CYFIXEDFRAME = 8;
+    private const int SM_CYCAPTION = 4;
+    private const int SM_CYFIXEDFRAME = 8;
 }

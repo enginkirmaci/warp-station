@@ -1,7 +1,7 @@
 using SharpHook;
-using Tools.SnapIt.Contracts;
+using Tools.SnapIt.Common.Contracts;
 
-namespace Tools.SnapIt.Services.Abstractions;
+namespace Tools.SnapIt.Services.Contracts;
 
 public interface IGlobalHookService : IInitialize
 {
