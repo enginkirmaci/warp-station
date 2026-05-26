@@ -1,11 +1,10 @@
 using System.Windows.Interop;
 using System.Windows.Media;
-using Tools.SnapIt.Common;
-using Tools.SnapIt.Common.Contracts;
-using Tools.SnapIt.Common.Entities;
-using Tools.SnapIt.Common.Extensions;
-using Tools.SnapIt.Common.Graphics;
-using Tools.SnapIt.Services.Contracts;
+using Tools.SnapIt.Contracts;
+using Tools.SnapIt.Entities;
+using Tools.SnapIt.Extensions;
+using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt.Controls;
 
@@ -15,7 +14,6 @@ public class SnapWindow : Window, IWindow
 	private readonly IWinApiService winApiService;
 	private SnapArea currentArea;
 	private SnapOverlay currentOverlay;
-	private bool animate = false;
 
 	public SnapScreen Screen { get; set; }
 	public List<Rectangle> SnapAreaBoundries { get; set; }
@@ -54,7 +52,6 @@ public class SnapWindow : Window, IWindow
 			Y = (float)(100 / (screen.ScaleFactor * 100))
 		};
 
-		animate = settingService.Settings.MouseHoverAnimation;
 	}
 
 	public new void Show()
@@ -107,16 +104,18 @@ public class SnapWindow : Window, IWindow
 			var snapAreas = snapControl.FindChildren<SnapArea>();
 			var snapOverlays = snapControl.FindChildren<SnapOverlay>();
 
+			var areaIndex = 0;
+
 			foreach (var snapOverlay in snapOverlays)
 			{
-				SnapAreaRectangles.Add(snapOverlay.AreaNumber, snapOverlay.ScreenSnapArea(Dpi));
+				SnapAreaRectangles.Add(areaIndex++, snapOverlay.ScreenSnapArea(Dpi));
 			}
 
 			foreach (var snapArea in snapAreas)
 			{
 				var rectangle = snapArea.ScreenSnapArea(Dpi);
 
-				SnapAreaRectangles.Add(snapArea.AreaNumber, rectangle);
+				SnapAreaRectangles.Add(areaIndex++, rectangle);
 				SnapAreaBoundries.Add(rectangle);
 			}
 
@@ -149,17 +148,17 @@ public class SnapWindow : Window, IWindow
 
 			if (dependencyObject is SnapArea && currentArea?.Name != ((SnapArea)dependencyObject).Name)
 			{
-				currentArea?.NormalStyle(animate);
+				currentArea?.NormalStyle();
 				currentOverlay?.NormalStyle();
 			}
 			else if (dependencyObject is not SnapArea)
 			{
-				currentArea?.NormalStyle(animate);
+				currentArea?.NormalStyle();
 			}
 
 			if (dependencyObject is SnapOverlay && currentOverlay?.Name != ((SnapOverlay)dependencyObject).Name)
 			{
-				currentArea?.NormalStyle(animate);
+				currentArea?.NormalStyle();
 				currentOverlay?.NormalStyle();
 			}
 			else if (dependencyObject is not SnapOverlay)
@@ -175,7 +174,7 @@ public class SnapWindow : Window, IWindow
 
 					if (!(currentArea != null && currentArea.Name == ((SnapArea)dependencyObject).Name))
 					{
-						snapArea.OnHoverStyle(animate);
+						snapArea.OnHoverStyle();
 					}
 
 					currentArea = snapArea;
@@ -190,7 +189,7 @@ public class SnapWindow : Window, IWindow
 
 					if (!(currentOverlay != null && currentOverlay?.Name == ((SnapOverlay)dependencyObject).Name))
 					{
-						snapOverlay.OnHoverStyle(animate);
+						snapOverlay.OnHoverStyle();
 					}
 
 					currentArea = null;

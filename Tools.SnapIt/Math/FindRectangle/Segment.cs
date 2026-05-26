@@ -1,7 +1,7 @@
-using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Entities;
 using Point = System.Drawing.Point;
 
-namespace Tools.SnapIt.Common.Math.FindRectangle;
+namespace Tools.SnapIt.Math.FindRectangle;
 
 public class Segment
 {

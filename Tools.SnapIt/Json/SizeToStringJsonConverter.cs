@@ -1,8 +1,7 @@
 using System.Text.Json;
-using Tools.SnapIt.Common.Graphics;
-using Size = Tools.SnapIt.Common.Graphics.Size;
+using Size = Tools.SnapIt.Graphics.Size;
 
-namespace Tools.SnapIt.Common.Converters.Json;
+namespace Tools.SnapIt.Json;
 
 public class SizeToStringJsonConverter : JsonConverter<Size>
 {

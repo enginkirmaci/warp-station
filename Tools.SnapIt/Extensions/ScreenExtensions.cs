@@ -1,8 +1,8 @@
 using PInvoke;
-using Tools.SnapIt.Common.Entities;
-using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Entities;
+using Tools.SnapIt.Graphics;
 
-namespace Tools.SnapIt.Common.Extensions;
+namespace Tools.SnapIt.Extensions;
 
 public class DpiHelper
 {

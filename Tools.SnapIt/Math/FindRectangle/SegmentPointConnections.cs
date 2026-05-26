@@ -1,6 +1,6 @@
 using System;
 
-namespace Tools.SnapIt.Common.Math.FindRectangle;
+namespace Tools.SnapIt.Math.FindRectangle;
 
 [Flags]
 public enum SegmentPointConnections : byte

@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Tools.SnapIt.Common.Contracts;
+namespace Tools.SnapIt.Contracts;
 
 public interface IWindow
 {

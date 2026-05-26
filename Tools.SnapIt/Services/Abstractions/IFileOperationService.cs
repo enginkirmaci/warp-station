@@ -1,21 +1,11 @@
-using Tools.SnapIt.Common.Contracts;
-using Tools.SnapIt.Common.Entities;
+using Tools.SnapIt.Contracts;
+using Tools.SnapIt.Entities;
 
-namespace Tools.SnapIt.Services.Contracts;
+namespace Tools.SnapIt.Services.Abstractions;
 
 public interface IFileOperationService : IInitialize
 {
-    Task SaveAsync<T>(T config);
+	Task<T> LoadAsync<T>() where T : new();
 
-    Task<T> LoadAsync<T>() where T : new();
-
-    void SaveLayout(Layout layout);
-
-    void ExportLayout(Layout layout, string layoutPath);
-
-    void DeleteLayout(Layout layout);
-
-    Layout ImportLayout(string layoutPath);
-
-    IList<Layout> GetLayouts();
+	IList<Layout> GetLayouts();
 }

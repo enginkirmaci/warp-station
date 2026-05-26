@@ -1,6 +1,6 @@
-using Tools.SnapIt.Common.Contracts;
+using Tools.SnapIt.Contracts;
 
-namespace Tools.SnapIt.Services.Contracts;
+namespace Tools.SnapIt.Services.Abstractions;
 
 public interface IWindowEventService : IInitialize
 {

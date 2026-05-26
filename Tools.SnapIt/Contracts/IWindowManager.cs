@@ -1,14 +1,11 @@
-using Tools.SnapIt.Common.Contracts;
-using Tools.SnapIt.Common.Entities;
-using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Entities;
+using Tools.SnapIt.Graphics;
 
-namespace Tools.SnapIt.Application.Contracts;
+namespace Tools.SnapIt.Contracts;
 
 public interface IWindowManager : IInitialize
 {
     void Show();
 
     void Hide();
-
-    Dictionary<int, Rectangle> GetSnapAreaRectangles(SnapScreen snapScreen);
 }

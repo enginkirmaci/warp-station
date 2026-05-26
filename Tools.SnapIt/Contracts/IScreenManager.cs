@@ -1,6 +1,4 @@
-using Tools.SnapIt.Common.Contracts;
-
-namespace Tools.SnapIt.Application.Contracts;
+namespace Tools.SnapIt.Contracts;
 
 public interface IScreenManager : IInitialize
 {

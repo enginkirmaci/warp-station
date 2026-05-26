@@ -1,6 +1,6 @@
 using Point = System.Drawing.Point;
 
-namespace Tools.SnapIt.Common.Math.FindRectangle;
+namespace Tools.SnapIt.Math.FindRectangle;
 
 public class SegmentPoint
 {

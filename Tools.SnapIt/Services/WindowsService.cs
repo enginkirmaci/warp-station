@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
-using Tools.SnapIt.Common.Entities;
-using Tools.SnapIt.Services.Contracts;
+using Tools.SnapIt.Entities;
+using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt.Services;
 
@@ -9,7 +9,6 @@ public class WindowsService : IWindowsService
     private readonly ISettingService settingService;
     private readonly IWinApiService winApiService;
     private List<ExcludedApplication> matchRulesForMouse;
-    private List<ExcludedApplication> matchRulesForKeyboard;
 
     public bool IsInitialized { get; private set; }
 
@@ -33,7 +32,6 @@ public class WindowsService : IWindowsService
         if (settingService.ExcludedApplicationSettings?.Applications != null)
         {
             matchRulesForMouse = settingService.ExcludedApplicationSettings.Applications.Where(i => i.Mouse).ToList();
-            matchRulesForKeyboard = settingService.ExcludedApplicationSettings.Applications.Where(i => i.Keyboard).ToList();
         }
 
         IsInitialized = true;
@@ -49,44 +47,40 @@ public class WindowsService : IWindowsService
         return false;
     }
 
-    public bool IsExcludedApplication(string Title, bool isKeyboard)
+    public bool IsExcludedApplication(string Title)
     {
-        if (settingService.ExcludedApplicationSettings?.Applications != null)
+        if (matchRulesForMouse != null)
         {
-            var matchRules = isKeyboard ? matchRulesForKeyboard : matchRulesForMouse;
-            if (matchRules != null)
+            var isMatched = false;
+            foreach (var rule in matchRulesForMouse)
             {
-                var isMatched = false;
-                foreach (var rule in matchRules)
+                if (string.IsNullOrWhiteSpace(rule.Keyword))
                 {
-                    if (string.IsNullOrWhiteSpace(rule.Keyword))
-                    {
-                        continue;
-                    }
-
-                    switch (rule.MatchRule)
-                    {
-                        case MatchRule.Contains:
-                            isMatched = Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase);
-                            break;
-
-                        case MatchRule.Exact:
-                            isMatched = Title == rule.Keyword;
-                            break;
-
-                        case MatchRule.Wildcard:
-                            isMatched = WildcardMatch(rule.Keyword, Title, false);
-                            break;
-                    }
-
-                    if (isMatched)
-                    {
-                        break;
-                    }
+                    continue;
                 }
 
-                return isMatched;
+                switch (rule.MatchRule)
+                {
+                    case MatchRule.Contains:
+                        isMatched = Title.Contains(rule.Keyword, StringComparison.OrdinalIgnoreCase);
+                        break;
+
+                    case MatchRule.Exact:
+                        isMatched = Title == rule.Keyword;
+                        break;
+
+                    case MatchRule.Wildcard:
+                        isMatched = WildcardMatch(rule.Keyword, Title, false);
+                        break;
+                }
+
+                if (isMatched)
+                {
+                    break;
+                }
             }
+
+            return isMatched;
         }
 
         return false;

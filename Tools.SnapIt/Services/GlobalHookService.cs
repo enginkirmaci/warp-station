@@ -1,5 +1,5 @@
 using SharpHook;
-using Tools.SnapIt.Services.Contracts;
+using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt.Services;
 

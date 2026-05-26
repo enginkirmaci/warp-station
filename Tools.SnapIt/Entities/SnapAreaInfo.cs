@@ -1,6 +1,6 @@
-using Tools.SnapIt.Common.Graphics;
+using Tools.SnapIt.Graphics;
 
-namespace Tools.SnapIt.Common.Entities;
+namespace Tools.SnapIt.Entities;
 
 public class SnapAreaInfo
 {

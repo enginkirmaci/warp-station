@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tools.SnapIt.Common.Helpers;
+namespace Tools.SnapIt.Helpers;
 
 public static class TaskEx
 {

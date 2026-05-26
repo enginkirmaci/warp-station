@@ -1,4 +1,4 @@
-namespace Tools.SnapIt.Common.Math.FindRectangle;
+namespace Tools.SnapIt.Math.FindRectangle;
 
 public class Rectangle
 {

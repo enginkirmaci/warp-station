@@ -18,7 +18,7 @@ public class SettingsService : ISettingsService
     {
         // For unpackaged WinUI 3 app, BaseDirectory is reliable
         string baseDirectory = AppContext.BaseDirectory;
-        _settingsFilePath = Path.Combine(baseDirectory, SettingsFileName);
+        _settingsFilePath = Path.Combine(baseDirectory, "settings", SettingsFileName);
     }
 
     public async Task<AppSettings> LoadSettingsAsync()

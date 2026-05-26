@@ -1,8 +1,7 @@
 using System.Text.Json;
-using Tools.SnapIt.Common.Graphics;
-using Point = Tools.SnapIt.Common.Graphics.Point;
+using Point = Tools.SnapIt.Graphics.Point;
 
-namespace Tools.SnapIt.Common.Converters.Json;
+namespace Tools.SnapIt.Json;
 
 public class PointToStringJsonConverter : JsonConverter<Point>
 {
