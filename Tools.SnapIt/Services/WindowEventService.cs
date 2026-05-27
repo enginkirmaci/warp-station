@@ -12,8 +12,9 @@ public class WindowEventService : IWindowEventService
     private readonly IWindowsService windowsService;
     private nint hookHandle;
     private WinApiService.WinEventDelegate hookDelegate;
-    private readonly ConcurrentDictionary<nint, bool> processedWindows = new();
+    private readonly HashSet<nint> processedWindows;
     private readonly object lockObject = new();
+    private CancellationTokenSource cts;
 
     [ThreadStatic]
     private static char[] titleBuffer;
@@ -35,6 +36,7 @@ public class WindowEventService : IWindowEventService
         this.settingService = settingService;
         this.winApiService = winApiService;
         this.windowsService = windowsService;
+        this.processedWindows = new HashSet<nint>();
     }
 
     public async Task InitializeAsync()
@@ -64,6 +66,7 @@ public class WindowEventService : IWindowEventService
         }
 
         hookDelegate = WinEventProc;
+        cts = new CancellationTokenSource();
 
         hookHandle = WinApiService.SetWinEventHook(
             WinApiService.EVENT_OBJECT_SHOW,
@@ -100,6 +103,24 @@ public class WindowEventService : IWindowEventService
             Dev.Log("Window event monitoring stopped");
         }
 
+        cts?.Cancel();
+        cts?.Dispose();
+        cts = null;
+
+        lock (lockObject)
+        {
+            processedWindows.Clear();
+        }
+    
+
+        if (hookHandle != nint.Zero)
+        {
+            WinApiService.UnhookWinEvent(hookHandle);
+            hookHandle = nint.Zero;
+            IsMonitoring = false;
+            Dev.Log("Window event monitoring stopped");
+        }
+
         processedWindows.Clear();
     }
 
@@ -120,9 +141,12 @@ public class WindowEventService : IWindowEventService
     {
         try
         {
-            if (!processedWindows.TryAdd(hwnd, true))
+            lock (lockObject)
             {
-                return;
+                if (!processedWindows.Add(hwnd))
+                {
+                    return;
+                }
             }
 
             await Task.Delay(100);
@@ -177,10 +201,20 @@ public class WindowEventService : IWindowEventService
         }
         finally
         {
+            var token = cts?.Token ?? CancellationToken.None;
             _ = Task.Run(async () =>
             {
-                await Task.Delay(30000);
-                processedWindows.TryRemove(hwnd, out _);
+                try
+                {
+                    await Task.Delay(30000, token);
+                    lock (lockObject)
+                    {
+                        processedWindows.Remove(hwnd);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
             });
         }
     }
