@@ -2,7 +2,7 @@ namespace Tools.SnapIt.Graphics;
 
 public class Point
 {
-    public static Point Empty = new(0, 0);
+    public static readonly Point Empty = new(0, 0);
 
     public float X { get; set; }
     public float Y { get; set; }

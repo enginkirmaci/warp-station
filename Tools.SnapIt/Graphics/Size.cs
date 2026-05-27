@@ -2,7 +2,7 @@ namespace Tools.SnapIt.Graphics;
 
 public class Size
 {
-    public static Size Empty = new(0, 0);
+    public static readonly Size Empty = new(0, 0);
     public float Width { get; set; }
     public float Height { get; set; }
 

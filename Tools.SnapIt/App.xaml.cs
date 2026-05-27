@@ -35,38 +35,46 @@ public partial class App
 
 	private async void OnStartup(object sender, StartupEventArgs e)
 	{
-		startupArgs = e.Args;
-
-		var snapManager = Services.GetRequiredService<ISnapManager>();
-		await snapManager.InitializeAsync();
-
-		var settingService = Services.GetRequiredService<ISettingService>();
-		await settingService.LoadSettingsAsync();
-
-		if (!AppLauncher.BypassSingleInstance(startupArgs))
+		try
 		{
-			if (settingService.Settings.RunAsAdmin && !Dev.SkipRunAsAdmin)
+			startupArgs = e.Args;
+
+			var snapManager = Services.GetRequiredService<ISnapManager>();
+			await snapManager.InitializeAsync();
+
+			var settingService = Services.GetRequiredService<ISettingService>();
+			await settingService.LoadSettingsAsync();
+
+			if (!AppLauncher.BypassSingleInstance(startupArgs))
 			{
-				if (AppLauncher.IsAdmin(startupArgs))
+				if (settingService.Settings.RunAsAdmin && !Dev.SkipRunAsAdmin)
 				{
-					if (!AppInstance.RegisterSingleInstance())
+					if (AppLauncher.IsAdmin(startupArgs))
+					{
+						if (!AppInstance.RegisterSingleInstance())
+						{
+							Shutdown();
+						}
+					}
+					else if (!Dev.IsActive)
+					{
+						Shutdown();
+						AppLauncher.RunAsAdmin();
+					}
+				}
+				else
+				{
+					if (!AppInstance.RegisterSingleInstance() && !Dev.IsActive)
 					{
 						Shutdown();
 					}
 				}
-				else if (!Dev.IsActive)
-				{
-					Shutdown();
-					AppLauncher.RunAsAdmin();
-				}
 			}
-			else
-			{
-				if (!AppInstance.RegisterSingleInstance() && !Dev.IsActive)
-				{
-					Shutdown();
-				}
-			}
+		}
+		catch (Exception ex)
+		{
+			Dev.Log($"Startup error: {ex}");
+			Shutdown();
 		}
 	}
 

@@ -44,12 +44,12 @@ public class Settings
 
     public SegmentPoint[] GetPoints()
     {
-        return Points != null ? Points.Values.ToArray() : new SegmentPoint[0];
+        return Points != null ? Points.Values.ToArray() : [];
     }
 
     public Rectangle[] GetRectangles()
     {
-        return Rectangles != null ? Rectangles.ToArray() : new Rectangle[0];
+        return Rectangles != null ? Rectangles.ToArray() : [];
     }
 
     private void CalculatePoints()
@@ -122,31 +122,47 @@ public class Settings
 
     private void FixPoints(List<Segment> segments)
     {
-        var pointXs = new List<int?>();
-        var pointYs = new List<int?>();
+        var pointXs = new List<int>(segments.Count * 2);
+        var pointYs = new List<int>(segments.Count * 2);
 
-        pointXs.AddRange(segments.Select(o => (int?)o.Location.X));
-        pointYs.AddRange(segments.Select(o => (int?)o.Location.Y));
-        pointXs.AddRange(segments.Select(o => (int?)o.EndLocation.X));
-        pointYs.AddRange(segments.Select(o => (int?)o.EndLocation.Y));
+        for (int i = 0; i < segments.Count; i++)
+        {
+            pointXs.Add(segments[i].Location.X);
+            pointYs.Add(segments[i].Location.Y);
+            pointXs.Add(segments[i].EndLocation.X);
+            pointYs.Add(segments[i].EndLocation.Y);
+        }
 
         var tolerance = 4;
 
-        foreach (var segment in segments.Skip(4))
+        for (int i = 4; i < segments.Count; i++)
         {
-            var locationX = pointXs.FirstOrDefault(p => NumberInRange(segment.Location.X, p.Value, tolerance));
-            var locationY = pointYs.FirstOrDefault(p => NumberInRange(segment.Location.Y, p.Value, tolerance));
+            var segment = segments[i];
+
+            int? locationX = null;
+            int? locationY = null;
+            int? endLocationX = null;
+            int? endLocationY = null;
+
+            for (int j = 0; j < pointXs.Count; j++)
+            {
+                if (!locationX.HasValue && NumberInRange(segment.Location.X, pointXs[j], tolerance))
+                    locationX = pointXs[j];
+                if (!locationY.HasValue && NumberInRange(segment.Location.Y, pointYs[j], tolerance))
+                    locationY = pointYs[j];
+                if (!endLocationX.HasValue && NumberInRange(segment.EndLocation.X, pointXs[j], tolerance))
+                    endLocationX = pointXs[j];
+                if (!endLocationY.HasValue && NumberInRange(segment.EndLocation.Y, pointYs[j], tolerance))
+                    endLocationY = pointYs[j];
+            }
 
             segment.Location = new Point(
-                locationX != null ? locationX.Value : segment.Location.X,
-                locationY != null ? locationY.Value : segment.Location.Y);
-
-            var endLocationX = pointXs.FirstOrDefault(p => NumberInRange(segment.EndLocation.X, p.Value, tolerance));
-            var endLocationY = pointYs.FirstOrDefault(p => NumberInRange(segment.EndLocation.Y, p.Value, tolerance));
+                locationX ?? segment.Location.X,
+                locationY ?? segment.Location.Y);
 
             segment.EndLocation = new Point(
-                endLocationX != null ? endLocationX.Value : segment.EndLocation.X,
-                endLocationY != null ? endLocationY.Value : segment.EndLocation.Y);
+                endLocationX ?? segment.EndLocation.X,
+                endLocationY ?? segment.EndLocation.Y);
         }
     }
 
@@ -161,22 +177,26 @@ public class Settings
         SegmentPoint[] verticalPoints;
 
         Rectangles = [];
-        horizontalPoints = Points.Values.OrderBy(p => p.X).ToArray();
-        verticalPoints = Points.Values.OrderBy(p => p.Y).ToArray();
+        var points = Points.Values;
+        horizontalPoints = points.OrderBy(p => p.X).ToArray();
+        verticalPoints = points.OrderBy(p => p.Y).ToArray();
 
-        foreach (SegmentPoint topLeft in Points.Values.Where(p => p.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Top)))
+        foreach (SegmentPoint topLeft in points)
         {
+            if (!topLeft.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Top))
+                continue;
+
             SegmentPoint topRight;
             SegmentPoint bottomLeft;
 
-            topRight = horizontalPoints.FirstOrDefault(p => p.X > topLeft.X && p.Y == topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Top));
-            bottomLeft = verticalPoints.FirstOrDefault(p => p.X == topLeft.X && p.Y > topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Bottom));
+            topRight = Array.Find(horizontalPoints, p => p.X > topLeft.X && p.Y == topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Top));
+            bottomLeft = Array.Find(verticalPoints, p => p.X == topLeft.X && p.Y > topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Bottom));
 
             if (topRight != null && bottomLeft != null)
             {
                 SegmentPoint bottomRight;
 
-                bottomRight = horizontalPoints.FirstOrDefault(p => p.X == topRight.X && p.Y == bottomLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Bottom));
+                bottomRight = Array.Find(horizontalPoints, p => p.X == topRight.X && p.Y == bottomLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Bottom));
 
                 if (bottomRight != null)
                 {

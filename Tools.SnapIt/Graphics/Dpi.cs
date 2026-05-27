@@ -15,20 +15,27 @@ public class Dpi
 
     public override bool Equals(Object obj)
     {
-        // Check for null and compare run-time types.
-        if ((obj == null) || !this.GetType().Equals(obj.GetType()))
+        if (obj is Dpi d)
         {
-            return false;
-        }
-        else
-        {
-            Dpi d = (Dpi)obj;
             return (X == d.X) && (Y == d.Y);
         }
+        return false;
     }
 
     public override int GetHashCode()
     {
         return (X.GetHashCode() << 2) ^ Y.GetHashCode();
+    }
+
+    public static bool operator ==(Dpi left, Dpi right)
+    {
+        if (left is null)
+            return right is null;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(Dpi left, Dpi right)
+    {
+        return !(left == right);
     }
 }

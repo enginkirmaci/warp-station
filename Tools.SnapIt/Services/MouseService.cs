@@ -14,10 +14,10 @@ public class MouseService : IMouseService
 	private readonly IWinApiService winApiService;
 	private readonly IWindowsService windowsService;
 	private readonly IGlobalHookService globalHookService;
-	private bool isWindowDetected = false;
-	private bool isListening = false;
-	private bool isHoldingKey = false;
-	private bool holdKeyUsed = false;
+	private volatile bool isWindowDetected;
+	private volatile bool isListening;
+	private volatile bool isHoldingKey;
+	private volatile bool holdKeyUsed;
 	private ActiveWindow activeWindow;
 	private SnapAreaInfo? snapAreaInfo;
 	private System.Drawing.Point startLocation;
@@ -85,12 +85,10 @@ public class MouseService : IMouseService
 			globalHookService.Hook.MouseDragged -= MouseMoveEvent;
 			globalHookService.Hook.MousePressed -= MouseDownEvent;
 			globalHookService.Hook.MouseReleased -= MouseUpEvent;
+			globalHookService.Hook.KeyPressed -= Esc_KeyDown;
 
-			if (settingService.Settings.EnableHoldKey)
-			{
-				globalHookService.Hook.KeyPressed -= KeyDown;
-				globalHookService.Hook.KeyReleased -= KeyUp;
-			}
+			globalHookService.Hook.KeyPressed -= KeyDown;
+			globalHookService.Hook.KeyReleased -= KeyUp;
 		}
 
 		IsInitialized = false;

@@ -9,6 +9,14 @@ namespace Tools.SnapIt.Services;
 public class WinApiService : IWinApiService
 {
 	private const int MAX_PATH = 260;
+	[ThreadStatic]
+	private static char[] titleBuffer;
+
+	private static char[] GetTitleBuffer()
+	{
+		titleBuffer ??= new char[257];
+		return titleBuffer;
+	}
 
 	public delegate void WinEventDelegate(nint hWinEventHook, uint eventType, nint hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
@@ -163,9 +171,8 @@ public class WinApiService : IWinApiService
 			Handle = PInvoke.User32.GetForegroundWindow()
 		};
 
-		var chars = 256;
-		var buff = new char[chars + 1];
-		var length = PInvoke.User32.GetWindowText(activeWindow.Handle, buff, chars);
+		var buff = GetTitleBuffer();
+		var length = PInvoke.User32.GetWindowText(activeWindow.Handle, buff, 256);
 		if (length > 0)
 		{
 			activeWindow.Title = new string(buff, 0, length);
@@ -176,7 +183,7 @@ public class WinApiService : IWinApiService
 			activeWindow.Boundry = new Rectangle(rct.left, rct.top, rct.right, rct.bottom);
 		}
 
-		if (activeWindow.Handle == nint.Zero || activeWindow.Boundry.Equals(Rectangle.Empty))
+		if (activeWindow.Handle == nint.Zero || activeWindow.Boundry.IsEmpty)
 			activeWindow = ActiveWindow.Empty;
 
 		return activeWindow;
@@ -194,8 +201,8 @@ public class WinApiService : IWinApiService
 			ptr,
 			PInvoke.User32.SystemParametersInfoFlags.None);
 
-		var currentWallpaper = new string(buff, 0, buff.Length);
-		return currentWallpaper.Substring(0, currentWallpaper.IndexOf('\0'));
+		var nullIndex = new string(buff).IndexOf('\0');
+		return nullIndex >= 0 ? new string(buff, 0, nullIndex) : new string(buff).TrimEnd('\0');
 	}
 
 	public void SetWindowCornerPreference(ActiveWindow activeWindow, DWM_WINDOW_CORNER_PREFERENCE preference)

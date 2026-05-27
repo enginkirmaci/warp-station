@@ -2,7 +2,7 @@ namespace Tools.SnapIt.Graphics;
 
 public class Color
 {
-    public static Color Empty = new(0, 0, 0, 0);
+    public static readonly Color Empty = new(0, 0, 0, 0);
 
     public byte R { get; set; }
 

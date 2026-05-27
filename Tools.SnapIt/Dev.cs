@@ -9,7 +9,9 @@ namespace Tools.SnapIt;
 
 public static class Dev
 {
-	public static bool IsInDesignMode { get => DesignerProperties.GetIsInDesignMode(new DependencyObject()); }
+	private static readonly bool isInDesignMode = DesignerProperties.GetIsInDesignMode(new DependencyObject());
+
+	public static bool IsInDesignMode => isInDesignMode;
 
 #if DEBUG
 	public const bool IsActive = false;

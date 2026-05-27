@@ -51,6 +51,11 @@ public class SnapArea : Control
 		snapArea.Theme = (SnapAreaTheme)e.NewValue;
 	}
 
+	public SnapArea()
+	{
+		Name = $"snaparea_{Guid.NewGuid():N}";
+	}
+
 	public void NormalStyle()
 	{
 		var area = this.FindChild<Grid>("Area");

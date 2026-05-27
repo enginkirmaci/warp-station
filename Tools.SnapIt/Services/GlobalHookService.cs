@@ -22,11 +22,11 @@ public class GlobalHookService : IGlobalHookService
 
         Hook = new SimpleGlobalHook();
 
-        _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             if (Hook != null && !Hook.IsRunning)
             {
-                Hook?.Run();
+                Hook.Run();
             }
         });
 

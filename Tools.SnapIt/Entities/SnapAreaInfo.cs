@@ -9,5 +9,5 @@ public class SnapAreaInfo
     public ActiveWindow ActiveWindow { get; set; }
     public SnapScreen Screen { get; set; }
 
-    public static readonly SnapAreaInfo Empty = new SnapAreaInfo();
+    public static readonly SnapAreaInfo Empty = new();
 }

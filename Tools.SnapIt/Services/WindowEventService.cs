@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Graphics;
 using Tools.SnapIt.Services.Abstractions;
@@ -11,8 +12,17 @@ public class WindowEventService : IWindowEventService
     private readonly IWindowsService windowsService;
     private nint hookHandle;
     private WinApiService.WinEventDelegate hookDelegate;
-    private readonly HashSet<nint> processedWindows;
+    private readonly ConcurrentDictionary<nint, bool> processedWindows = new();
     private readonly object lockObject = new();
+
+    [ThreadStatic]
+    private static char[] titleBuffer;
+
+    private static char[] GetTitleBuffer()
+    {
+        titleBuffer ??= new char[257];
+        return titleBuffer;
+    }
 
     public bool IsInitialized { get; private set; }
     public bool IsMonitoring { get; private set; }
@@ -25,7 +35,6 @@ public class WindowEventService : IWindowEventService
         this.settingService = settingService;
         this.winApiService = winApiService;
         this.windowsService = windowsService;
-        this.processedWindows = new HashSet<nint>();
     }
 
     public async Task InitializeAsync()
@@ -91,10 +100,7 @@ public class WindowEventService : IWindowEventService
             Dev.Log("Window event monitoring stopped");
         }
 
-        lock (lockObject)
-        {
-            processedWindows.Clear();
-        }
+        processedWindows.Clear();
     }
 
     private void WinEventProc(nint hWinEventHook, uint eventType, nint hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
@@ -110,29 +116,24 @@ public class WindowEventService : IWindowEventService
         }
     }
 
-    private void ProcessNewWindow(nint hwnd)
+    private async void ProcessNewWindow(nint hwnd)
     {
         try
         {
-            lock (lockObject)
+            if (!processedWindows.TryAdd(hwnd, true))
             {
-                if (processedWindows.Contains(hwnd))
-                {
-                    return;
-                }
-                processedWindows.Add(hwnd);
+                return;
             }
 
-            Thread.Sleep(100);
+            await Task.Delay(100);
 
             if (!PInvoke.User32.IsWindowVisible(hwnd))
             {
                 return;
             }
 
-            var chars = 256;
-            var buff = new char[chars + 1];
-            var length = PInvoke.User32.GetWindowText(hwnd, buff, chars);
+            var buff = GetTitleBuffer();
+            var length = PInvoke.User32.GetWindowText(hwnd, buff, 256);
 
             if (length == 0)
             {
@@ -163,7 +164,7 @@ public class WindowEventService : IWindowEventService
                 activeWindow.Boundry = new Rectangle(rct.left, rct.top, rct.right, rct.bottom);
             }
 
-            if (activeWindow.Boundry.Equals(Rectangle.Empty))
+            if (activeWindow.Boundry.IsEmpty)
             {
                 return;
             }
@@ -176,13 +177,10 @@ public class WindowEventService : IWindowEventService
         }
         finally
         {
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 await Task.Delay(30000);
-                lock (lockObject)
-                {
-                    processedWindows.Remove(hwnd);
-                }
+                processedWindows.TryRemove(hwnd, out _);
             });
         }
     }

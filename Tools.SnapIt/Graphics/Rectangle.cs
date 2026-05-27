@@ -2,14 +2,23 @@ namespace Tools.SnapIt.Graphics;
 
 public class Rectangle
 {
-    public static Rectangle Empty
-    { get { return CreateEmptyRect(); } }
+    private static readonly Rectangle empty = new Rectangle
+    {
+        Left = float.NaN,
+        Top = float.NaN,
+        Right = float.NaN,
+        Bottom = float.NaN,
+        IsEmptyFlag = true
+    };
 
-    public float Left;        // x position of upper-left corner
-    public float Top;         // y position of upper-left corner
-    public float Right;       // x position of lower-right corner
-    public float Bottom;      // y position of lower-right corner
+    public static ref readonly Rectangle Empty => ref empty;
+
+    public float Left;
+    public float Top;
+    public float Right;
+    public float Bottom;
     public Dpi Dpi;
+    private bool IsEmptyFlag;
 
     public Rectangle()
     {
@@ -76,18 +85,7 @@ public class Rectangle
         return Left <= center.X && center.X <= Right && Top <= center.Y && center.Y <= Bottom;
     }
 
-    public bool IsEmpty
-    {
-        get
-        {
-            return Width < 0;
-        }
-    }
-
-    private static Rectangle CreateEmptyRect()
-    {
-        return new Rectangle(float.PositiveInfinity, float.NegativeInfinity, float.PositiveInfinity, float.NegativeInfinity);
-    }
+    public bool IsEmpty => IsEmptyFlag;
 
     public Rectangle GetRectangle()
     {
@@ -119,16 +117,13 @@ public class Rectangle
 
     public override bool Equals(Object obj)
     {
-        // Check for null and compare run-time types.
-        if ((obj == null) || !this.GetType().Equals(obj.GetType()))
+        if (obj is null || GetType() != obj.GetType())
         {
             return false;
         }
-        else
-        {
-            Rectangle r = (Rectangle)obj;
-            return (Left == r.Left) && (Top == r.Top) && (Right == r.Right) && (Bottom == r.Bottom) && (Dpi.Equals(r.Dpi));
-        }
+
+        Rectangle r = (Rectangle)obj;
+        return (Left == r.Left) && (Top == r.Top) && (Right == r.Right) && (Bottom == r.Bottom) && (Dpi.Equals(r.Dpi));
     }
 
     public override int GetHashCode()

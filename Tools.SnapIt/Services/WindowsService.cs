@@ -9,6 +9,7 @@ public class WindowsService : IWindowsService
     private readonly ISettingService settingService;
     private readonly IWinApiService winApiService;
     private List<ExcludedApplication> matchRulesForMouse;
+    private Dictionary<string, Regex> regexCache = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsInitialized { get; private set; }
 
@@ -93,11 +94,15 @@ public class WindowsService : IWindowsService
 
     private bool WildcardMatch(string pattern, string input, bool caseSensitive = false)
     {
-        pattern = pattern.Replace(".", @"\.");
-        pattern = pattern.Replace("?", ".");
-        pattern = pattern.Replace("*", ".*?");
-        pattern = pattern.Replace(@"\", @"\\");
-        pattern = pattern.Replace(" ", @"\s");
-        return new Regex(pattern, caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase).IsMatch(input);
+        if (!regexCache.TryGetValue(pattern, out var regex))
+        {
+            var escaped = Regex.Escape(pattern);
+            escaped = escaped.Replace(@"\*", ".*?").Replace(@"\?", ".");
+            var opts = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
+            regex = new Regex(escaped, RegexOptions.Compiled | opts);
+            regexCache[pattern] = regex;
+        }
+
+        return regex.IsMatch(input);
     }
 }

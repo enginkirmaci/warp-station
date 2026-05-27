@@ -9,13 +9,15 @@ namespace Tools.SnapIt.Extensions;
 public static class ProcessExtensions
 {
     public static IList<Process> GetChildProcesses(this Process process)
-        => new ManagementObjectSearcher(
-                $"Select * From Win32_Process Where ParentProcessID={process.Id}")
-            .Get()
-            .Cast<ManagementObject>()
+    {
+        using var searcher = new ManagementObjectSearcher(
+                $"Select * From Win32_Process Where ParentProcessID={process.Id}");
+        using var results = searcher.Get();
+        return results.Cast<ManagementObject>()
             .Select(mo =>
                 Process.GetProcessById(Convert.ToInt32(mo["ProcessID"])))
             .ToList();
+    }
 
     public static string ProcessExecutablePath(this Process process)
     {
@@ -25,17 +27,23 @@ public static class ProcessExtensions
         }
         catch
         {
-            string query = "SELECT ExecutablePath, ProcessID FROM Win32_Process";
-            ManagementObjectSearcher searcher = new ManagementObjectSearcher(query);
-
-            foreach (ManagementObject item in searcher.Get())
+            using var searcher = new ManagementObjectSearcher("SELECT ExecutablePath, ProcessID FROM Win32_Process");
+            using var results = searcher.Get();
+            foreach (ManagementObject item in results)
             {
-                object id = item["ProcessID"];
-                object path = item["ExecutablePath"];
-
-                if (path != null && id.ToString() == process.Id.ToString())
+                try
                 {
-                    return path.ToString();
+                    object id = item["ProcessID"];
+                    object path = item["ExecutablePath"];
+
+                    if (path != null && id.ToString() == process.Id.ToString())
+                    {
+                        return path.ToString();
+                    }
+                }
+                finally
+                {
+                    ((IDisposable)item).Dispose();
                 }
             }
         }

@@ -70,7 +70,11 @@ public class SettingService : ISettingService
 
 	public void LinkScreenLayout(SnapScreen snapScreen, Layout layout)
 	{
-		SnapScreens.First(screen => screen.DeviceName == snapScreen.DeviceName).Layout = layout;
+		var screen = SnapScreens.FirstOrDefault(screen => screen.DeviceName == snapScreen.DeviceName);
+		if (screen != null)
+		{
+			screen.Layout = layout;
+		}
 
 		if (Settings.ScreensLayouts.ContainsKey(snapScreen.DeviceName))
 		{
@@ -97,14 +101,8 @@ public class SettingService : ISettingService
 		{
 			var display = displays.FirstOrDefault(display => display.DisplayName == screen.DeviceName);
 			var snapScreen = new SnapScreen(screen, display?.DevicePath);
-			var layoutGuid = Settings.ScreensLayouts.ContainsKey(snapScreen.DeviceName)
-				? Settings.ScreensLayouts[snapScreen.DeviceName] : string.Empty;
-
-			if (string.IsNullOrWhiteSpace(layoutGuid)) //fallback for older version
-			{
-				layoutGuid = Settings.ScreensLayouts.ContainsKey(snapScreen.DeviceName)
-				? Settings.ScreensLayouts[snapScreen.DeviceName] : string.Empty;
-			}
+			var layoutGuid = Settings.ScreensLayouts.TryGetValue(snapScreen.DeviceName, out var value)
+				? value : string.Empty;
 
 			if (!string.IsNullOrWhiteSpace(layoutGuid))
 			{

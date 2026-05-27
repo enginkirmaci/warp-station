@@ -5,33 +5,27 @@ namespace Tools.SnapIt.Entities;
 
 public class JsonOptions
 {
-	private static JsonSerializerOptions defaultOptions = null;
-
-	public static JsonSerializerOptions DefaultOptions
+	private static readonly Lazy<JsonSerializerOptions> defaultOptions = new(() =>
 	{
-		get
+		var options = new JsonSerializerOptions
 		{
-			if (defaultOptions == null)
-			{
-				defaultOptions = new JsonSerializerOptions
-				{
-					DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
-					DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-					IgnoreReadOnlyProperties = true,
-					PropertyNameCaseInsensitive = true,
-					ReadCommentHandling = JsonCommentHandling.Skip,
-					WriteIndented = true,
-					ReferenceHandler = ReferenceHandler.IgnoreCycles,
-					NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString
-				};
+			DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+			IgnoreReadOnlyProperties = true,
+			PropertyNameCaseInsensitive = true,
+			ReadCommentHandling = JsonCommentHandling.Skip,
+			WriteIndented = true,
+			ReferenceHandler = ReferenceHandler.IgnoreCycles,
+			NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString
+		};
 
-				defaultOptions.Converters.Add(new JsonStringEnumConverter());
-				defaultOptions.Converters.Add(new SizeToStringJsonConverter());
-				defaultOptions.Converters.Add(new PointToStringJsonConverter());
-				defaultOptions.Converters.Add(new ColorToStringJsonConverter());
-			}
+		options.Converters.Add(new JsonStringEnumConverter());
+		options.Converters.Add(new SizeToStringJsonConverter());
+		options.Converters.Add(new PointToStringJsonConverter());
+		options.Converters.Add(new ColorToStringJsonConverter());
 
-			return defaultOptions;
-		}
-	}
+		return options;
+	});
+
+	public static JsonSerializerOptions DefaultOptions => defaultOptions.Value;
 }

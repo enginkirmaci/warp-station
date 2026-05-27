@@ -9,5 +9,5 @@ public class ActiveWindow
     public Rectangle Boundry { get; set; }
     public Dpi Dpi { get; set; }
 
-    public static readonly ActiveWindow Empty = new ActiveWindow();
+    public static readonly ActiveWindow Empty = new();
 }

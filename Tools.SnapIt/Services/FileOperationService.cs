@@ -103,35 +103,31 @@ public class FileOperationService : IFileOperationService
 		}
 
 		var files = Directory.GetFiles(folderPath, "*.json");
+		var layouts = new List<Layout>();
 
-		var layouts = files
-			.AsParallel()
-			.Select(file =>
+		foreach (var file in files)
+		{
+			var fileLock = GetFileLock(file);
+			fileLock.Wait();
+			try
 			{
-				try
+				var layout = Helpers.Json.Deserialize<Layout>(File.ReadAllText(file));
+				if (layout != null)
 				{
-					var fileLock = GetFileLock(file);
-					fileLock.Wait();
-					try
-					{
-						var layout = Helpers.Json.Deserialize<Layout>(File.ReadAllText(file));
-						layout.Status = LayoutStatus.Saved;
-						return layout;
-					}
-					finally
-					{
-						fileLock.Release();
-					}
+					layout.Status = LayoutStatus.Saved;
+					layouts.Add(layout);
 				}
-				catch
-				{
-					return null;
-				}
-			})
-			.Where(layout => layout != null)
-			.OrderBy(layout => layout?.Name)
-			.ToList();
+			}
+			catch
+			{
+			}
+			finally
+			{
+				fileLock.Release();
+			}
+		}
 
+		layouts.Sort((a, b) => string.Compare(a?.Name, b?.Name, StringComparison.Ordinal));
 		return layouts;
 	}
 

@@ -47,6 +47,8 @@ public partial class SnapOverlay : UserControl
 		InitializeComponent();
 		DataContext = this;
 
+		Name = $"snapoverlay_{Guid.NewGuid():N}";
+
 		Theme = theme;
 		SnapFullOverlay = snapFullOverlay;
 

@@ -8,7 +8,6 @@ public class FindClosest
 {
     public static Rectangle? GetClosestRectangle(IList<Rectangle> rectangles, Rectangle current, MoveDirection direction)
     {
-        IEnumerable<Rectangle> rectangleInDirection = new List<Rectangle>();
         Rectangle directionRectangle = Rectangle.Empty;
 
         switch (direction)
@@ -58,8 +57,8 @@ public class FindClosest
                 break;
         }
 
-        rectangles.Remove(current);
-        rectangleInDirection = directionRectangle.GetCollisions(rectangles);
+        var remaining = rectangles.Where(r => !r.Equals(current)).ToList();
+        var rectangleInDirection = directionRectangle.GetCollisions(remaining);
 
         return rectangleInDirection
             .Select(rectangle => new { distance = GetDistance(rectangle.Center, current.Center), rectangle })

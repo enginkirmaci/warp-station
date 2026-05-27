@@ -36,7 +36,7 @@ public class SnapWindow : Window, IWindow
 		}
 
 		AllowsTransparency = true;
-		Background = new SolidColorBrush(Colors.Transparent);
+		Background = Brushes.Transparent;
 		ResizeMode = ResizeMode.NoResize;
 		ShowInTaskbar = false;
 		Width = screen.WorkingArea.Width;
@@ -51,7 +51,6 @@ public class SnapWindow : Window, IWindow
 			X = (float)(100 / (screen.ScaleFactor * 100)),
 			Y = (float)(100 / (screen.ScaleFactor * 100))
 		};
-
 	}
 
 	public new void Show()
@@ -168,11 +167,9 @@ public class SnapWindow : Window, IWindow
 
 			if (dependencyObject != null)
 			{
-				if (dependencyObject is SnapArea)
+				if (dependencyObject is SnapArea snapArea)
 				{
-					var snapArea = (SnapArea)dependencyObject;
-
-					if (!(currentArea != null && currentArea.Name == ((SnapArea)dependencyObject).Name))
+					if (!(currentArea != null && currentArea.Name == snapArea.Name))
 					{
 						snapArea.OnHoverStyle();
 					}
@@ -183,11 +180,9 @@ public class SnapWindow : Window, IWindow
 					return snapArea.ScreenSnapArea(Dpi);
 				}
 
-				if (dependencyObject is SnapOverlay)
+				if (dependencyObject is SnapOverlay snapOverlay)
 				{
-					var snapOverlay = (SnapOverlay)dependencyObject;
-
-					if (!(currentOverlay != null && currentOverlay?.Name == ((SnapOverlay)dependencyObject).Name))
+					if (!(currentOverlay != null && currentOverlay?.Name == snapOverlay.Name))
 					{
 						snapOverlay.OnHoverStyle();
 					}
