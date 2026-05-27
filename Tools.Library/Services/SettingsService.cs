@@ -55,6 +55,7 @@ public class SettingsService : ISettingsService
         settings.NugetLocal ??= new NugetLocalSettings();
         settings.Workspaces ??= new WorkspacesSettings();
         settings.ClipboardPassword ??= new ClipboardPasswordSettings();
+        settings.SnapIt ??= new SnapitSettings();
 
         lock (_lock)
         {

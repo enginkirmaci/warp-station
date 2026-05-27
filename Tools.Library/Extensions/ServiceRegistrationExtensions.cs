@@ -18,6 +18,7 @@ public static class ServiceRegistrationExtensions
     {
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IClipboardService, ClipboardService>();
+        services.AddSingleton<ISnapItService, SnapItService>();
 
         services.AddSingleton<IFocusTimerScheduler, FocusTimerScheduler>();
         services.AddSingleton<IFocusTimerStateManager, FocusTimerStateManager>();

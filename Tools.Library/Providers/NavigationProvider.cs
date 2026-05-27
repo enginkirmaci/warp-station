@@ -66,6 +66,13 @@ public static class NavigationProvider
                 "\uE916", // Timer24
                 "FocusTimerSettingsPage",
                 cardClickCommand
+            ),
+            CreateNavigationItem(
+                "SnapIt",
+                "Window snapping and management",
+                "\uE7F7", // ArrangeSendBackward24
+                "SnapItSettingsPage",
+                cardClickCommand
             )
         };
     }

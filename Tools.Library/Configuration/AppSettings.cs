@@ -29,6 +29,11 @@ public class AppSettings
     /// Gets or sets the Focus Timer settings.
     /// </summary>
     public FocusTimerSettings? FocusTimer { get; set; }
+
+    /// <summary>
+    /// Gets or sets the SnapIt settings.
+    /// </summary>
+    public SnapitSettings? SnapIt { get; set; }
 }
 
 /// <summary>
