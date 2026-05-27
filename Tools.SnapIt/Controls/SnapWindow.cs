@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Tools.SnapIt.Contracts;
@@ -100,8 +96,8 @@ public class SnapWindow : Window, IWindow
 	{
 		if (SnapAreaBoundries == null)
 		{
-			SnapAreaBoundries = new List<Rectangle>();
-			SnapAreaRectangles = new Dictionary<int, Rectangle>();
+			SnapAreaBoundries = [];
+			SnapAreaRectangles = [];
 
 			var snapControl = Content as SnapControl;
 			var snapAreas = snapControl.FindChildren<SnapArea>();
@@ -140,14 +136,13 @@ public class SnapWindow : Window, IWindow
 			var element = InputHitTest(Point2Window);
 
 			DependencyObject dependencyObject = null;
-			if (element is DependencyObject depObj)
+			if (element != null && element is DependencyObject)
 			{
-				var foundArea = FindParentOfType<SnapArea>(depObj);
-				var foundOverlay = FindParentOfType<SnapOverlay>(depObj);
-				if (foundArea != null)
-					dependencyObject = foundArea;
-				else
-					dependencyObject = foundOverlay;
+				dependencyObject = ((DependencyObject)element).FindParent<SnapArea>();
+				if (dependencyObject == null)
+				{
+					dependencyObject = ((DependencyObject)element).FindParent<SnapOverlay>();
+				}
 			}
 
 			if (dependencyObject is SnapArea && currentArea?.Name != ((SnapArea)dependencyObject).Name)
@@ -206,17 +201,5 @@ public class SnapWindow : Window, IWindow
 		}
 
 		return Rectangle.Empty;
-	}
-
-	private static T? FindParentOfType<T>(DependencyObject child) where T : DependencyObject
-	{
-		var current = child;
-		for (int i = 0; i < 5 && current != null; i++)
-		{
-			if (current is T result)
-				return result;
-			current = VisualTreeHelper.GetParent(current);
-		}
-		return null;
 	}
 }

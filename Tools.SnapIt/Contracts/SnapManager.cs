@@ -161,7 +161,6 @@ public class SnapManager : ISnapManager
 					_ = Task.Run(async () =>
 					{
 						await Task.Delay(100);
-
 						winApiService.MoveWindow(currentWindow, rectangle);
 
 						if (!rectangle.Dpi.Equals(currentWindow?.Dpi))
@@ -170,14 +169,14 @@ public class SnapManager : ISnapManager
 						}
 					});
 				}
-			}
-			else
-			{
-				winApiService.MoveWindow(currentWindow, rectangle);
-
-				if (!rectangle.Dpi.Equals(currentWindow?.Dpi))
+				else
 				{
 					winApiService.MoveWindow(currentWindow, rectangle);
+
+					if (!rectangle.Dpi.Equals(currentWindow?.Dpi))
+					{
+						winApiService.MoveWindow(currentWindow, rectangle);
+					}
 				}
 			}
 		}
