@@ -1,0 +1,75 @@
+<UserControl
+        x:Class="Tools.Views.Pages.NugetLocalPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="700" d:DesignHeight="500">
+
+        <Grid RowDefinitions="Auto,*" Margin="16">
+                <!-- Watch Folder Settings -->
+                <Border Grid.Row="0" Padding="16" Margin="0,0,0,12" CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <StackPanel Spacing="12">
+                                <TextBlock FontWeight="Bold" FontSize="16" Text="NuGet Local Feed" />
+
+                                <StackPanel Spacing="4">
+                                        <TextBlock Text="Watch Folder" FontWeight="Medium" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                                <TextBox Grid.Column="0" Margin="0,0,8,0"
+                                                         Text="{Binding WatchFolder, Mode=TwoWay}"
+                                                         Watermark="Select a folder to watch for .nupkg files..." />
+                                                <Button Grid.Column="1"
+                                                        Command="{Binding SelectFolderCommand}"
+                                                        CommandParameter="Watch"
+                                                        Content="Browse..." />
+                                        </Grid>
+                                </StackPanel>
+
+                                <StackPanel Spacing="4">
+                                        <TextBlock Text="Copy Folder" FontWeight="Medium" />
+                                        <TextBlock Text="{Binding ComputedCopyFolder}" Opacity="0.6" />
+                                </StackPanel>
+
+                                <StackPanel Spacing="4">
+                                        <TextBlock Text="Global Packages Folder" FontWeight="Medium" />
+                                        <TextBlock Text="{Binding GlobalPackagesFolder}" Opacity="0.6" />
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Button Command="{Binding WatchChangesCommand}"
+                                                CommandParameter="{Binding !WatchStarted}"
+                                                Content="{Binding WatchStarted, Converter={x:Static BoolConverters.Not}}" />
+                                        <Button Command="{Binding RegisterSourceCommand}"
+                                                Content="Register Source" />
+                                </StackPanel>
+                        </StackPanel>
+                </Border>
+
+                <!-- File List -->
+                <Border Grid.Row="1" Padding="16" CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <Grid RowDefinitions="Auto,*">
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                                        <TextBlock FontWeight="Bold" FontSize="14" Text="Package Files" />
+                                        <TextBlock Text="(" />
+                                        <TextBlock Text="{Binding Count}" />
+                                        <TextBlock Text=")" />
+                                </StackPanel>
+                                <ScrollViewer Grid.Row="1">
+                                        <ItemsControl ItemsSource="{Binding FileList}">
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                                <Border Padding="8,4" Margin="0,2" CornerRadius="4"
+                                                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                                                        <TextBlock Text="{Binding}" FontSize="13" />
+                                                                </Border>
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                </ScrollViewer>
+                        </Grid>
+                </Border>
+        </Grid>
+</UserControl>

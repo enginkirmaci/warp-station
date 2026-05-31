@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window x:Class="Tools.Views.Windows.WorkspaceSettingsDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Workspace Settings"
+    Width="500" Height="400">
+    <TextBlock Text="Workspace Settings"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center" />
+</Window>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window x:Class="Tools.Views.Windows.TimerNotificationWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Timer"
+    Width="400" Height="300">
+    <TextBlock Text="Timer Notification"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center" />
+</Window>

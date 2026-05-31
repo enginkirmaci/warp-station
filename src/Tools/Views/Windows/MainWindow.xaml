@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+	x:Class="Tools.Views.Windows.MainWindow"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	Title="Dev Tools"
+	Width="1200"
+	Height="800"
+	MinWidth="800"
+	MinHeight="600"
+	ExtendClientAreaToDecorationsHint="True">
+
+	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*">
+		<!--  Custom Title Bar  -->
+		<Border
+			Grid.Row="0"
+			Grid.ColumnSpan="2"
+			Background="#121225"
+			BorderBrush="#1E1E35"
+			BorderThickness="0,0,0,1"
+			IsHitTestVisible="True">
+			<DockPanel Margin="14,0" VerticalAlignment="Center">
+				<Image
+					Width="18"
+					Height="18"
+					Margin="0,0,10,0"
+					DockPanel.Dock="Left"
+					Source="avares://Tools/Assets/logo.png" />
+				<TextBlock
+					VerticalAlignment="Center"
+					DockPanel.Dock="Left"
+					FontSize="13"
+					FontWeight="SemiBold"
+					Foreground="#C8C8E0"
+					Text="DevTools" />
+				<Button
+					x:Name="BackButton"
+					Margin="16,0,0,0"
+					Click="BackButton_Click"
+					Content="←"
+					DockPanel.Dock="Left"
+					IsVisible="False" />
+			</DockPanel>
+		</Border>
+
+		<!--  Sidebar Navigation  -->
+		<Border
+			Grid.Row="1"
+			Grid.Column="0"
+			Padding="0,10,0,0"
+			Background="#151528"
+			BorderBrush="#1E1E35"
+			BorderThickness="0,0,1,0">
+			<ListBox
+				x:Name="NavigationListBox"
+				Padding="0"
+				Background="Transparent"
+				BorderThickness="0"
+				ItemsSource="{Binding MenuItems}"
+				SelectedIndex="0"
+				SelectionChanged="NavigationListBox_SelectionChanged">
+				<ListBox.ItemTemplate>
+					<DataTemplate>
+						<Panel>
+							<!--  Separator line  -->
+							<Border
+								Height="1"
+								Margin="16,8"
+								Background="#1E1E35"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualVisibilityConverter}, ConverterParameter=__separator__}" />
+							<!--  Section header  -->
+							<TextBlock
+								Margin="20,10,0,6"
+								FontSize="11"
+								FontWeight="SemiBold"
+								Foreground="#4A4A68"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualVisibilityConverter}, ConverterParameter=__header__}"
+								Text="{Binding Title}" />
+							<!--  Normal navigation item  -->
+							<Border
+								Margin="6,1"
+								Padding="12,8"
+								Background="Transparent"
+								CornerRadius="8"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualNotVisibilityConverter}, ConverterParameter=__separator__}">
+								<StackPanel Orientation="Horizontal" Spacing="12">
+									<!--  Colored icon  -->
+									<Border
+										Width="26"
+										Height="26"
+										VerticalAlignment="Center"
+										Background="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}"
+										CornerRadius="7"
+										Opacity="0.85">
+										<Path
+											Width="14"
+											Height="14"
+											Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+											Fill="White"
+											Stretch="Uniform" />
+									</Border>
+									<TextBlock
+										VerticalAlignment="Center"
+										FontSize="13"
+										Foreground="#B0B0C8"
+										Text="{Binding Title}" />
+								</StackPanel>
+							</Border>
+						</Panel>
+					</DataTemplate>
+				</ListBox.ItemTemplate>
+			</ListBox>
+		</Border>
+
+		<!--  Content Area  -->
+		<Grid Grid.Row="1" Grid.Column="1">
+			<Grid.RowDefinitions>
+				<RowDefinition Height="*" />
+				<RowDefinition Height="Auto" />
+			</Grid.RowDefinitions>
+
+			<ContentControl
+				x:Name="ContentArea"
+				Grid.Row="0"
+				Padding="24,16"
+				Content="{Binding CurrentView}" />
+
+			<!--  Info Bar  -->
+			<!--  InfoBar removed during migration  -->
+		</Grid>
+	</Grid>
+</Window>

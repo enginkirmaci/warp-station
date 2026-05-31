@@ -1,0 +1,203 @@
+<UserControl
+        x:Class="Tools.Views.Pages.DashboardPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:converters="clr-namespace:Tools.Library.Converters;assembly=Tools.Library"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        d:DesignHeight="600"
+        d:DesignWidth="900"
+        mc:Ignorable="d">
+
+        <UserControl.Resources>
+                <converters:BoolToColorConverter x:Key="BoolToColorConverter" />
+                <converters:StringToGeometryConverter x:Key="StringToGeometryConverter" />
+                <converters:StringToBrushConverter x:Key="StringToBrushConverter" />
+        </UserControl.Resources>
+
+        <Grid RowDefinitions="Auto,*">
+
+                <!--  Header Banner  -->
+                <Border Grid.Row="0" Padding="32,28,32,24">
+                        <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Offset="0" Color="#0F0F1A" />
+                                        <GradientStop Offset="0.5" Color="#16162A" />
+                                        <GradientStop Offset="1" Color="#1A1A3E" />
+                                </LinearGradientBrush>
+                        </Border.Background>
+                        <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        Spacing="6">
+                                        <TextBlock
+                                                FontSize="28"
+                                                FontWeight="Bold"
+                                                Foreground="#F0F0F8"
+                                                Text="Development Tools" />
+                                        <TextBlock
+                                                FontSize="13"
+                                                Foreground="#8A8AA0"
+                                                Text="Quick access to your development utilities" />
+
+                                        <!--  SnapIt Status  -->
+                                        <Border
+                                                Margin="0,12,0,0"
+                                                Padding="12,6"
+                                                HorizontalAlignment="Left"
+                                                Background="#14FFFFFF"
+                                                BorderBrush="#22FFFFFF"
+                                                BorderThickness="1"
+                                                CornerRadius="24">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                        <Border
+                                                                Width="8"
+                                                                Height="8"
+                                                                VerticalAlignment="Center"
+                                                                Background="{Binding SnapItRunning, Converter={StaticResource BoolToColorConverter}}"
+                                                                CornerRadius="4">
+                                                                <Border.Effect>
+                                                                        <DropShadowEffect
+                                                                                BlurRadius="6"
+                                                                                OffsetX="0"
+                                                                                OffsetY="0"
+                                                                                Opacity="0.6"
+                                                                                Color="{Binding SnapItRunning, Converter={StaticResource BoolToColorConverter}}" />
+                                                                </Border.Effect>
+                                                        </Border>
+                                                        <TextBlock
+                                                                VerticalAlignment="Center"
+                                                                FontSize="12"
+                                                                FontWeight="Medium"
+                                                                Foreground="#D0D0E0"
+                                                                Text="SnapIt" />
+                                                        <Border
+                                                                Width="1"
+                                                                Height="12"
+                                                                VerticalAlignment="Center"
+                                                                Background="#30FFFFFF" />
+                                                        <TextBlock
+                                                                VerticalAlignment="Center"
+                                                                FontSize="12"
+                                                                Foreground="#9090A8"
+                                                                Text="{Binding SnapItStatusText, Mode=OneWay}" />
+                                                </StackPanel>
+                                        </Border>
+                                </StackPanel>
+
+                                <!--  Decorative gear icon  -->
+                                <Path
+                                        Grid.Column="1"
+                                        Width="90"
+                                        Height="90"
+                                        Margin="0,0,8,0"
+                                        VerticalAlignment="Center"
+                                        Data="M12,15.5 A3.5,3.5 0 1,0 12,8.5 A3.5,3.5 0 1,0 12,15.5 Z M19.43,12.97 C19.47,12.65 19.5,12.33 19.5,12 C19.5,11.67 19.47,11.34 19.43,11.02 L21.54,9.37 C21.73,9.22 21.78,8.95 21.66,8.73 L19.66,5.27 C19.54,5.05 19.27,4.96 19.05,5.05 L16.56,6.05 C16.04,5.66 15.5,5.32 14.87,5.07 L14.49,2.42 C14.46,2.18 14.26,2 14.02,2 L9.98,2 C9.74,2 9.54,2.18 9.51,2.42 L9.13,5.07 C8.5,5.32 7.96,5.66 7.44,6.05 L4.95,5.05 C4.73,4.96 4.46,5.05 4.34,5.27 L2.34,8.73 C2.21,8.95 2.27,9.22 2.46,9.37 L4.57,11.02 C4.53,11.34 4.5,11.67 4.5,12 C4.5,12.33 4.53,12.65 4.57,12.97 L2.46,14.62 C2.27,14.77 2.21,15.04 2.34,15.26 L4.34,18.72 C4.46,18.94 4.73,19.03 4.95,18.94 L7.44,17.94 C7.96,18.34 8.5,18.68 9.13,18.93 L9.51,21.58 C9.54,21.82 9.74,22 9.98,22 L14.02,22 C14.26,22 14.46,21.82 14.49,21.58 L14.87,18.93 C15.5,18.67 16.04,18.34 16.56,17.94 L19.05,18.94 C19.27,19.03 19.54,18.94 19.66,18.72 L21.66,15.26 C21.78,15.04 21.73,14.77 21.54,14.62 L19.43,12.97 Z"
+                                        Fill="#252540"
+                                        Stretch="Uniform">
+                                        <Path.Effect>
+                                                <DropShadowEffect
+                                                        BlurRadius="20"
+                                                        OffsetX="0"
+                                                        OffsetY="4"
+                                                        Opacity="0.3"
+                                                        Color="#000000" />
+                                        </Path.Effect>
+                                </Path>
+                        </Grid>
+                </Border>
+
+                <!--  Dashboard Cards Grid  -->
+                <ScrollViewer
+                        Grid.Row="1"
+                        Padding="28,16,28,20"
+                        HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding DashboardCards}">
+                                <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                                <Button
+                                                        Width="280"
+                                                        Height="112"
+                                                        Margin="0,0,14,14"
+                                                        Padding="20,18"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        VerticalContentAlignment="Stretch"
+                                                        Background="#18182C"
+                                                        BorderBrush="#252540"
+                                                        BorderThickness="1"
+                                                        Command="{Binding Command}"
+                                                        CommandParameter="{Binding PageKey}"
+                                                        CornerRadius="16"
+                                                        Cursor="Hand">
+                                                        <Button.Styles>
+                                                                <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                                                                        <Setter Property="Background" Value="#1E1E38" />
+                                                                        <Setter Property="BorderBrush" Value="#353560" />
+                                                                </Style>
+                                                        </Button.Styles>
+                                                        <Button.Effect>
+                                                                <DropShadowEffect
+                                                                        BlurRadius="8"
+                                                                        OffsetX="0"
+                                                                        OffsetY="4"
+                                                                        Opacity="0.2"
+                                                                        Color="#000000" />
+                                                        </Button.Effect>
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                                                                <!--  Colored icon circle  -->
+                                                                <Border
+                                                                        Grid.Column="0"
+                                                                        Width="48"
+                                                                        Height="48"
+                                                                        VerticalAlignment="Top"
+                                                                        Background="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}"
+                                                                        CornerRadius="14"
+                                                                        Opacity="0.9">
+                                                                        <Border.Effect>
+                                                                                <DropShadowEffect
+                                                                                        BlurRadius="12"
+                                                                                        OffsetX="0"
+                                                                                        OffsetY="4"
+                                                                                        Opacity="0.25"
+                                                                                        Color="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}" />
+                                                                        </Border.Effect>
+                                                                        <Path
+                                                                                Width="24"
+                                                                                Height="24"
+                                                                                Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+                                                                                Fill="White"
+                                                                                Stretch="Uniform" />
+                                                                </Border>
+
+                                                                <!--  Text content  -->
+                                                                <StackPanel
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Top"
+                                                                        Spacing="5">
+                                                                        <TextBlock
+                                                                                FontSize="15"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="#F0F0F8"
+                                                                                Text="{Binding Title}"
+                                                                                TextWrapping="Wrap" />
+                                                                        <TextBlock
+                                                                                FontSize="12"
+                                                                                Foreground="#7A7A9A"
+                                                                                LineHeight="18"
+                                                                                Text="{Binding Subtitle}"
+                                                                                TextWrapping="Wrap" />
+                                                                </StackPanel>
+                                                        </Grid>
+                                                </Button>
+                                        </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                </ScrollViewer>
+        </Grid>
+</UserControl>

@@ -1,0 +1,159 @@
+<UserControl
+        x:Class="Tools.Views.Pages.EFToolsPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="900" d:DesignHeight="700">
+
+        <Grid RowDefinitions="Auto,*,*" Margin="16">
+
+                <!-- Header Card -->
+                <Border
+                        Grid.Row="0"
+                        Margin="0,0,0,12"
+                        Padding="12"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        TextWrapping="Wrap"
+                                        Text="Convert SQL CREATE TABLE statements to C# entity classes and repository implementations" />
+                                <Button
+                                        Grid.Column="1"
+                                        Height="36"
+                                        Command="{Binding ConvertSqlCommand}"
+                                        Classes="accent">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="▶" FontSize="14" />
+                                                <TextBlock Text="Convert to C#" />
+                                        </StackPanel>
+                                </Button>
+                        </Grid>
+                </Border>
+
+                <!-- Entity Conversion Section -->
+                <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
+                        <!-- SQL Input Card -->
+                        <Border
+                                Grid.Column="0"
+                                Margin="0,0,0,12"
+                                Padding="12"
+                                CornerRadius="8"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                <Grid RowDefinitions="Auto,*">
+                                        <TextBlock
+                                                Grid.Row="0"
+                                                Margin="0,0,0,6"
+                                                FontWeight="Bold"
+                                                FontSize="14"
+                                                Text="SQL Input" />
+                                        <TextBox
+                                                Grid.Row="1"
+                                                MinHeight="200"
+                                                AcceptsReturn="True"
+                                                FontFamily="Consolas,monospace"
+                                                Watermark="Enter SQL CREATE TABLE statement..."
+                                                Text="{Binding SqlInput, Mode=TwoWay}"
+                                                TextWrapping="Wrap" />
+                                </Grid>
+                        </Border>
+
+                        <!-- C# Output Card -->
+                        <Border
+                                Grid.Column="2"
+                                Margin="0,0,0,12"
+                                Padding="12"
+                                CornerRadius="8"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                <Grid RowDefinitions="Auto,*">
+                                        <Grid Grid.Row="0" Margin="0,0,0,6" ColumnDefinitions="*,Auto">
+                                                <TextBlock
+                                                        Grid.Column="0"
+                                                        FontWeight="Bold"
+                                                        FontSize="14"
+                                                        VerticalAlignment="Center"
+                                                        Text="C# Entity Class" />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Width="36" Height="36"
+                                                        Command="{Binding CopyToClipboardCommand}"
+                                                        ToolTip.Tip="Copy to clipboard">
+                                                        <TextBlock Text="📋" FontSize="16" />
+                                                </Button>
+                                        </Grid>
+                                        <ScrollViewer Grid.Row="1">
+                                                <TextBlock
+                                                        FontFamily="Consolas,monospace"
+                                                        FontSize="12"
+                                                        Text="{Binding CSharpOutput, Mode=OneWay}"
+                                                        TextWrapping="Wrap" />
+                                        </ScrollViewer>
+                                </Grid>
+                        </Border>
+                </Grid>
+
+                <!-- Repository Template Section -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,16,*">
+                        <!-- Template Input Card -->
+                        <Border
+                                Grid.Column="0"
+                                Margin="0,0,0,12"
+                                Padding="12"
+                                CornerRadius="8"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                <Grid RowDefinitions="Auto,*">
+                                        <TextBlock
+                                                Grid.Row="0"
+                                                Margin="0,0,0,6"
+                                                FontWeight="Bold"
+                                                FontSize="14"
+                                                Text="Repository Template" />
+                                        <TextBox
+                                                Grid.Row="1"
+                                                MinHeight="200"
+                                                AcceptsReturn="True"
+                                                FontFamily="Consolas,monospace"
+                                                Text="{Binding RepositoryTemplate, Mode=TwoWay}"
+                                                TextWrapping="Wrap" />
+                                </Grid>
+                        </Border>
+
+                        <!-- Repository Output Card -->
+                        <Border
+                                Grid.Column="2"
+                                Margin="0,0,0,12"
+                                Padding="12"
+                                CornerRadius="8"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                <Grid RowDefinitions="Auto,*">
+                                        <Grid Grid.Row="0" Margin="0,0,0,6" ColumnDefinitions="*,Auto">
+                                                <TextBlock
+                                                        Grid.Column="0"
+                                                        FontWeight="Bold"
+                                                        FontSize="14"
+                                                        VerticalAlignment="Center"
+                                                        Text="Generated Repository" />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Width="36" Height="36"
+                                                        Command="{Binding CopyRepositoryToClipboardCommand}"
+                                                        ToolTip.Tip="Copy to clipboard">
+                                                        <TextBlock Text="📋" FontSize="16" />
+                                                </Button>
+                                        </Grid>
+                                        <ScrollViewer Grid.Row="1">
+                                                <TextBlock
+                                                        FontFamily="Consolas,monospace"
+                                                        FontSize="12"
+                                                        Text="{Binding RepositoryOutput, Mode=OneWay}"
+                                                        TextWrapping="Wrap" />
+                                        </ScrollViewer>
+                                </Grid>
+                        </Border>
+                </Grid>
+        </Grid>
+</UserControl>

@@ -1,0 +1,35 @@
+<UserControl
+        x:Class="Tools.Views.Pages.SnapItSettingsPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="600" d:DesignHeight="400">
+
+        <StackPanel Spacing="16" Margin="16">
+                <Border Padding="24" CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <StackPanel Spacing="16">
+                                <TextBlock FontWeight="Bold" FontSize="16" Text="SnapIt Settings" />
+                                <CheckBox IsChecked="{Binding AutoStart, Mode=TwoWay}"
+                                          Content="Start SnapIt automatically on launch" />
+
+                                <Border Padding="12,8" CornerRadius="6"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Border Width="10" Height="10" CornerRadius="5"
+                                                        Background="{Binding StatusColor}" />
+                                                <TextBlock VerticalAlignment="Center"
+                                                           Text="{Binding StatusText}" />
+                                        </StackPanel>
+                                </Border>
+
+                                <Button Command="{Binding ToggleSnapItCommand}"
+                                        HorizontalAlignment="Left"
+                                        Classes="accent"
+                                        Content="{Binding ToggleButtonText}" />
+                        </StackPanel>
+                </Border>
+        </StackPanel>
+</UserControl>

@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Application
+	x:Class="Tools.App"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:conv="using:Tools.Library.Converters"
+	RequestedThemeVariant="Dark">
+	<Application.Styles>
+		<FluentTheme />
+	</Application.Styles>
+	<Application.Resources>
+		<!--  Boolean value resources used by pages/commands  -->
+		<x:Boolean x:Key="TrueValue">True</x:Boolean>
+		<x:Boolean x:Key="FalseValue">False</x:Boolean>
+
+		<!--  Converters  -->
+		<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
+		<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
+		<conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
+		<conv:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+		<conv:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+		<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
+		<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
+		<conv:BoolToColorConverter x:Key="BoolToColorConverter" />
+		<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
+		<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
+	</Application.Resources>
+</Application>

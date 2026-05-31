@@ -1,0 +1,100 @@
+<UserControl
+        x:Class="Tools.Views.Pages.FocusTimerSettingsPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="700" d:DesignHeight="500">
+
+        <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+                <!-- Timer Status Header -->
+                <Border Grid.Row="0" Padding="16" Margin="0,0,0,12" CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <StackPanel Spacing="8">
+                                <TextBlock FontWeight="Bold" FontSize="16" Text="Focus Timer" />
+                                <TextBlock Text="{Binding TimerStatusText}" FontSize="14" />
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="Break Pool:" FontWeight="Medium" />
+                                        <TextBlock Text="{Binding CurrentBreakPoolText}" />
+                                        <TextBlock Text="Breaks Today:" FontWeight="Medium" Margin="12,0,0,0" />
+                                        <TextBlock Text="{Binding BreaksTakenTodayText}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Command="{Binding StartTimerCommand}" Content="Start" Classes="accent" />
+                                        <Button Command="{Binding StopTimerCommand}" Content="Stop" />
+                                        <Button Command="{Binding ResetDailyStateCommand}" Content="Reset Daily" />
+                                </StackPanel>
+                        </StackPanel>
+                </Border>
+
+                <!-- Settings -->
+                <ScrollViewer Grid.Row="1">
+                        <StackPanel Spacing="12">
+                                <!-- Work Window -->
+                                <Border Padding="16" CornerRadius="8"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                        <StackPanel Spacing="8">
+                                                <TextBlock FontWeight="Bold" FontSize="14" Text="Work Window" />
+                                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <StackPanel Spacing="4">
+                                                                <TextBlock Text="Start Time" />
+                                                                <TextBox Text="{Binding WorkStartTime, Mode=TwoWay}" Width="100" />
+                                                        </StackPanel>
+                                                        <StackPanel Spacing="4">
+                                                                <TextBlock Text="End Time" />
+                                                                <TextBox Text="{Binding WorkEndTime, Mode=TwoWay}" Width="100" />
+                                                        </StackPanel>
+                                                </StackPanel>
+                                        </StackPanel>
+                                </Border>
+
+                                <!-- Break Goals -->
+                                <Border Padding="16" CornerRadius="8"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                        <StackPanel Spacing="8">
+                                                <TextBlock FontWeight="Bold" FontSize="14" Text="Break Goals" />
+                                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <StackPanel Spacing="4">
+                                                                <TextBlock Text="Daily Minutes" />
+                                                                <TextBox Text="{Binding TotalDailyBreakMinutes, Mode=TwoWay}" Width="80" />
+                                                        </StackPanel>
+                                                        <StackPanel Spacing="4">
+                                                                <TextBlock Text="Break Count" />
+                                                                <TextBox Text="{Binding DesiredBreakCount, Mode=TwoWay}" Width="80" />
+                                                        </StackPanel>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,4,0,0">
+                                                        <TextBlock Text="Duration:" />
+                                                        <TextBlock Text="{Binding CalculatedBreakDuration}" />
+                                                        <TextBlock Text="Interval:" Margin="12,0,0,0" />
+                                                        <TextBlock Text="{Binding CalculatedBreakInterval}" />
+                                                </StackPanel>
+                                        </StackPanel>
+                                </Border>
+
+                                <!-- Display Options -->
+                                <Border Padding="16" CornerRadius="8"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                        <StackPanel Spacing="8">
+                                                <TextBlock FontWeight="Bold" FontSize="14" Text="Display" />
+                                                <ComboBox ItemsSource="{Binding VisibilityModes}"
+                                                          SelectedIndex="{Binding SelectedVisibilityMode}" />
+                                                <ComboBox ItemsSource="{Binding CornerPositions}"
+                                                          SelectedIndex="{Binding SelectedCornerPosition}" />
+                                                <CheckBox IsChecked="{Binding PlaySoundOnNotification}"
+                                                          Content="Play sound on notification" />
+                                        </StackPanel>
+                                </Border>
+                        </StackPanel>
+                </ScrollViewer>
+
+                <!-- Show Timer Button -->
+                <Border Grid.Row="2" Padding="12" Margin="0,12,0,0">
+                        <Button Command="{Binding ShowTimerWindowCommand}"
+                                HorizontalAlignment="Center"
+                                Classes="accent"
+                                Content="Show Timer Window" />
+                </Border>
+        </Grid>
+</UserControl>

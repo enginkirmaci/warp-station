@@ -1,0 +1,87 @@
+<UserControl
+        x:Class="Tools.Views.Pages.CodeExecutePage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="800" d:DesignHeight="600">
+
+        <Grid RowDefinitions="Auto,*,3*" Margin="16">
+
+                <!-- Header Card -->
+                <Border
+                        Grid.Row="0"
+                        Margin="0,0,0,12"
+                        Padding="12"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        TextWrapping="Wrap"
+                                        Text="Write and execute C# code snippets instantly" />
+                                <Button
+                                        Grid.Column="1"
+                                        Height="36"
+                                        Command="{Binding ExecuteCommand}"
+                                        Classes="accent">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="▶" FontSize="14" />
+                                                <TextBlock Text="Execute Code" />
+                                        </StackPanel>
+                                </Button>
+                        </Grid>
+                </Border>
+
+                <!-- Code Input Card -->
+                <Border
+                        Grid.Row="1"
+                        Margin="0,0,0,12"
+                        Padding="12"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <Grid RowDefinitions="Auto,*">
+                                <TextBlock
+                                        Grid.Row="0"
+                                        Margin="0,0,0,8"
+                                        FontWeight="Bold"
+                                        FontSize="14"
+                                        Text="C# Code Input" />
+                                <TextBox
+                                        Grid.Row="1"
+                                        MinHeight="150"
+                                        AcceptsReturn="True"
+                                        FontFamily="Consolas,monospace"
+                                        FontSize="13"
+                                        Watermark="Enter C# code to execute..."
+                                        Text="{Binding ImmediateInput, Mode=TwoWay}"
+                                        TextWrapping="Wrap" />
+                        </Grid>
+                </Border>
+
+                <!-- Output Card -->
+                <Border
+                        Grid.Row="2"
+                        Padding="12"
+                        CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <Grid RowDefinitions="Auto,*">
+                                <TextBlock
+                                        Grid.Row="0"
+                                        Margin="0,0,0,8"
+                                        FontWeight="Bold"
+                                        FontSize="14"
+                                        Text="Output" />
+                                <ScrollViewer Grid.Row="1">
+                                        <TextBlock
+                                                FontFamily="Consolas,monospace"
+                                                FontSize="13"
+                                                Text="{Binding ImmediateOutput, Mode=OneWay}"
+                                                TextWrapping="Wrap" />
+                                </ScrollViewer>
+                        </Grid>
+                </Border>
+        </Grid>
+</UserControl>

@@ -1,0 +1,22 @@
+<UserControl
+        x:Class="Tools.Views.Pages.HostFileProxyPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="600" d:DesignHeight="400">
+
+        <StackPanel Spacing="16" Margin="16">
+                <Border Padding="24" CornerRadius="8"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        <StackPanel Spacing="12">
+                                <TextBlock FontWeight="Bold" FontSize="16" Text="Host File Proxy" />
+                                <TextBlock TextWrapping="Wrap"
+                                           Text="Host File Proxy service manages local hosts file entries for development environments." />
+                                <TextBlock TextWrapping="Wrap" Opacity="0.6"
+                                           Text="This functionality is currently being migrated to Avalonia." />
+                        </StackPanel>
+                </Border>
+        </StackPanel>
+</UserControl>
