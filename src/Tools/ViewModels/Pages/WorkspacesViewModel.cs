@@ -260,8 +260,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
             var settings = await _settingsService.GetSettingsAsync();
             var currentWorkspaceSettings = settings.Workspaces ?? new WorkspacesSettings();
 
-            var dialog = new Tools.Views.Windows.WorkspaceSettingsDialog();
-            dialog.Settings = currentWorkspaceSettings;
+            var dialog = new Tools.Views.Windows.WorkspaceSettingsDialog(currentWorkspaceSettings);
             await dialog.ShowDialog(App.MainWindow);
 
             settings.Workspaces = dialog.Settings;

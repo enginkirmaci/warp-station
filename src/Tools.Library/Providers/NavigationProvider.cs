@@ -115,12 +115,6 @@ public static class NavigationProvider
             {
                 Title = "---",
                 PageKey = "__separator__"
-            },
-            // Header marker
-            new NavigationItem
-            {
-                Title = "Tools",
-                PageKey = "__header__"
             }
         };
 

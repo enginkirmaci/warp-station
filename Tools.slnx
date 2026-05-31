@@ -1,0 +1,4 @@
+﻿<Solution>
+    <Project Path="src/Tools/Tools.csproj" />
+    <Project Path="src/Tools.Library/Tools.Library.csproj" />
+</Solution>

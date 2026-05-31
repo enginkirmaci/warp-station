@@ -21,7 +21,7 @@
 		<conv:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
 		<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
 		<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
-		<conv:BoolToColorConverter x:Key="BoolToColorConverter" />
+		<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
 		<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
 		<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
 	</Application.Resources>

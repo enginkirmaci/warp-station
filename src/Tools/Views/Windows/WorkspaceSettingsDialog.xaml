@@ -1,10 +1,131 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<Window x:Class="Tools.Views.Windows.WorkspaceSettingsDialog"
+<Window
+    x:Class="Tools.Views.Windows.WorkspaceSettingsDialog"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Workspace Settings"
-    Width="500" Height="400">
-    <TextBlock Text="Workspace Settings"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center" />
+    Width="650"
+    Height="580"
+    CanResize="False"
+    WindowStartupLocation="CenterOwner">
+
+    <Grid RowDefinitions="*,Auto">
+        <!--  Scrollable content area  -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16" Spacing="16">
+                <!--  Workspace Scan Folders  -->
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Text="Workspace Scan Folders"
+                        ToolTip.Tip="Folders to scan for workspaces (one per line)" />
+                    <TextBox
+                        x:Name="WorkspaceScanFoldersTextBox"
+                        Height="120"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
+                </StackPanel>
+
+                <!--  Excluded Folders  -->
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        FontWeight="SemiBold"
+                        Text="Excluded Folders"
+                        ToolTip.Tip="Folders to exclude from scanning (one per line)" />
+                    <TextBox
+                        x:Name="ExcludedFoldersTextBox"
+                        Height="100"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />
+                </StackPanel>
+
+                <!--  Pattern and executable fields  -->
+                <WrapPanel HorizontalAlignment="Stretch">
+                    <!--  Git Folder Pattern  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="Git Folder Pattern"
+                            ToolTip.Tip="Pattern to search for git folders" />
+                        <TextBox x:Name="GitFolderPatternTextBox" Watermark="*.git" />
+                    </StackPanel>
+
+                    <!--  Solution File Pattern  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="Solution File Pattern"
+                            ToolTip.Tip="Pattern to search for solution files" />
+                        <TextBox x:Name="SolutionFilePatternTextBox" Watermark="*.sln" />
+                    </StackPanel>
+
+                    <!--  Platform Folder Name  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="Platform Folder Name"
+                            ToolTip.Tip="Identifier for platform folders" />
+                        <TextBox x:Name="PlatformFolderNameTextBox" Watermark="platform" />
+                    </StackPanel>
+
+                    <!--  VS Code Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="VS Code Executable"
+                            ToolTip.Tip="Path or command for VS Code" />
+                        <TextBox x:Name="VSCodeExecutableTextBox" Watermark="code" />
+                    </StackPanel>
+
+                    <!--  Terminal Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="Terminal Executable"
+                            ToolTip.Tip="Path or command for terminal" />
+                        <TextBox x:Name="TerminalExecutableTextBox" Watermark="wt" />
+                    </StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  Footer with action buttons (outside scroll area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel
+                HorizontalAlignment="Right"
+                Orientation="Horizontal"
+                Spacing="8">
+                <Button
+                    x:Name="CancelButton"
+                    Click="OnCancelClick"
+                    Content="Cancel" />
+                <Button
+                    x:Name="SaveButton"
+                    Click="OnSaveClick"
+                    Content="Save"
+                    IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>

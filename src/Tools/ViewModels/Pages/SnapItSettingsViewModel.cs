@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Avalonia.Media;
 using Tools.Library.Configuration;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
@@ -20,7 +19,7 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
     private string _statusText = "Checking...";
 
     [ObservableProperty]
-    private Color _statusColor = Colors.Gray;
+    private bool _isRunning;
 
     [ObservableProperty]
     private string _toggleButtonText = "Start";
@@ -69,8 +68,8 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
 
     private void UpdateStatus(bool isRunning)
     {
+        IsRunning = isRunning;
         StatusText = isRunning ? "Running" : "Stopped";
-        StatusColor = isRunning ? Colors.LimeGreen : Colors.OrangeRed;
         ToggleButtonText = isRunning ? "Stop" : "Start";
     }
 
