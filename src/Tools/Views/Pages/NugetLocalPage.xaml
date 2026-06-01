@@ -27,7 +27,10 @@
                                                 Text="Nuget Package Manager" />
 
                                         <StackPanel Spacing="4">
-                                                <TextBlock Opacity="0.7" Text="Watch Directory" />
+                                                <TextBlock
+                                                        Margin="0,2,0,0"
+                                                        Opacity="0.7"
+                                                        Text="Watch Directory" />
                                                 <Grid ColumnDefinitions="*,Auto">
                                                         <TextBox
                                                                 Grid.Column="0"
@@ -58,7 +61,8 @@
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
                                                         Opacity="0.6"
-                                                        Text="{Binding ComputedCopyFolder}" />
+                                                        Text="{Binding ComputedCopyFolder}"
+                                                        TextTrimming="CharacterEllipsis" />
                                                 <Button
                                                         Grid.Column="2"
                                                         Padding="8,4"
@@ -76,7 +80,10 @@
 
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <TextBlock Text="NuGet Global Cache" />
-                                                <TextBlock Opacity="0.6" Text="{Binding GlobalPackagesFolder}" />
+                                                <TextBlock
+                                                        Opacity="0.6"
+                                                        Text="{Binding GlobalPackagesFolder}"
+                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                 </StackPanel>
 
@@ -96,14 +103,30 @@
                                                 Command="{Binding WatchChangesCommand}"
                                                 CommandParameter="{Binding !WatchStarted}"
                                                 Foreground="White">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <Path
-                                                                Width="16"
-                                                                Height="16"
-                                                                Data="M8,5.14V19.14L19,12.14L8,5.14Z"
-                                                                Fill="White" />
-                                                        <TextBlock Text="{Binding WatchStarted, Converter={x:Static BoolConverters.Not}}" />
-                                                </StackPanel>
+                                                <Panel>
+                                                        <StackPanel
+                                                                Orientation="Horizontal"
+                                                                Spacing="4"
+                                                                IsVisible="{Binding !WatchStarted}">
+                                                                <Path
+                                                                        Width="16"
+                                                                        Height="16"
+                                                                        Data="M8,5.14V19.14L19,12.14L8,5.14Z"
+                                                                        Fill="White" />
+                                                                <TextBlock Text="Start" />
+                                                        </StackPanel>
+                                                        <StackPanel
+                                                                Orientation="Horizontal"
+                                                                Spacing="4"
+                                                                IsVisible="{Binding WatchStarted}">
+                                                                <Path
+                                                                        Width="16"
+                                                                        Height="16"
+                                                                        Data="M6,6H18V18H6Z"
+                                                                        Fill="White" />
+                                                                <TextBlock Text="Stop" />
+                                                        </StackPanel>
+                                                </Panel>
                                         </Button>
                                 </StackPanel>
                         </Grid>

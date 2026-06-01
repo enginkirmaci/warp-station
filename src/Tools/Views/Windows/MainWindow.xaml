@@ -20,7 +20,8 @@
 			Background="#1E1E1E"
 			BorderBrush="#2D2D2D"
 			BorderThickness="0,0,0,1"
-			IsHitTestVisible="True">
+			IsHitTestVisible="True"
+			PointerPressed="TitleBar_PointerPressed">
 			<DockPanel Margin="14,0" VerticalAlignment="Center">
 				<!--  Hamburger Menu  -->
 				<Path

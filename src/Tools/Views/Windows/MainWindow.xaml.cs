@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform;
@@ -108,6 +109,15 @@ public partial class MainWindow : Window
         if (_navigationService.CanGoBack)
         {
             _navigationService.GoBack();
+        }
+    }
+
+    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(this);
+        if (point.Properties.IsLeftButtonPressed)
+        {
+            BeginMoveDrag(e);
         }
     }
 

@@ -1,118 +1,108 @@
 <UserControl
         x:Class="Tools.Views.Pages.FormattersPage"
-        x:Name="RootPage"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        d:DesignWidth="800" d:DesignHeight="600">
+        x:Name="RootPage"
+        d:DesignHeight="700"
+        d:DesignWidth="900"
+        mc:Ignorable="d">
 
         <Grid Margin="16" RowDefinitions="Auto,*">
-                <!-- Operation Selection -->
-                <Border
+                <!--  Page Title  -->
+                <TextBlock
                         Grid.Row="0"
                         Margin="0,0,0,12"
-                        Padding="16"
-                        CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                        <StackPanel Spacing="4">
-                                <TextBlock
-                                        Margin="0,0,0,8"
-                                        FontWeight="Bold"
-                                        FontSize="15"
-                                        Text="Convert to" />
-                                <RadioButton
-                                        Content="Base64 Encode"
-                                        GroupName="Operation"
-                                        IsChecked="{Binding IsBase64EncodeSelected, Mode=TwoWay}" />
-                                <RadioButton
-                                        Content="Base64 Decode"
-                                        GroupName="Operation"
-                                        IsChecked="{Binding IsBase64DecodeSelected, Mode=TwoWay}" />
-                                <RadioButton
-                                        Content="Snake Case"
-                                        GroupName="Operation"
-                                        IsChecked="{Binding IsSnakeCaseSelected, Mode=TwoWay}" />
-                                <RadioButton
-                                        Content="Pascal Case"
-                                        GroupName="Operation"
-                                        IsChecked="{Binding IsPascalCaseSelected, Mode=TwoWay}" />
-                        </StackPanel>
-                </Border>
+                        FontSize="20"
+                        FontWeight="Bold"
+                        Text="Formatters" />
 
-                <!-- Input and Output Area -->
-                <Grid Grid.Row="1" RowDefinitions="Auto,*">
-                        <!-- Input Area -->
+                <Grid Grid.Row="1" ColumnDefinitions="260,*">
+                        <!--  Operation Selection  -->
                         <Border
-                                Grid.Row="0"
-                                Margin="0,0,0,12"
+                                Grid.Column="0"
+                                Margin="0,0,12,0"
                                 Padding="16"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                                <Grid ColumnDefinitions="*,Auto">
-                                        <TextBox
-                                                Grid.Column="0"
-                                                Margin="0,0,8,0"
-                                                VerticalAlignment="Center"
-                                                AcceptsReturn="True"
-                                                Watermark="Enter text to convert..."
-                                                Text="{Binding InputText, Mode=TwoWay}"
-                                                TextWrapping="Wrap" />
-                                        <Button
-                                                Grid.Column="1"
-                                                Height="36"
-                                                VerticalAlignment="Center"
-                                                Command="{Binding ConvertCommand}"
-                                                Classes="accent">
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <TextBlock Text="▶" FontSize="14" />
-                                                        <TextBlock Text="Convert" />
-                                                </StackPanel>
-                                        </Button>
-                                </Grid>
-                        </Border>
-
-                        <!-- Output Area -->
-                        <Border
-                                Grid.Row="1"
-                                Padding="16"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                                <Grid RowDefinitions="Auto,*">
+                                VerticalAlignment="Top"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                CornerRadius="8">
+                                <StackPanel Spacing="4">
                                         <TextBlock
-                                                Grid.Row="0"
-                                                Margin="0,0,0,6"
-                                                FontWeight="Bold"
+                                                Margin="0,0,0,8"
                                                 FontSize="15"
-                                                Text="Output" />
-                                        <ScrollViewer Grid.Row="1">
-                                                <ItemsControl ItemsSource="{Binding History}">
-                                                        <ItemsControl.ItemTemplate>
-                                                                <DataTemplate>
-                                                                        <Grid Margin="0,4" ColumnDefinitions="*,Auto">
-                                                                                <TextBlock
-                                                                                        Grid.Column="0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Text="{Binding}"
-                                                                                        TextWrapping="Wrap" />
-                                                                                <Button
-                                                                                        Grid.Column="1"
-                                                                                        Margin="8,0,0,0"
-                                                                                        Command="{Binding #RootPage.DataContext.CopyToClipboardCommand}"
-                                                                                        CommandParameter="{Binding}">
-                                                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                                                                <TextBlock Text="📋" FontSize="14" />
-                                                                                                <TextBlock Text="Copy" />
-                                                                                        </StackPanel>
-                                                                                </Button>
-                                                                        </Grid>
-                                                                </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                        </ScrollViewer>
-                                </Grid>
+                                                FontWeight="Bold"
+                                                Text="Convert to" />
+                                        <RadioButton
+                                                Content="Base64 Encode"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsBase64EncodeSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Base64 Decode"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsBase64DecodeSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Snake Case"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsSnakeCaseSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Pascal Case"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsPascalCaseSelected, Mode=TwoWay}" />
+                                </StackPanel>
                         </Border>
+
+                        <!--  Input and Output Area  -->
+                        <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                                <!--  Input Area  -->
+                                <Border
+                                        Grid.Row="0"
+                                        Margin="0,0,0,12"
+                                        Padding="16"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                        CornerRadius="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                                <TextBox
+                                                        Grid.Column="0"
+                                                        Margin="0,0,8,0"
+                                                        VerticalAlignment="Center"
+                                                        AcceptsReturn="True"
+                                                        Text="{Binding InputText, Mode=TwoWay}"
+                                                        TextWrapping="Wrap"
+                                                        Watermark="Enter text to convert..." />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Height="36"
+                                                        VerticalAlignment="Center"
+                                                        Classes="accent"
+                                                        Command="{Binding ConvertCommand}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <TextBlock FontSize="14" Text="▶" />
+                                                                <TextBlock Text="Convert" />
+                                                        </StackPanel>
+                                                </Button>
+                                        </Grid>
+                                </Border>
+
+                                <!--  Output Area  -->
+                                <Border
+                                        Grid.Row="1"
+                                        Padding="16"
+                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                        CornerRadius="8">
+                                        <Grid RowDefinitions="Auto,*">
+                                                <TextBlock
+                                                        Grid.Row="0"
+                                                        Margin="0,0,0,6"
+                                                        FontSize="15"
+                                                        FontWeight="Bold"
+                                                        Text="Output" />
+                                                <ScrollViewer Grid.Row="1">
+                                                        <TextBlock Text="{Binding OutputText, Mode=OneWay}" TextWrapping="Wrap" />
+                                                </ScrollViewer>
+                                        </Grid>
+                                </Border>
+                        </Grid>
                 </Grid>
         </Grid>
 </UserControl>
