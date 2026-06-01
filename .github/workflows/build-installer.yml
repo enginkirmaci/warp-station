@@ -32,7 +32,7 @@ jobs:
       run: dotnet build Tools.sln --configuration Release --no-restore
       
     - name: Publish application
-      run: dotnet publish Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64
+      run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64
       
     - name: Install Inno Setup
       run: |

@@ -4,23 +4,22 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:tools="using:Tools.Library.MarkupExtensions"
         mc:Ignorable="d"
         d:DesignWidth="900" d:DesignHeight="700">
 
-        <Grid RowDefinitions="Auto,*,*" Margin="16">
+        <Grid Classes="page-root" RowDefinitions="Auto,*,*">
 
                 <!-- Header Card -->
                 <Border
                         Grid.Row="0"
-                        Margin="0,0,0,12"
-                        Padding="12"
-                        CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        Classes="card-tight"
+                        Margin="0,0,0,12">
                         <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
-                                        TextWrapping="Wrap"
+                                        Classes="body-text"
                                         Text="Convert SQL CREATE TABLE statements to C# entity classes and repository implementations" />
                                 <Button
                                         Grid.Column="1"
@@ -40,22 +39,19 @@
                         <!-- SQL Input Card -->
                         <Border
                                 Grid.Column="0"
-                                Margin="0,0,0,12"
-                                Padding="12"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                Classes="card-tight"
+                                Margin="0,0,0,12">
                                 <Grid RowDefinitions="Auto,*">
                                         <TextBlock
                                                 Grid.Row="0"
+                                                Classes="card-title"
                                                 Margin="0,0,0,6"
-                                                FontWeight="Bold"
-                                                FontSize="14"
                                                 Text="SQL Input" />
                                         <TextBox
                                                 Grid.Row="1"
                                                 MinHeight="200"
                                                 AcceptsReturn="True"
-                                                FontFamily="Consolas,monospace"
+                                                Classes="mono"
                                                 Watermark="Enter SQL CREATE TABLE statement..."
                                                 Text="{Binding SqlInput, Mode=TwoWay}"
                                                 TextWrapping="Wrap" />
@@ -65,30 +61,31 @@
                         <!-- C# Output Card -->
                         <Border
                                 Grid.Column="2"
-                                Margin="0,0,0,12"
-                                Padding="12"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                Classes="card-tight"
+                                Margin="0,0,0,12">
                                 <Grid RowDefinitions="Auto,*">
-                                        <Grid Grid.Row="0" Margin="0,0,0,6" ColumnDefinitions="*,Auto">
+                                        <Grid
+                                                Grid.Row="0"
+                                                Margin="0,0,0,6"
+                                                ColumnDefinitions="*,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
-                                                        FontWeight="Bold"
-                                                        FontSize="14"
                                                         VerticalAlignment="Center"
+                                                        Classes="card-title"
                                                         Text="C# Entity Class" />
                                                 <Button
                                                         Grid.Column="1"
-                                                        Width="36" Height="36"
+                                                        Classes="icon"
                                                         Command="{Binding CopyToClipboardCommand}"
                                                         ToolTip.Tip="Copy to clipboard">
-                                                        <TextBlock Text="📋" FontSize="16" />
+                                                        <Path
+                                                                Classes="icon"
+                                                                Data="{tools:SvgPath icon-clipboard}" />
                                                 </Button>
                                         </Grid>
                                         <ScrollViewer Grid.Row="1">
                                                 <TextBlock
-                                                        FontFamily="Consolas,monospace"
-                                                        FontSize="12"
+                                                        Classes="mono"
                                                         Text="{Binding CSharpOutput, Mode=OneWay}"
                                                         TextWrapping="Wrap" />
                                         </ScrollViewer>
@@ -101,22 +98,19 @@
                         <!-- Template Input Card -->
                         <Border
                                 Grid.Column="0"
-                                Margin="0,0,0,12"
-                                Padding="12"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                Classes="card-tight"
+                                Margin="0,0,0,12">
                                 <Grid RowDefinitions="Auto,*">
                                         <TextBlock
                                                 Grid.Row="0"
+                                                Classes="card-title"
                                                 Margin="0,0,0,6"
-                                                FontWeight="Bold"
-                                                FontSize="14"
                                                 Text="Repository Template" />
                                         <TextBox
                                                 Grid.Row="1"
                                                 MinHeight="200"
                                                 AcceptsReturn="True"
-                                                FontFamily="Consolas,monospace"
+                                                Classes="mono"
                                                 Text="{Binding RepositoryTemplate, Mode=TwoWay}"
                                                 TextWrapping="Wrap" />
                                 </Grid>
@@ -125,30 +119,31 @@
                         <!-- Repository Output Card -->
                         <Border
                                 Grid.Column="2"
-                                Margin="0,0,0,12"
-                                Padding="12"
-                                CornerRadius="8"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                                Classes="card-tight"
+                                Margin="0,0,0,12">
                                 <Grid RowDefinitions="Auto,*">
-                                        <Grid Grid.Row="0" Margin="0,0,0,6" ColumnDefinitions="*,Auto">
+                                        <Grid
+                                                Grid.Row="0"
+                                                Margin="0,0,0,6"
+                                                ColumnDefinitions="*,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
-                                                        FontWeight="Bold"
-                                                        FontSize="14"
                                                         VerticalAlignment="Center"
+                                                        Classes="card-title"
                                                         Text="Generated Repository" />
                                                 <Button
                                                         Grid.Column="1"
-                                                        Width="36" Height="36"
+                                                        Classes="icon"
                                                         Command="{Binding CopyRepositoryToClipboardCommand}"
                                                         ToolTip.Tip="Copy to clipboard">
-                                                        <TextBlock Text="📋" FontSize="16" />
+                                                        <Path
+                                                                Classes="icon"
+                                                                Data="{tools:SvgPath icon-clipboard}" />
                                                 </Button>
                                         </Grid>
                                         <ScrollViewer Grid.Row="1">
                                                 <TextBlock
-                                                        FontFamily="Consolas,monospace"
-                                                        FontSize="12"
+                                                        Classes="mono"
                                                         Text="{Binding RepositoryOutput, Mode=OneWay}"
                                                         TextWrapping="Wrap" />
                                         </ScrollViewer>

@@ -9,29 +9,23 @@
         d:DesignWidth="900"
         mc:Ignorable="d">
 
-        <Grid Margin="16" RowDefinitions="Auto,*">
-                <!--  Page Title  -->
+        <Grid Classes="page-root" RowDefinitions="Auto,*">
                 <TextBlock
                         Grid.Row="0"
-                        Margin="0,0,0,12"
-                        FontSize="20"
-                        FontWeight="Bold"
+                        Classes="section-title"
                         Text="Formatters" />
 
                 <Grid Grid.Row="1" ColumnDefinitions="260,*">
                         <!--  Operation Selection  -->
                         <Border
                                 Grid.Column="0"
+                                Classes="card"
                                 Margin="0,0,12,0"
-                                Padding="16"
-                                VerticalAlignment="Top"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                CornerRadius="8">
+                                VerticalAlignment="Top">
                                 <StackPanel Spacing="4">
                                         <TextBlock
+                                                Classes="card-title"
                                                 Margin="0,0,0,8"
-                                                FontSize="15"
-                                                FontWeight="Bold"
                                                 Text="Convert to" />
                                         <RadioButton
                                                 Content="Base64 Encode"
@@ -57,10 +51,8 @@
                                 <!--  Input Area  -->
                                 <Border
                                         Grid.Row="0"
-                                        Margin="0,0,0,12"
-                                        Padding="16"
-                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                        CornerRadius="8">
+                                        Classes="card"
+                                        Margin="0,0,0,12">
                                         <Grid ColumnDefinitions="*,Auto">
                                                 <TextBox
                                                         Grid.Column="0"
@@ -87,18 +79,15 @@
                                 <!--  Output Area  -->
                                 <Border
                                         Grid.Row="1"
-                                        Padding="16"
-                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                        CornerRadius="8">
+                                        Classes="card">
                                         <Grid RowDefinitions="Auto,*">
                                                 <TextBlock
                                                         Grid.Row="0"
+                                                        Classes="card-title"
                                                         Margin="0,0,0,6"
-                                                        FontSize="15"
-                                                        FontWeight="Bold"
                                                         Text="Output" />
                                                 <ScrollViewer Grid.Row="1">
-                                                        <TextBlock Text="{Binding OutputText, Mode=OneWay}" TextWrapping="Wrap" />
+                                                        <TextBlock Classes="body-text" Text="{Binding OutputText, Mode=OneWay}" />
                                                 </ScrollViewer>
                                         </Grid>
                                 </Border>

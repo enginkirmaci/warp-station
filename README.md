@@ -11,7 +11,7 @@ dotnet build Tools.sln
 
 Run (from IDE or CLI):
 ```sh
-dotnet run --project Tools/Tools.csproj
+dotnet run --project src/Tools/Tools.csproj
 ```
 
 

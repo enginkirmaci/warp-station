@@ -149,6 +149,31 @@ public partial class MainWindow : Window
     private void OnNavigated(Type? pageType)
     {
         UpdateBackButtonVisibility();
+        SyncSidebarSelection(pageType);
+    }
+
+    private void SyncSidebarSelection(Type? pageType)
+    {
+        if (pageType == null || ViewModel.MenuItems == null)
+        {
+            return;
+        }
+
+        var pageName = pageType.Name;
+        var match = ViewModel.MenuItems.FirstOrDefault(item =>
+            !string.IsNullOrEmpty(item.PageKey) &&
+            item.PageKey != "__separator__" &&
+            item.PageKey != "__header__" &&
+            string.Equals(item.PageKey, pageName, StringComparison.OrdinalIgnoreCase));
+
+        if (match == null || ReferenceEquals(NavigationListBox.SelectedItem, match))
+        {
+            return;
+        }
+
+        _isNavigatingFromCode = true;
+        NavigationListBox.SelectedItem = match;
+        _isNavigatingFromCode = false;
     }
 
     private void OnBackStackChanged()

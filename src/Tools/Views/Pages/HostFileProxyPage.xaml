@@ -7,15 +7,16 @@
         mc:Ignorable="d"
         d:DesignWidth="600" d:DesignHeight="400">
 
-        <StackPanel Spacing="16" Margin="16">
-                <Border Padding="24" CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+        <StackPanel Classes="page-root" Spacing="16">
+                <Border Classes="card">
                         <StackPanel Spacing="12">
-                                <TextBlock FontWeight="Bold" FontSize="16" Text="Host File Proxy" />
-                                <TextBlock TextWrapping="Wrap"
-                                           Text="Host File Proxy service manages local hosts file entries for development environments." />
-                                <TextBlock TextWrapping="Wrap" Opacity="0.6"
-                                           Text="This functionality is currently being migrated to Avalonia." />
+                                <TextBlock Classes="card-title" Text="Host File Proxy" />
+                                <TextBlock
+                                        Classes="body-text"
+                                        Text="Host File Proxy service manages local hosts file entries for development environments." />
+                                <TextBlock
+                                        Classes="subtle"
+                                        Text="This functionality is currently being migrated to Avalonia." />
                         </StackPanel>
                 </Border>
         </StackPanel>

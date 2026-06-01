@@ -12,11 +12,11 @@
     <Grid RowDefinitions="*,Auto">
         <!--  Scrollable content area  -->
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="16" Spacing="16">
+            <StackPanel Classes="page-root" Spacing="16">
                 <!--  Workspace Scan Folders  -->
                 <StackPanel Spacing="8">
                     <TextBlock
-                        FontWeight="SemiBold"
+                        Classes="field-label"
                         Text="Workspace Scan Folders"
                         ToolTip.Tip="Folders to scan for workspaces (one per line)" />
                     <TextBox
@@ -30,7 +30,7 @@
                 <!--  Excluded Folders  -->
                 <StackPanel Spacing="8">
                     <TextBlock
-                        FontWeight="SemiBold"
+                        Classes="field-label"
                         Text="Excluded Folders"
                         ToolTip.Tip="Folders to exclude from scanning (one per line)" />
                     <TextBox
@@ -49,7 +49,7 @@
                         Margin="0,0,12,12"
                         Spacing="8">
                         <TextBlock
-                            FontWeight="SemiBold"
+                            Classes="field-label"
                             Text="Git Folder Pattern"
                             ToolTip.Tip="Pattern to search for git folders" />
                         <TextBox x:Name="GitFolderPatternTextBox" Watermark="*.git" />
@@ -61,7 +61,7 @@
                         Margin="0,0,12,12"
                         Spacing="8">
                         <TextBlock
-                            FontWeight="SemiBold"
+                            Classes="field-label"
                             Text="Solution File Pattern"
                             ToolTip.Tip="Pattern to search for solution files" />
                         <TextBox x:Name="SolutionFilePatternTextBox" Watermark="*.sln" />
@@ -73,7 +73,7 @@
                         Margin="0,0,12,12"
                         Spacing="8">
                         <TextBlock
-                            FontWeight="SemiBold"
+                            Classes="field-label"
                             Text="Platform Folder Name"
                             ToolTip.Tip="Identifier for platform folders" />
                         <TextBox x:Name="PlatformFolderNameTextBox" Watermark="platform" />
@@ -85,7 +85,7 @@
                         Margin="0,0,12,12"
                         Spacing="8">
                         <TextBlock
-                            FontWeight="SemiBold"
+                            Classes="field-label"
                             Text="VS Code Executable"
                             ToolTip.Tip="Path or command for VS Code" />
                         <TextBox x:Name="VSCodeExecutableTextBox" Watermark="code" />
@@ -97,7 +97,7 @@
                         Margin="0,0,12,12"
                         Spacing="8">
                         <TextBlock
-                            FontWeight="SemiBold"
+                            Classes="field-label"
                             Text="Terminal Executable"
                             ToolTip.Tip="Path or command for terminal" />
                         <TextBox x:Name="TerminalExecutableTextBox" Watermark="wt" />
@@ -110,12 +110,11 @@
         <Border
             Grid.Row="1"
             Padding="16"
-            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+            BorderBrush="{DynamicResource DividerBrush}"
             BorderThickness="0,1,0,0">
             <StackPanel
                 HorizontalAlignment="Right"
-                Orientation="Horizontal"
-                Spacing="8">
+                Classes="actions">
                 <Button
                     x:Name="CancelButton"
                     Click="OnCancelClick"
@@ -123,6 +122,7 @@
                 <Button
                     x:Name="SaveButton"
                     Click="OnSaveClick"
+                    Classes="accent"
                     Content="Save"
                     IsDefault="True" />
             </StackPanel>

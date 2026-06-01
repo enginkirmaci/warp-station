@@ -4,32 +4,28 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:tools="using:Tools.Library.MarkupExtensions"
         d:DesignHeight="500"
         d:DesignWidth="700"
         mc:Ignorable="d">
 
         <Grid
-                Margin="16"
+                Classes="page-root"
                 RowDefinitions="Auto,Auto,*"
                 RowSpacing="12">
                 <!--  Top Card: Settings + Operations  -->
-                <Border
-                        Grid.Row="0"
-                        Padding="16"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                        CornerRadius="8">
+                <Border Grid.Row="0" Classes="card">
                         <Grid ColumnDefinitions="*,Auto">
                                 <!--  Left: Settings  -->
-                                <StackPanel Grid.Column="0" Spacing="12">
+                                <StackPanel Grid.Column="0" Classes="field-stack">
                                         <TextBlock
-                                                FontSize="16"
-                                                FontWeight="Bold"
+                                                Classes="card-title"
                                                 Text="Nuget Package Manager" />
 
                                         <StackPanel Spacing="4">
                                                 <TextBlock
+                                                        Classes="field-label"
                                                         Margin="0,2,0,0"
-                                                        Opacity="0.7"
                                                         Text="Watch Directory" />
                                                 <Grid ColumnDefinitions="*,Auto">
                                                         <TextBox
@@ -39,14 +35,12 @@
                                                                 Watermark="Select a folder to watch for .nupkg files..." />
                                                         <Button
                                                                 Grid.Column="1"
-                                                                Padding="8,4"
+                                                                Classes="icon"
                                                                 Command="{Binding SelectFolderCommand}"
                                                                 CommandParameter="Watch">
                                                                 <Path
-                                                                        Width="16"
-                                                                        Height="16"
-                                                                        Data="M20,18H4V8H20M20,6H12L10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6Z"
-                                                                        Fill="#A0A0A0" />
+                                                                        Classes="icon"
+                                                                        Data="{tools:SvgPath icon-folder}" />
                                                         </Button>
                                                 </Grid>
                                         </StackPanel>
@@ -60,19 +54,17 @@
                                                 <TextBlock
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
-                                                        Opacity="0.6"
+                                                        Classes="subtle"
                                                         Text="{Binding ComputedCopyFolder}"
                                                         TextTrimming="CharacterEllipsis" />
                                                 <Button
                                                         Grid.Column="2"
-                                                        Padding="8,4"
+                                                        Classes="icon"
                                                         Command="{Binding RegisterSourceCommand}">
                                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                                                 <Path
-                                                                        Width="16"
-                                                                        Height="16"
-                                                                        Data="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"
-                                                                        Fill="#A0A0A0" />
+                                                                        Classes="icon"
+                                                                        Data="{tools:SvgPath icon-account}" />
                                                                 <TextBlock Text="Register" />
                                                         </StackPanel>
                                                 </Button>
@@ -81,7 +73,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <TextBlock Text="NuGet Global Cache" />
                                                 <TextBlock
-                                                        Opacity="0.6"
+                                                        Classes="subtle"
                                                         Text="{Binding GlobalPackagesFolder}"
                                                         TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
@@ -95,14 +87,14 @@
                                         Spacing="8">
                                         <TextBlock
                                                 HorizontalAlignment="Center"
-                                                Opacity="0.7"
+                                                Classes="field-label"
                                                 Text="Operations" />
                                         <Button
                                                 HorizontalAlignment="Center"
-                                                Background="#2196F3"
+                                                Background="{DynamicResource InfoAccentBrush}"
                                                 Command="{Binding WatchChangesCommand}"
                                                 CommandParameter="{Binding !WatchStarted}"
-                                                Foreground="White">
+                                                Foreground="{DynamicResource AccentForegroundBrush}">
                                                 <Panel>
                                                         <StackPanel
                                                                 Orientation="Horizontal"
@@ -111,8 +103,8 @@
                                                                 <Path
                                                                         Width="16"
                                                                         Height="16"
-                                                                        Data="M8,5.14V19.14L19,12.14L8,5.14Z"
-                                                                        Fill="White" />
+                                                                        Data="{tools:SvgPath icon-play}"
+                                                                        Fill="{DynamicResource AccentForegroundBrush}" />
                                                                 <TextBlock Text="Start" />
                                                         </StackPanel>
                                                         <StackPanel
@@ -122,8 +114,8 @@
                                                                 <Path
                                                                         Width="16"
                                                                         Height="16"
-                                                                        Data="M6,6H18V18H6Z"
-                                                                        Fill="White" />
+                                                                        Data="{tools:SvgPath icon-stop}"
+                                                                        Fill="{DynamicResource AccentForegroundBrush}" />
                                                                 <TextBlock Text="Stop" />
                                                         </StackPanel>
                                                 </Panel>
@@ -138,16 +130,9 @@
                         ColumnDefinitions="Auto,*"
                         ColumnSpacing="12">
                         <!--  Session Activity  -->
-                        <Border
-                                Grid.Column="0"
-                                Padding="16"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                CornerRadius="8">
+                        <Border Grid.Column="0" Classes="card">
                                 <StackPanel Spacing="8">
-                                        <TextBlock
-                                                FontSize="14"
-                                                FontWeight="Bold"
-                                                Text="Session Activity" />
+                                        <TextBlock Classes="card-title" Text="Session Activity" />
                                         <StackPanel
                                                 VerticalAlignment="Center"
                                                 Orientation="Horizontal"
@@ -155,57 +140,42 @@
                                                 <Path
                                                         Width="24"
                                                         Height="24"
-                                                        Data="M22,21H2V3H4V19H6V10H10V19H12V6H16V19H18V14H22V21Z"
-                                                        Fill="#2196F3" />
+                                                        Data="{tools:SvgPath icon-chart-bar}"
+                                                        Fill="{DynamicResource InfoAccentBrush}" />
                                                 <TextBlock
                                                         VerticalAlignment="Center"
                                                         FontSize="24"
                                                         FontWeight="Bold"
                                                         Text="{Binding Count}" />
                                         </StackPanel>
-                                        <TextBlock Opacity="0.6" Text="Packages Refreshed" />
+                                        <TextBlock Classes="subtle" Text="Packages Refreshed" />
                                 </StackPanel>
                         </Border>
 
                         <!--  How it works  -->
-                        <Border
-                                Grid.Column="1"
-                                Padding="16"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                CornerRadius="8">
+                        <Border Grid.Column="1" Classes="card">
                                 <StackPanel Spacing="8">
+                                        <TextBlock Classes="card-title" Text="How it works" />
                                         <TextBlock
-                                                FontSize="14"
-                                                FontWeight="Bold"
-                                                Text="How it works" />
+                                                Classes="body-text"
+                                                Text="1. Register your build folder as a local NuGet source." />
                                         <TextBlock
-                                                Opacity="0.8"
-                                                Text="1. Register your build folder as a local NuGet source."
-                                                TextWrapping="Wrap" />
+                                                Classes="body-text"
+                                                Text="2. Start Watch to monitor for new build outputs (.nupkg)." />
                                         <TextBlock
-                                                Opacity="0.8"
-                                                Text="2. Start Watch to monitor for new build outputs (.nupkg)."
-                                                TextWrapping="Wrap" />
-                                        <TextBlock
-                                                Opacity="0.8"
-                                                Text="3. On every build, the tool clears the global cache, forcing consumer projects to fetch your fresh DLLs."
-                                                TextWrapping="Wrap" />
+                                                Classes="body-text"
+                                                Text="3. On every build, the tool clears the global cache, forcing consumer projects to fetch your fresh DLLs." />
                                 </StackPanel>
                         </Border>
                 </Grid>
 
                 <!--  Bottom Card: Activity Log  -->
-                <Border
-                        Grid.Row="2"
-                        Padding="16"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                        CornerRadius="8">
+                <Border Grid.Row="2" Classes="card">
                         <Grid RowDefinitions="Auto,*">
                                 <TextBlock
                                         Grid.Row="0"
+                                        Classes="card-title"
                                         Margin="0,0,0,8"
-                                        FontSize="14"
-                                        FontWeight="Bold"
                                         Text="Activity Log" />
                                 <ScrollViewer Grid.Row="1">
                                         <ItemsControl ItemsSource="{Binding FileList}">
@@ -216,8 +186,7 @@
                                                                         Padding="4,2"
                                                                         CornerRadius="2">
                                                                         <TextBlock
-                                                                                FontSize="12"
-                                                                                Opacity="0.8"
+                                                                                Classes="subtle"
                                                                                 Text="{Binding}" />
                                                                 </Border>
                                                         </DataTemplate>

@@ -31,6 +31,9 @@ public partial class App : Application
             .MinimumLevel.Error()
             .WriteTo.File("logs\\log.txt", rollingInterval: RollingInterval.Day)
             .CreateLogger();
+        // Configure icon asset loader to resolve SVG icons from this assembly
+        IconAssetLoader.Configure(typeof(App).Assembly.GetName().Name ?? "Tools");
+        IconAssetLoader.PreloadAll();
         // Build the host with DI
         Host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>

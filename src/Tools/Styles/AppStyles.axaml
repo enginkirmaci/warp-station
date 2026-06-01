@@ -1,0 +1,163 @@
+<Styles
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        ================================================================
+        TYPOGRAPHY
+        Reusable TextBlock styles. Apply via Classes="...".
+        ================================================================
+    -->
+
+    <!-- Page-level hero title (used in Dashboard header). -->
+    <Style Selector="TextBlock.page-title">
+        <Setter Property="FontSize" Value="28" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <Style Selector="TextBlock.page-subtitle">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+    </Style>
+
+    <!-- H1 used at the top of a content page (above all cards). -->
+    <Style Selector="TextBlock.section-title">
+        <Setter Property="FontSize" Value="20" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+        <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+
+    <!-- H2 used inside cards to label a section. -->
+    <Style Selector="TextBlock.card-title">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+    </Style>
+
+    <!-- H3 used as a small field label. -->
+    <Style Selector="TextBlock.field-label">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+    </Style>
+
+    <!-- Body copy text used inside cards. -->
+    <Style Selector="TextBlock.body-text">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- Subtle secondary text (paths, captions, helper text). -->
+    <Style Selector="TextBlock.subtle">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+    </Style>
+
+    <!-- Inline monospace text used for code/console output. -->
+    <Style Selector="TextBlock.mono">
+        <Setter Property="FontFamily" Value="Consolas,Menlo,monospace" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="TextBox.mono">
+        <Setter Property="FontFamily" Value="Consolas,Menlo,monospace" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <!--
+        ================================================================
+        LAYOUT PRIMITIVES
+        ================================================================
+    -->
+
+    <!-- Standard card surface. Apply with Classes="card". -->
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+
+    <!-- Card variant with less padding (for header strips / toolbars). -->
+    <Style Selector="Border.card-tight">
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
+        <Setter Property="Padding" Value="12" />
+    </Style>
+
+    <!-- Subtle chip surface used for status pills, badges, etc. -->
+    <Style Selector="Border.chip">
+        <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ChipRadius}" />
+        <Setter Property="Padding" Value="10,6" />
+    </Style>
+
+    <!-- Standard root padding for a page (matches 16px gutters). -->
+    <Style Selector="Grid.page-root, StackPanel.page-root">
+        <Setter Property="Margin" Value="16" />
+    </Style>
+
+    <!-- Vertical stack used inside cards with consistent spacing. -->
+    <Style Selector="StackPanel.field-stack">
+        <Setter Property="Spacing" Value="12" />
+    </Style>
+
+    <!-- Horizontal action row at the bottom of a card/dialog. -->
+    <Style Selector="StackPanel.actions">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="Spacing" Value="8" />
+    </Style>
+
+    <!-- Divider line used inside action bars. -->
+    <Style Selector="Border.vertical-divider">
+        <Setter Property="Width" Value="1" />
+        <Setter Property="Margin" Value="0,2" />
+        <Setter Property="Background" Value="{DynamicResource DividerBrush}" />
+    </Style>
+
+    <Style Selector="Border.horizontal-divider">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Background" Value="{DynamicResource DividerBrush}" />
+    </Style>
+
+    <!--
+        ================================================================
+        CONTROL OVERRIDES
+        ================================================================
+    -->
+
+    <!-- Icon-only square button (32x32). -->
+    <Style Selector="Button.icon">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <!-- Standard icon path (18px, subtle gray). -->
+    <Style Selector="Path.icon">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Stretch" Value="Uniform" />
+        <Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+    </Style>
+
+    <!-- Sidebar nav item style. -->
+    <Style Selector="ListBoxItem.nav-item">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="ListBoxItem.nav-item:selected">
+        <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}" />
+    </Style>
+
+    <Style Selector="ListBoxItem.nav-item:pointerover">
+        <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+    </Style>
+
+</Styles>

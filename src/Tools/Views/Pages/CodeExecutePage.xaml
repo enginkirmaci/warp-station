@@ -7,20 +7,18 @@
         mc:Ignorable="d"
         d:DesignWidth="800" d:DesignHeight="600">
 
-        <Grid RowDefinitions="Auto,*,3*" Margin="16">
+        <Grid RowDefinitions="Auto,*,3*" Classes="page-root">
 
                 <!-- Header Card -->
                 <Border
                         Grid.Row="0"
-                        Margin="0,0,0,12"
-                        Padding="12"
-                        CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        Classes="card-tight"
+                        Margin="0,0,0,12">
                         <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
-                                        TextWrapping="Wrap"
+                                        Classes="body-text"
                                         Text="Write and execute C# code snippets instantly" />
                                 <Button
                                         Grid.Column="1"
@@ -38,23 +36,19 @@
                 <!-- Code Input Card -->
                 <Border
                         Grid.Row="1"
-                        Margin="0,0,0,12"
-                        Padding="12"
-                        CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        Classes="card-tight"
+                        Margin="0,0,0,12">
                         <Grid RowDefinitions="Auto,*">
                                 <TextBlock
                                         Grid.Row="0"
                                         Margin="0,0,0,8"
-                                        FontWeight="Bold"
-                                        FontSize="14"
+                                        Classes="card-title"
                                         Text="C# Code Input" />
                                 <TextBox
                                         Grid.Row="1"
                                         MinHeight="150"
                                         AcceptsReturn="True"
-                                        FontFamily="Consolas,monospace"
-                                        FontSize="13"
+                                        Classes="mono"
                                         Watermark="Enter C# code to execute..."
                                         Text="{Binding ImmediateInput, Mode=TwoWay}"
                                         TextWrapping="Wrap" />
@@ -64,20 +58,16 @@
                 <!-- Output Card -->
                 <Border
                         Grid.Row="2"
-                        Padding="12"
-                        CornerRadius="8"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                        Classes="card-tight">
                         <Grid RowDefinitions="Auto,*">
                                 <TextBlock
                                         Grid.Row="0"
                                         Margin="0,0,0,8"
-                                        FontWeight="Bold"
-                                        FontSize="14"
+                                        Classes="card-title"
                                         Text="Output" />
                                 <ScrollViewer Grid.Row="1">
                                         <TextBlock
-                                                FontFamily="Consolas,monospace"
-                                                FontSize="13"
+                                                Classes="mono"
                                                 Text="{Binding ImmediateOutput, Mode=OneWay}"
                                                 TextWrapping="Wrap" />
                                 </ScrollViewer>

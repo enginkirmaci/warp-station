@@ -8,22 +8,13 @@
         d:DesignWidth="600"
         mc:Ignorable="d">
 
-        <StackPanel Margin="16" Spacing="16">
-                <Border
-                        Padding="24"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                        CornerRadius="8">
-                        <StackPanel Spacing="16">
-                                <TextBlock
-                                        FontSize="16"
-                                        FontWeight="Bold"
-                                        Text="SnapIt Settings" />
+        <StackPanel Classes="page-root" Spacing="16">
+                <Border Classes="card">
+                        <StackPanel Classes="field-stack">
+                                <TextBlock Classes="card-title" Text="SnapIt Settings" />
                                 <CheckBox Content="Start SnapIt automatically on launch" IsChecked="{Binding AutoStart, Mode=TwoWay}" />
 
-                                <Border
-                                        Padding="12,8"
-                                        Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
-                                        CornerRadius="6">
+                                <Border Classes="chip" Padding="12,8">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <Border
                                                         Width="10"

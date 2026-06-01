@@ -7,22 +7,29 @@
 	RequestedThemeVariant="Dark">
 	<Application.Styles>
 		<FluentTheme />
+		<StyleInclude Source="/Styles/AppStyles.axaml" />
 	</Application.Styles>
 	<Application.Resources>
-		<!--  Boolean value resources used by pages/commands  -->
-		<x:Boolean x:Key="TrueValue">True</x:Boolean>
-		<x:Boolean x:Key="FalseValue">False</x:Boolean>
+		<ResourceDictionary>
+			<ResourceDictionary.MergedDictionaries>
+				<ResourceInclude Source="/Styles/ThemeResources.axaml" />
+			</ResourceDictionary.MergedDictionaries>
 
-		<!--  Converters  -->
-		<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
-		<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
-		<conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
-		<conv:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-		<conv:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
-		<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
-		<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
-		<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
-		<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
-		<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
+			<!--  Boolean value resources used by pages/commands  -->
+			<x:Boolean x:Key="TrueValue">True</x:Boolean>
+			<x:Boolean x:Key="FalseValue">False</x:Boolean>
+
+			<!--  Converters  -->
+			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
+			<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
+			<conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
+			<conv:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+			<conv:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
+			<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
+			<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
+			<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
+			<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
+			<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
+		</ResourceDictionary>
 	</Application.Resources>
 </Application>
