@@ -1,14 +1,11 @@
 ﻿using System.Text.RegularExpressions;
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Configuration;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
-#if WINDOWS
-using Windows.Storage.Pickers;
-using WinRT.Interop;
-using Microsoft.UI.Dispatching;
-#endif
 
 namespace Tools.ViewModels.Pages;
 
@@ -125,51 +122,32 @@ public partial class NugetLocalViewModel : PageViewModelBase
 
     private async Task OnSelectFolderAsync(string? operation)
     {
-#if WINDOWS
-        var hwnd = WindowNative.GetWindowHandle(App.MainWindow);
-
-        // Try WinRT FolderPicker first (standard for WinUI 3)
         try
         {
-            var picker = new FolderPicker
+            var topLevel = TopLevel.GetTopLevel(App.MainWindow);
+            if (topLevel == null)
             {
-                SuggestedStartLocation = PickerLocationId.Desktop
-            };
-            picker.FileTypeFilter.Add("*");
-
-            InitializeWithWindow.Initialize(picker, hwnd);
-
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder != null)
-            {
-                UpdateFolderPath(operation, folder.Path);
+                ShowError("Could not get top-level window.");
                 return;
             }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"WinRT FolderPicker failed: {ex.Message}");
-        }
 
-        // Fallback to Win32 Common Item Dialog (more reliable in unpackaged apps)
-        try
-        {
-            var title = "Select Watch Folder";
-            var path = Helpers.FolderPickerHelper.PickFolder(hwnd, title);
-
-            if (!string.IsNullOrEmpty(path))
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
+                Title = "Select Watch Folder",
+                AllowMultiple = false
+            });
+
+            if (folders.Count > 0)
+            {
+                var path = folders[0].Path.LocalPath;
                 UpdateFolderPath(operation, path);
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Native FolderPicker fallback failed: {ex.Message}");
+            Debug.WriteLine($"Avalonia FolderPicker failed: {ex.Message}");
             ShowError($"Failed to open folder picker: {ex.Message}");
         }
-#else
-        ShowError("Folder picker not supported on this platform.");
-#endif
     }
 
     private void UpdateFolderPath(string? operation, string path)
