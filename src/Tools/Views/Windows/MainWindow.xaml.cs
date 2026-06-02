@@ -69,24 +69,24 @@ public partial class MainWindow : Window
 
     private void InitializeWindow()
     {
-#if WINDOWS
-        var handle = TryGetPlatformHandle()?.Handle ?? nint.Zero;
-        if (handle != nint.Zero)
-        {
-            _clipboardPasswordService.RegisterHotKeys(handle);
-        }
-#endif
+        // #if WINDOWS
+        //         var handle = TryGetPlatformHandle()?.Handle ?? nint.Zero;
+        //         if (handle != nint.Zero)
+        //         {
+        //             _clipboardPasswordService.RegisterHotKeys(handle);
+        //         }
+        // #endif
         Closed += OnWindowClosed;
     }
 
-#if WINDOWS
-    private nint TryGetPlatformHandle()
-    {
-        if (this.TryGetPlatformHandle() is { } platformHandle)
-            return platformHandle.Handle;
-        return nint.Zero;
-    }
-#endif
+    // #if WINDOWS
+    //     private nint TryGetPlatformHandle()
+    //     {
+    //         if (this.TryGetPlatformHandle() is { } platformHandle)
+    //             return platformHandle.Handle;
+    //         return nint.Zero;
+    //     }
+    // #endif
 
     private void NavigateToPage(string pageKey, int selectedIndex)
     {
