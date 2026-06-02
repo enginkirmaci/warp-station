@@ -16,7 +16,7 @@
                 <converters:StringToBrushConverter x:Key="StringToBrushConverter" />
         </UserControl.Resources>
 
-        <Grid RowDefinitions="Auto,*">
+	<Grid Classes="page-root" RowDefinitions="Auto,*">
 
                 <!--  Header Banner  -->
                 <Border

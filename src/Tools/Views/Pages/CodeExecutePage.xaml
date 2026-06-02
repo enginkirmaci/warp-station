@@ -1,81 +1,71 @@
 <UserControl
-        x:Class="Tools.Views.Pages.CodeExecutePage"
-        xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        d:DesignWidth="800"
-                d:DesignHeight="600">
+	x:Class="Tools.Views.Pages.CodeExecutePage"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	d:DesignHeight="600"
+	d:DesignWidth="800"
+	mc:Ignorable="d">
 
-        <Grid RowDefinitions="Auto,*,3*"
-                        Classes="page-root">
+	<Grid Classes="page-root" RowDefinitions="Auto,Auto,*,3*">
 
-                <!-- Header Card -->
-                <Border
-                        Grid.Row="0"
-                        Classes="card-tight"
-                        Margin="0,0,0,12">
-                        <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        Classes="body-text"
-                                        Text="Write and execute C# code snippets instantly"/>
-                                <Button
-                                        Grid.Column="1"
-                                        Height="36"
-                                        Command="{Binding ExecuteCommand}"
-                                        Classes="accent">
-                                        <StackPanel Orientation="Horizontal"
-                                                        Spacing="8">
-                                                <TextBlock Text="▶"
-                                                                FontSize="14"/>
-                                                <TextBlock Text="Execute Code"/>
-                                        </StackPanel>
-                                </Button>
-                        </Grid>
-                </Border>
+		<TextBlock
+			Grid.Row="0"
+			Classes="section-title"
+			Text="Code Execute" />
 
-                <!-- Code Input Card -->
-                <Border
-                        Grid.Row="1"
-                        Classes="card-tight"
-                        Margin="0,0,0,12">
-                        <Grid RowDefinitions="Auto,*">
-                                <TextBlock
-                                        Grid.Row="0"
-                                        Margin="0,0,0,8"
-                                        Classes="card-title"
-                                        Text="C# Code Input"/>
-                                <TextBox
-                                        Grid.Row="1"
-                                        MinHeight="150"
-                                        AcceptsReturn="True"
-                                        Classes="mono"
-                                        Watermark="Enter C# code to execute..."
-                                        Text="{Binding ImmediateInput, Mode=TwoWay}"
-                                        TextWrapping="Wrap"/>
-                        </Grid>
-                </Border>
+		<Border
+			Grid.Row="1"
+			Margin="0,0,0,12"
+			Classes="card">
+			<Grid ColumnDefinitions="*,Auto">
+				<TextBlock
+					Grid.Column="0"
+					VerticalAlignment="Center"
+					Classes="body-text"
+					Text="Write and execute C# code snippets instantly" />
+				<Button
+					Grid.Column="1"
+					Classes="accent"
+					Command="{Binding ExecuteCommand}">
+					<StackPanel Orientation="Horizontal" Spacing="8">
+						<TextBlock FontSize="14" Text="▶" />
+						<TextBlock Text="Execute Code" />
+					</StackPanel>
+				</Button>
+			</Grid>
+		</Border>
 
-                <!-- Output Card -->
-                <Border
-                        Grid.Row="2"
-                        Classes="card-tight">
-                        <Grid RowDefinitions="Auto,*">
-                                <TextBlock
-                                        Grid.Row="0"
-                                        Margin="0,0,0,8"
-                                        Classes="card-title"
-                                        Text="Output"/>
-                                <ScrollViewer Grid.Row="1">
-                                        <TextBlock
-                                                Classes="mono"
-                                                Text="{Binding ImmediateOutput, Mode=OneWay}"
-                                                TextWrapping="Wrap"/>
-                                </ScrollViewer>
-                        </Grid>
-                </Border>
-        </Grid>
+		<Border
+			Grid.Row="2"
+			Margin="0,0,0,12"
+			Classes="card">
+			<Grid MinHeight="150">
+				<TextBox
+					Margin="12"
+					AcceptsReturn="True"
+					Classes="mono"
+					Text="{Binding ImmediateInput, Mode=TwoWay}"
+					TextWrapping="Wrap"
+					Watermark="Enter C# code to execute..." />
+			</Grid>
+		</Border>
+
+		<Border Grid.Row="3" Classes="card">
+			<Grid RowDefinitions="Auto,*">
+				<TextBlock
+					Grid.Row="0"
+					Margin="0,0,0,8"
+					Classes="card-title"
+					Text="Output" />
+				<ScrollViewer Grid.Row="1">
+					<TextBlock
+						Classes="mono"
+						Text="{Binding ImmediateOutput, Mode=OneWay}"
+						TextWrapping="Wrap" />
+				</ScrollViewer>
+			</Grid>
+		</Border>
+	</Grid>
 </UserControl>

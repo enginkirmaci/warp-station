@@ -1,36 +1,52 @@
 <UserControl
-        x:Class="Tools.Views.Pages.SnapItSettingsPage"
-        xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        d:DesignHeight="400"
-        d:DesignWidth="600"
-        mc:Ignorable="d">
+	x:Class="Tools.Views.Pages.SnapItSettingsPage"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:converters="clr-namespace:Tools.Library.Converters;assembly=Tools.Library"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	d:DesignHeight="400"
+	d:DesignWidth="600"
+	mc:Ignorable="d">
 
-        <StackPanel Classes="page-root" Spacing="16">
-                <Border Classes="card">
-                        <StackPanel Classes="field-stack">
-                                <TextBlock Classes="card-title" Text="SnapIt Settings" />
-                                <CheckBox Content="Start SnapIt automatically on launch" IsChecked="{Binding AutoStart, Mode=TwoWay}" />
+	<UserControl.Resources>
+		<converters:BoolToBrushConverter x:Key="BoolToBrushConverter" />
+	</UserControl.Resources>
 
-                                <Border Classes="chip" Padding="12,8">
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <Border
-                                                        Width="10"
-                                                        Height="10"
-                                                        Background="{Binding IsRunning, Converter={StaticResource BoolToBrushConverter}}"
-                                                        CornerRadius="5" />
-                                                <TextBlock VerticalAlignment="Center" Text="{Binding StatusText}" />
-                                        </StackPanel>
-                                </Border>
+	<Grid Classes="page-root" RowDefinitions="Auto,*">
 
-                                <Button
-                                        HorizontalAlignment="Left"
-                                        Classes="accent"
-                                        Command="{Binding ToggleSnapItCommand}"
-                                        Content="{Binding ToggleButtonText}" />
-                        </StackPanel>
-                </Border>
-        </StackPanel>
+		<TextBlock
+			Grid.Row="0"
+			Classes="section-title"
+			Text="SnapIt Settings" />
+
+		<Border
+			Grid.Row="1"
+			VerticalAlignment="Top"
+			Classes="card">
+			<StackPanel Classes="field-stack">
+				<CheckBox Content="Start SnapIt automatically on launch" IsChecked="{Binding AutoStart, Mode=TwoWay}" />
+
+				<Border
+					Padding="12,8"
+					HorizontalAlignment="Left"
+					Classes="chip">
+					<StackPanel Orientation="Horizontal" Spacing="8">
+						<Border
+							Width="10"
+							Height="10"
+							Background="{Binding IsRunning, Converter={StaticResource BoolToBrushConverter}}"
+							CornerRadius="5" />
+						<TextBlock VerticalAlignment="Center" Text="{Binding StatusText}" />
+					</StackPanel>
+				</Border>
+
+				<Button
+					HorizontalAlignment="Left"
+					Classes="accent"
+					Command="{Binding ToggleSnapItCommand}"
+					Content="{Binding ToggleButtonText}" />
+			</StackPanel>
+		</Border>
+	</Grid>
 </UserControl>
