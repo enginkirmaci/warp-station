@@ -1,4 +1,4 @@
-#if WINDOWS
+
 using System.Runtime.InteropServices;
 using Tools.Library.Services.Abstractions;
 
@@ -40,9 +40,11 @@ internal sealed class WindowMessageHandler
     /// <param name="hwnd">The window handle to hook.</param>
     public void Install(nint hwnd)
     {
+#if WINDOWS
         _wndProcDelegate = WndProc;
         var newProcPtr = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
         _oldWndProc = SetWindowLongPtr(hwnd, GWL_WNDPROC, newProcPtr);
+#endif
     }
 
     /// <summary>
@@ -51,11 +53,13 @@ internal sealed class WindowMessageHandler
     /// <param name="hwnd">The window handle to unhook.</param>
     public void Uninstall(nint hwnd)
     {
+#if WINDOWS
         if (_oldWndProc != IntPtr.Zero && hwnd != nint.Zero)
         {
             SetWindowLongPtr(hwnd, GWL_WNDPROC, _oldWndProc);
             _oldWndProc = IntPtr.Zero;
         }
+#endif
     }
     #endregion
 
@@ -94,4 +98,3 @@ internal sealed class WindowMessageHandler
     private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     #endregion
 }
-#endif
