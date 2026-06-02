@@ -14,25 +14,27 @@
                 RowDefinitions="Auto,Auto,*"
                 RowSpacing="12">
                 <!--  Top Card: Settings + Operations  -->
-                <Border Grid.Row="0" Classes="card">
+                <Border Grid.Row="0"
+                        Classes="card">
                         <Grid ColumnDefinitions="*,Auto">
                                 <!--  Left: Settings  -->
-                                <StackPanel Grid.Column="0" Classes="field-stack">
+                                <StackPanel Grid.Column="0"
+                                            Classes="field-stack">
                                         <TextBlock
                                                 Classes="card-title"
-                                                Text="Nuget Package Manager" />
+                                                Text="Nuget Package Manager"/>
 
                                         <StackPanel Spacing="4">
                                                 <TextBlock
                                                         Classes="field-label"
                                                         Margin="0,2,0,0"
-                                                        Text="Watch Directory" />
+                                                        Text="Watch Directory"/>
                                                 <Grid ColumnDefinitions="*,Auto">
                                                         <TextBox
                                                                 Grid.Column="0"
                                                                 Margin="0,0,8,0"
                                                                 Text="{Binding WatchFolder, Mode=TwoWay}"
-                                                                Watermark="Select a folder to watch for .nupkg files..." />
+                                                                Watermark="Select a folder to watch for .nupkg files..."/>
                                                         <Button
                                                                 Grid.Column="1"
                                                                 Classes="icon"
@@ -40,43 +42,50 @@
                                                                 CommandParameter="Watch">
                                                                 <Path
                                                                         Classes="icon"
-                                                                        Data="{tools:SvgPath icon-folder}" />
+                                                                        Data="{tools:SvgPath icon-folder}"/>
                                                         </Button>
                                                 </Grid>
                                         </StackPanel>
 
-                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Grid ColumnDefinitions="Auto,*,Auto"
+                                              RowDefinitions="Auto,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
                                                         Margin="0,0,8,0"
                                                         VerticalAlignment="Center"
-                                                        Text="NuGet Local Cache" />
+                                                        Text="NuGet Local Cache"/>
                                                 <TextBlock
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
                                                         Classes="subtle"
                                                         Text="{Binding ComputedCopyFolder}"
-                                                        TextTrimming="CharacterEllipsis" />
+                                                        TextTrimming="CharacterEllipsis"/>
+
+                                                <TextBlock Grid.Column="0"
+                                                           Grid.Row="1"
+                                                           Text="NuGet Global Cache"/>
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        Grid.Column="1"
+                                                        Grid.Row="1"
+                                                        Text="{Binding GlobalPackagesFolder}"
+                                                        TextTrimming="CharacterEllipsis"/>
+
                                                 <Button
                                                         Grid.Column="2"
+                                                        Grid.RowSpan="2"
+                                                        Width="100"
                                                         Classes="icon"
                                                         Command="{Binding RegisterSourceCommand}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <StackPanel Orientation="Horizontal"
+                                                                    Spacing="4">
                                                                 <Path
                                                                         Classes="icon"
-                                                                        Data="{tools:SvgPath icon-account}" />
-                                                                <TextBlock Text="Register" />
+                                                                        Data="{tools:SvgPath icon-account}"/>
+                                                                <TextBlock Text="Register"/>
                                                         </StackPanel>
                                                 </Button>
                                         </Grid>
-
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="NuGet Global Cache" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        Text="{Binding GlobalPackagesFolder}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
                                 </StackPanel>
 
                                 <!--  Right: Operations  -->
@@ -88,7 +97,7 @@
                                         <TextBlock
                                                 HorizontalAlignment="Center"
                                                 Classes="field-label"
-                                                Text="Operations" />
+                                                Text="Operations"/>
                                         <Button
                                                 HorizontalAlignment="Center"
                                                 Background="{DynamicResource InfoAccentBrush}"
@@ -104,8 +113,8 @@
                                                                         Width="16"
                                                                         Height="16"
                                                                         Data="{tools:SvgPath icon-play}"
-                                                                        Fill="{DynamicResource AccentForegroundBrush}" />
-                                                                <TextBlock Text="Start" />
+                                                                        Fill="{DynamicResource AccentForegroundBrush}"/>
+                                                                <TextBlock Text="Start"/>
                                                         </StackPanel>
                                                         <StackPanel
                                                                 Orientation="Horizontal"
@@ -115,8 +124,8 @@
                                                                         Width="16"
                                                                         Height="16"
                                                                         Data="{tools:SvgPath icon-stop}"
-                                                                        Fill="{DynamicResource AccentForegroundBrush}" />
-                                                                <TextBlock Text="Stop" />
+                                                                        Fill="{DynamicResource AccentForegroundBrush}"/>
+                                                                <TextBlock Text="Stop"/>
                                                         </StackPanel>
                                                 </Panel>
                                         </Button>
@@ -130,9 +139,11 @@
                         ColumnDefinitions="Auto,*"
                         ColumnSpacing="12">
                         <!--  Session Activity  -->
-                        <Border Grid.Column="0" Classes="card">
+                        <Border Grid.Column="0"
+                                Classes="card">
                                 <StackPanel Spacing="8">
-                                        <TextBlock Classes="card-title" Text="Session Activity" />
+                                        <TextBlock Classes="card-title"
+                                                   Text="Session Activity"/>
                                         <StackPanel
                                                 VerticalAlignment="Center"
                                                 Orientation="Horizontal"
@@ -141,42 +152,46 @@
                                                         Width="24"
                                                         Height="24"
                                                         Data="{tools:SvgPath icon-chart-bar}"
-                                                        Fill="{DynamicResource InfoAccentBrush}" />
+                                                        Fill="{DynamicResource InfoAccentBrush}"/>
                                                 <TextBlock
                                                         VerticalAlignment="Center"
                                                         FontSize="24"
                                                         FontWeight="Bold"
-                                                        Text="{Binding Count}" />
+                                                        Text="{Binding Count}"/>
                                         </StackPanel>
-                                        <TextBlock Classes="subtle" Text="Packages Refreshed" />
+                                        <TextBlock Classes="subtle"
+                                                   Text="Packages Refreshed"/>
                                 </StackPanel>
                         </Border>
 
                         <!--  How it works  -->
-                        <Border Grid.Column="1" Classes="card">
+                        <Border Grid.Column="1"
+                                Classes="card">
                                 <StackPanel Spacing="8">
-                                        <TextBlock Classes="card-title" Text="How it works" />
+                                        <TextBlock Classes="card-title"
+                                                   Text="How it works"/>
                                         <TextBlock
                                                 Classes="body-text"
-                                                Text="1. Register your build folder as a local NuGet source." />
+                                                Text="1. Register your build folder as a local NuGet source."/>
                                         <TextBlock
                                                 Classes="body-text"
-                                                Text="2. Start Watch to monitor for new build outputs (.nupkg)." />
+                                                Text="2. Start Watch to monitor for new build outputs (.nupkg)."/>
                                         <TextBlock
                                                 Classes="body-text"
-                                                Text="3. On every build, the tool clears the global cache, forcing consumer projects to fetch your fresh DLLs." />
+                                                Text="3. On every build, the tool clears the global cache, forcing consumer projects to fetch your fresh DLLs."/>
                                 </StackPanel>
                         </Border>
                 </Grid>
 
                 <!--  Bottom Card: Activity Log  -->
-                <Border Grid.Row="2" Classes="card">
+                <Border Grid.Row="2"
+                        Classes="card">
                         <Grid RowDefinitions="Auto,*">
                                 <TextBlock
                                         Grid.Row="0"
                                         Classes="card-title"
                                         Margin="0,0,0,8"
-                                        Text="Activity Log" />
+                                        Text="Activity Log"/>
                                 <ScrollViewer Grid.Row="1">
                                         <ItemsControl ItemsSource="{Binding FileList}">
                                                 <ItemsControl.ItemTemplate>
@@ -187,7 +202,7 @@
                                                                         CornerRadius="2">
                                                                         <TextBlock
                                                                                 Classes="subtle"
-                                                                                Text="{Binding}" />
+                                                                                Text="{Binding}"/>
                                                                 </Border>
                                                         </DataTemplate>
                                                 </ItemsControl.ItemTemplate>

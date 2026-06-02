@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Platform;
+using Tools.Helpers;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Windows;
 using Tools.Library.Converters;
@@ -18,6 +18,8 @@ public partial class MainWindow : Window
     private readonly INavigationService _navigationService;
     private readonly IClipboardPasswordService _clipboardPasswordService;
     private readonly ISnapItService _snapItService;
+    private readonly WindowMessageHandler _messageHandler;
+    private readonly WindowConfigurator _windowConfigurator;
 
     private bool _isNavigatingFromCode;
 
@@ -48,6 +50,11 @@ public partial class MainWindow : Window
         _navigationService = navigationService;
         _clipboardPasswordService = clipboardPasswordService;
         _snapItService = snapItService;
+
+        // Initialize helper classes (Dependency Inversion Principle)
+        _messageHandler = new WindowMessageHandler(clipboardPasswordService);
+        _windowConfigurator = new WindowConfigurator(this);
+
         DataContext = viewModel;
         InitializeComponent();
         InitializeNavigation();
@@ -70,11 +77,14 @@ public partial class MainWindow : Window
     private void InitializeWindow()
     {
 #if WINDOWS
-                var handle = ((Avalonia.Controls.TopLevel)this).TryGetPlatformHandle()?.Handle ?? nint.Zero;
-                if (handle != nint.Zero)
-                {
-                    _clipboardPasswordService.RegisterHotKeys(handle);
-                }
+        _windowConfigurator.Configure();
+
+        var handle = ((Avalonia.Controls.TopLevel)this).TryGetPlatformHandle()?.Handle ?? nint.Zero;
+        if (handle != nint.Zero)
+        {
+            _clipboardPasswordService.RegisterHotKeys(handle);
+            _messageHandler.Install(handle);
+        }
 #endif
         Closed += OnWindowClosed;
     }
@@ -180,6 +190,8 @@ public partial class MainWindow : Window
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         _clipboardPasswordService.UnregisterHotKeys();
+        _messageHandler.Uninstall(_windowConfigurator.WindowHandle);
+
         _navigationService.Navigated -= OnNavigated;
         _navigationService.BackStackChanged -= OnBackStackChanged;
         _snapItService.Stop();

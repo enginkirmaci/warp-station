@@ -10,23 +10,25 @@
         d:DesignWidth="800"
         mc:Ignorable="d">
 
-        <Grid Classes="page-root" RowDefinitions="Auto,Auto,*">
+        <Grid Classes="page-root"
+                        RowDefinitions="Auto,Auto,*">
 
                 <TextBlock
                         Grid.Row="0"
                         Classes="section-title"
-                        Text="Workspaces" />
+                        Text="Workspaces"/>
 
                 <!--  Search and Filter  -->
                 <Border
                         Grid.Row="1"
                         Classes="card"
                         Margin="0,0,0,16">
-                        <Grid ColumnDefinitions="*,Auto,1,Auto" ColumnSpacing="8">
+                        <Grid ColumnDefinitions="*,Auto,1,Auto"
+                                        ColumnSpacing="8">
                                 <TextBox
                                         Grid.Column="0"
                                         Text="{Binding FilterText, Mode=TwoWay}"
-                                        Watermark="Filter..." />
+                                        Watermark="Filter..."/>
                                 <Button
                                         Grid.Column="1"
                                         Classes="icon"
@@ -34,18 +36,18 @@
                                         IsEnabled="{Binding !IsBusy}">
                                         <Path
                                                 Classes="icon"
-                                                Data="{tools:SvgPath icon-refresh}" />
+                                                Data="{tools:SvgPath icon-refresh}"/>
                                 </Button>
                                 <Border
                                         Grid.Column="2"
-                                        Classes="vertical-divider" />
+                                        Classes="vertical-divider"/>
                                 <Button
                                         Grid.Column="3"
                                         Classes="icon"
                                         Command="{Binding OpenSettingsCommand}">
                                         <Path
                                                 Classes="icon"
-                                                Data="{tools:SvgPath icon-cog}" />
+                                                Data="{tools:SvgPath icon-cog}"/>
                                 </Button>
                         </Grid>
                 </Border>
@@ -53,123 +55,253 @@
                 <!--  Results  -->
                 <ScrollViewer Grid.Row="2">
                         <StackPanel Spacing="12">
-                                <StackPanel Orientation="Horizontal" Spacing="2">
-                                        <TextBlock
-                                                FontSize="14"
-                                                FontWeight="Bold"
-                                                Text="Projects" />
-                                        <TextBlock
-                                                VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text="(" />
-                                        <TextBlock
-                                                VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text="{Binding FilteredWorkspaces.Count}" />
-                                        <TextBlock
-                                                VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text=" )" />
-                                </StackPanel>
-                                <ItemsControl ItemsSource="{Binding FilteredWorkspaces}">
-                                        <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                        <UniformGrid Columns="2" />
-                                                </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                        <Border
-                                                                Margin="0,0,16,8"
-                                                                Padding="12,10"
-                                                                Classes="card"
-                                                                CornerRadius="{DynamicResource ChipRadius}">
-                                                                <Grid ColumnDefinitions="*,Auto">
-                                                                        <StackPanel
-                                                                                Grid.Column="0"
-                                                                                VerticalAlignment="Center"
-                                                                                Spacing="2">
-                                                                                <TextBlock
-                                                                                        FontWeight="Medium"
-                                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                                        Text="{Binding SolutionName}" />
-                                                                                <TextBlock
-                                                                                        Classes="subtle"
-                                                                                        Text="{Binding FolderPath}" />
-                                                                        </StackPanel>
-                                                                        <Grid
-                                                                                Grid.Column="1"
-                                                                                Margin="8,0,0,0"
-                                                                                VerticalAlignment="Center"
-                                                                                ColumnDefinitions="Auto,1,Auto">
-                                                                                <Button
+
+                                <!--  Platforms Section  -->
+                                <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="2">
+                                                <TextBlock
+                                                        FontSize="14"
+                                                        FontWeight="Bold"
+                                                        Text="Platforms"/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="("/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="{Binding FilteredPlatforms.Count}"/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text=")"/>
+                                        </StackPanel>
+                                        <ItemsControl ItemsSource="{Binding FilteredPlatforms}">
+                                                <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                                <UniformGrid Columns="2"/>
+                                                        </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                                <Border
+                                                                        Margin="0,0,16,8"
+                                                                        Padding="12,10"
+                                                                        Classes="card"
+                                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                                <StackPanel
                                                                                         Grid.Column="0"
-                                                                                        Classes="icon"
-                                                                                        Command="{Binding #Root.DataContext.OpenSolutionCommand}"
-                                                                                        CommandParameter="{Binding SolutionPath}">
-                                                                                        <Path
-                                                                                                Width="18"
-                                                                                                Height="18"
-                                                                                                Data="{tools:SvgPath icon-sln-box}"
-                                                                                                Fill="{DynamicResource PurpleAccentBrush}" />
-                                                                                </Button>
-                                                                                <Border
+                                                                                        VerticalAlignment="Center"
+                                                                                        Spacing="2">
+                                                                                        <TextBlock
+                                                                                                FontWeight="Medium"
+                                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                                Text="{Binding PlatformName}"/>
+                                                                                        <TextBlock
+                                                                                                Classes="subtle"
+                                                                                                Text="{Binding FolderPath}"/>
+                                                                                </StackPanel>
+                                                                                <Grid
                                                                                         Grid.Column="1"
-                                                                                        Classes="vertical-divider"
-                                                                                        Margin="4,2" />
-                                                                                <Button
-                                                                                        Grid.Column="2"
-                                                                                        Classes="icon">
-                                                                                        <Path
-                                                                                                Width="12"
-                                                                                                Height="12"
-                                                                                                Data="{tools:SvgPath icon-chevron-down}" />
-                                                                                        <Button.Flyout>
-                                                                                                <MenuFlyout>
-                                                                                                        <MenuItem
-                                                                                                                Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
-                                                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                                                Header="Open with VS Code:">
-                                                                                                                <MenuItem.Icon>
-                                                                                                                        <Path
-                                                                                                                                 Width="16"
-                                                                                                                                 Height="16"
-                                                                                                                                 Data="{tools:SvgPath icon-vscode}"
-                                                                                                                                 Fill="#007ACC" />
-                                                                                                                </MenuItem.Icon>
-                                                                                                        </MenuItem>
-                                                                                                        <MenuItem
-                                                                                                                Command="{Binding #Root.DataContext.OpenWithTerminalCommand}"
-                                                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                                                Header="Open in Terminal">
-                                                                                                                <MenuItem.Icon>
-                                                                                                                        <Path
-                                                                                                                                 Width="16"
-                                                                                                                                 Height="16"
-                                                                                                                                 Data="{tools:SvgPath icon-terminal}" />
-                                                                                                                </MenuItem.Icon>
-                                                                                                        </MenuItem>
-                                                                                                        <MenuItem
-                                                                                                                Command="{Binding #Root.DataContext.OpenFolderCommand}"
-                                                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                                                Header="Show in Explorer">
-                                                                                                                <MenuItem.Icon>
-                                                                                                                        <Path
-                                                                                                                                 Width="16"
-                                                                                                                                 Height="16"
-                                                                                                                                 Data="{tools:SvgPath icon-folder}"
-                                                                                                                                 Fill="#FFB900" />
-                                                                                                                </MenuItem.Icon>
-                                                                                                        </MenuItem>
-                                                                                                </MenuFlyout>
-                                                                                        </Button.Flyout>
-                                                                                </Button>
+                                                                                        Margin="8,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        ColumnDefinitions="Auto,1,Auto">
+                                                                                        <Button
+                                                                                                Grid.Column="0"
+                                                                                                Classes="icon"
+                                                                                                Command="{Binding #Root.DataContext.OpenFolderCommand}"
+                                                                                                CommandParameter="{Binding FolderPath}">
+                                                                                                <Path
+                                                                                                        Width="18"
+                                                                                                        Height="18"
+                                                                                                        Data="{tools:SvgPath icon-folder}"
+                                                                                                        Fill="#FFB900"/>
+                                                                                        </Button>
+                                                                                        <Border
+                                                                                                Grid.Column="1"
+                                                                                                Classes="vertical-divider"
+                                                                                                Margin="4,2"/>
+                                                                                        <Button
+                                                                                                Grid.Column="2"
+                                                                                                Classes="icon">
+                                                                                                <Path
+                                                                                                        Width="12"
+                                                                                                        Height="12"
+                                                                                                        Data="{tools:SvgPath icon-chevron-down}"/>
+                                                                                                <Button.Flyout>
+                                                                                                        <MenuFlyout>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Open with VS Code:">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-vscode}"
+                                                                                                                                        Fill="#007ACC"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenWithTerminalCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Open in Terminal">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-terminal}"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenFolderCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Show in Explorer">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-folder}"
+                                                                                                                                        Fill="#FFB900"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                        </MenuFlyout>
+                                                                                                </Button.Flyout>
+                                                                                        </Button>
+                                                                                </Grid>
                                                                         </Grid>
-                                                                </Grid>
-                                                        </Border>
-                                                </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                                                </Border>
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                </StackPanel>
+
+                                <!--  Projects Section  -->
+                                <StackPanel Spacing="8"
+                                            Margin="0,16,0,0">
+                                        <StackPanel Orientation="Horizontal"
+                                                        Spacing="2">
+                                                <TextBlock
+                                                        FontSize="14"
+                                                        FontWeight="Bold"
+                                                        Text="Projects"/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="("/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="{Binding FilteredWorkspaces.Count}"/>
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text=")"/>
+                                        </StackPanel>
+                                        <ItemsControl ItemsSource="{Binding FilteredWorkspaces}">
+                                                <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                                <UniformGrid Columns="2"/>
+                                                        </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                                <Border
+                                                                        Margin="0,0,16,8"
+                                                                        Padding="12,10"
+                                                                        Classes="card"
+                                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                                <StackPanel
+                                                                                        Grid.Column="0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Spacing="2">
+                                                                                        <TextBlock
+                                                                                                FontWeight="Medium"
+                                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                                Text="{Binding SolutionName}"/>
+                                                                                        <TextBlock
+                                                                                                Classes="subtle"
+                                                                                                Text="{Binding FolderPath}"/>
+                                                                                </StackPanel>
+                                                                                <Grid
+                                                                                        Grid.Column="1"
+                                                                                        Margin="8,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        ColumnDefinitions="Auto,1,Auto">
+                                                                                        <Button
+                                                                                                Grid.Column="0"
+                                                                                                Classes="icon"
+                                                                                                Command="{Binding #Root.DataContext.OpenSolutionCommand}"
+                                                                                                CommandParameter="{Binding SolutionPath}">
+                                                                                                <Path
+                                                                                                        Width="18"
+                                                                                                        Height="18"
+                                                                                                        Data="{tools:SvgPath icon-sln-box}"
+                                                                                                        Fill="{DynamicResource PurpleAccentBrush}"/>
+                                                                                        </Button>
+                                                                                        <Border
+                                                                                                Grid.Column="1"
+                                                                                                Classes="vertical-divider"
+                                                                                                Margin="4,2"/>
+                                                                                        <Button
+                                                                                                Grid.Column="2"
+                                                                                                Classes="icon">
+                                                                                                <Path
+                                                                                                        Width="12"
+                                                                                                        Height="12"
+                                                                                                        Data="{tools:SvgPath icon-chevron-down}"/>
+                                                                                                <Button.Flyout>
+                                                                                                        <MenuFlyout>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Open with VS Code:">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-vscode}"
+                                                                                                                                        Fill="#007ACC"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenWithTerminalCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Open in Terminal">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-terminal}"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                                <MenuItem
+                                                                                                                        Command="{Binding #Root.DataContext.OpenFolderCommand}"
+                                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                                        Header="Show in Explorer">
+                                                                                                                        <MenuItem.Icon>
+                                                                                                                                <Path
+                                                                                                                                        Width="16"
+                                                                                                                                        Height="16"
+                                                                                                                                        Data="{tools:SvgPath icon-folder}"
+                                                                                                                                        Fill="#FFB900"/>
+                                                                                                                        </MenuItem.Icon>
+                                                                                                                </MenuItem>
+                                                                                                        </MenuFlyout>
+                                                                                                </Button.Flyout>
+                                                                                        </Button>
+                                                                                </Grid>
+                                                                        </Grid>
+                                                                </Border>
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                </StackPanel>
+
+
                         </StackPanel>
                 </ScrollViewer>
         </Grid>

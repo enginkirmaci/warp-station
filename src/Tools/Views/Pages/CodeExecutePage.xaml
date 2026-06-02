@@ -5,9 +5,11 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        d:DesignWidth="800" d:DesignHeight="600">
+        d:DesignWidth="800"
+                d:DesignHeight="600">
 
-        <Grid RowDefinitions="Auto,*,3*" Classes="page-root">
+        <Grid RowDefinitions="Auto,*,3*"
+                        Classes="page-root">
 
                 <!-- Header Card -->
                 <Border
@@ -19,15 +21,17 @@
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
                                         Classes="body-text"
-                                        Text="Write and execute C# code snippets instantly" />
+                                        Text="Write and execute C# code snippets instantly"/>
                                 <Button
                                         Grid.Column="1"
                                         Height="36"
                                         Command="{Binding ExecuteCommand}"
                                         Classes="accent">
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="▶" FontSize="14" />
-                                                <TextBlock Text="Execute Code" />
+                                        <StackPanel Orientation="Horizontal"
+                                                        Spacing="8">
+                                                <TextBlock Text="▶"
+                                                                FontSize="14"/>
+                                                <TextBlock Text="Execute Code"/>
                                         </StackPanel>
                                 </Button>
                         </Grid>
@@ -43,7 +47,7 @@
                                         Grid.Row="0"
                                         Margin="0,0,0,8"
                                         Classes="card-title"
-                                        Text="C# Code Input" />
+                                        Text="C# Code Input"/>
                                 <TextBox
                                         Grid.Row="1"
                                         MinHeight="150"
@@ -51,7 +55,7 @@
                                         Classes="mono"
                                         Watermark="Enter C# code to execute..."
                                         Text="{Binding ImmediateInput, Mode=TwoWay}"
-                                        TextWrapping="Wrap" />
+                                        TextWrapping="Wrap"/>
                         </Grid>
                 </Border>
 
@@ -64,12 +68,12 @@
                                         Grid.Row="0"
                                         Margin="0,0,0,8"
                                         Classes="card-title"
-                                        Text="Output" />
+                                        Text="Output"/>
                                 <ScrollViewer Grid.Row="1">
                                         <TextBlock
                                                 Classes="mono"
                                                 Text="{Binding ImmediateOutput, Mode=OneWay}"
-                                                TextWrapping="Wrap" />
+                                                TextWrapping="Wrap"/>
                                 </ScrollViewer>
                         </Grid>
                 </Border>
