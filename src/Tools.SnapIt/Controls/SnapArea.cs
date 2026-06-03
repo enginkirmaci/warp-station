@@ -1,54 +1,50 @@
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Graphics;
-using Point = System.Windows.Point;
+using Point = Avalonia.Point;
 
 namespace Tools.SnapIt.Controls;
 
-public class SnapArea : Control
+public class SnapArea : TemplatedControl
 {
 	public SnapControl SnapControl { get; set; }
 
+	public static readonly StyledProperty<Thickness> AreaPaddingProperty =
+		AvaloniaProperty.Register<SnapArea, Thickness>(
+			nameof(AreaPadding),
+			defaultValue: new Thickness(0),
+			defaultBindingMode: BindingMode.TwoWay);
+
 	public Thickness AreaPadding
 	{
-		get => (Thickness)GetValue(AreaPaddingProperty);
+		get => GetValue(AreaPaddingProperty);
 		set => SetValue(AreaPaddingProperty, value);
 	}
 
-	public static readonly DependencyProperty AreaPaddingProperty
-	 = DependencyProperty.Register("AreaPadding", typeof(Thickness), typeof(SnapArea),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = new Thickness(0),
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(AreaPaddingPropertyChanged)
-	   });
+	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
+		AvaloniaProperty.Register<SnapArea, SnapAreaTheme>(
+			nameof(SnapTheme),
+			defaultBindingMode: BindingMode.TwoWay);
 
-	private static void AreaPaddingPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+	public SnapAreaTheme SnapTheme
 	{
-		var snapAreaEditor = (SnapArea)d;
-		snapAreaEditor.AreaPadding = (Thickness)e.NewValue;
+		get => GetValue(SnapThemeProperty);
+		set => SetValue(SnapThemeProperty, value);
 	}
 
-	public SnapAreaTheme Theme
+	static SnapArea()
 	{
-		get => (SnapAreaTheme)GetValue(ThemeProperty);
-		set => SetValue(ThemeProperty, value);
-	}
+		AreaPaddingProperty.Changed.AddClassHandler<SnapArea>((snapArea, e) =>
+		{
+			snapArea.AreaPadding = e.NewValue is Thickness t ? t : new Thickness(0);
+		});
 
-	public static readonly DependencyProperty ThemeProperty
-	 = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapArea),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-	   });
-
-	private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapArea = (SnapArea)d;
-		snapArea.Theme = (SnapAreaTheme)e.NewValue;
+		SnapThemeProperty.Changed.AddClassHandler<SnapArea>((snapArea, e) =>
+		{
+			snapArea.SnapTheme = e.NewValue as SnapAreaTheme;
+		});
 	}
 
 	public SnapArea()
@@ -61,7 +57,7 @@ public class SnapArea : Control
 		var area = this.FindChild<Grid>("Area");
 		if (area != null)
 		{
-			area.Background = Theme.OverlayBrush;
+			area.Background = SnapTheme.OverlayBrush;
 		}
 	}
 
@@ -70,21 +66,21 @@ public class SnapArea : Control
 		var area = this.FindChild<Grid>("Area");
 		if (area != null)
 		{
-			area.Background = Theme.HighlightBrush;
+			area.Background = SnapTheme.HighlightBrush;
 		}
 	}
 
 	public Rectangle ScreenSnapArea(Dpi dpi)
 	{
-		var topLeft = PointToScreen(new Point(SnapControl.AreaPadding, SnapControl.AreaPadding));
+		var topLeft = this.PointToScreen(new Point(SnapControl.AreaPadding, SnapControl.AreaPadding));
 
-		var bottomRight = PointToScreen(new Point(ActualWidth - SnapControl.AreaPadding, ActualHeight - SnapControl.AreaPadding));
+		var bottomRight = this.PointToScreen(new Point(Bounds.Width - SnapControl.AreaPadding, Bounds.Height - SnapControl.AreaPadding));
 
 		return new Rectangle(
-		   (int)topLeft.X,
-		   (int)topLeft.Y,
-		   (int)bottomRight.X,
-		   (int)bottomRight.Y,
+		   topLeft.X,
+		   topLeft.Y,
+		   bottomRight.X,
+		   bottomRight.Y,
 		   dpi);
 	}
 }

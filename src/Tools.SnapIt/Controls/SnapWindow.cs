@@ -1,5 +1,7 @@
-using System.Windows.Interop;
-using System.Windows.Media;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Platform;
+using Avalonia.VisualTree;
 using Tools.SnapIt.Contracts;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Extensions;
@@ -20,6 +22,12 @@ public class SnapWindow : Window, IWindow
 	public Dictionary<int, Rectangle> SnapAreaRectangles { get; set; }
 	public Dpi Dpi { get; set; }
 
+	event EventHandler IWindow.Loaded
+	{
+		add => Loaded += (s, e) => value?.Invoke(s, EventArgs.Empty);
+		remove { }
+	}
+
 	public SnapWindow(
 		ISettingService settingService,
 		IWinApiService winApiService,
@@ -35,16 +43,15 @@ public class SnapWindow : Window, IWindow
 			Topmost = true;
 		}
 
-		AllowsTransparency = true;
+		TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
+		WindowDecorations = Avalonia.Controls.WindowDecorations.None;
 		Background = Brushes.Transparent;
-		ResizeMode = ResizeMode.NoResize;
+		CanResize = false;
 		ShowInTaskbar = false;
 		Width = screen.WorkingArea.Width;
 		Height = screen.WorkingArea.Height;
-		Left = screen.WorkingArea.X;
-		Top = screen.WorkingArea.Y;
+		Position = new PixelPoint((int)screen.WorkingArea.X, (int)screen.WorkingArea.Y);
 		WindowState = WindowState.Normal;
-		WindowStyle = WindowStyle.None;
 
 		Dpi = new Dpi()
 		{
@@ -58,34 +65,36 @@ public class SnapWindow : Window, IWindow
 		base.Show();
 	}
 
-	protected override void OnSourceInitialized(EventArgs e)
+	protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
 	{
-		base.OnSourceInitialized(e);
-
+		base.OnAttachedToVisualTree(e);
 		MaximizeWindow();
 	}
 
 	private void MaximizeWindow()
 	{
-		var wih = new WindowInteropHelper(this);
+		var handle = TryGetPlatformHandle()?.Handle ?? nint.Zero;
+		if (handle == nint.Zero) return;
+
 		var window = new ActiveWindow
 		{
-			Handle = wih.Handle
+			Handle = handle
 		};
 
-		winApiService.MoveWindow(
-			window,
-			(int)Screen.WorkingArea.Left,
-			(int)Screen.WorkingArea.Top,
-			(int)Screen.WorkingArea.Width,
-			(int)Screen.WorkingArea.Height);
+		if (Screen != null)
+			winApiService.MoveWindow(
+				window,
+				(int)Screen.WorkingArea.Left,
+				(int)Screen.WorkingArea.Top,
+				(int)Screen.WorkingArea.Width,
+				(int)Screen.WorkingArea.Height);
 	}
 
 	public void ApplyLayout()
 	{
 		var snapControl = new SnapControl
 		{
-			Theme = settingService.Settings.Theme,
+			SnapTheme = settingService.Settings.Theme,
 			Layout = Screen.Layout
 		};
 
@@ -131,17 +140,17 @@ public class SnapWindow : Window, IWindow
 	{
 		if (IsVisible)
 		{
-			var Point2Window = PointFromScreen(new System.Windows.Point(x, y));
+			var Point2Window = this.PointToClient(new PixelPoint(x, y));
 
-			var element = InputHitTest(Point2Window);
+			var element = this.GetVisualAt(Point2Window);
 
-			DependencyObject dependencyObject = null;
-			if (element != null && element is DependencyObject)
+			AvaloniaObject dependencyObject = null;
+			if (element != null && element is AvaloniaObject)
 			{
-				dependencyObject = ((DependencyObject)element).FindParent<SnapArea>();
+				dependencyObject = ((AvaloniaObject)element).FindParent<SnapArea>();
 				if (dependencyObject == null)
 				{
-					dependencyObject = ((DependencyObject)element).FindParent<SnapOverlay>();
+					dependencyObject = ((AvaloniaObject)element).FindParent<SnapOverlay>();
 				}
 			}
 

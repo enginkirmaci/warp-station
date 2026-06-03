@@ -1,43 +1,40 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 
 namespace Tools.SnapIt.Extensions;
 
-public static class ScrollViewerHelper
+public class ScrollViewerHelper
 {
-    // Attached property boilerplate
-    public static bool GetFixMouseWheel(ScrollViewer scrollViewer) => (bool)scrollViewer?.GetValue(FixMouseWheelProperty);
+    public static bool GetFixMouseWheel(ScrollViewer scrollViewer) => scrollViewer?.GetValue(FixMouseWheelProperty) ?? false;
 
     public static void SetFixMouseWheel(ScrollViewer scrollViewer, bool value) => scrollViewer?.SetValue(FixMouseWheelProperty, value);
 
-    public static readonly DependencyProperty FixMouseWheelProperty =
-        DependencyProperty.RegisterAttached("FixMouseWheel", typeof(bool), typeof(ScrollViewerHelper),
-            new PropertyMetadata(OnFixMouseWheelChanged));
+    public static readonly AttachedProperty<bool> FixMouseWheelProperty =
+        AvaloniaProperty.RegisterAttached<ScrollViewerHelper, ScrollViewer, bool>("FixMouseWheel");
 
-    // End attached property boilerplate
-
-    private static void OnFixMouseWheelChanged(DependencyObject d,
-                                       DependencyPropertyChangedEventArgs e)
+    static ScrollViewerHelper()
     {
-        var scrollViewer = d as ScrollViewer;
+        FixMouseWheelProperty.Changed.AddClassHandler<ScrollViewer>(OnFixMouseWheelChanged);
+    }
+
+    private static void OnFixMouseWheelChanged(ScrollViewer scrollViewer, AvaloniaPropertyChangedEventArgs e)
+    {
         if (scrollViewer == null) return;
 
-        scrollViewer.PreviewMouseWheel += (s2, e2) =>
+        scrollViewer.AddHandler(InputElement.PointerWheelChangedEvent, (s2, e2) =>
         {
-            var parent = scrollViewer.Parent as UIElement;
+            var parent = scrollViewer.Parent as Interactive;
 
-            if (scrollViewer.ComputedHorizontalScrollBarVisibility != Visibility.Visible)
+            if (scrollViewer.HorizontalScrollBarVisibility != ScrollBarVisibility.Visible)
             {
-                bool hitTopOrBottom = HitTopOrBottom(e2.Delta, scrollViewer);
+                bool hitTopOrBottom = HitTopOrBottom(e2.Delta.Y, scrollViewer);
                 if (parent is null || !hitTopOrBottom) return;
-
-                var argsCopy = Copy(e2);
-                parent.RaiseEvent(argsCopy);
             }
             else
             {
-                if (e2.Delta < 0)
+                if (e2.Delta.Y < 0)
                 {
                     scrollViewer.LineRight();
                 }
@@ -46,29 +43,22 @@ public static class ScrollViewerHelper
                     scrollViewer.LineLeft();
                 }
             }
-        };
+        }, RoutingStrategies.Tunnel);
     }
 
     private static bool HitTopOrBottom(double delta, ScrollViewer scrollViewer)
     {
-        var contentVerticalOffset = scrollViewer.ContentVerticalOffset;
+        var contentVerticalOffset = scrollViewer.Offset.Y;
 
         var atTop = contentVerticalOffset == 0;
         var movedUp = delta > 0;
         var hitTop = atTop && movedUp;
 
         var atBottom =
-            contentVerticalOffset == scrollViewer.ScrollableHeight;
+            contentVerticalOffset == scrollViewer.ScrollBarMaximum.Y;
         var movedDown = delta < 0;
         var hitBottom = atBottom && movedDown;
 
         return hitTop || hitBottom;
     }
-
-    private static MouseWheelEventArgs Copy(MouseWheelEventArgs e)
-        => new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
-        {
-            RoutedEvent = UIElement.MouseWheelEvent,
-            Source = e.Source,
-        };
 }

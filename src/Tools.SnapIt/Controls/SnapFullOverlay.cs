@@ -1,40 +1,39 @@
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Graphics;
-using Point = System.Windows.Point;
-using Size = System.Windows.Size;
+using Point = Avalonia.Point;
+using Size = Avalonia.Size;
 
 namespace Tools.SnapIt.Controls;
 
-public class SnapFullOverlay : Control
+public class SnapFullOverlay : TemplatedControl
 {
     public LayoutOverlay LayoutOverlay { get; internal set; }
 
-    public SnapAreaTheme Theme
+    public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
+        AvaloniaProperty.Register<SnapFullOverlay, SnapAreaTheme>(
+            nameof(SnapTheme),
+            defaultBindingMode: BindingMode.TwoWay);
+
+    public SnapAreaTheme SnapTheme
     {
-        get => (SnapAreaTheme)GetValue(ThemeProperty);
-        set => SetValue(ThemeProperty, value);
+        get => GetValue(SnapThemeProperty);
+        set => SetValue(SnapThemeProperty, value);
     }
 
-    public static readonly DependencyProperty ThemeProperty
-     = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapFullOverlay),
-       new FrameworkPropertyMetadata()
-       {
-           BindsTwoWayByDefault = true,
-           PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-       });
-
-    private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    static SnapFullOverlay()
     {
-        var snapOverlayEditor = (SnapFullOverlay)d;
-        snapOverlayEditor.Theme = (SnapAreaTheme)e.NewValue;
+        SnapThemeProperty.Changed.AddClassHandler<SnapFullOverlay>((snapOverlayEditor, e) =>
+        {
+            snapOverlayEditor.SnapTheme = e.NewValue as SnapAreaTheme;
+        });
     }
 
     public SnapFullOverlay(SnapAreaTheme theme)
     {
-        Theme = theme;
+        SnapTheme = theme;
     }
 
     public void SetPos(Point point, Size size)
@@ -47,7 +46,7 @@ public class SnapFullOverlay : Control
 
     public void NormalStyle()
     {
-        Visibility = Visibility.Hidden;
+        IsVisible = false;
     }
 
     public void OnHoverStyle()
@@ -55,22 +54,22 @@ public class SnapFullOverlay : Control
         var overlay = this.FindChild<Grid>("Overlay");
         if (overlay != null)
         {
-            Visibility = Visibility.Visible;
-            overlay.Opacity = Theme.Opacity;
+            IsVisible = true;
+            overlay.Opacity = SnapTheme.Opacity;
         }
     }
 
     public Rectangle ScreenSnapArea(Dpi dpi)
     {
-        var topLeft = PointToScreen(new Point(0, 0));
+        var topLeft = this.PointToScreen(new Point(0, 0));
 
-        var bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+        var bottomRight = this.PointToScreen(new Point(Bounds.Width, Bounds.Height));
 
         return new Rectangle(
-           (int)topLeft.X,
-           (int)topLeft.Y,
-           (int)bottomRight.X,
-           (int)bottomRight.Y,
+           topLeft.X,
+           topLeft.Y,
+           bottomRight.X,
+           bottomRight.Y,
            dpi);
     }
 }

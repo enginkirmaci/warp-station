@@ -1,10 +1,10 @@
-using System.Windows;
+using Tools.SnapIt.Contracts;
 
 namespace Tools.SnapIt.Contracts;
 
 public interface IWindow
 {
-    event RoutedEventHandler Loaded;
+    event EventHandler Loaded;
 
     void Show();
 }

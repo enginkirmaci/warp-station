@@ -1,6 +1,6 @@
-using Color = System.Windows.Media.Color;
-using Point = System.Windows.Point;
-using Size = System.Windows.Size;
+using Color = Avalonia.Media.Color;
+using Point = Avalonia.Point;
+using Size = Avalonia.Size;
 
 namespace Tools.SnapIt.Extensions;
 

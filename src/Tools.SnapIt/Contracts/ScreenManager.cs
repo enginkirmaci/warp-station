@@ -1,4 +1,4 @@
-using System.Windows.Interop;
+using System.Runtime.InteropServices;
 
 namespace Tools.SnapIt.Contracts;
 
@@ -9,7 +9,6 @@ public class ScreenManager : IScreenManager
     private static volatile bool screenChanged;
 
     private ISnapManager? snapManager;
-    private HwndSource? hwndSource;
 
     public bool IsInitialized { get; private set; }
 
@@ -25,44 +24,12 @@ public class ScreenManager : IScreenManager
             return;
         }
 
-        hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(System.Windows.Application.Current.MainWindow).Handle);
-        hwndSource.AddHook(new HwndSourceHook(WndProc));
-
         IsInitialized = true;
     }
 
     public void Dispose()
     {
-        if (hwndSource != null)
-        {
-            hwndSource.RemoveHook(new HwndSourceHook(WndProc));
-            hwndSource = null;
-        }
-
         IsInitialized = false;
-    }
-
-    private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
-    {
-        switch ((uint)msg)
-        {
-            case WM_DISPLAYCHANGE:
-                Dev.Log("WM_DISPLAYCHANGE");
-                screenChanged = true;
-                ScreenChangedTask();
-
-                break;
-
-            case WM_SETTINGCHANGE:
-                screenChanged = true;
-                ScreenChangedTask();
-
-                Dev.Log("WM_SETTINGCHANGE");
-
-                break;
-        }
-
-        return nint.Zero;
     }
 
     private async void ScreenChangedTask()

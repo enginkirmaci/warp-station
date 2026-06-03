@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using Tools.SnapIt.Entities;
+using Tools.SnapIt.Graphics;
 using Tools.SnapIt.Services.Abstractions;
-using WpfScreenHelper;
+using WindowsDisplayAPI;
 
 namespace Tools.SnapIt.Services;
 
@@ -95,12 +97,26 @@ public class SettingService : ISettingService
 	{
 		var snapScreens = new List<SnapScreen>();
 
-		var displays = WindowsDisplayAPI.Display.GetDisplays();
+		var displays = Display.GetDisplays();
 
-		foreach (var screen in Screen.AllScreens)
+		foreach (var display in displays)
 		{
-			var display = displays.FirstOrDefault(display => display.DisplayName == screen.DeviceName);
-			var snapScreen = new SnapScreen(screen, display?.DevicePath);
+			var monitorInfo = GetMonitorInfo(display);
+			var workingArea = new Rectangle(
+				monitorInfo.workArea.left,
+				monitorInfo.workArea.top,
+				monitorInfo.workArea.right,
+				monitorInfo.workArea.bottom);
+			var bounds = new Rectangle(
+				monitorInfo.monitor.left,
+				monitorInfo.monitor.top,
+				monitorInfo.monitor.right,
+				monitorInfo.monitor.bottom);
+
+			var dpi = Extensions.DpiHelper.GetDpiFromPoint((float)bounds.Left, (float)bounds.Top);
+			var scaleFactor = 1.0 / dpi.X;
+
+			var snapScreen = new SnapScreen(display, workingArea, bounds, scaleFactor, monitorInfo.isPrimary);
 			var layoutGuid = Settings.ScreensLayouts.TryGetValue(snapScreen.DeviceName, out var value)
 				? value : string.Empty;
 
@@ -119,5 +135,41 @@ public class SettingService : ISettingService
 		}
 
 		return snapScreens;
+	}
+
+	[DllImport("user32.dll")]
+	private static extern bool GetMonitorInfo(nint hMonitor, ref MONITORINFO lpmi);
+
+	[DllImport("user32.dll")]
+	private static extern nint MonitorFromPoint(POINT pt, uint dwFlags);
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct RECT
+	{
+		public int left, top, right, bottom;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct MONITORINFO
+	{
+		public int cbSize;
+		public RECT monitor;
+		public RECT workArea;
+		public uint dwFlags;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct POINT
+	{
+		public int x, y;
+	}
+
+	private static (RECT monitor, RECT workArea, bool isPrimary) GetMonitorInfo(Display display)
+	{
+		var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+		var pt = new POINT { x = display.CurrentSetting.Position.X + 1, y = display.CurrentSetting.Position.Y + 1 };
+		var hMonitor = MonitorFromPoint(pt, 2);
+		GetMonitorInfo(hMonitor, ref mi);
+		return (mi.monitor, mi.workArea, (mi.dwFlags & 1) != 0);
 	}
 }

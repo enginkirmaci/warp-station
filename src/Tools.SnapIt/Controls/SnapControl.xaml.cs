@@ -1,10 +1,10 @@
-using System.Windows.Controls;
+using Avalonia.Controls;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Graphics;
 using Tools.SnapIt.Math.FindRectangle;
-using Point = System.Windows.Point;
-using Size = System.Windows.Size;
+using Point = Avalonia.Point;
+using Size = Avalonia.Size;
 
 namespace Tools.SnapIt.Controls;
 
@@ -22,141 +22,118 @@ public partial class SnapControl : UserControl
 	private List<Line> currentLayoutLines;
 	private List<LayoutOverlay> currentLayoutOverlays;
 
+	public static readonly StyledProperty<int> AreaPaddingProperty =
+		AvaloniaProperty.Register<SnapControl, int>(
+			nameof(AreaPadding),
+			defaultValue: 0,
+			defaultBindingMode: BindingMode.TwoWay);
+
 	public int AreaPadding
 	{
-		get => (int)GetValue(AreaPaddingProperty);
+		get => GetValue(AreaPaddingProperty);
 		set => SetValue(AreaPaddingProperty, value);
 	}
 
-	public static readonly DependencyProperty AreaPaddingProperty
-	 = DependencyProperty.Register("AreaPadding", typeof(int), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = 0,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(AreaPaddingPropertyChanged)
-	   });
-
-	private static void AreaPaddingPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.AreaPadding = (int)e.NewValue;
-		//snapControl.Layout.AreaPadding = snapControl.AreaPadding;
-
-		var snapAreas = snapControl.FindChildren<SnapArea>();
-		foreach (var snapArea in snapAreas)
-		{
-			snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
-		}
-	}
+	public static readonly StyledProperty<bool> IsOverlayVisibleProperty =
+		AvaloniaProperty.Register<SnapControl, bool>(
+			nameof(IsOverlayVisible),
+			defaultValue: true,
+			defaultBindingMode: BindingMode.TwoWay);
 
 	public bool IsOverlayVisible
 	{
-		get => (bool)GetValue(IsOverlayVisibleProperty);
+		get => GetValue(IsOverlayVisibleProperty);
 		set => SetValue(IsOverlayVisibleProperty, value);
 	}
 
-	public static readonly DependencyProperty IsOverlayVisibleProperty
-	 = DependencyProperty.Register("IsOverlayVisible", typeof(bool), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = true,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(IsOverlayVisiblePropertyChanged)
-	   });
+	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
+		AvaloniaProperty.Register<SnapControl, SnapAreaTheme>(
+			nameof(SnapTheme),
+			defaultBindingMode: BindingMode.TwoWay);
 
-	private static void IsOverlayVisiblePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+	public SnapAreaTheme SnapTheme
 	{
-		var snapControl = (SnapControl)d;
-		snapControl.IsOverlayVisible = (bool)e.NewValue;
-
-		snapControl.MainOverlay.Visibility = snapControl.IsOverlayVisible ? Visibility.Visible : Visibility.Collapsed;
+		get => GetValue(SnapThemeProperty);
+		set => SetValue(SnapThemeProperty, value);
 	}
 
-	public SnapAreaTheme Theme
-	{
-		get => (SnapAreaTheme)GetValue(ThemeProperty);
-		set => SetValue(ThemeProperty, value);
-	}
-
-	public static readonly DependencyProperty ThemeProperty
-	 = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-	   });
-
-	private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.Theme = (SnapAreaTheme)e.NewValue;
-
-		if (snapControl.Theme != null)
-		{
-			var snapAreas = snapControl.FindChildren<SnapArea>();
-			foreach (var snapArea in snapAreas)
-			{
-				snapArea.Theme = snapControl.Theme;
-			}
-		}
-	}
+	public static readonly StyledProperty<bool> IsPreviewProperty =
+		AvaloniaProperty.Register<SnapControl, bool>(
+			nameof(IsPreview),
+			defaultValue: false,
+			defaultBindingMode: BindingMode.TwoWay);
 
 	public bool IsPreview
 	{
-		get => (bool)GetValue(IsPreviewProperty);
+		get => GetValue(IsPreviewProperty);
 		set => SetValue(IsPreviewProperty, value);
 	}
 
-	public static readonly DependencyProperty IsPreviewProperty
-	 = DependencyProperty.Register("IsPreview", typeof(bool), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   DefaultValue = false,
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(IsPreviewPropertyChanged)
-	   });
-
-	private static void IsPreviewPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapControl = (SnapControl)d;
-		snapControl.IsPreview = (bool)e.NewValue;
-	}
+	public static readonly StyledProperty<Layout> LayoutProperty =
+		AvaloniaProperty.Register<SnapControl, Layout>(
+			nameof(Layout),
+			defaultBindingMode: BindingMode.TwoWay);
 
 	public Layout Layout
 	{
-		get => (Layout)GetValue(LayoutProperty);
+		get => GetValue(LayoutProperty);
 		set => SetValue(LayoutProperty, value);
 	}
 
-	public static readonly DependencyProperty LayoutProperty
-	 = DependencyProperty.Register("Layout", typeof(Layout), typeof(SnapControl),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(LayoutPropertyChanged)
-	   });
-
-	private static void LayoutPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+	static SnapControl()
 	{
-		var snapControl = (SnapControl)d;
-		var layout = (Layout)e.NewValue;
+		AreaPaddingProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
+		{
+			snapControl.AreaPadding = e.NewValue is int v ? v : 0;
+			var snapAreas = snapControl.FindChildren<SnapArea>();
+			foreach (var snapArea in snapAreas)
+			{
+				snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
+			}
+		});
 
-		snapControl.LoadLayout(layout);
+		IsOverlayVisibleProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
+		{
+			snapControl.IsOverlayVisible = e.NewValue is bool b && b;
+			snapControl.MainOverlay.IsVisible = snapControl.IsOverlayVisible;
+		});
+
+		SnapThemeProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
+		{
+			if (snapControl.SnapTheme != null)
+			{
+				var snapAreas = snapControl.FindChildren<SnapArea>();
+				foreach (var snapArea in snapAreas)
+				{
+					snapArea.SnapTheme = snapControl.SnapTheme;
+				}
+			}
+		});
+
+		IsPreviewProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
+		{
+			snapControl.IsPreview = e.NewValue is bool b && b;
+		});
+
+		LayoutProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
+		{
+			var layout = e.NewValue as Layout;
+			snapControl.LoadLayout(layout);
+		});
 	}
 
 	public SnapControl()
 	{
 		InitializeComponent();
 
-		Theme = new SnapAreaTheme();
+		SnapTheme = new SnapAreaTheme();
 
-		MainGrid.Visibility = Visibility.Collapsed;
+		MainGrid.IsVisible = false;
 
-		topBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		bottomBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		leftBorder = new SnapBorder(this, Theme) { IsDraggable = false };
-		rightBorder = new SnapBorder(this, Theme) { IsDraggable = false };
+		topBorder = new SnapBorder(this, SnapTheme) { IsDraggable = false };
+		bottomBorder = new SnapBorder(this, SnapTheme) { IsDraggable = false };
+		leftBorder = new SnapBorder(this, SnapTheme) { IsDraggable = false };
+		rightBorder = new SnapBorder(this, SnapTheme) { IsDraggable = false };
 
 		SizeChanged += SnapControl_SizeChanged;
 	}
@@ -199,7 +176,7 @@ public partial class SnapControl : UserControl
 
 			foreach (var layoutLine in layout.LayoutLines)
 			{
-				var snapBorder = new SnapBorder(this, Theme)
+				var snapBorder = new SnapBorder(this, SnapTheme)
 				{
 					LayoutLine = layoutLine
 				};
@@ -211,12 +188,12 @@ public partial class SnapControl : UserControl
 			{
 				foreach (var layoutOverlay in layout.LayoutOverlays)
 				{
-					var fullOverlay = new SnapFullOverlay(Theme)
+					var fullOverlay = new SnapFullOverlay(SnapTheme)
 					{
 						LayoutOverlay = layoutOverlay
 					};
 
-					var overlay = new SnapOverlay(Theme, fullOverlay)
+					var overlay = new SnapOverlay(SnapTheme, fullOverlay)
 					{
 						LayoutOverlay = layoutOverlay,
 					};
@@ -232,31 +209,27 @@ public partial class SnapControl : UserControl
 
 	private void AdoptToScreen()
 	{
-		topBorder.SetPos(new Point(0, -SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
-		bottomBorder.SetPos(new Point(0, MainGrid.ActualHeight - SnapBorder.THICKNESSHALF), new Size(MainGrid.ActualWidth, 0), SplitDirection.Horizontal);
-		leftBorder.SetPos(new Point(-SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
-		rightBorder.SetPos(new Point(MainGrid.ActualWidth - SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.ActualHeight), SplitDirection.Vertical);
+		topBorder.SetPos(new Point(0, -SnapBorder.THICKNESSHALF), new Size(MainGrid.Bounds.Width, 0), SplitDirection.Horizontal);
+		bottomBorder.SetPos(new Point(0, MainGrid.Bounds.Height - SnapBorder.THICKNESSHALF), new Size(MainGrid.Bounds.Width, 0), SplitDirection.Horizontal);
+		leftBorder.SetPos(new Point(-SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.Bounds.Height), SplitDirection.Vertical);
+		rightBorder.SetPos(new Point(MainGrid.Bounds.Width - SnapBorder.THICKNESSHALF, 0), new Size(0, MainGrid.Bounds.Height), SplitDirection.Vertical);
 
-		if (Layout != null && ActualWidth != 0)
+		if (Layout != null && Bounds.Width != 0)
 		{
-			var factorX = ActualWidth / Layout.Size.Width;
-			var factorY = ActualHeight / Layout.Size.Height;
+			var factorX = Bounds.Width / Layout.Size.Width;
+			var factorY = Bounds.Height / Layout.Size.Height;
 
 			var borders = this.FindChildren<SnapBorder>();
 			foreach (var border in borders.Where(b => b.IsDraggable))
 			{
 				if (border.LayoutLine != null)
 				{
-					var newPoint = new Point
-					{
-						X = border.LayoutLine.Point.X * factorX,
-						Y = border.LayoutLine.Point.Y * factorY
-					};
-					var newSize = new Size
-					{
-						Width = border.LayoutLine.Size.Width * factorX,
-						Height = border.LayoutLine.Size.Height * factorY
-					};
+					var newPoint = new Point(
+						border.LayoutLine.Point.X * factorX,
+						border.LayoutLine.Point.Y * factorY);
+					var newSize = new Size(
+						border.LayoutLine.Size.Width * factorX,
+						border.LayoutLine.Size.Height * factorY);
 
 					border.SetPos(newPoint, newSize, border.LayoutLine.SplitDirection);
 				}
@@ -272,16 +245,12 @@ public partial class SnapControl : UserControl
 			{
 				if (fullOverlay.LayoutOverlay != null)
 				{
-					var newPoint = new Point
-					{
-						X = fullOverlay.LayoutOverlay.Point.X * factorX,
-						Y = fullOverlay.LayoutOverlay.Point.Y * factorY
-					};
-					var newSize = new Size
-					{
-						Width = fullOverlay.LayoutOverlay.Size.Width * factorX,
-						Height = fullOverlay.LayoutOverlay.Size.Height * factorY
-					};
+					var newPoint = new Point(
+						fullOverlay.LayoutOverlay.Point.X * factorX,
+						fullOverlay.LayoutOverlay.Point.Y * factorY);
+					var newSize = new Size(
+						fullOverlay.LayoutOverlay.Size.Width * factorX,
+						fullOverlay.LayoutOverlay.Size.Height * factorY);
 
 					fullOverlay.SetPos(newPoint, newSize);
 				}
@@ -294,17 +263,13 @@ public partial class SnapControl : UserControl
 				{
 					if (overlay.LayoutOverlay.MiniOverlay != null)
 					{
-						var miniPoint = new Point
-						{
-							X = overlay.LayoutOverlay.MiniOverlay.Point.X * factorX,
-							Y = overlay.LayoutOverlay.MiniOverlay.Point.Y * factorY
-						};
+						var miniPoint = new Point(
+							overlay.LayoutOverlay.MiniOverlay.Point.X * factorX,
+							overlay.LayoutOverlay.MiniOverlay.Point.Y * factorY);
 
-						var miniSize = new Size
-						{
-							Width = overlay.LayoutOverlay.MiniOverlay.Size.Width * factorX,
-							Height = overlay.LayoutOverlay.MiniOverlay.Size.Height * factorY
-						};
+						var miniSize = new Size(
+							overlay.LayoutOverlay.MiniOverlay.Size.Width * factorX,
+							overlay.LayoutOverlay.MiniOverlay.Size.Height * factorY);
 
 						overlay.SetPos(new LayoutOverlay { Point = miniPoint.Convert(), Size = miniSize.Convert() });
 					}
@@ -327,7 +292,7 @@ public partial class SnapControl : UserControl
 
 		Math.FindRectangle.Settings settings = new Math.FindRectangle.Settings
 		{
-			Size = new System.Drawing.Size((int)ActualWidth, (int)ActualHeight),
+			Size = new System.Drawing.Size((int)Bounds.Width, (int)Bounds.Height),
 			Segments = []
 		};
 
@@ -359,7 +324,7 @@ public partial class SnapControl : UserControl
 				Width = rectangle.Width,
 				Height = rectangle.Height,
 				SnapControl = this,
-				Theme = Theme,
+				SnapTheme = SnapTheme,
 				AreaPadding = new Thickness(AreaPadding)
 			};
 

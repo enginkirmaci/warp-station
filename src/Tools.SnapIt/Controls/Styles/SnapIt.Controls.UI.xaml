@@ -1,7 +1,5 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+<Styles xmlns="https://github.com/avaloniaui">
 
-	<ResourceDictionary.MergedDictionaries>
-		<ResourceDictionary Source="SnapArea.xaml" />
-		<ResourceDictionary Source="SnapFullOverlay.xaml" />
-	</ResourceDictionary.MergedDictionaries>
-</ResourceDictionary>
+	<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapArea.xaml" />
+	<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapFullOverlay.xaml" />
+</Styles>

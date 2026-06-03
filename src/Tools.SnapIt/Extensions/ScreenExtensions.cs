@@ -9,8 +9,7 @@ public class DpiHelper
     public static Dpi GetDpiFromPoint(float X, float Y)
     {
         var pnt = new POINT { x = (int)X + 1, y = (int)Y + 1 };
-        var mon = User32.MonitorFromPoint(pnt, User32.MonitorOptions.MONITOR_DEFAULTTONEAREST)
-;
+        var mon = User32.MonitorFromPoint(pnt, User32.MonitorOptions.MONITOR_DEFAULTTONEAREST);
         int dpiY;
         int dpiX;
 

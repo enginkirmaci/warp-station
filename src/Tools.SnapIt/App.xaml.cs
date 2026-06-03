@@ -1,3 +1,5 @@
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Microsoft.Extensions.DependencyInjection;
 using Tools.SnapIt.Applications;
 using Tools.SnapIt.Contracts;
@@ -6,7 +8,7 @@ using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt;
 
-public partial class App
+public partial class App : Application
 {
 	public string[] startupArgs;
 
@@ -33,11 +35,21 @@ public partial class App
 
 	public static IServiceProvider Services => _services;
 
-	private async void OnStartup(object sender, StartupEventArgs e)
+	public override void OnFrameworkInitializationCompleted()
+	{
+		if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+		{
+			desktop.Startup += OnStartup;
+			desktop.Exit += OnExit;
+		}
+		base.OnFrameworkInitializationCompleted();
+	}
+
+	private async void OnStartup(object sender, ControlledApplicationLifetimeStartupEventArgs e)
 	{
 		try
 		{
-			startupArgs = e.Args;
+			startupArgs = e.Args?.ToArray() ?? [];
 
 			var snapManager = Services.GetRequiredService<ISnapManager>();
 			await snapManager.InitializeAsync();
@@ -51,34 +63,42 @@ public partial class App
 				{
 					if (AppLauncher.IsAdmin(startupArgs))
 					{
-						if (!AppInstance.RegisterSingleInstance())
-						{
-							Shutdown();
-						}
-					}
-					else if (!Dev.IsActive)
+					if (!AppInstance.RegisterSingleInstance())
 					{
-						Shutdown();
-						AppLauncher.RunAsAdmin();
+						ShutdownApp();
 					}
+					}
+				else if (!Dev.IsActive)
+				{
+					ShutdownApp();
+					AppLauncher.RunAsAdmin();
+				}
 				}
 				else
 				{
-					if (!AppInstance.RegisterSingleInstance() && !Dev.IsActive)
-					{
-						Shutdown();
-					}
+				if (!AppInstance.RegisterSingleInstance() && !Dev.IsActive)
+				{
+					ShutdownApp();
+				}
 				}
 			}
 		}
 		catch (Exception ex)
 		{
 			Dev.Log($"Startup error: {ex}");
-			Shutdown();
+			ShutdownApp();
 		}
 	}
 
-	private void OnExit(object sender, ExitEventArgs e)
+	private void ShutdownApp()
+	{
+		if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+		{
+			lifetime.Shutdown();
+		}
+	}
+
+	private void OnExit(object sender, ControlledApplicationLifetimeExitEventArgs e)
 	{
 		(_services as IDisposable)?.Dispose();
 	}

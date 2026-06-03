@@ -39,24 +39,16 @@ public class SnapScreen : Bindable
 	public SnapScreen()
 	{ }
 
-	public SnapScreen(WpfScreenHelper.Screen screen, string devicePath)
+	public SnapScreen(WindowsDisplayAPI.Display display, Rectangle workingArea, Rectangle bounds, double scaleFactor, bool isPrimary)
 	{
-		IsPrimary = screen.Primary;
+		IsPrimary = isPrimary;
 		Primary = IsPrimary ? "Primary" : "";
-		DeviceNumber = screen.DeviceName.Replace(@"\\.\DISPLAY", string.Empty);
-		Resolution = $"{screen.Bounds.Width} X {screen.Bounds.Height}";
+		DeviceNumber = display.DisplayName.Replace(@"\\.\DISPLAY", string.Empty);
+		Resolution = $"{(int)bounds.Width} X {(int)bounds.Height}";
 
-		WorkingArea = screen.WorkingArea.Convert();
-		ScaleFactor = screen.ScaleFactor;
-
-		Bounds = screen.WpfBounds.Convert();
-		if (!string.IsNullOrEmpty(devicePath))
-		{
-			DeviceName = devicePath;
-		}
-		else
-		{
-			DeviceName = screen.DeviceName;
-		}
+		WorkingArea = workingArea;
+		ScaleFactor = scaleFactor;
+		Bounds = bounds;
+		DeviceName = display.DevicePath ?? display.DisplayName;
 	}
 }

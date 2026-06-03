@@ -1,8 +1,8 @@
-using System.Windows.Controls;
+using Avalonia.Controls;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Graphics;
-using Point = System.Windows.Point;
-using Size = System.Windows.Size;
+using Point = Avalonia.Point;
+using Size = Avalonia.Size;
 
 namespace Tools.SnapIt.Controls;
 
@@ -11,53 +11,46 @@ public partial class SnapBorder : UserControl
 	public const int THICKNESS = 12;
 	public const int THICKNESSHALF = 6;
 
-	public SnapAreaTheme Theme
+	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
+		AvaloniaProperty.Register<SnapBorder, SnapAreaTheme>(
+			nameof(SnapTheme),
+			defaultBindingMode: BindingMode.TwoWay);
+
+	public SnapAreaTheme SnapTheme
 	{
-		get => (SnapAreaTheme)GetValue(ThemeProperty);
-		set => SetValue(ThemeProperty, value);
+		get => GetValue(SnapThemeProperty);
+		set => SetValue(SnapThemeProperty, value);
 	}
 
-	public static readonly DependencyProperty ThemeProperty
-	 = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapBorder),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-	   });
-
-	private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-	{
-		var snapBorder = (SnapBorder)d;
-		snapBorder.Theme = (SnapAreaTheme)e.NewValue;
-
-		if (snapBorder.Theme != null)
-		{
-			snapBorder.Border.Background = snapBorder.Theme.OverlayBrush;
-			snapBorder.ReferenceBorder.Background = snapBorder.Theme.BorderBrush;
-			snapBorder.ReferenceBorder.Opacity = snapBorder.Theme.Opacity;
-			snapBorder.Opacity = snapBorder.Theme.Opacity;
-		}
-	}
+	public static readonly StyledProperty<SplitDirection> SplitDirectionProperty =
+		AvaloniaProperty.Register<SnapBorder, SplitDirection>(
+			nameof(SplitDirection),
+			defaultValue: SplitDirection.Vertical,
+			defaultBindingMode: BindingMode.TwoWay);
 
 	public SplitDirection SplitDirection
 	{
-		get => (SplitDirection)GetValue(SplitDirectionProperty);
+		get => GetValue(SplitDirectionProperty);
 		set => SetValue(SplitDirectionProperty, value);
 	}
 
-	public static readonly DependencyProperty SplitDirectionProperty
-	 = DependencyProperty.Register("SplitDirection", typeof(SplitDirection), typeof(SnapBorder),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   DefaultValue = SplitDirection.Vertical,
-		   PropertyChangedCallback = new PropertyChangedCallback(SplitDirectionPropertyChanged)
-	   });
-
-	private static void SplitDirectionPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+	static SnapBorder()
 	{
-		var snapBorder = (SnapBorder)d;
-		snapBorder.SplitDirection = (SplitDirection)e.NewValue;
+		SnapThemeProperty.Changed.AddClassHandler<SnapBorder>((snapBorder, e) =>
+		{
+			if (snapBorder.SnapTheme != null)
+			{
+				snapBorder.Border.Background = snapBorder.SnapTheme.OverlayBrush;
+				snapBorder.ReferenceBorder.Background = snapBorder.SnapTheme.BorderBrush;
+				snapBorder.ReferenceBorder.Opacity = snapBorder.SnapTheme.Opacity;
+				snapBorder.Opacity = snapBorder.SnapTheme.Opacity;
+			}
+		});
+
+		SplitDirectionProperty.Changed.AddClassHandler<SnapBorder>((snapBorder, e) =>
+		{
+			snapBorder.SplitDirection = e.NewValue is SplitDirection sd ? sd : SplitDirection.Vertical;
+		});
 	}
 
 	public bool IsDraggable { get; set; } = true;
@@ -70,10 +63,10 @@ public partial class SnapBorder : UserControl
 	{
 		InitializeComponent();
 		SnapControl = snapControl;
-		Theme = theme;
+		SnapTheme = theme;
 
-		HorizontalAlignment = HorizontalAlignment.Left;
-		VerticalAlignment = VerticalAlignment.Top;
+		HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+		VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
 	}
 
 	public void SetPos(Point point, Size size, SplitDirection splitDirection)
@@ -90,13 +83,13 @@ public partial class SnapBorder : UserControl
 
 				Margin = new Thickness(Margin.Left - THICKNESSHALF, Margin.Top, 0, 0);
 
-				Border.Cursor = Cursors.SizeWE;
-				ReferenceBorder.Cursor = Cursors.SizeWE;
+				Border.Cursor = new Cursor(StandardCursorType.SizeWestEast);
+				ReferenceBorder.Cursor = new Cursor(StandardCursorType.SizeWestEast);
 				Border.Width = THICKNESS;
-				Border.VerticalAlignment = VerticalAlignment.Stretch;
+				Border.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
 
 				ReferenceBorder.Width = 1;
-				ReferenceBorder.VerticalAlignment = VerticalAlignment.Stretch;
+				ReferenceBorder.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
 				ReferenceBorder.Margin = new Thickness(THICKNESSHALF, 0, 0, 0);
 			}
 			else
@@ -106,30 +99,30 @@ public partial class SnapBorder : UserControl
 
 				Margin = new Thickness(Margin.Left, Margin.Top - THICKNESSHALF, 0, 0);
 
-				Border.Cursor = Cursors.SizeNS;
-				ReferenceBorder.Cursor = Cursors.SizeNS;
+				Border.Cursor = new Cursor(StandardCursorType.SizeNorthSouth);
+				ReferenceBorder.Cursor = new Cursor(StandardCursorType.SizeNorthSouth);
 				Border.Height = THICKNESS;
-				Border.HorizontalAlignment = HorizontalAlignment.Stretch;
+				Border.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
 
 				ReferenceBorder.Height = 1;
-				ReferenceBorder.HorizontalAlignment = HorizontalAlignment.Stretch;
+				ReferenceBorder.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
 				ReferenceBorder.Margin = new Thickness(0, THICKNESSHALF, 0, 0);
 			}
 		}
 		else
 		{
-			ReferenceBorder.Visibility = Visibility.Collapsed;
+			ReferenceBorder.IsVisible = false;
 			if (SplitDirection == SplitDirection.Vertical)
 			{
 				Width = THICKNESS;
 				Height = size.Height;
 
 				Border.Width = THICKNESS;
-				Border.VerticalAlignment = VerticalAlignment.Stretch;
+				Border.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
 
 				ReferenceBorder.Width = 1;
-				ReferenceBorder.VerticalAlignment = VerticalAlignment.Stretch;
-				ReferenceBorder.Margin = new Thickness(ActualWidth / 2, 0, 0, 0);
+				ReferenceBorder.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
+				ReferenceBorder.Margin = new Thickness(Bounds.Width / 2, 0, 0, 0);
 			}
 			else
 			{
@@ -137,11 +130,11 @@ public partial class SnapBorder : UserControl
 				Height = THICKNESS;
 
 				Border.Height = THICKNESS;
-				Border.HorizontalAlignment = HorizontalAlignment.Stretch;
+				Border.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
 
 				ReferenceBorder.Height = 1;
-				ReferenceBorder.HorizontalAlignment = HorizontalAlignment.Stretch;
-				ReferenceBorder.Margin = new Thickness(0, ActualHeight / 2, 0, 0);
+				ReferenceBorder.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+				ReferenceBorder.Margin = new Thickness(0, Bounds.Height / 2, 0, 0);
 			}
 		}
 	}
@@ -151,8 +144,8 @@ public partial class SnapBorder : UserControl
 		return new Rect(
 			new Point(Margin.Left, Margin.Top),
 			new Size(
-				ActualWidth == 0 ? Width : ActualWidth,
-				ActualHeight == 0 ? Height : ActualHeight));
+				Bounds.Width == 0 ? Width : Bounds.Width,
+				Bounds.Height == 0 ? Height : Bounds.Height));
 	}
 
 	public Line GetLine()

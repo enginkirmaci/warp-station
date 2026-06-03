@@ -103,7 +103,7 @@ public class MouseService : IMouseService
 	{
 		if (isListening)
 		{
-			var p = WpfScreenHelper.MouseHelper.MousePosition;
+			var p = new Avalonia.Point(e.Data.X, e.Data.Y);
 
 			if (HoldingKeyResult() && IsDelayDone(p))
 			{
@@ -287,7 +287,7 @@ public class MouseService : IMouseService
 		}
 	}
 
-	private bool IsDelayDone(Point endLocation)
+	private bool IsDelayDone(Avalonia.Point endLocation)
 	{
 		if (settingService.Settings.EnableHoldKey)
 			return true;

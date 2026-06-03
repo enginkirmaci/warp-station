@@ -1,10 +1,9 @@
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia.Controls;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Graphics;
-using Point = System.Windows.Point;
-using Size = System.Windows.Size;
+using Point = Avalonia.Point;
+using Size = Avalonia.Size;
 
 namespace Tools.SnapIt.Controls;
 
@@ -14,32 +13,29 @@ public partial class SnapOverlay : UserControl
 
 	public SnapFullOverlay SnapFullOverlay { get; }
 
-	public SnapAreaTheme Theme
+	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
+		AvaloniaProperty.Register<SnapOverlay, SnapAreaTheme>(
+			nameof(SnapTheme),
+			defaultBindingMode: BindingMode.TwoWay);
+
+	public SnapAreaTheme SnapTheme
 	{
-		get => (SnapAreaTheme)GetValue(ThemeProperty);
-		set => SetValue(ThemeProperty, value);
+		get => GetValue(SnapThemeProperty);
+		set => SetValue(SnapThemeProperty, value);
 	}
 
-	public static readonly DependencyProperty ThemeProperty
-	 = DependencyProperty.Register("Theme", typeof(SnapAreaTheme), typeof(SnapOverlay),
-	   new FrameworkPropertyMetadata()
-	   {
-		   BindsTwoWayByDefault = true,
-		   PropertyChangedCallback = new PropertyChangedCallback(ThemePropertyChanged)
-	   });
-
-	private static void ThemePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+	static SnapOverlay()
 	{
-		var snapOverlayEditor = (SnapOverlay)d;
-		snapOverlayEditor.Theme = (SnapAreaTheme)e.NewValue;
-
-		if (snapOverlayEditor.Theme != null)
+		SnapThemeProperty.Changed.AddClassHandler<SnapOverlay>((snapOverlayEditor, e) =>
 		{
-			snapOverlayEditor.Overlay.Opacity = snapOverlayEditor.Theme.Opacity;
-			snapOverlayEditor.Overlay.Background = snapOverlayEditor.Theme.OverlayBrush;
-			snapOverlayEditor.Border.BorderBrush = snapOverlayEditor.Theme.BorderBrush;
-			snapOverlayEditor.Border.BorderThickness = new Thickness(snapOverlayEditor.Theme.BorderThickness);
-		}
+			if (snapOverlayEditor.SnapTheme != null)
+			{
+				snapOverlayEditor.Overlay.Opacity = snapOverlayEditor.SnapTheme.Opacity;
+				snapOverlayEditor.Overlay.Background = snapOverlayEditor.SnapTheme.OverlayBrush;
+				snapOverlayEditor.Border.BorderBrush = snapOverlayEditor.SnapTheme.BorderBrush;
+				snapOverlayEditor.Border.BorderThickness = new Thickness(snapOverlayEditor.SnapTheme.BorderThickness);
+			}
+		});
 	}
 
 	public SnapOverlay(SnapAreaTheme theme, SnapFullOverlay snapFullOverlay)
@@ -49,13 +45,13 @@ public partial class SnapOverlay : UserControl
 
 		Name = $"snapoverlay_{Guid.NewGuid():N}";
 
-		Theme = theme;
+		SnapTheme = theme;
 		SnapFullOverlay = snapFullOverlay;
 
 		SizeChanged += SnapOverlay_SizeChanged;
 	}
 
-	public void SetPos(FrameworkElement element, Point point, Size size)
+	public void SetPos(Control element, Point point, Size size)
 	{
 		element.Margin = new Thickness(point.X, point.Y, 0, 0);
 
@@ -84,9 +80,9 @@ public partial class SnapOverlay : UserControl
 
 	public void NormalStyle()
 	{
-		Overlay.Background = Theme.OverlayBrush;
-		Border.Visibility = Visibility.Visible;
-		MergedIcon.Visibility = Visibility.Visible;
+		Overlay.Background = SnapTheme.OverlayBrush;
+		Border.IsVisible = true;
+		MergedIcon.IsVisible = true;
 
 		SnapFullOverlay.NormalStyle();
 	}
@@ -94,8 +90,8 @@ public partial class SnapOverlay : UserControl
 	public void OnHoverStyle()
 	{
 		Overlay.Background = Brushes.Transparent;
-		Border.Visibility = Visibility.Hidden;
-		MergedIcon.Visibility = Visibility.Hidden;
+		Border.IsVisible = false;
+		MergedIcon.IsVisible = false;
 
 		SnapFullOverlay.OnHoverStyle();
 	}
@@ -103,15 +99,15 @@ public partial class SnapOverlay : UserControl
 	private void SnapOverlay_SizeChanged(object sender, SizeChangedEventArgs e)
 	{
 		var iconFactor = 0.15;
-		if (ActualWidth > ActualHeight)
+		if (Bounds.Width > Bounds.Height)
 		{
-			var size = MergedIcon.Width = MergedIcon.Height = ActualWidth * iconFactor;
+			var size = MergedIcon.Width = MergedIcon.Height = Bounds.Width * iconFactor;
 			icon1.FontSize = size > 0 ? size : 1;
 			icon2.FontSize = size > 0 ? size : 1;
 		}
 		else
 		{
-			var size = MergedIcon.Width = MergedIcon.Height = ActualHeight * iconFactor;
+			var size = MergedIcon.Width = MergedIcon.Height = Bounds.Height * iconFactor;
 			icon1.FontSize = size > 0 ? size : 1;
 			icon2.FontSize = size > 0 ? size : 1;
 		}

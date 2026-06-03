@@ -1,21 +1,20 @@
-using System.Collections.Generic;
-using System.Windows;
-using System.Windows.Media;
+using Avalonia.Controls;
+using Avalonia.VisualTree;
+using Avalonia.LogicalTree;
 
 namespace Tools.SnapIt.Extensions;
 
 public static class DependencyObjectExtensions
 {
-    public static IEnumerable<T> FindChildren<T>(this DependencyObject depObj) where T : DependencyObject
+    public static IEnumerable<T> FindChildren<T>(this Visual depObj) where T : Visual
     {
         if (depObj != null)
         {
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(depObj); i++)
+            foreach (var child in depObj.GetVisualChildren())
             {
-                var child = VisualTreeHelper.GetChild(depObj, i);
-                if (child != null && child is T)
+                if (child is T t)
                 {
-                    yield return (T)child;
+                    yield return t;
                 }
 
                 foreach (T childOfChild in FindChildren<T>(child))
@@ -26,13 +25,13 @@ public static class DependencyObjectExtensions
         }
     }
 
-    public static IEnumerable<T> FindChildren<T>(this DependencyObject depObj, string childName) where T : DependencyObject
+    public static IEnumerable<T> FindChildren<T>(this Visual depObj, string childName) where T : Visual
     {
         var collection = depObj.FindChildren<T>();
 
         foreach (var child in collection)
         {
-            var frameworkElement = child as FrameworkElement;
+            var frameworkElement = child as Control;
 
             if (frameworkElement != null && frameworkElement.Name == childName)
             {
@@ -41,14 +40,14 @@ public static class DependencyObjectExtensions
         }
     }
 
-    public static T FindChild<T>(this DependencyObject depObj, string childName) where T : DependencyObject
+    public static T FindChild<T>(this Visual depObj, string childName) where T : Visual
     {
         var collection = depObj.FindChildren<T>();
         T foundChild = null;
 
         foreach (var child in collection)
         {
-            var frameworkElement = child as FrameworkElement;
+            var frameworkElement = child as Control;
 
             if (frameworkElement != null && frameworkElement.Name == childName)
             {
@@ -60,22 +59,31 @@ public static class DependencyObjectExtensions
         return foundChild;
     }
 
-    public static T FindParent<T>(this DependencyObject child) where T : DependencyObject
+    public static T FindParent<T>(this Visual child) where T : Visual
     {
-        var parent = VisualTreeHelper.GetParent(child);
+        var parent = child.GetVisualParent();
 
         if (parent == null)
         {
             return null;
         }
 
-        if (parent != null && parent is T)
+        if (parent is T t)
         {
-            return (T)parent;
+            return t;
         }
         else
         {
             return FindParent<T>(parent);
         }
+    }
+
+    public static T FindParent<T>(this AvaloniaObject child) where T : Visual
+    {
+        if (child is Visual visual)
+        {
+            return FindParent<T>(visual);
+        }
+        return null;
     }
 }

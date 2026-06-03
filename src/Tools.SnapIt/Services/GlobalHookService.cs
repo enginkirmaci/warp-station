@@ -5,6 +5,8 @@ namespace Tools.SnapIt.Services;
 
 public class GlobalHookService : IGlobalHookService
 {
+    private volatile bool isDisposed;
+
     public SimpleGlobalHook? Hook { get; set; }
 
     public bool IsInitialized { get; private set; }
@@ -22,9 +24,9 @@ public class GlobalHookService : IGlobalHookService
 
         Hook = new SimpleGlobalHook();
 
-        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        Task.Run(() =>
         {
-            if (Hook != null && !Hook.IsRunning)
+            if (!isDisposed && Hook != null && !Hook.IsRunning)
             {
                 Hook.Run();
             }
@@ -35,6 +37,7 @@ public class GlobalHookService : IGlobalHookService
 
     public void Dispose()
     {
+        isDisposed = true;
         Hook?.Dispose();
     }
 }

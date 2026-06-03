@@ -141,4 +141,5 @@ public class WindowManager : IWindowManager
 		}
 
 		return result;
-	}}
+	}
+}

@@ -1,7 +1,6 @@
-using System.Windows.Media;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Mvvm;
-using Color = System.Windows.Media.Color;
+using Color = Avalonia.Media.Color;
 
 namespace Tools.SnapIt.Entities;
 
