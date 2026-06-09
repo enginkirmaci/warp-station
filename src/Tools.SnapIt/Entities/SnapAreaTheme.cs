@@ -1,3 +1,4 @@
+using Avalonia;
 using Tools.SnapIt.Extensions;
 using Tools.SnapIt.Mvvm;
 using Color = Avalonia.Media.Color;
@@ -9,7 +10,7 @@ public class SnapAreaTheme : Bindable
 	private Color highlightColor;
 	private Color overlayColor;
 	private Color borderColor;
-	private int borderThickness;
+	private Thickness borderThickness;
 	private double opacity;
 	private SolidColorBrush overlayBrush;
 	private SolidColorBrush highlightBrush;
@@ -60,7 +61,7 @@ public class SnapAreaTheme : Bindable
 		}
 	}
 
-	public int BorderThickness
+	public Thickness BorderThickness
 	{ get => borderThickness; set { SetProperty(ref borderThickness, value); ThemeChanged?.Invoke(); } }
 
 	public double Opacity
@@ -73,10 +74,10 @@ public class SnapAreaTheme : Bindable
 	public SnapAreaTheme()
 	{
 		HighlightColor = Color.FromArgb(200, 0, 0, 0);
-		OverlayColor = Color.FromArgb(50, 255, 255, 255);
+		OverlayColor = Color.FromArgb(150, 0, 0, 255);
 		BorderColor = Color.FromArgb(200, 150, 150, 150);
-		BorderThickness = 1;
-		Opacity = 0.6;
+		BorderThickness = new Thickness(1);
+		Opacity = 0.2;
 	}
 
 	public SnapAreaTheme(
@@ -91,6 +92,6 @@ public class SnapAreaTheme : Bindable
 		OverlayColor = overlayColor.Convert();
 		BorderColor = borderColor.Convert();
 		Opacity = opacity;
-		BorderThickness = borderThickness;
+		BorderThickness = new Thickness(borderThickness);
 	}
 }

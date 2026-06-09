@@ -23,6 +23,7 @@ public class JsonOptions
 		options.Converters.Add(new SizeToStringJsonConverter());
 		options.Converters.Add(new PointToStringJsonConverter());
 		options.Converters.Add(new ColorToStringJsonConverter());
+		options.Converters.Add(new ThicknessToJsonConverter());
 
 		return options;
 	});

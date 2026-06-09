@@ -10,14 +10,14 @@
 		<Setter Property="Template">
 			<ControlTemplate>
 				<Grid Margin="{Binding AreaPadding, RelativeSource={RelativeSource TemplatedParent}}">
-					<Grid
-						x:Name="Area"
-						Background="{Binding SnapTheme.OverlayBrush, RelativeSource={RelativeSource TemplatedParent}}"
-						Opacity="{Binding SnapTheme.Opacity, RelativeSource={RelativeSource TemplatedParent}}" />
-					<Border
-						x:Name="Border"
-						BorderBrush="{Binding SnapTheme.BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"
-						BorderThickness="{Binding SnapTheme.BorderThickness, RelativeSource={RelativeSource TemplatedParent}}" />
+				<Grid
+					x:Name="Area"
+					Background="{Binding SnapTheme.OverlayBrush, RelativeSource={RelativeSource TemplatedParent}}"
+					Opacity="{Binding SnapTheme.Opacity, RelativeSource={RelativeSource TemplatedParent}}" />
+				<Border
+					x:Name="Border"
+					BorderBrush="{Binding SnapTheme.BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"
+					BorderThickness="{Binding SnapTheme.BorderThickness, RelativeSource={RelativeSource TemplatedParent}}" />
 				</Grid>
 			</ControlTemplate>
 		</Setter>

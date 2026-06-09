@@ -57,7 +57,7 @@ public class SettingService : ISettingService
 
 	public async Task LoadSettingsAsync()
 	{
-		Settings ??= await fileOperationService.LoadAsync<Settings>() ?? new Settings();
+		Settings = await fileOperationService.LoadAsync<Settings>() ?? new Settings();
 	}
 
 	public void ReInitialize()

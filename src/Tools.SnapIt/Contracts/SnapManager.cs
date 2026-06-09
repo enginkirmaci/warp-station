@@ -95,7 +95,7 @@ public class SnapManager : ISnapManager
 
 	private void SnappingCancelled()
 	{
-		windowManager.Hide();
+		Dispatcher.UIThread.Post(() => windowManager.Hide());
 		mouseService.Interrupt();
 	}
 

@@ -49,6 +49,7 @@ public partial class SnapControl : UserControl
 	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
 		AvaloniaProperty.Register<SnapControl, SnapAreaTheme>(
 			nameof(SnapTheme),
+			defaultValue: new SnapAreaTheme(),
 			defaultBindingMode: BindingMode.TwoWay);
 
 	public SnapAreaTheme SnapTheme
@@ -106,6 +107,24 @@ public partial class SnapControl : UserControl
 				foreach (var snapArea in snapAreas)
 				{
 					snapArea.SnapTheme = snapControl.SnapTheme;
+				}
+
+				var snapBorders = snapControl.FindChildren<SnapBorder>();
+				foreach (var snapBorder in snapBorders)
+				{
+					snapBorder.SnapTheme = snapControl.SnapTheme;
+				}
+
+				var snapOverlays = snapControl.FindChildren<SnapOverlay>();
+				foreach (var snapOverlay in snapOverlays)
+				{
+					snapOverlay.SnapTheme = snapControl.SnapTheme;
+				}
+
+				var snapFullOverlays = snapControl.FindChildren<SnapFullOverlay>();
+				foreach (var snapFullOverlay in snapFullOverlays)
+				{
+					snapFullOverlay.SnapTheme = snapControl.SnapTheme;
 				}
 			}
 		});

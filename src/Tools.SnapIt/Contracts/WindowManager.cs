@@ -109,37 +109,43 @@ public class WindowManager : IWindowManager
 
 	private void MouseService_HideWindows()
 	{
-		Hide();
+		Dispatcher.UIThread.Post(Hide);
 	}
 
 	private bool MouseService_ShowWindowsIfNecessary()
 	{
-		if (!snapWindows.TrueForAll(window => window.IsVisible))
+		return Dispatcher.UIThread.InvokeAsync(() =>
 		{
-			Show();
+			if (!snapWindows.TrueForAll(window => window.IsVisible))
+			{
+				Show();
 
-			return true;
-		}
+				return true;
+			}
 
-		return false;
+			return false;
+		}).GetAwaiter().GetResult();
 	}
 
 	private SnapAreaInfo MouseService_SelectElementWithPoint(int x, int y)
 	{
-		var result = new SnapAreaInfo();
-
-		foreach (var window in snapWindows)
+		return Dispatcher.UIThread.InvokeAsync(() =>
 		{
-			var selectedArea = window.SelectElementWithPoint(x, y);
-			if (!selectedArea.Equals(Rectangle.Empty))
+			var result = new SnapAreaInfo();
+
+			foreach (var window in snapWindows)
 			{
-				result.Rectangle = selectedArea;
-				result.Screen = window.Screen;
+				var selectedArea = window.SelectElementWithPoint(x, y);
+				if (!selectedArea.Equals(Rectangle.Empty))
+				{
+					result.Rectangle = selectedArea;
+					result.Screen = window.Screen;
 
-				break;
+					break;
+				}
 			}
-		}
 
-		return result;
+			return result;
+		}).GetAwaiter().GetResult();
 	}
 }

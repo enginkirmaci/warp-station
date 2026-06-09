@@ -15,6 +15,7 @@ public class SnapFullOverlay : TemplatedControl
     public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
         AvaloniaProperty.Register<SnapFullOverlay, SnapAreaTheme>(
             nameof(SnapTheme),
+            defaultValue: new SnapAreaTheme(),
             defaultBindingMode: BindingMode.TwoWay);
 
     public SnapAreaTheme SnapTheme
@@ -51,10 +52,12 @@ public class SnapFullOverlay : TemplatedControl
 
     public void OnHoverStyle()
     {
+        IsVisible = true;
+        ApplyTemplate();
+
         var overlay = this.FindChild<Grid>("Overlay");
         if (overlay != null)
         {
-            IsVisible = true;
             overlay.Opacity = SnapTheme.Opacity;
         }
     }

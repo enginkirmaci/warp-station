@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 using Tools.SnapIt.Applications;
 using Tools.SnapIt.Contracts;
 using Tools.SnapIt.Services;
@@ -35,6 +36,15 @@ public partial class App : Application
 
 	public static IServiceProvider Services => _services;
 
+	public override void Initialize()
+	{
+		Log.Logger = new LoggerConfiguration()
+			.MinimumLevel.Information()
+			.WriteTo.File("logs\\snapit\\log.txt", rollingInterval: RollingInterval.Day)
+			.CreateLogger();
+		base.Initialize();
+	}
+
 	public override void OnFrameworkInitializationCompleted()
 	{
 		if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -49,6 +59,7 @@ public partial class App : Application
 	{
 		try
 		{
+			Log.Information("SnapIt application starting");
 			startupArgs = e.Args?.ToArray() ?? [];
 
 			var snapManager = Services.GetRequiredService<ISnapManager>();
@@ -85,7 +96,7 @@ public partial class App : Application
 		}
 		catch (Exception ex)
 		{
-			Dev.Log($"Startup error: {ex}");
+			Log.Error(ex, "Startup error");
 			ShutdownApp();
 		}
 	}
@@ -100,6 +111,8 @@ public partial class App : Application
 
 	private void OnExit(object sender, ControlledApplicationLifetimeExitEventArgs e)
 	{
+		Log.Information("SnapIt application stopping");
 		(_services as IDisposable)?.Dispose();
+		Log.CloseAndFlush();
 	}
 }

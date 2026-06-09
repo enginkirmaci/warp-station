@@ -26,6 +26,7 @@ public class SnapArea : TemplatedControl
 	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
 		AvaloniaProperty.Register<SnapArea, SnapAreaTheme>(
 			nameof(SnapTheme),
+			defaultValue: new SnapAreaTheme(),
 			defaultBindingMode: BindingMode.TwoWay);
 
 	public SnapAreaTheme SnapTheme

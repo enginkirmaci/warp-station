@@ -13,7 +13,7 @@
 		<Border
 			x:Name="Border"
 			BorderBrush="{Binding SnapTheme.BorderBrush, FallbackValue=#FFC8C8C8}"
-			BorderThickness="{Binding SnapTheme.BorderThickness, FallbackValue=1}" />
+			BorderThickness="{Binding SnapTheme.BorderThickness}" />
 
 		<Grid
 			x:Name="MergedIcon"

@@ -14,6 +14,7 @@ public partial class SnapBorder : UserControl
 	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
 		AvaloniaProperty.Register<SnapBorder, SnapAreaTheme>(
 			nameof(SnapTheme),
+			defaultValue: new SnapAreaTheme(),
 			defaultBindingMode: BindingMode.TwoWay);
 
 	public SnapAreaTheme SnapTheme

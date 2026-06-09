@@ -16,6 +16,7 @@ public partial class SnapOverlay : UserControl
 	public static readonly StyledProperty<SnapAreaTheme> SnapThemeProperty =
 		AvaloniaProperty.Register<SnapOverlay, SnapAreaTheme>(
 			nameof(SnapTheme),
+			defaultValue: new SnapAreaTheme(),
 			defaultBindingMode: BindingMode.TwoWay);
 
 	public SnapAreaTheme SnapTheme
@@ -33,7 +34,7 @@ public partial class SnapOverlay : UserControl
 				snapOverlayEditor.Overlay.Opacity = snapOverlayEditor.SnapTheme.Opacity;
 				snapOverlayEditor.Overlay.Background = snapOverlayEditor.SnapTheme.OverlayBrush;
 				snapOverlayEditor.Border.BorderBrush = snapOverlayEditor.SnapTheme.BorderBrush;
-				snapOverlayEditor.Border.BorderThickness = new Thickness(snapOverlayEditor.SnapTheme.BorderThickness);
+				snapOverlayEditor.Border.BorderThickness = snapOverlayEditor.SnapTheme.BorderThickness;
 			}
 		});
 	}
