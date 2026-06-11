@@ -63,11 +63,6 @@ public class SnapWindow : Window, IWindow
 	public new void Show()
 	{
 		base.Show();
-	}
-
-	protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
-	{
-		base.OnAttachedToVisualTree(e);
 		MaximizeWindow();
 	}
 

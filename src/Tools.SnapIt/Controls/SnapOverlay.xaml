@@ -36,15 +36,9 @@
 				FontFamily="Segoe MDL2 Assets"
 				FontSize="64"
 				Foreground="{Binding SnapTheme.BorderBrush, FallbackValue=#FFC8C8C8}"
-				RenderTransformOrigin="0.5,0.5"
 				Text="{x:Static controls:IconGlyph.ResizeLarge24}">
 				<TextBlock.RenderTransform>
-					<TransformGroup>
-						<ScaleTransform ScaleX="-1" />
-						<SkewTransform />
-						<RotateTransform />
-						<TranslateTransform />
-					</TransformGroup>
+					<ScaleTransform ScaleX="-1" />
 				</TextBlock.RenderTransform>
 			</TextBlock>
 		</Grid>
