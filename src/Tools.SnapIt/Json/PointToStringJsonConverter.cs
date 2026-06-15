@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Point = Tools.SnapIt.Graphics.Point;
 
@@ -10,13 +11,13 @@ public class PointToStringJsonConverter : JsonConverter<Point>
         string[] parts = reader.GetString().Split(',');
         return new Point
         {
-            X = float.Parse(parts[0]),
-            Y = float.Parse(parts[1])
+            X = float.Parse(parts[0], CultureInfo.InvariantCulture),
+            Y = float.Parse(parts[1], CultureInfo.InvariantCulture)
         };
     }
 
     public override void Write(Utf8JsonWriter writer, Point value, JsonSerializerOptions options)
     {
-        writer.WriteStringValue($"{value.X},{value.Y}");
+        writer.WriteStringValue(FormattableString.Invariant($"{value.X},{value.Y}"));
     }
 }

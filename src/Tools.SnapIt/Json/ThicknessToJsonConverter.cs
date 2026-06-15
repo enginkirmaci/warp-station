@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Avalonia;
@@ -16,15 +17,15 @@ public class ThicknessToJsonConverter : JsonConverter<Thickness>
 			var str = reader.GetString();
 			var parts = str.Split(',');
 			if (parts.Length == 1)
-				return new Thickness(double.Parse(parts[0].Trim()));
+				return new Thickness(double.Parse(parts[0].Trim(), CultureInfo.InvariantCulture));
 			if (parts.Length == 2)
-				return new Thickness(double.Parse(parts[0].Trim()), double.Parse(parts[1].Trim()));
+				return new Thickness(double.Parse(parts[0].Trim(), CultureInfo.InvariantCulture), double.Parse(parts[1].Trim(), CultureInfo.InvariantCulture));
 			if (parts.Length == 4)
 				return new Thickness(
-					double.Parse(parts[0].Trim()),
-					double.Parse(parts[1].Trim()),
-					double.Parse(parts[2].Trim()),
-					double.Parse(parts[3].Trim()));
+					double.Parse(parts[0].Trim(), CultureInfo.InvariantCulture),
+					double.Parse(parts[1].Trim(), CultureInfo.InvariantCulture),
+					double.Parse(parts[2].Trim(), CultureInfo.InvariantCulture),
+					double.Parse(parts[3].Trim(), CultureInfo.InvariantCulture));
 		}
 
 		throw new JsonException($"Cannot convert '{reader.GetString()}' to Thickness.");
@@ -38,11 +39,11 @@ public class ThicknessToJsonConverter : JsonConverter<Thickness>
 		}
 		else if (value.Left == value.Right && value.Top == value.Bottom)
 		{
-			writer.WriteStringValue($"{value.Left},{value.Top}");
+			writer.WriteStringValue(FormattableString.Invariant($"{value.Left},{value.Top}"));
 		}
 		else
 		{
-			writer.WriteStringValue($"{value.Left},{value.Top},{value.Right},{value.Bottom}");
+			writer.WriteStringValue(FormattableString.Invariant($"{value.Left},{value.Top},{value.Right},{value.Bottom}"));
 		}
 	}
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Size = Tools.SnapIt.Graphics.Size;
 
@@ -10,13 +11,13 @@ public class SizeToStringJsonConverter : JsonConverter<Size>
         string[] parts = reader.GetString().Split(',');
         return new Size
         {
-            Width = float.Parse(parts[0]),
-            Height = float.Parse(parts[1])
+            Width = float.Parse(parts[0], CultureInfo.InvariantCulture),
+            Height = float.Parse(parts[1], CultureInfo.InvariantCulture)
         };
     }
 
     public override void Write(Utf8JsonWriter writer, Size value, JsonSerializerOptions options)
     {
-        writer.WriteStringValue($"{value.Width},{value.Height}");
+        writer.WriteStringValue(FormattableString.Invariant($"{value.Width},{value.Height}"));
     }
 }
