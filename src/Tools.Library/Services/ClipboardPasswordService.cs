@@ -1,6 +1,4 @@
 using System.Runtime.InteropServices;
-using Avalonia;
-using Avalonia.Input.Platform;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Services;
@@ -12,12 +10,35 @@ public class ClipboardPasswordService : IClipboardPasswordService
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT = 0x0004;
     private const uint VK_V = 0x56;
+    private const uint CF_UNICODETEXT = 13;
+    private const uint GMEM_MOVABLE = 0x0002;
 
     [DllImport("user32.dll")]
     private static extern bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
 
     [DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(nint hWnd, int id);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool OpenClipboard(nint hWndNewOwner);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EmptyClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern nint SetClipboardData(uint uFormat, nint hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GlobalAlloc(uint uFlags, nint dwBytes);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GlobalLock(nint hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GlobalUnlock(nint hMem);
 
     private nint _hwnd;
     private bool _isRegistered;
@@ -67,16 +88,41 @@ public class ClipboardPasswordService : IClipboardPasswordService
         string password = await GetDecryptedPasswordAsync();
         if (!string.IsNullOrEmpty(password))
         {
-            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
-            {
-                var clipboard = lifetime.MainWindow?.Clipboard;
-                if (clipboard != null)
-                {
-                    await clipboard.SetTextAsync(password);
-                }
-            }
+#if WINDOWS
+            SetClipboardText(password);
+#endif
         }
     }
+
+#if WINDOWS
+    private static void SetClipboardText(string text)
+    {
+        if (!OpenClipboard(nint.Zero))
+            return;
+
+        try
+        {
+            EmptyClipboard();
+
+            int bytes = (text.Length + 1) * 2;
+            var hGlobal = GlobalAlloc(GMEM_MOVABLE, (nint)bytes);
+            if (hGlobal == nint.Zero)
+                return;
+
+            var ptr = GlobalLock(hGlobal);
+            if (ptr != nint.Zero)
+            {
+                Marshal.Copy(text.ToCharArray(), 0, ptr, text.Length);
+                GlobalUnlock(hGlobal);
+                SetClipboardData(CF_UNICODETEXT, hGlobal);
+            }
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+#endif
 
     private async Task<string> GetDecryptedPasswordAsync()
     {
