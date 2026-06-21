@@ -198,9 +198,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        devToolsClient.SendProcessLaunchRequestAsync(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath);
-
-        //SafeStartProcess(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath, true, true);
+        SafeStartProcess(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath);
     }
 
     [RelayCommand]
