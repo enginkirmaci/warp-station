@@ -129,6 +129,8 @@
                                                                                                 <Path
                                                                                                         Width="12"
                                                                                                         Height="12"
+                                                                                                        Stretch="Uniform"
+                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                         Data="{tools:SvgPath icon-chevron-down}"/>
                                                                                                 <Button.Flyout>
                                                                                                         <MenuFlyout>
@@ -140,6 +142,7 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
                                                                                                                                         Data="{tools:SvgPath icon-vscode}"
                                                                                                                                         Fill="#007ACC"/>
                                                                                                                         </MenuItem.Icon>
@@ -152,6 +155,8 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
+                                                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                                                         Data="{tools:SvgPath icon-terminal}"/>
                                                                                                                         </MenuItem.Icon>
                                                                                                                 </MenuItem>
@@ -163,6 +168,7 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
                                                                                                                                         Data="{tools:SvgPath icon-folder}"
                                                                                                                                         Fill="#FFB900"/>
                                                                                                                         </MenuItem.Icon>
@@ -252,6 +258,8 @@
                                                                                                 <Path
                                                                                                         Width="12"
                                                                                                         Height="12"
+                                                                                                        Stretch="Uniform"
+                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                         Data="{tools:SvgPath icon-chevron-down}"/>
                                                                                                 <Button.Flyout>
                                                                                                         <MenuFlyout>
@@ -263,6 +271,7 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
                                                                                                                                         Data="{tools:SvgPath icon-vscode}"
                                                                                                                                         Fill="#007ACC"/>
                                                                                                                         </MenuItem.Icon>
@@ -275,6 +284,8 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
+                                                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                                                         Data="{tools:SvgPath icon-terminal}"/>
                                                                                                                         </MenuItem.Icon>
                                                                                                                 </MenuItem>
@@ -286,6 +297,7 @@
                                                                                                                                 <Path
                                                                                                                                         Width="16"
                                                                                                                                         Height="16"
+                                                                                                                                        Stretch="Uniform"
                                                                                                                                         Data="{tools:SvgPath icon-folder}"
                                                                                                                                         Fill="#FFB900"/>
                                                                                                                         </MenuItem.Icon>
