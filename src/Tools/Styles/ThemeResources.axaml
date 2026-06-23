@@ -29,6 +29,17 @@
             <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#1A2540" />
             <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#1E1E23" />
 
+            <!--
+                Translucent surfaces: reveal the window's acrylic backdrop
+                through the sidebar/content chrome while keeping cards opaque.
+                Format is #AARRGGBB.
+            -->
+            <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="#CC111114" />
+            <SolidColorBrush x:Key="ContentTranslucentBrush" Color="#B30D0D0F" />
+
+            <!-- Acrylic backdrop tint (Color, consumed by ExperimentalAcrylicMaterial) -->
+            <Color x:Key="WindowTintColor">#0F0F12</Color>
+
             <!-- Text -->
             <SolidColorBrush x:Key="TitleForegroundBrush" Color="#F4F4F5" />
             <SolidColorBrush x:Key="SubtitleForegroundBrush" Color="#D4D4D8" />
@@ -64,6 +75,13 @@
             <SolidColorBrush x:Key="HairlineBrush" Color="#E5E7EB" />
             <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#EFF4FF" />
             <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#F1F2F4" />
+
+            <!-- Translucent surfaces (reveal acrylic backdrop) -->
+            <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="#CCFFFFFF" />
+            <SolidColorBrush x:Key="ContentTranslucentBrush" Color="#B3F6F7F9" />
+
+            <!-- Acrylic backdrop tint (Color, consumed by ExperimentalAcrylicMaterial) -->
+            <Color x:Key="WindowTintColor">#ECECEE</Color>
 
             <!-- Text -->
             <SolidColorBrush x:Key="TitleForegroundBrush" Color="#18181B" />
@@ -119,5 +137,21 @@
     <BoxShadows x:Key="CardShadow">0 1 2 0 #14000000</BoxShadows>
     <BoxShadows x:Key="CardHoverShadow">0 8 24 0 #24000000</BoxShadows>
     <BoxShadows x:Key="FlyoutShadow">0 12 32 0 #33000000</BoxShadows>
+
+    <!--
+        ================================================================
+        ACRYLIC BACKDROP
+        Applied to the main window's Background via the window
+        TransparencyLevelHint=AcrylicBlur plus an ExperimentalAcrylicBorder
+        layer. Tint follows the active theme so the worst-case fallback
+        (when acrylic is unavailable) is a themed tinted surface, not black.
+        ================================================================
+    -->
+    <ExperimentalAcrylicMaterial
+        x:Key="WindowAcrylicMaterial"
+        BackgroundSource="Digger"
+        MaterialOpacity="1"
+        TintColor="{DynamicResource WindowTintColor}"
+        TintOpacity="0.55" />
 
 </ResourceDictionary>
