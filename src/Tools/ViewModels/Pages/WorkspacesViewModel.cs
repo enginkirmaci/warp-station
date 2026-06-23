@@ -33,6 +33,8 @@ public partial class WorkspacesViewModel : PageViewModelBase
     {
         _settingsService = settingsService;
         this.devToolsClient = devToolsClient;
+        // Mirror the settings.json location: <baseDirectory>/settings/workspaces.cache.json
+        _cacheFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "workspaces.cache.json");
         _ = OnInitializeAsync();
     }
 
@@ -60,6 +62,9 @@ public partial class WorkspacesViewModel : PageViewModelBase
     }
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
+
+    [RelayCommand]
+    private void ClearFilter() => FilterText = string.Empty;
 
     private async Task ScanWorkspacesAsync()
     {
@@ -152,12 +157,24 @@ public partial class WorkspacesViewModel : PageViewModelBase
 
     private IEnumerable<string> GetAccessibleDirectoriesRecursively(string rootPath, string searchPattern)
     {
+        var maxDepth = _workspaceSettings?.MaxScanDepth > 0 ? _workspaceSettings.MaxScanDepth : 3;
+        return GetAccessibleDirectoriesRecursively(rootPath, searchPattern, currentDepth: 1, maxDepth);
+    }
+
+    private IEnumerable<string> GetAccessibleDirectoriesRecursively(string rootPath, string searchPattern, int currentDepth, int maxDepth)
+    {
         var foundDirectories = new List<string>();
         try
         {
             foreach (var dir in Directory.EnumerateDirectories(rootPath, searchPattern, SearchOption.TopDirectoryOnly))
             {
                 foundDirectories.Add(dir);
+            }
+
+            // Stop descending once we reach the configured depth limit
+            if (currentDepth >= maxDepth)
+            {
+                return foundDirectories;
             }
 
             var excludedFolders = _workspaceSettings?.ExcludedFolders ?? Array.Empty<string>();
@@ -167,12 +184,12 @@ public partial class WorkspacesViewModel : PageViewModelBase
                 var subDirName = Path.GetFileName(subDir);
 
                 if (subDirName.Equals(searchPattern, StringComparison.OrdinalIgnoreCase) ||
-                    excludedFolders.Any(excluded => excluded.Equals(subDir, StringComparison.OrdinalIgnoreCase)))
+                    excludedFolders.Any(ex => ex.Equals(subDir, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
 
-                foundDirectories.AddRange(GetAccessibleDirectoriesRecursively(subDir, searchPattern));
+                foundDirectories.AddRange(GetAccessibleDirectoriesRecursively(subDir, searchPattern, currentDepth + 1, maxDepth));
             }
         }
         catch (UnauthorizedAccessException)

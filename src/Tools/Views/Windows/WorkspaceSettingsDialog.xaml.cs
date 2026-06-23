@@ -18,6 +18,7 @@ public partial class WorkspaceSettingsDialog : Window
     private TextBox PlatformFolderNameTextBox = null!;
     private TextBox VSCodeExecutableTextBox = null!;
     private TextBox TerminalExecutableTextBox = null!;
+    private TextBox MaxScanDepthTextBox = null!;
 
     /// <summary>
     /// Gets the edited workspace settings.
@@ -45,6 +46,7 @@ public partial class WorkspaceSettingsDialog : Window
         PlatformFolderNameTextBox = this.FindControl<TextBox>("PlatformFolderNameTextBox")!;
         VSCodeExecutableTextBox = this.FindControl<TextBox>("VSCodeExecutableTextBox")!;
         TerminalExecutableTextBox = this.FindControl<TextBox>("TerminalExecutableTextBox")!;
+        MaxScanDepthTextBox = this.FindControl<TextBox>("MaxScanDepthTextBox")!;
     }
 
     private void LoadSettings()
@@ -67,6 +69,9 @@ public partial class WorkspaceSettingsDialog : Window
         PlatformFolderNameTextBox.Text = Settings.PlatformFolderName ?? "platform";
         VSCodeExecutableTextBox.Text = Settings.VSCodeExecutable ?? "code";
         TerminalExecutableTextBox.Text = Settings.TerminalExecutable ?? "wt";
+
+        // Load numeric properties with defaults
+        MaxScanDepthTextBox.Text = Settings.MaxScanDepth > 0 ? Settings.MaxScanDepth.ToString() : "3";
     }
 
     /// <summary>
@@ -112,6 +117,11 @@ public partial class WorkspaceSettingsDialog : Window
         Settings.TerminalExecutable = string.IsNullOrWhiteSpace(TerminalExecutableTextBox.Text)
             ? "wt"
             : TerminalExecutableTextBox.Text.Trim();
+
+        // Save numeric properties with defaults
+        Settings.MaxScanDepth = int.TryParse(MaxScanDepthTextBox.Text, out var depth) && depth > 0
+            ? depth
+            : 3;
     }
 
     /// <summary>

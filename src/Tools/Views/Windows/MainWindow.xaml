@@ -19,7 +19,7 @@
 			Grid.Row="0"
 			Grid.ColumnSpan="2"
 			Background="{DynamicResource SidebarBackgroundBrush}"
-			BorderBrush="{DynamicResource SidebarBorderBrush}"
+			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,0,0,1"
 			IsHitTestVisible="True"
 			PointerPressed="TitleBar_PointerPressed">
@@ -43,7 +43,9 @@
 				<Button
 					x:Name="BackButton"
 					Margin="16,0,0,0"
+					Padding="8,4"
 					Click="BackButton_Click"
+					Classes="accent"
 					Content="←"
 					DockPanel.Dock="Left"
 					IsVisible="False" />
@@ -56,7 +58,7 @@
 			Grid.Column="0"
 			Padding="0,8,0,0"
 			Background="{DynamicResource SidebarBackgroundBrush}"
-			BorderBrush="{DynamicResource SidebarBorderBrush}"
+			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,0,1,0">
 			<ListBox
 				x:Name="NavigationListBox"
@@ -71,11 +73,62 @@
 						<Setter Property="Padding" Value="0" />
 						<Setter Property="Background" Value="Transparent" />
 					</Style>
-					<Style Selector="ListBoxItem:selected">
-						<Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}" />
+					<!--  Nav surface: transparent by default, indigo-tinted when selected  -->
+					<Style Selector="Border.nav-item-surface">
+						<Setter Property="Background" Value="Transparent" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Background" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
 					</Style>
-					<Style Selector="ListBoxItem:pointerover">
-						<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+					<Style Selector="ListBoxItem:selected Border.nav-item-surface">
+						<Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+					</Style>
+					<!--  Left accent bar: hidden by default, indigo when selected  -->
+					<Style Selector="Border.nav-accent-bar">
+						<Setter Property="Opacity" Value="0" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected Border.nav-accent-bar">
+						<Setter Property="Opacity" Value="1" />
+					</Style>
+					<!--  Nav icon: muted by default, accent when selected  -->
+					<Style Selector="Path.nav-icon">
+						<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Fill" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected Path.nav-icon">
+						<Setter Property="Fill" Value="{DynamicResource AccentPrimaryBrush}" />
+					</Style>
+					<!--  Nav label: body by default, title when selected  -->
+					<Style Selector="TextBlock.nav-label">
+						<Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Foreground" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected TextBlock.nav-label">
+						<Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+						<Setter Property="FontWeight" Value="SemiBold" />
 					</Style>
 				</ListBox.Styles>
 				<ListBox.ItemTemplate>
@@ -98,24 +151,42 @@
 							<!--  Normal navigation item  -->
 							<Border
 								Margin="0,1"
-								Padding="12,8"
-								Background="Transparent"
-								CornerRadius="6"
+								Padding="0"
+								CornerRadius="{DynamicResource ControlRadius}"
 								IsVisible="{Binding PageKey, Converter={StaticResource EqualNotVisibilityConverter}, ConverterParameter=__separator__}">
-								<StackPanel Orientation="Horizontal" Spacing="12">
-									<Path
-										Width="18"
+								<Grid ColumnDefinitions="3,*">
+									<!--  Indigo left accent bar (revealed on selection)  -->
+									<Border
+										Grid.Column="0"
 										Height="18"
 										VerticalAlignment="Center"
-										Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
-										Fill="{DynamicResource MutedForegroundBrush}"
-										Stretch="Uniform" />
-									<TextBlock
-										VerticalAlignment="Center"
-										FontSize="13"
-										Foreground="{DynamicResource BodyForegroundBrush}"
-										Text="{Binding Title}" />
-								</StackPanel>
+										HorizontalAlignment="Left"
+										Background="{DynamicResource AccentPrimaryBrush}"
+										CornerRadius="2"
+										Classes="nav-accent-bar" />
+									<!--  Nav surface + content  -->
+									<Border
+										Grid.Column="1"
+										Margin="0"
+										Padding="12,8"
+										Classes="nav-item-surface"
+										CornerRadius="{DynamicResource ControlRadius}">
+										<StackPanel Orientation="Horizontal" Spacing="12">
+											<Path
+												Width="18"
+												Height="18"
+												VerticalAlignment="Center"
+												Classes="nav-icon"
+												Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+												Stretch="Uniform" />
+											<TextBlock
+												VerticalAlignment="Center"
+												FontSize="13"
+												Classes="nav-label"
+												Text="{Binding Title}" />
+										</StackPanel>
+									</Border>
+								</Grid>
 							</Border>
 						</Panel>
 					</DataTemplate>

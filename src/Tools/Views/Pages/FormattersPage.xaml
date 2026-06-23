@@ -19,13 +19,13 @@
                         <!--  Operation Selection  -->
                         <Border
                                 Grid.Column="0"
-                                Classes="card"
                                 Margin="0,0,12,0"
-                                VerticalAlignment="Top">
+                                VerticalAlignment="Top"
+                                Classes="card">
                                 <StackPanel Spacing="4">
                                         <TextBlock
-                                                Classes="card-title"
                                                 Margin="0,0,0,8"
+                                                Classes="card-title"
                                                 Text="Convert to" />
                                         <RadioButton
                                                 Content="Base64 Encode"
@@ -51,8 +51,8 @@
                                 <!--  Input Area  -->
                                 <Border
                                         Grid.Row="0"
-                                        Classes="card"
-                                        Margin="0,0,0,12">
+                                        Margin="0,0,0,12"
+                                        Classes="card">
                                         <Grid ColumnDefinitions="*,Auto">
                                                 <TextBox
                                                         Grid.Column="0"
@@ -69,22 +69,20 @@
                                                         Classes="accent"
                                                         Command="{Binding ConvertCommand}">
                                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                                                <TextBlock FontSize="14" Text="▶" />
-                                                                <TextBlock Text="Convert" />
+                                                                <TextBlock VerticalAlignment="Center" Text="▶" />
+                                                                <TextBlock VerticalAlignment="Center" Text="Convert" />
                                                         </StackPanel>
                                                 </Button>
                                         </Grid>
                                 </Border>
 
                                 <!--  Output Area  -->
-                                <Border
-                                        Grid.Row="1"
-                                        Classes="card">
+                                <Border Grid.Row="1" Classes="card">
                                         <Grid RowDefinitions="Auto,*">
                                                 <TextBlock
                                                         Grid.Row="0"
-                                                        Classes="card-title"
                                                         Margin="0,0,0,6"
+                                                        Classes="card-title"
                                                         Text="Output" />
                                                 <ScrollViewer Grid.Row="1">
                                                         <TextBlock Classes="body-text" Text="{Binding OutputText, Mode=OneWay}" />

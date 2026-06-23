@@ -15,6 +15,9 @@
 				<ResourceInclude Source="/Styles/ThemeResources.axaml" />
 			</ResourceDictionary.MergedDictionaries>
 
+			<!--  Align FluentTheme native accent (focus rings, default buttons, etc.) with the indigo brand  -->
+			<Color x:Key="SystemAccentColor">#3B82F6</Color>
+
 			<!--  Boolean value resources used by pages/commands  -->
 			<x:Boolean x:Key="TrueValue">True</x:Boolean>
 			<x:Boolean x:Key="FalseValue">False</x:Boolean>

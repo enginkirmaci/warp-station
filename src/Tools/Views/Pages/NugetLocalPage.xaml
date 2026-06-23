@@ -76,7 +76,8 @@
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-account}"
-									Fill="{DynamicResource AccentForegroundBrush}" />
+									Fill="{DynamicResource AccentForegroundBrush}"
+									Stretch="Uniform" />
 								<TextBlock Text="Register" />
 							</StackPanel>
 						</Button>
@@ -94,10 +95,9 @@
 						Text="Operations" />
 					<Button
 						HorizontalAlignment="Center"
-						Background="{DynamicResource InfoAccentBrush}"
+						Classes="accent"
 						Command="{Binding WatchChangesCommand}"
-						CommandParameter="{Binding !WatchStarted}"
-						Foreground="{DynamicResource AccentForegroundBrush}">
+						CommandParameter="{Binding !WatchStarted}">
 						<Panel>
 							<StackPanel
 								IsVisible="{Binding !WatchStarted}"
@@ -107,7 +107,8 @@
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-play}"
-									Fill="{DynamicResource AccentForegroundBrush}" />
+									Fill="{DynamicResource AccentForegroundBrush}"
+									Stretch="Uniform" />
 								<TextBlock Text="Start" />
 							</StackPanel>
 							<StackPanel
@@ -118,7 +119,8 @@
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-stop}"
-									Fill="{DynamicResource AccentForegroundBrush}" />
+									Fill="{DynamicResource AccentForegroundBrush}"
+									Stretch="Uniform" />
 								<TextBlock Text="Stop" />
 							</StackPanel>
 						</Panel>

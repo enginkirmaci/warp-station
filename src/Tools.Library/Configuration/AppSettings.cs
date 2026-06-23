@@ -112,6 +112,13 @@ public class WorkspacesSettings
     /// Gets or sets the folders to exclude during scanning.
     /// </summary>
     public string[]? ExcludedFolders { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum folder depth to scan recursively.
+    /// A value of 1 scans only the root scan folder, 2 includes its immediate
+    /// subfolders, and so on. Defaults to 3.
+    /// </summary>
+    public int MaxScanDepth { get; set; } = 3;
 }
 
 /// <summary>

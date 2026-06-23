@@ -102,6 +102,18 @@
                             ToolTip.Tip="Path or command for terminal" />
                         <TextBox x:Name="TerminalExecutableTextBox" Watermark="wt" />
                     </StackPanel>
+
+                    <!--  Max Scan Depth  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Max Scan Depth"
+                            ToolTip.Tip="Maximum number of folder levels to scan recursively (e.g. 3)" />
+                        <TextBox x:Name="MaxScanDepthTextBox" Watermark="3" />
+                    </StackPanel>
                 </WrapPanel>
             </StackPanel>
         </ScrollViewer>

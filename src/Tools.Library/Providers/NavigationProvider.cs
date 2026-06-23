@@ -36,7 +36,7 @@ public static class NavigationProvider
                 "Workspaces",
                 "Manage your workspaces",
                 Icon(FolderIcon),
-                "#4CAF50",
+                "#FFFFFF",
                 "WorkspacesPage",
                 cardClickCommand
             ),
@@ -44,7 +44,7 @@ public static class NavigationProvider
                 "NuGet Package Manager",
                 "Copy new NuGet packages to destination",
                 Icon(PackageIcon),
-                "#FF9800",
+                "#FFFFFF",
                 "NugetLocalPage",
                 cardClickCommand
             ),
@@ -52,7 +52,7 @@ public static class NavigationProvider
                 "Formatters",
                 "Format and transform text",
                 Icon(TextFormatIcon),
-                "#AB47BC",
+                "#FFFFFF",
                 "FormattersPage",
                 cardClickCommand
             ),
@@ -60,7 +60,7 @@ public static class NavigationProvider
                 "Clipboard Password",
                 "Generate and copy passwords",
                 Icon(LockIcon),
-                "#EF5350",
+                "#FFFFFF",
                 "ClipboardPasswordPage",
                 cardClickCommand
             ),
@@ -68,7 +68,7 @@ public static class NavigationProvider
                 "EF Tools",
                 "Entity Framework tools and utilities",
                 Icon(DatabaseIcon),
-                "#26A69A",
+                "#FFFFFF",
                 "EFToolsPage",
                 cardClickCommand
             ),
@@ -76,7 +76,7 @@ public static class NavigationProvider
                 "Code Execute",
                 "Run C# code snippets",
                 Icon(TerminalIcon),
-                "#42A5F5",
+                "#FFFFFF",
                 "CodeExecutePage",
                 cardClickCommand
             ),
@@ -84,7 +84,7 @@ public static class NavigationProvider
                 "Focus Timer",
                 "Intelligent break scheduling",
                 Icon(ClockIcon),
-                "#FFA726",
+                "#FFFFFF",
                 "FocusTimerSettingsPage",
                 cardClickCommand
             ),
@@ -92,7 +92,7 @@ public static class NavigationProvider
                 "SnapIt",
                 "Window snapping and management",
                 Icon(GridLayoutIcon),
-                "#78909C",
+                "#FFFFFF",
                 "SnapItSettingsPage",
                 cardClickCommand
             )
