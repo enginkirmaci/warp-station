@@ -11,24 +11,14 @@
 	Height="800"
 	MinWidth="800"
 	MinHeight="600"
-	Background="Transparent"
-	ExtendClientAreaToDecorationsHint="True"
-	TransparencyLevelHint="AcrylicBlur">
+	ExtendClientAreaToDecorationsHint="True">
 
-	<ExperimentalAcrylicBorder IsHitTestVisible="False">
-		<ExperimentalAcrylicBorder.Material>
-			<ExperimentalAcrylicMaterial
-				BackgroundSource="Digger"
-				MaterialOpacity="1"
-				TintColor="{DynamicResource WindowTintColor}"
-				TintOpacity="0.55" />
-		</ExperimentalAcrylicBorder.Material>
-		<Grid ColumnDefinitions="240,*" RowDefinitions="38,*">
+	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*">
 		<!--  Custom Title Bar  -->
 		<Border
 			Grid.Row="0"
 			Grid.ColumnSpan="2"
-			Background="{DynamicResource SidebarTranslucentBrush}"
+			Background="{DynamicResource SidebarBackgroundBrush}"
 			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,0,0,1"
 			IsHitTestVisible="True"
@@ -67,7 +57,7 @@
 			Grid.Row="1"
 			Grid.Column="0"
 			Padding="0,8,0,0"
-			Background="{DynamicResource SidebarTranslucentBrush}"
+			Background="{DynamicResource SidebarBackgroundBrush}"
 			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,0,1,0">
 			<ListBox
@@ -208,7 +198,7 @@
 		<Grid
 			Grid.Row="1"
 			Grid.Column="1"
-			Background="{DynamicResource ContentTranslucentBrush}">
+			Background="{DynamicResource ContentBackgroundBrush}">
 			<Grid.RowDefinitions>
 				<RowDefinition Height="*" />
 				<RowDefinition Height="Auto" />
@@ -224,5 +214,4 @@
 			<!--  InfoBar removed during migration  -->
 		</Grid>
 	</Grid>
-	</ExperimentalAcrylicBorder>
 </Window>
