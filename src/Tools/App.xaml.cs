@@ -89,6 +89,8 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             // Auto-start SnapIt if configured
             _ = InitializeSnapItAsync();
+            // Resume NuGet local watch if a watch folder is configured
+            _ = InitializeNugetWatchAsync();
         }
         base.OnFrameworkInitializationCompleted();
     }
@@ -115,6 +117,21 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Failed to auto-start SnapIt");
+        }
+    }
+
+    private static async Task InitializeNugetWatchAsync()
+    {
+        try
+        {
+            // The service already loads its settings on construction; just resume
+            // watching if a valid watch folder was previously configured.
+            var nugetService = Services.GetRequiredService<INugetLocalService>();
+            await nugetService.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to resume NuGet local watch");
         }
     }
 }

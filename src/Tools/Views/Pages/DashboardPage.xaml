@@ -11,7 +11,6 @@
         mc:Ignorable="d">
 
         <UserControl.Resources>
-                <converters:BoolToBrushConverter x:Key="BoolToBrushConverter" />
                 <converters:StringToGeometryConverter x:Key="StringToGeometryConverter" />
                 <converters:StringToBrushConverter x:Key="StringToBrushConverter" />
         </UserControl.Resources>
@@ -30,32 +29,6 @@
                                         Spacing="6">
                                         <TextBlock Classes="page-title" Text="Development Tools" />
                                         <TextBlock Classes="page-subtitle" Text="Quick access to your development utilities" />
-
-                                        <!--  SnapIt Status  -->
-                                        <Border
-                                                Margin="0,12,0,0"
-                                                HorizontalAlignment="Left"
-                                                Classes="chip">
-                                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <Border
-                                                                Width="8"
-                                                                Height="8"
-                                                                VerticalAlignment="Center"
-                                                                Background="{Binding SnapItRunning, Converter={StaticResource BoolToBrushConverter}}"
-                                                                CornerRadius="4" />
-                                                        <TextBlock
-                                                                VerticalAlignment="Center"
-                                                                FontSize="12"
-                                                                FontWeight="Medium"
-                                                                Foreground="{DynamicResource BodyForegroundBrush}"
-                                                                Text="SnapIt" />
-                                                        <TextBlock
-                                                                VerticalAlignment="Center"
-                                                                FontSize="12"
-                                                                Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                Text="{Binding SnapItStatusText, Mode=OneWay}" />
-                                                </StackPanel>
-                                        </Border>
                                 </StackPanel>
                         </Grid>
                 </Border>

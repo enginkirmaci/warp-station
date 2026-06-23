@@ -13,7 +13,7 @@
 	MinHeight="600"
 	ExtendClientAreaToDecorationsHint="True">
 
-	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*">
+	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*,28">
 		<!--  Custom Title Bar  -->
 		<Border
 			Grid.Row="0"
@@ -204,14 +204,102 @@
 				<RowDefinition Height="Auto" />
 			</Grid.RowDefinitions>
 
-			<ContentControl
-				x:Name="ContentArea"
-				Grid.Row="0"
-				Padding="0"
-				Content="{Binding CurrentView}" />
+				<ContentControl
+					x:Name="ContentArea"
+					Grid.Row="0"
+					Padding="0"
+					Content="{Binding CurrentView}" />
 
-			<!--  Info Bar  -->
-			<!--  InfoBar removed during migration  -->
+				<!--  Info Bar  -->
+				<!--  InfoBar removed during migration  -->
+			</Grid>
+
+			<!--  Status Bar  -->
+			<Border
+				Grid.Row="2"
+				Grid.ColumnSpan="2"
+				Background="{DynamicResource SidebarTranslucentBrush}"
+				BorderBrush="{DynamicResource DividerBrush}"
+				BorderThickness="0,1,0,0">
+				<DockPanel Margin="14,0" VerticalAlignment="Center">
+					<!--  SnapIt indicator (moved from dashboard)  -->
+					<Button
+						Padding="8,2"
+						Background="Transparent"
+						BorderThickness="0"
+						Command="{Binding ToggleSnapItCommand}"
+						CornerRadius="{DynamicResource ChipRadius}"
+						Cursor="Hand"
+						DockPanel.Dock="Left">
+						<StackPanel Orientation="Horizontal" Spacing="6">
+							<Border
+								Width="8"
+								Height="8"
+								VerticalAlignment="Center"
+								Background="{Binding SnapItRunning, Converter={StaticResource BoolToBrushConverter}}"
+								CornerRadius="4" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								FontWeight="Medium"
+								Foreground="{DynamicResource BodyForegroundBrush}"
+								Text="SnapIt" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								Foreground="{DynamicResource MutedForegroundBrush}"
+								Text="{Binding SnapItStatusText, Mode=OneWay}" />
+						</StackPanel>
+						<Button.Styles>
+							<Style Selector="Button /template/ ContentPresenter">
+								<Setter Property="Background" Value="Transparent" />
+							</Style>
+							<Style Selector="Button:pointerover /template/ ContentPresenter">
+								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+							</Style>
+						</Button.Styles>
+					</Button>
+
+					<!--  NuGet Local watch indicator  -->
+					<Button
+						Margin="6,0,0,0"
+						Padding="8,2"
+						Background="Transparent"
+						BorderThickness="0"
+						Command="{Binding ToggleNugetWatchCommand}"
+						CornerRadius="{DynamicResource ChipRadius}"
+						Cursor="Hand"
+						DockPanel.Dock="Left">
+						<StackPanel Orientation="Horizontal" Spacing="6">
+							<Border
+								Width="8"
+								Height="8"
+								VerticalAlignment="Center"
+								Background="{Binding NugetWatchRunning, Converter={StaticResource BoolToBrushConverter}}"
+								CornerRadius="4" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								FontWeight="Medium"
+								Foreground="{DynamicResource BodyForegroundBrush}"
+								Text="NuGet Watch" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								Foreground="{DynamicResource MutedForegroundBrush}"
+								Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
+						</StackPanel>
+						<Button.Styles>
+							<Style Selector="Button /template/ ContentPresenter">
+								<Setter Property="Background" Value="Transparent" />
+							</Style>
+							<Style Selector="Button:pointerover /template/ ContentPresenter">
+								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+							</Style>
+						</Button.Styles>
+					</Button>
+				</DockPanel>
+			</Border>
 		</Grid>
 	</Grid>
 </Window>

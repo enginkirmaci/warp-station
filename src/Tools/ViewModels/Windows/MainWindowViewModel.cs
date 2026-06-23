@@ -1,6 +1,9 @@
-﻿using Tools.Library.Entities;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Tools.Library.Entities;
 using Tools.Library.Mvvm;
 using Tools.Library.Providers;
+using Tools.Library.Services.Abstractions;
 
 namespace Tools.ViewModels.Windows;
 
@@ -9,6 +12,9 @@ namespace Tools.ViewModels.Windows;
 /// </summary>
 public partial class MainWindowViewModel : ViewModelBase
 {
+    private readonly ISnapItService _snapItService;
+    private readonly INugetLocalService _nugetLocalService;
+
     /// <summary>
     /// Gets the title of the application.
     /// </summary>
@@ -29,8 +35,92 @@ public partial class MainWindowViewModel : ViewModelBase
         set => SetProperty(ref _currentView, value);
     }
 
-    public MainWindowViewModel()
+    // ---- Status bar: SnapIt ----
+    [ObservableProperty]
+    private bool _snapItRunning;
+
+    [ObservableProperty]
+    private string _snapItStatusText = "Stopped";
+
+    /// <summary>Command to toggle SnapIt on/off from the status bar.</summary>
+    public IRelayCommand ToggleSnapItCommand { get; }
+
+    // ---- Status bar: NuGet Local watch ----
+    [ObservableProperty]
+    private bool _nugetWatchRunning;
+
+    [ObservableProperty]
+    private string _nugetWatchStatusText = "Idle";
+
+    [ObservableProperty]
+    private int _nugetWatchCount;
+
+    /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
+    public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
+
+    public MainWindowViewModel(ISnapItService snapItService, INugetLocalService nugetLocalService)
     {
+        _snapItService = snapItService;
+        _nugetLocalService = nugetLocalService;
+
         MenuItems = NavigationProvider.GetNavigationMenuItems();
+
+        ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
+        ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
+
+        _snapItService.RunningChanged += OnSnapItRunningChanged;
+        _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
+
+        UpdateSnapItStatus(_snapItService.IsRunning);
+        UpdateNugetWatchStatus();
+    }
+
+    private async Task OnToggleSnapItAsync()
+    {
+        if (_snapItService.IsRunning)
+        {
+            _snapItService.Stop();
+        }
+        else
+        {
+            await _snapItService.StartAsync();
+        }
+    }
+
+    private async Task OnToggleNugetWatchAsync()
+    {
+        if (_nugetLocalService.IsWatching)
+        {
+            _nugetLocalService.Stop();
+        }
+        else
+        {
+            await _nugetLocalService.StartAsync();
+        }
+    }
+
+    private void OnSnapItRunningChanged(object? sender, bool isRunning)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateSnapItStatus(isRunning));
+    }
+
+    private void OnNugetLocalStateChanged(object? sender, EventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(UpdateNugetWatchStatus);
+    }
+
+    private void UpdateSnapItStatus(bool isRunning)
+    {
+        SnapItRunning = isRunning;
+        SnapItStatusText = isRunning ? "Running" : "Stopped";
+    }
+
+    private void UpdateNugetWatchStatus()
+    {
+        NugetWatchRunning = _nugetLocalService.IsWatching;
+        NugetWatchCount = _nugetLocalService.Count;
+        NugetWatchStatusText = _nugetLocalService.IsWatching
+            ? (_nugetLocalService.Count > 0 ? $"Watching ({_nugetLocalService.Count})" : "Watching")
+            : "Idle";
     }
 }

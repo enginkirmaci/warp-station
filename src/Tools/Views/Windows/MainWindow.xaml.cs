@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly INavigationService _navigationService;
     private readonly IClipboardPasswordService _clipboardPasswordService;
     private readonly ISnapItService _snapItService;
+    private readonly INugetLocalService _nugetLocalService;
     private readonly WindowMessageHandler _messageHandler;
     private readonly WindowConfigurator _windowConfigurator;
 
@@ -45,11 +46,13 @@ public partial class MainWindow : Window
         MainWindowViewModel viewModel,
         INavigationService navigationService,
         IClipboardPasswordService clipboardPasswordService,
-        ISnapItService snapItService)
+        ISnapItService snapItService,
+        INugetLocalService nugetLocalService)
     {
         _navigationService = navigationService;
         _clipboardPasswordService = clipboardPasswordService;
         _snapItService = snapItService;
+        _nugetLocalService = nugetLocalService;
 
         // Initialize helper classes (Dependency Inversion Principle)
         _messageHandler = new WindowMessageHandler(clipboardPasswordService);
@@ -195,6 +198,7 @@ public partial class MainWindow : Window
         _navigationService.Navigated -= OnNavigated;
         _navigationService.BackStackChanged -= OnBackStackChanged;
         _snapItService.Stop();
+        _nugetLocalService.Stop();
     }
 
     #endregion
