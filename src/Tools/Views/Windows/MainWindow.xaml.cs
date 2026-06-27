@@ -16,8 +16,6 @@ public partial class MainWindow : Window
 {
     private readonly INavigationService _navigationService;
     private readonly IClipboardPasswordService _clipboardPasswordService;
-    private readonly ISnapItService _snapItService;
-    private readonly INugetLocalService _nugetLocalService;
     private readonly WindowMessageHandler _messageHandler;
     private readonly WindowConfigurator _windowConfigurator;
 
@@ -44,14 +42,10 @@ public partial class MainWindow : Window
     public MainWindow(
         MainWindowViewModel viewModel,
         INavigationService navigationService,
-        IClipboardPasswordService clipboardPasswordService,
-        ISnapItService snapItService,
-        INugetLocalService nugetLocalService)
+        IClipboardPasswordService clipboardPasswordService)
     {
         _navigationService = navigationService;
         _clipboardPasswordService = clipboardPasswordService;
-        _snapItService = snapItService;
-        _nugetLocalService = nugetLocalService;
 
         // Initialize helper classes (Dependency Inversion Principle)
         _messageHandler = new WindowMessageHandler(clipboardPasswordService);
@@ -196,8 +190,8 @@ public partial class MainWindow : Window
 
         _navigationService.Navigated -= OnNavigated;
         _navigationService.BackStackChanged -= OnBackStackChanged;
-        _snapItService.Stop();
-        _nugetLocalService.Stop();
+        // Background services (SnapIt, NuGet watch) are stopped during application
+        // shutdown, not here, so the window does not own their lifecycle.
     }
 
     #endregion

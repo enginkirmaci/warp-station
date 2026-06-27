@@ -7,8 +7,14 @@ namespace Tools.Services;
 
 public class NavigationService : INavigationService
 {
+    private readonly IServiceProvider _services;
     private ContentControl? _contentControl;
     private readonly Stack<(Control Page, Type PageType)> _backStack = new();
+
+    public NavigationService(IServiceProvider services)
+    {
+        _services = services;
+    }
 
     public bool CanGoBack => _backStack.Count > 0;
 
@@ -28,7 +34,7 @@ public class NavigationService : INavigationService
         // Resolve the page from the DI container. All pages require DI, so there is no
         // Activator.CreateInstance fallback (it would throw for pages without a
         // parameterless constructor).
-        Control? newPage = App.Services.GetService(pageType) as Control;
+        Control? newPage = _services.GetService(pageType) as Control;
         if (newPage == null)
         {
             Log.Logger.Warning("Navigation target page '{PageType}' could not be resolved", pageType.Name);

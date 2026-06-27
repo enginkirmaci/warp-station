@@ -1,6 +1,4 @@
-﻿using Avalonia.Controls;
-using Avalonia.Platform.Storage;
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Tools.Library.Mvvm;
@@ -16,6 +14,7 @@ namespace Tools.ViewModels.Pages;
 public partial class NugetLocalViewModel : PageViewModelBase
 {
     private readonly INugetLocalService _nugetService;
+    private readonly IDialogService _dialogService;
 
     /// <summary>
     /// Exposes the singleton service for direct XAML binding (paths, status, log).
@@ -49,9 +48,10 @@ public partial class NugetLocalViewModel : PageViewModelBase
     /// <summary>Gets the command to register the watch folder as a NuGet source.</summary>
     public IAsyncRelayCommand RegisterSourceCommand { get; }
 
-    public NugetLocalViewModel(INugetLocalService nugetService)
+    public NugetLocalViewModel(INugetLocalService nugetService, IDialogService dialogService)
     {
         _nugetService = nugetService;
+        _dialogService = dialogService;
 
         WatchChangesCommand = new RelayCommand<object>(OnWatchChanges);
         SelectFolderCommand = new AsyncRelayCommand<string>(OnSelectFolderAsync);
@@ -118,27 +118,11 @@ public partial class NugetLocalViewModel : PageViewModelBase
     {
         try
         {
-            var topLevel = TopLevel.GetTopLevel(App.MainWindow);
-            if (topLevel == null)
+            var path = await _dialogService.PickFolderAsync("Select Watch Folder");
+            if (path != null && operation == "Watch")
             {
-                Log.Logger.Warning("Could not get top-level window.");
-                return;
-            }
-
-            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = "Select Watch Folder",
-                AllowMultiple = false
-            });
-
-            if (folders.Count > 0)
-            {
-                var path = folders[0].Path.LocalPath;
-                if (operation == "Watch")
-                {
-                    await _nugetService.SetWatchFolderAsync(path);
-                    SyncFromService();
-                }
+                await _nugetService.SetWatchFolderAsync(path);
+                SyncFromService();
             }
         }
         catch (Exception ex)

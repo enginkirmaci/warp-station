@@ -19,7 +19,6 @@ namespace Tools;
 public partial class App : Application
 {
     public static IHost Host { get; private set; } = null!;
-    public static IServiceProvider Services => Host.Services;
 
     private Window? _mainWindow;
 
@@ -51,6 +50,7 @@ public partial class App : Application
         // Register application services
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
+        services.AddSingleton<IDialogService, DialogService>();
         // Register Focus Timer service
         services.AddSingleton<IFocusTimerService, FocusTimerService>();
         // Register windows and view models
@@ -83,33 +83,48 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            _mainWindow = Services.GetRequiredService<MainWindow>();
+            var services = Host.Services;
+            _mainWindow = services.GetRequiredService<MainWindow>();
             desktop.MainWindow = _mainWindow;
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            // Stop background services and dispose the host on application shutdown,
+            // so their lifecycle is owned here rather than by a window close handler.
+            desktop.ShutdownRequested += OnShutdownRequested;
             // Start minimized to the taskbar if configured
-            _ = ApplyStartMinimizedAsync(_mainWindow);
+            _ = ApplyStartMinimizedAsync(services, _mainWindow);
             // Auto-start SnapIt if configured
-            _ = InitializeSnapItAsync();
+            _ = InitializeSnapItAsync(services);
         }
         base.OnFrameworkInitializationCompleted();
     }
 
-    public static TService GetService<TService>() where TService : class
+    private static void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
-        return Services.GetRequiredService<TService>();
+        var services = Host.Services;
+        try
+        {
+            services.GetRequiredService<ISnapItService>().Stop();
+            services.GetRequiredService<INugetLocalService>().Stop();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to stop background services on shutdown");
+        }
+        finally
+        {
+            Host.Dispose();
+        }
     }
 
-    public static Window MainWindow => ((App)Current!)._mainWindow!;
-
-    private static async Task InitializeSnapItAsync()
+    private static async Task InitializeSnapItAsync(IServiceProvider services)
     {
         try
         {
-            var settingsService = Services.GetRequiredService<ISettingsService>();
+            var settingsService = services.GetRequiredService<ISettingsService>();
             var appSettings = await settingsService.GetSettingsAsync();
             if (appSettings.SnapIt?.AutoStart == true)
             {
-                var snapItService = Services.GetRequiredService<ISnapItService>();
+                var snapItService = services.GetRequiredService<ISnapItService>();
                 await snapItService.StartAsync();
             }
         }
@@ -119,11 +134,11 @@ public partial class App : Application
         }
     }
 
-    private static async Task ApplyStartMinimizedAsync(Window mainWindow)
+    private static async Task ApplyStartMinimizedAsync(IServiceProvider services, Window mainWindow)
     {
         try
         {
-            var settingsService = Services.GetRequiredService<ISettingsService>();
+            var settingsService = services.GetRequiredService<ISettingsService>();
             var appSettings = await settingsService.GetSettingsAsync();
             if (appSettings.General?.StartMinimized == true)
             {

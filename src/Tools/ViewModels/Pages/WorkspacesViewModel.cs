@@ -15,6 +15,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
     private readonly IDevToolsClient devToolsClient;
+    private readonly IDialogService _dialogService;
     private WorkspacesSettings _workspaceSettings = new();
     private readonly string _cacheFilePath;
 
@@ -30,10 +31,11 @@ public partial class WorkspacesViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<WorkspaceItem> _filteredPlatforms = new();
 
-    public WorkspacesViewModel(ISettingsService settingsService, IDevToolsClient devToolsClient)
+    public WorkspacesViewModel(ISettingsService settingsService, IDevToolsClient devToolsClient, IDialogService dialogService)
     {
         _settingsService = settingsService;
         this.devToolsClient = devToolsClient;
+        _dialogService = dialogService;
         // Mirror the settings.json location: <baseDirectory>/settings/workspaces.cache.json
         _cacheFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "workspaces.cache.json");
     }
@@ -290,13 +292,17 @@ public partial class WorkspacesViewModel : PageViewModelBase
             var settings = await _settingsService.GetSettingsAsync();
             var currentWorkspaceSettings = settings.Workspaces ?? new WorkspacesSettings();
 
-            var dialog = new Tools.Views.Windows.WorkspaceSettingsDialog(currentWorkspaceSettings);
-            await dialog.ShowDialog(App.MainWindow);
+            var edited = await _dialogService.ShowWorkspaceSettingsDialogAsync(currentWorkspaceSettings);
+            if (edited == null)
+            {
+                // User cancelled the dialog.
+                return;
+            }
 
-            settings.Workspaces = dialog.Settings;
+            settings.Workspaces = edited;
             await _settingsService.SaveSettingsAsync(settings);
 
-            _workspaceSettings = dialog.Settings;
+            _workspaceSettings = edited;
             _workspaces.Clear();
             _platforms.Clear();
             await OnInitializeAsync();
