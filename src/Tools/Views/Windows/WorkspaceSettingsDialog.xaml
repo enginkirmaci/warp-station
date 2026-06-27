@@ -20,9 +20,9 @@
                         Text="Workspace Scan Folders"
                         ToolTip.Tip="Folders to scan for workspaces (one per line)" />
                     <TextBox
-                        x:Name="WorkspaceScanFoldersTextBox"
                         Height="120"
                         AcceptsReturn="True"
+                        Text="{Binding WorkspaceScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
                         TextWrapping="Wrap"
                         Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
                 </StackPanel>
@@ -34,9 +34,9 @@
                         Text="Excluded Folders"
                         ToolTip.Tip="Folders to exclude from scanning (one per line)" />
                     <TextBox
-                        x:Name="ExcludedFoldersTextBox"
                         Height="100"
                         AcceptsReturn="True"
+                        Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
                         TextWrapping="Wrap"
                         Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />
                 </StackPanel>
@@ -52,7 +52,7 @@
                             Classes="field-label"
                             Text="Git Folder Pattern"
                             ToolTip.Tip="Pattern to search for git folders" />
-                        <TextBox x:Name="GitFolderPatternTextBox" Watermark="*.git" />
+                        <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
                     </StackPanel>
 
                     <!--  Solution File Pattern  -->
@@ -64,7 +64,7 @@
                             Classes="field-label"
                             Text="Solution File Pattern"
                             ToolTip.Tip="Pattern to search for solution files" />
-                        <TextBox x:Name="SolutionFilePatternTextBox" Watermark="*.sln" />
+                        <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln" />
                     </StackPanel>
 
                     <!--  Platform Folder Name  -->
@@ -76,7 +76,7 @@
                             Classes="field-label"
                             Text="Platform Folder Name"
                             ToolTip.Tip="Identifier for platform folders" />
-                        <TextBox x:Name="PlatformFolderNameTextBox" Watermark="platform" />
+                        <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
                     </StackPanel>
 
                     <!--  VS Code Executable  -->
@@ -88,7 +88,7 @@
                             Classes="field-label"
                             Text="VS Code Executable"
                             ToolTip.Tip="Path or command for VS Code" />
-                        <TextBox x:Name="VSCodeExecutableTextBox" Watermark="code" />
+                        <TextBox Text="{Binding VsCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="code" />
                     </StackPanel>
 
                     <!--  Terminal Executable  -->
@@ -100,7 +100,7 @@
                             Classes="field-label"
                             Text="Terminal Executable"
                             ToolTip.Tip="Path or command for terminal" />
-                        <TextBox x:Name="TerminalExecutableTextBox" Watermark="wt" />
+                        <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
                     </StackPanel>
 
                     <!--  Max Scan Depth  -->
@@ -112,7 +112,7 @@
                             Classes="field-label"
                             Text="Max Scan Depth"
                             ToolTip.Tip="Maximum number of folder levels to scan recursively (e.g. 3)" />
-                        <TextBox x:Name="MaxScanDepthTextBox" Watermark="3" />
+                        <TextBox Text="{Binding MaxScanDepth, UpdateSourceTrigger=PropertyChanged}" Watermark="3" />
                     </StackPanel>
                 </WrapPanel>
             </StackPanel>
@@ -128,11 +128,9 @@
                 HorizontalAlignment="Right"
                 Classes="actions">
                 <Button
-                    x:Name="CancelButton"
                     Click="OnCancelClick"
                     Content="Cancel" />
                 <Button
-                    x:Name="SaveButton"
                     Click="OnSaveClick"
                     Classes="accent"
                     Content="Save"

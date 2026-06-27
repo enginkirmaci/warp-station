@@ -1,26 +1,29 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
+using Tools.Library.Formatters;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.ViewModels.Pages;
 
 /// <summary>
-/// ViewModel for the Workspaces page.
+/// Thin binding adapter for the Workspaces page. Delegates scanning, caching, and the
+/// shared workspace/platform state to <see cref="IWorkspaceService"/> (singleton), and
+/// process launching to <see cref="IProcessLauncher"/>. Holds only view-specific state
+/// (the filter and its filtered projections).
 /// </summary>
 public partial class WorkspacesViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
-    private readonly IDevToolsClient devToolsClient;
+    private readonly IDevToolsClient _devToolsClient;
     private readonly IDialogService _dialogService;
+    private readonly IWorkspaceService _workspaceService;
+    private readonly IProcessLauncher _processLauncher;
     private WorkspacesSettings _workspaceSettings = new();
-    private readonly string _cacheFilePath;
-
-    private static ObservableCollection<WorkspaceItem> _workspaces = new();
-    private static ObservableCollection<WorkspaceItem> _platforms = new();
 
     [ObservableProperty]
     private string _filterText = string.Empty;
@@ -31,13 +34,20 @@ public partial class WorkspacesViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<WorkspaceItem> _filteredPlatforms = new();
 
-    public WorkspacesViewModel(ISettingsService settingsService, IDevToolsClient devToolsClient, IDialogService dialogService)
+    public WorkspacesViewModel(
+        ISettingsService settingsService,
+        IDevToolsClient devToolsClient,
+        IDialogService dialogService,
+        IWorkspaceService workspaceService,
+        IProcessLauncher processLauncher)
     {
         _settingsService = settingsService;
-        this.devToolsClient = devToolsClient;
+        _devToolsClient = devToolsClient;
         _dialogService = dialogService;
-        // Mirror the settings.json location: <baseDirectory>/settings/workspaces.cache.json
-        _cacheFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "workspaces.cache.json");
+        _workspaceService = workspaceService;
+        _processLauncher = processLauncher;
+
+        _workspaceService.Changed += OnWorkspaceChanged;
     }
 
     /// <inheritdoc/>
@@ -48,22 +58,17 @@ public partial class WorkspacesViewModel : PageViewModelBase
     {
         var settings = await _settingsService.GetSettingsAsync();
         _workspaceSettings = settings.Workspaces ?? new WorkspacesSettings();
+        await _workspaceService.EnsureLoadedAsync(_workspaceSettings);
+        ApplyFilter();
+    }
 
-        // Load cache first if available
-        if (!_workspaces.Any() && !_platforms.Any())
+    private void OnWorkspaceChanged(object? sender, EventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            await LoadCacheAsync();
-        }
-
-        if (_workspaceSettings.WorkspaceScanFolders?.Any() == true)
-        {
-            // Always scan in background to keep data fresh, even if we loaded from cache
-            _ = ScanWorkspacesAsync();
-        }
-        else
-        {
+            IsBusy = _workspaceService.IsBusy;
             ApplyFilter();
-        }
+        });
     }
 
     partial void OnFilterTextChanged(string value) => ApplyFilter();
@@ -71,167 +76,49 @@ public partial class WorkspacesViewModel : PageViewModelBase
     [RelayCommand]
     private void ClearFilter() => FilterText = string.Empty;
 
-    private async Task ScanWorkspacesAsync()
-    {
-        if (IsBusy) return;
-        IsBusy = true;
-
-        try
-        {
-            var workspaces = new List<WorkspaceItem>();
-            var platforms = new List<WorkspaceItem>();
-            var scanFolders = _workspaceSettings.WorkspaceScanFolders ?? Array.Empty<string>();
-            var gitPattern = _workspaceSettings.GitFolderPattern ?? ".git";
-            var platformPattern = _workspaceSettings.PlatformFolderName ?? "platform";
-            var slnPattern = _workspaceSettings.SolutionFilePattern ?? "*.sln";
-
-            await Task.Run(() =>
-            {
-                foreach (var folderPath in scanFolders)
-                {
-                    if (!Directory.Exists(folderPath)) continue;
-
-                    var directories = GetAccessibleDirectoriesRecursively(folderPath, gitPattern);
-
-                    foreach (var dir in directories)
-                    {
-                        var parentDir = Path.GetDirectoryName(dir);
-                        if (parentDir == null) continue;
-
-                        var solutionFiles = Directory.GetFiles(parentDir, slnPattern);
-                        foreach (var solutionFile in solutionFiles)
-                        {
-                            workspaces.Add(new WorkspaceItem
-                            {
-                                SolutionName = Path.GetFileNameWithoutExtension(solutionFile),
-                                FolderPath = Path.GetDirectoryName(solutionFile),
-                                SolutionPath = solutionFile
-                            });
-                        }
-
-                        if (dir.Contains(platformPattern, StringComparison.OrdinalIgnoreCase))
-                        {
-                            platforms.Add(new WorkspaceItem
-                            {
-                                PlatformName = Path.GetFileName(parentDir.TrimEnd(Path.DirectorySeparatorChar)),
-                                FolderPath = parentDir
-                            });
-                        }
-                    }
-                }
-            });
-
-            // Update collections on UI thread
-            Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                _workspaces = new ObservableCollection<WorkspaceItem>(workspaces.DistinctBy(w => w.SolutionPath).OrderBy(w => w.SolutionName));
-                _platforms = new ObservableCollection<WorkspaceItem>(platforms.DistinctBy(p => p.FolderPath).OrderBy(p => p.PlatformName));
-                ApplyFilter();
-
-                // Save to cache after scan
-                await SaveCacheAsync();
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Error scanning workspaces");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
     private void ApplyFilter()
     {
         var filter = FilterText?.Trim();
+        var workspaces = _workspaceService.Workspaces;
+        var platforms = _workspaceService.Platforms;
 
         if (string.IsNullOrWhiteSpace(filter))
         {
-            FilteredWorkspaces = new ObservableCollection<WorkspaceItem>(_workspaces);
-            FilteredPlatforms = new ObservableCollection<WorkspaceItem>(_platforms);
+            FilteredWorkspaces = new ObservableCollection<WorkspaceItem>(workspaces);
+            FilteredPlatforms = new ObservableCollection<WorkspaceItem>(platforms);
         }
         else
         {
             FilteredWorkspaces = new ObservableCollection<WorkspaceItem>(
-                _workspaces.Where(w => w.SolutionName?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true));
+                workspaces.Where(w => w.SolutionName?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true));
             FilteredPlatforms = new ObservableCollection<WorkspaceItem>(
-                _platforms.Where(p => p.PlatformName?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true));
+                platforms.Where(p => p.PlatformName?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true));
         }
-    }
-
-    private IEnumerable<string> GetAccessibleDirectoriesRecursively(string rootPath, string searchPattern)
-    {
-        var maxDepth = _workspaceSettings?.MaxScanDepth > 0 ? _workspaceSettings.MaxScanDepth : 3;
-        return GetAccessibleDirectoriesRecursively(rootPath, searchPattern, currentDepth: 1, maxDepth);
-    }
-
-    private IEnumerable<string> GetAccessibleDirectoriesRecursively(string rootPath, string searchPattern, int currentDepth, int maxDepth)
-    {
-        var foundDirectories = new List<string>();
-        try
-        {
-            foreach (var dir in Directory.EnumerateDirectories(rootPath, searchPattern, SearchOption.TopDirectoryOnly))
-            {
-                foundDirectories.Add(dir);
-            }
-
-            // Stop descending once we reach the configured depth limit
-            if (currentDepth >= maxDepth)
-            {
-                return foundDirectories;
-            }
-
-            var excludedFolders = _workspaceSettings?.ExcludedFolders ?? Array.Empty<string>();
-
-            foreach (var subDir in Directory.EnumerateDirectories(rootPath))
-            {
-                var subDirName = Path.GetFileName(subDir);
-
-                if (subDirName.Equals(searchPattern, StringComparison.OrdinalIgnoreCase) ||
-                    excludedFolders.Any(ex => ex.Equals(subDir, StringComparison.OrdinalIgnoreCase)))
-                {
-                    continue;
-                }
-
-                foundDirectories.AddRange(GetAccessibleDirectoriesRecursively(subDir, searchPattern, currentDepth + 1, maxDepth));
-            }
-        }
-        catch (UnauthorizedAccessException)
-        {
-            Log.Logger.Warning("Access denied to folder: {Path}", rootPath);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Error accessing folder {Path}", rootPath);
-        }
-
-        return foundDirectories;
     }
 
     [RelayCommand]
-    private void OpenSolution(string? solutionPath) => SafeStartProcess(solutionPath);
+    private void OpenSolution(string? solutionPath) => _processLauncher.StartProcess(solutionPath);
 
     [RelayCommand]
-    private void OpenFolder(string? folderPath) => SafeStartProcess(folderPath);
+    private void OpenFolder(string? folderPath) => _processLauncher.StartProcess(folderPath);
 
     [RelayCommand]
     private async Task OpenWithVSCodeAsync(string? folderPath)
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        var exe = _workspaceSettings?.VSCodeExecutable ?? "code";
+        var exe = _workspaceSettings.VSCodeExecutable ?? "code";
 
         // Route through the DevTools service (named pipe). The service runs
         // non-elevated, so VS Code launches non-elevated even when Tools runs as admin.
         try
         {
-            await devToolsClient.SendProcessLaunchRequestAsync(exe, folderPath);
+            await _devToolsClient.SendProcessLaunchRequestAsync(exe, folderPath);
         }
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenWithVSCode: pipe launch failed, falling back to direct launch");
-            SafeStartProcess(exe, folderPath,true);
+            _processLauncher.StartProcess(exe, folderPath, hidden: true);
         }
     }
 
@@ -240,48 +127,15 @@ public partial class WorkspacesViewModel : PageViewModelBase
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        var exe = _workspaceSettings?.TerminalExecutable ?? "wt";
-        var exeLower = exe.ToLowerInvariant();
-        string args;
-        if (exeLower.EndsWith("wt.exe") || exeLower == "wt")
-            args = $"-d \"{folderPath}\"";
-        else if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
-            args = $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'\"";
-        else if (exeLower.EndsWith("cmd.exe") || exeLower == "cmd")
-            args = $"/k cd /d \"{folderPath}\"";
-        else
-            args = $"\"{folderPath}\"";
-
-        SafeStartProcess(exe, args);
-    }
-
-    private void SafeStartProcess(string? fileName, string? arguments = null, bool hideWindow = false)
-    {
-        if (string.IsNullOrWhiteSpace(fileName)) return;
-
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments ?? string.Empty,
-                UseShellExecute = true,
-                CreateNoWindow = hideWindow,
-                WindowStyle = hideWindow ? ProcessWindowStyle.Hidden : ProcessWindowStyle.Normal
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Failed to start process '{FileName}' with args '{Arguments}'", fileName, arguments);
-        }
+        var exe = _workspaceSettings.TerminalExecutable ?? "wt";
+        var args = TerminalArgumentFormatter.BuildArguments(exe, folderPath);
+        _processLauncher.StartProcess(exe, args);
     }
 
     [RelayCommand]
     private async Task RefreshAsync()
     {
-        _workspaces.Clear();
-        _platforms.Clear();
-        await OnInitializeAsync();
+        await _workspaceService.RefreshAsync(_workspaceSettings);
     }
 
     [RelayCommand]
@@ -303,62 +157,11 @@ public partial class WorkspacesViewModel : PageViewModelBase
             await _settingsService.SaveSettingsAsync(settings);
 
             _workspaceSettings = edited;
-            _workspaces.Clear();
-            _platforms.Clear();
-            await OnInitializeAsync();
+            await _workspaceService.RefreshAsync(_workspaceSettings);
         }
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Error opening workspace settings");
-        }
-    }
-
-    private async Task LoadCacheAsync()
-    {
-        try
-        {
-            if (File.Exists(_cacheFilePath))
-            {
-                var json = await File.ReadAllTextAsync(_cacheFilePath);
-                var cache = System.Text.Json.JsonSerializer.Deserialize<WorkspaceCache>(json, new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (cache != null)
-                {
-                    _workspaces = new ObservableCollection<WorkspaceItem>(cache.Workspaces ?? new List<WorkspaceItem>());
-                    _platforms = new ObservableCollection<WorkspaceItem>(cache.Platforms ?? new List<WorkspaceItem>());
-                    ApplyFilter();
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Error loading workspace cache");
-        }
-    }
-
-    private async Task SaveCacheAsync()
-    {
-        try
-        {
-            var cache = new WorkspaceCache
-            {
-                Workspaces = _workspaces.ToList(),
-                Platforms = _platforms.ToList()
-            };
-
-            var json = System.Text.Json.JsonSerializer.Serialize(cache, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-
-            await File.WriteAllTextAsync(_cacheFilePath, json);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Error saving workspace cache");
         }
     }
 }

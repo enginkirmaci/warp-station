@@ -21,6 +21,11 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<ISnapItService, SnapItService>();
         services.AddSingleton<INugetLocalService, NugetLocalService>();
 
+        // Workspaces subsystem: scanner, cache store, and the singleton orchestrator
+        services.AddSingleton<IWorkspaceScanner, WorkspaceScanner>();
+        services.AddSingleton<IWorkspaceCacheStore, WorkspaceCacheStore>();
+        services.AddSingleton<IWorkspaceService, WorkspaceService>();
+
         services.AddSingleton<IFocusTimerScheduler, FocusTimerScheduler>();
         services.AddSingleton<IFocusTimerStateManager, FocusTimerStateManager>();
         services.AddSingleton<ITimerProvider, DispatcherTimerProvider>();
