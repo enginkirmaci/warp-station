@@ -241,4 +241,10 @@ public class GeneralSettings
     /// main window minimized to the taskbar.
     /// </summary>
     public bool StartMinimized { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the app should launch automatically
+    /// when the user signs in (synced to the Windows registry Run key on startup).
+    /// </summary>
+    public bool StartAtBoot { get; set; }
 }

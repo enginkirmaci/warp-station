@@ -89,10 +89,10 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             // Start minimized to the taskbar if configured
             _ = ApplyStartMinimizedAsync(_mainWindow);
+            // Reconcile the launch-at-sign-in registration (Windows only)
+            _ = InitializeStartAtBootAsync();
             // Auto-start SnapIt if configured
             _ = InitializeSnapItAsync();
-            // Resume NuGet local watch if a watch folder is configured
-            _ = InitializeNugetWatchAsync();
         }
         base.OnFrameworkInitializationCompleted();
     }
@@ -139,18 +139,20 @@ public partial class App : Application
         }
     }
 
-    private static async Task InitializeNugetWatchAsync()
+    private static async Task InitializeStartAtBootAsync()
     {
         try
         {
-            // The service already loads its settings on construction; just resume
-            // watching if a valid watch folder was previously configured.
-            var nugetService = Services.GetRequiredService<INugetLocalService>();
-            await nugetService.StartAsync();
+            var settingsService = Services.GetRequiredService<ISettingsService>();
+            var appSettings = await settingsService.GetSettingsAsync();
+            var startAtBoot = appSettings.General?.StartAtBoot == true;
+#if WINDOWS
+            Helpers.AutoStartHelper.Sync(startAtBoot);
+#endif
         }
         catch (Exception ex)
         {
-            Log.Logger.Error(ex, "Failed to resume NuGet local watch");
+            Log.Logger.Error(ex, "Failed to sync start-at-boot registration");
         }
     }
 }
