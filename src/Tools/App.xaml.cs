@@ -26,10 +26,10 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
-        // Configure Serilog
+        // Configure Serilog using the shared bootstrap configuration
+        var logFilePath = Path.Combine(AppContext.BaseDirectory, "logs", "log.txt");
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Error()
-            .WriteTo.File("logs\\log.txt", rollingInterval: RollingInterval.Day)
+            .WriteToFileDaily(logFilePath)
             .CreateLogger();
         // Configure icon asset loader to resolve SVG icons from this assembly
         IconAssetLoader.Configure(typeof(App).Assembly.GetName().Name ?? "Tools");

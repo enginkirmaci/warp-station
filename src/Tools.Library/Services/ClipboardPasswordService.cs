@@ -1,7 +1,8 @@
 using System.Runtime.InteropServices;
+using Serilog;
 using Tools.Library.Services.Abstractions;
 
-namespace Tools.Services;
+namespace Tools.Library.Services;
 
 public class ClipboardPasswordService : IClipboardPasswordService
 {
@@ -67,7 +68,7 @@ public class ClipboardPasswordService : IClipboardPasswordService
 
         if (!_isRegistered)
         {
-            Debug.WriteLine("Failed to register global hotkey Ctrl+Shift+V");
+            Log.Logger.Warning("Failed to register global hotkey Ctrl+Shift+V");
         }
 #endif
     }

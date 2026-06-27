@@ -2,6 +2,7 @@
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Serilog;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 
@@ -118,7 +119,7 @@ public partial class NugetLocalViewModel : PageViewModelBase
             var topLevel = TopLevel.GetTopLevel(App.MainWindow);
             if (topLevel == null)
             {
-                Debug.WriteLine("Could not get top-level window.");
+                Log.Logger.Warning("Could not get top-level window.");
                 return;
             }
 
@@ -140,7 +141,7 @@ public partial class NugetLocalViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Avalonia FolderPicker failed: {ex.Message}");
+            Log.Logger.Error(ex, "Avalonia FolderPicker failed");
         }
     }
 

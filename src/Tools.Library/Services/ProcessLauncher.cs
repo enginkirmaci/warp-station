@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Serilog;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
@@ -25,7 +26,7 @@ public class ProcessLauncher : IProcessLauncher
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[ProcessLauncher] Failed to start process '{fileName}': {ex.Message}");
+            Log.Logger.Error(ex, "Failed to start process '{FileName}'", fileName);
         }
     }
 

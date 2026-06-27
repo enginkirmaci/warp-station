@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Avalonia.Platform;
+using Serilog;
 
 namespace Tools.Library.Services;
 
@@ -116,11 +117,11 @@ public static class IconAssetLoader
                 return match.Groups[1].Value;
             }
 
-            Debug.WriteLine($"[IconAssetLoader] No 'd' attribute found in '{name}.svg'.");
+            Log.Logger.Warning("No 'd' attribute found in '{Name}.svg'", name);
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[IconAssetLoader] Failed to load '{name}.svg': {ex.Message}");
+            Log.Logger.Error(ex, "Failed to load '{Name}.svg'", name);
         }
 
         return string.Empty;

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Mvvm;
@@ -129,7 +130,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error scanning workspaces: {ex.Message}");
+            Log.Logger.Error(ex, "Error scanning workspaces");
         }
         finally
         {
@@ -194,11 +195,11 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (UnauthorizedAccessException)
         {
-            Debug.WriteLine($"Access denied to folder: {rootPath}");
+            Log.Logger.Warning("Access denied to folder: {Path}", rootPath);
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error accessing folder {rootPath}: {ex.Message}");
+            Log.Logger.Error(ex, "Error accessing folder {Path}", rootPath);
         }
 
         return foundDirectories;
@@ -225,7 +226,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[OpenWithVSCode] Pipe launch failed, falling back to direct launch: {ex.Message}");
+            Log.Logger.Warning(ex, "OpenWithVSCode: pipe launch failed, falling back to direct launch");
             SafeStartProcess(exe, folderPath,true);
         }
     }
@@ -267,7 +268,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Failed to start process '{fileName}' with args '{arguments}': {ex.Message}");
+            Log.Logger.Error(ex, "Failed to start process '{FileName}' with args '{Arguments}'", fileName, arguments);
         }
     }
 
@@ -300,7 +301,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error opening workspace settings: {ex.Message}");
+            Log.Logger.Error(ex, "Error opening workspace settings");
         }
     }
 
@@ -326,7 +327,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error loading workspace cache: {ex.Message}");
+            Log.Logger.Error(ex, "Error loading workspace cache");
         }
     }
 
@@ -349,7 +350,7 @@ public partial class WorkspacesViewModel : PageViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error saving workspace cache: {ex.Message}");
+            Log.Logger.Error(ex, "Error saving workspace cache");
         }
     }
 }

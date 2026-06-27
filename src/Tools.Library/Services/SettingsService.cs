@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 
@@ -16,7 +17,7 @@ public class SettingsService : ISettingsService
 
     public SettingsService()
     {
-        // For unpackaged WinUI 3 app, BaseDirectory is reliable
+        // BaseDirectory (where the executable lives) is reliable across hosts
         string baseDirectory = AppContext.BaseDirectory;
         _settingsFilePath = Path.Combine(baseDirectory, "settings", SettingsFileName);
     }
@@ -46,7 +47,7 @@ public class SettingsService : ISettingsService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error loading settings: {ex.Message}");
+            Log.Logger.Error(ex, "Error loading settings");
             settings = new AppSettings();
         }
 
@@ -55,7 +56,7 @@ public class SettingsService : ISettingsService
         settings.NugetLocal ??= new NugetLocalSettings();
         settings.Workspaces ??= new WorkspacesSettings();
         settings.ClipboardPassword ??= new ClipboardPasswordSettings();
-        settings.SnapIt ??= new SnapitSettings();
+        settings.SnapIt ??= new SnapItSettings();
         settings.General ??= new GeneralSettings();
 
         lock (_lock)
@@ -93,7 +94,7 @@ public class SettingsService : ISettingsService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error saving settings: {ex.Message}");
+            Log.Logger.Error(ex, "Error saving settings");
             throw;
         }
     }

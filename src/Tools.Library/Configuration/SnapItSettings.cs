@@ -1,6 +1,6 @@
 namespace Tools.Library.Configuration;
 
-public class SnapitSettings
+public class SnapItSettings
 {
     public bool AutoStart { get; set; }
 }

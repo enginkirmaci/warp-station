@@ -1,3 +1,4 @@
+using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
@@ -107,14 +108,14 @@ public class FocusTimerService : IFocusTimerService
 
         // Request window visibility based on settings
         var visibilityMode = (TimerVisibilityMode)_settings.TimerVisibilityMode;
-        Debug.WriteLine($"[FocusTimerService] StartAsync: Requesting window visibility. Mode={visibilityMode}, ShouldShow={visibilityMode == TimerVisibilityMode.Always}");
+        Log.Logger.Debug("StartAsync: Requesting window visibility. Mode={VisibilityMode}, ShouldShow={ShouldShow}", visibilityMode, visibilityMode == TimerVisibilityMode.Always);
         RequestVisibility(visibilityMode == TimerVisibilityMode.Always);
 
-        Debug.WriteLine($"[FocusTimerService] StartAsync: Starting timer. NextBreakTime={_state.NextBreakTime:HH:mm}, TimeUntilNextBreak={_state.TimeUntilNextBreak?.TotalMinutes:F1}min");
+        Log.Logger.Debug("StartAsync: Starting timer. NextBreakTime={NextBreakTime:HH:mm}, TimeUntilNextBreak={TimeUntilNextBreak:F1}min", _state.NextBreakTime, _state.TimeUntilNextBreak?.TotalMinutes);
         _timerProvider.Start(TimeSpan.FromMilliseconds(TimerIntervalMs));
 
         // Fire initial state change to update UI with calculated schedule
-        Debug.WriteLine($"[FocusTimerService] StartAsync: Firing initial StateChanged event. Status={_state.Status}");
+        Log.Logger.Debug("StartAsync: Firing initial StateChanged event. Status={Status}", _state.Status);
         StateChanged?.Invoke(this, new FocusTimerStateChangedEventArgs(_state, FocusTimerStatus.Stopped));
 
         await _stateManager.PersistStateAsync(_state);

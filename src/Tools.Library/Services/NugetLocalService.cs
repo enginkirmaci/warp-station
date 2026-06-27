@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 
@@ -367,7 +368,7 @@ public class NugetLocalService : INugetLocalService, IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error getting global packages folder: {ex.Message}");
+            Log.Logger.Error(ex, "Error getting global packages folder");
         }
 
         return string.Empty;

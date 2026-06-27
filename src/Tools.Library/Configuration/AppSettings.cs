@@ -33,7 +33,7 @@ public class AppSettings
     /// <summary>
     /// Gets or sets the SnapIt settings.
     /// </summary>
-    public SnapitSettings? SnapIt { get; set; }
+    public SnapItSettings? SnapIt { get; set; }
 
     /// <summary>
     /// Gets or sets the general application settings.

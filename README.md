@@ -1,12 +1,12 @@
 # Dev Tools
 
-Compact WinUI 3 developer utilities collection.
+Compact Avalonia developer utilities collection.
 
 ## Quick start
  
 Build:
 ```sh
-dotnet build Tools.sln
+dotnet build Tools.slnx
 ```
 
 Run (from IDE or CLI):

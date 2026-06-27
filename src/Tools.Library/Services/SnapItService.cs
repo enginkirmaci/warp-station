@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Serilog;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
@@ -44,7 +45,7 @@ public class SnapItService : ISnapItService, IDisposable
         {
             if (!File.Exists(_snapItExePath))
             {
-                Debug.WriteLine($"[SnapItService] SnapIt executable not found: {_snapItExePath}");
+                Log.Logger.Warning("SnapIt executable not found: {Path}", _snapItExePath);
                 return Task.CompletedTask;
             }
 
@@ -58,7 +59,7 @@ public class SnapItService : ISnapItService, IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[SnapItService] Failed to start SnapIt: {ex.Message}");
+            Log.Logger.Error(ex, "Failed to start SnapIt");
         }
 
         return Task.CompletedTask;
@@ -77,7 +78,7 @@ public class SnapItService : ISnapItService, IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[SnapItService] Failed to stop SnapIt: {ex.Message}");
+            Log.Logger.Error(ex, "Failed to stop SnapIt");
         }
 
         IsRunning = false;

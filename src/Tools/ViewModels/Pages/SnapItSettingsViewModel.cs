@@ -82,7 +82,7 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
     private async Task SaveAutoStartAsync(bool autoStart)
     {
         var appSettings = await _settingsService.GetSettingsAsync();
-        appSettings.SnapIt ??= new SnapitSettings();
+        appSettings.SnapIt ??= new SnapItSettings();
         appSettings.SnapIt.AutoStart = autoStart;
         await _settingsService.SaveSettingsAsync(appSettings);
     }

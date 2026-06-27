@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Serilog;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
@@ -52,7 +53,7 @@ public class DevToolsClient : IDevToolsClient, IDisposable
             }
             
             ConnectionStatusChanged?.Invoke(this, "Connected");
-            Debug.WriteLine($"[DevToolsClient] Connected to pipe '{PipeName}'");
+            Log.Logger.Information("Connected to pipe '{PipeName}'", PipeName);
         }
         catch (TimeoutException)
         {
@@ -61,7 +62,7 @@ public class DevToolsClient : IDevToolsClient, IDisposable
                 _isConnected = false;
             }
             ConnectionStatusChanged?.Invoke(this, "Connection timeout");
-            Debug.WriteLine($"[DevToolsClient] Connection timeout to pipe '{PipeName}'");
+            Log.Logger.Warning("Connection timeout to pipe '{PipeName}'", PipeName);
             throw;
         }
         catch (Exception ex)
@@ -71,7 +72,7 @@ public class DevToolsClient : IDevToolsClient, IDisposable
                 _isConnected = false;
             }
             ConnectionStatusChanged?.Invoke(this, $"Connection failed: {ex.Message}");
-            Debug.WriteLine($"[DevToolsClient] Connection failed: {ex.Message}");
+            Log.Logger.Error(ex, "Connection failed");
             throw;
         }
     }
@@ -102,7 +103,7 @@ public class DevToolsClient : IDevToolsClient, IDisposable
             {
                 if (_pipeClient?.IsConnected != true)
                 {
-                    Debug.WriteLine("[DevToolsClient] Pipe not connected, cannot send message");
+                    Log.Logger.Warning("Pipe not connected, cannot send message");
                     return;
                 }
 
@@ -110,11 +111,11 @@ public class DevToolsClient : IDevToolsClient, IDisposable
                 _pipeClient.Flush();
             }
             
-            Debug.WriteLine($"[DevToolsClient] Sent: {message}");
+            Log.Logger.Debug("Sent: {Message}", message);
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[DevToolsClient] Failed to send message: {ex.Message}");
+            Log.Logger.Error(ex, "Failed to send message");
             lock (_lock)
             {
                 _isConnected = false;
@@ -151,13 +152,13 @@ public class DevToolsClient : IDevToolsClient, IDisposable
 
     public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null)
     {
-        Debug.WriteLine("[DevToolsClient] Process launch not supported on this platform");
+        Log.Logger.Warning("Process launch not supported on this platform");
         return Task.CompletedTask;
     }
 
     public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null, bool hidden = false)
     {
-        Debug.WriteLine("[DevToolsClient] Process launch not supported on this platform");
+        Log.Logger.Warning("Process launch not supported on this platform");
         return Task.CompletedTask;
     }
 
