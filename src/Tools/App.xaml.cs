@@ -89,8 +89,6 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             // Start minimized to the taskbar if configured
             _ = ApplyStartMinimizedAsync(_mainWindow);
-            // Reconcile the launch-at-sign-in registration (Windows only)
-            _ = InitializeStartAtBootAsync();
             // Auto-start SnapIt if configured
             _ = InitializeSnapItAsync();
         }
@@ -136,23 +134,6 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Failed to apply start minimized");
-        }
-    }
-
-    private static async Task InitializeStartAtBootAsync()
-    {
-        try
-        {
-            var settingsService = Services.GetRequiredService<ISettingsService>();
-            var appSettings = await settingsService.GetSettingsAsync();
-            var startAtBoot = appSettings.General?.StartAtBoot == true;
-#if WINDOWS
-            Helpers.AutoStartHelper.Sync(startAtBoot);
-#endif
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Failed to sync start-at-boot registration");
         }
     }
 }

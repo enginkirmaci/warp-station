@@ -211,12 +211,23 @@ public partial class WorkspacesViewModel : PageViewModelBase
     private void OpenFolder(string? folderPath) => SafeStartProcess(folderPath);
 
     [RelayCommand]
-    private void OpenWithVSCode(string? folderPath)
+    private async Task OpenWithVSCodeAsync(string? folderPath)
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        // VS Code should always launch non-elevated, even when DevTools runs as admin.
-        SafeStartProcess(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath, runWithOutAdmin: true);
+        var exe = _workspaceSettings?.VSCodeExecutable ?? "code";
+
+        // Route through the DevTools service (named pipe). The service runs
+        // non-elevated, so VS Code launches non-elevated even when Tools runs as admin.
+        try
+        {
+            await devToolsClient.SendProcessLaunchRequestAsync(exe, folderPath);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[OpenWithVSCode] Pipe launch failed, falling back to direct launch: {ex.Message}");
+            SafeStartProcess(exe, folderPath,true);
+        }
     }
 
     [RelayCommand]
@@ -239,21 +250,9 @@ public partial class WorkspacesViewModel : PageViewModelBase
         SafeStartProcess(exe, args);
     }
 
-    private void SafeStartProcess(string? fileName, string? arguments = null, bool hideWindow = false, bool runWithOutAdmin = false)
+    private void SafeStartProcess(string? fileName, string? arguments = null, bool hideWindow = false)
     {
         if (string.IsNullOrWhiteSpace(fileName)) return;
-
-        // When requested, launch as the non-elevated desktop user (used for VS Code,
-        // which should not run elevated even when DevTools does).
-        if (runWithOutAdmin)
-        {
-#if WINDOWS
-            Tools.Helpers.ProcessHelper.StartAsDesktopUser(fileName, arguments);
-            return;
-#else
-            // Non-Windows hosts don't carry elevation; a normal launch is non-elevated.
-#endif
-        }
 
         try
         {

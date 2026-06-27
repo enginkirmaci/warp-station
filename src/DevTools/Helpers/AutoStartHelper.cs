@@ -1,14 +1,15 @@
 #if WINDOWS
 using Microsoft.Win32;
 
-namespace Tools.Helpers;
+namespace DevTools.Helpers;
 
 /// <summary>
-/// Manages launching the app automatically when the user signs in.
+/// Manages launching <c>DevTools.exe</c> automatically when the user signs in.
 ///
 /// Because this is an unpackaged (non-MSIX) app, OS startup is configured via the
 /// per-user registry Run key. <c>settings.json</c> stays the single source of truth:
-/// the app reconciles the registry to match the configured flag on every launch.
+/// the supervisor reconciles the registry to match the configured flag on every launch.
+/// DevTools.exe in turn launches <c>Tools.exe</c>, so both start together at sign-in.
 /// </summary>
 public static class AutoStartHelper
 {

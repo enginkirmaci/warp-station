@@ -13,6 +13,11 @@
 		<ApplicationIcon>logo.ico</ApplicationIcon>
 	</PropertyGroup>
 
+	<!-- Define WINDOWS constant when building on Windows OS -->
+	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+		<DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+	</PropertyGroup>
+
 	<ItemGroup>
 	  <Content Include="logo.ico" />
 	</ItemGroup>

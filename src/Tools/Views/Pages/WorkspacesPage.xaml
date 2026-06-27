@@ -142,7 +142,7 @@
                                                                                                                 <MenuItem
                                                                                                                         Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
                                                                                                                         CommandParameter="{Binding FolderPath}"
-                                                                                                                        Header="Open with VS Code:">
+                                                                                                                        Header="Open with VS Code">
                                                                                                                         <MenuItem.Icon>
                                                                                                                                 <Path
                                                                                                                                         Width="16"
@@ -266,7 +266,7 @@
                                                                                                                 <MenuItem
                                                                                                                         Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
                                                                                                                         CommandParameter="{Binding FolderPath}"
-                                                                                                                        Header="Open with VS Code:">
+                                                                                                                        Header="Open with VS Code">
                                                                                                                         <MenuItem.Icon>
                                                                                                                                 <Path
                                                                                                                                         Width="16"
