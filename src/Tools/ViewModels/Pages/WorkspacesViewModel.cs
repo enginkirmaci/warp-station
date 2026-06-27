@@ -215,7 +215,8 @@ public partial class WorkspacesViewModel : PageViewModelBase
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        SafeStartProcess(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath);
+        // VS Code should always launch non-elevated, even when DevTools runs as admin.
+        SafeStartProcess(_workspaceSettings?.VSCodeExecutable ?? "code", folderPath, runWithOutAdmin: true);
     }
 
     [RelayCommand]
@@ -241,6 +242,18 @@ public partial class WorkspacesViewModel : PageViewModelBase
     private void SafeStartProcess(string? fileName, string? arguments = null, bool hideWindow = false, bool runWithOutAdmin = false)
     {
         if (string.IsNullOrWhiteSpace(fileName)) return;
+
+        // When requested, launch as the non-elevated desktop user (used for VS Code,
+        // which should not run elevated even when DevTools does).
+        if (runWithOutAdmin)
+        {
+#if WINDOWS
+            Tools.Helpers.ProcessHelper.StartAsDesktopUser(fileName, arguments);
+            return;
+#else
+            // Non-Windows hosts don't carry elevation; a normal launch is non-elevated.
+#endif
+        }
 
         try
         {
