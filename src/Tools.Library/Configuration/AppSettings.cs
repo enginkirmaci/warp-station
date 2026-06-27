@@ -34,6 +34,11 @@ public class AppSettings
     /// Gets or sets the SnapIt settings.
     /// </summary>
     public SnapitSettings? SnapIt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the general application settings.
+    /// </summary>
+    public GeneralSettings? General { get; set; }
 }
 
 /// <summary>
@@ -224,4 +229,16 @@ public class FocusTimerPersistedState
     /// Gets or sets the total break time taken today in minutes.
     /// </summary>
     public double BreakTimeTakenMinutes { get; set; }
+}
+
+/// <summary>
+/// Application-wide general settings.
+/// </summary>
+public class GeneralSettings
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether the app should start with the
+    /// main window minimized to the taskbar.
+    /// </summary>
+    public bool StartMinimized { get; set; }
 }

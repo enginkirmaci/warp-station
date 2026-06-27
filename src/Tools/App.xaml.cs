@@ -87,6 +87,8 @@ public partial class App : Application
             _mainWindow = Services.GetRequiredService<MainWindow>();
             desktop.MainWindow = _mainWindow;
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            // Start minimized to the taskbar if configured
+            _ = ApplyStartMinimizedAsync(_mainWindow);
             // Auto-start SnapIt if configured
             _ = InitializeSnapItAsync();
             // Resume NuGet local watch if a watch folder is configured
@@ -117,6 +119,23 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Failed to auto-start SnapIt");
+        }
+    }
+
+    private static async Task ApplyStartMinimizedAsync(Window mainWindow)
+    {
+        try
+        {
+            var settingsService = Services.GetRequiredService<ISettingsService>();
+            var appSettings = await settingsService.GetSettingsAsync();
+            if (appSettings.General?.StartMinimized == true)
+            {
+                mainWindow.WindowState = WindowState.Minimized;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to apply start minimized");
         }
     }
 
