@@ -205,10 +205,5 @@ public partial class MainWindow : Window
 
     #region Public Methods
 
-    public void ShowInfoBar(string title, string message, Avalonia.Controls.Notifications.NotificationType severity)
-    {
-        // InfoBar not available in this Avalonia version - placeholder
-    }
-
     #endregion
 }

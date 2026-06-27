@@ -67,7 +67,6 @@ public partial class App : Application
         RegisterPageWithViewModel<EFToolsPage, EFToolsPageViewModel>(services);
         RegisterPageWithViewModel<CodeExecutePage, CodeExecutePageViewModel>(services);
         RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordPageViewModel>(services);
-        RegisterPageWithViewModel<HostFileProxyPage, HostFileProxyViewModel>(services);
         RegisterPageWithViewModel<FocusTimerSettingsPage, FocusTimerSettingsViewModel>(services);
         RegisterPageWithViewModel<SnapItSettingsPage, SnapItSettingsViewModel>(services);
     }
