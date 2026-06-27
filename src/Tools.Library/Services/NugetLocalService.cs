@@ -1,3 +1,7 @@
+using System.Collections;
+using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Serilog;
 using Tools.Library.Configuration;
@@ -10,6 +14,13 @@ namespace Tools.Library.Services;
 /// copies them to a local cache folder, and clears the matching NuGet global
 /// package cache so consumer projects always fetch fresh DLLs.
 /// </summary>
+/// <remarks>
+/// Thread safety: <see cref="FileSystemWatcher.Created"/> fires on threadpool threads,
+/// so all mutations of shared state (the activity log, counters, flags) are serialized
+/// through <see cref="_stateLock"/>. The activity log is a thread-safe snapshot source so
+/// the UI thread can enumerate it safely. In-flight file-processing tasks are tracked so
+/// shutdown can drain them, and a <see cref="CancellationToken"/> stops them promptly.
+/// </remarks>
 public class NugetLocalService : INugetLocalService, IDisposable
 {
     private readonly ISettingsService _settingsService;
@@ -20,6 +31,18 @@ public class NugetLocalService : INugetLocalService, IDisposable
     private bool _disposed;
     private readonly Task _initializationTask;
 
+    /// <summary>
+    /// Serializes access to all mutable shared state below. The FileSystemWatcher
+    /// callback runs on a threadpool thread while the UI reads these from the UI thread.
+    /// </summary>
+    private readonly object _stateLock = new();
+
+    /// <summary>Tracks in-flight file-processing tasks so shutdown can drain them.</summary>
+    private readonly List<Task> _pendingTasks = new();
+
+    /// <summary>Cancels in-flight file-processing tasks on stop/dispose.</summary>
+    private CancellationTokenSource _cts = new();
+
     // Bound/copyable snapshots so views can read them without referencing the service.
     public string WatchFolder { get; private set; } = string.Empty;
     public string ComputedCopyFolder { get; private set; } = string.Empty;
@@ -27,8 +50,19 @@ public class NugetLocalService : INugetLocalService, IDisposable
     public bool IsWatching { get; private set; }
     public int Count { get; private set; }
 
+    // Backing collection is only ever mutated under _stateLock; a snapshot is handed out
+    // for safe cross-thread enumeration.
     private readonly ObservableCollection<string> _activityLog = new();
-    public IReadOnlyList<string> ActivityLog => _activityLog;
+    public IReadOnlyList<string> ActivityLog
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _activityLog.ToList();
+            }
+        }
+    }
 
     public event EventHandler? StateChanged;
 
@@ -122,19 +156,34 @@ public class NugetLocalService : INugetLocalService, IDisposable
 
     public void Stop()
     {
-        if (_watcher == null)
+        CancellationTokenSource cts;
+        List<Task> pending;
+
+        lock (_stateLock)
         {
-            IsWatching = false;
-            RaiseStateChanged();
-            return;
+            if (_watcher == null)
+            {
+                IsWatching = false;
+                pending = new List<Task>();
+            }
+            else
+            {
+                _watcher.EnableRaisingEvents = false;
+                _watcher.Created -= FileCreated;
+                _watcher.Dispose();
+                _watcher = null;
+
+                IsWatching = false;
+                pending = _pendingTasks.ToList();
+            }
+            cts = _cts;
         }
 
-        _watcher.EnableRaisingEvents = false;
-        _watcher.Created -= FileCreated;
-        _watcher.Dispose();
-        _watcher = null;
+        // Cancel in-flight work so it bails out at its next await, then drain the
+        // (now-cancelling) tasks so we don't leave background work mutating state.
+        cts.Cancel();
+        DrainPending(pending);
 
-        IsWatching = false;
         AddLog("⏹ Stopped watching.");
         RaiseStateChanged();
     }
@@ -210,25 +259,45 @@ public class NugetLocalService : INugetLocalService, IDisposable
 
     private void FileCreated(object sender, FileSystemEventArgs e)
     {
-        // FileSystemWatcher fires on a background thread; do the file/cache work
-        // off the UI thread and marshal only the state notifications back.
-        _ = ProcessCreatedFileAsync(e.FullPath);
+        // FileSystemWatcher fires on a background thread; track the task so shutdown can
+        // drain it, and observe the cancellation token so Stop/Dispose cancels it.
+        Task task;
+        lock (_stateLock)
+        {
+            task = ProcessCreatedFileAsync(e.FullPath, _cts.Token);
+            _pendingTasks.Add(task);
+        }
+
+        // Remove from the pending list once complete (regardless of outcome).
+        _ = task.ContinueWith(t =>
+        {
+            lock (_stateLock)
+            {
+                _pendingTasks.Remove(t);
+            }
+        }, TaskScheduler.Default);
     }
 
-    private async Task ProcessCreatedFileAsync(string packagePath)
+    private async Task ProcessCreatedFileAsync(string packagePath, CancellationToken cancellationToken)
     {
         try
         {
             await ClearPackageCacheAsync(packagePath);
 
-            if (DateTime.Now < _lastChanges.AddSeconds(_nugetSettings.CountResetIntervalSeconds))
+            // Advance the activity window on every package so the counter reflects a
+            // sliding window of recent activity, not a fixed window from the last reset.
+            lock (_stateLock)
             {
-                Count++;
-            }
-            else
-            {
-                Count = 1;
-                _lastChanges = DateTime.Now;
+                if (DateTime.Now < _lastChanges.AddSeconds(_nugetSettings.CountResetIntervalSeconds))
+                {
+                    Count++;
+                    _lastChanges = DateTime.Now;
+                }
+                else
+                {
+                    Count = 1;
+                    _lastChanges = DateTime.Now;
+                }
             }
 
             var targetDir = ComputedCopyFolder;
@@ -245,12 +314,17 @@ public class NugetLocalService : INugetLocalService, IDisposable
             var copied = false;
             while (attempts < 3 && !copied)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    await Task.Delay(_nugetSettings.FileCopyDelayMs);
+                    await Task.Delay(_nugetSettings.FileCopyDelayMs, cancellationToken);
                     File.Copy(packagePath, destPath, true);
                     AddLog($"✓ Copied to {destPath}");
                     copied = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception exCopy)
                 {
@@ -261,10 +335,14 @@ public class NugetLocalService : INugetLocalService, IDisposable
                     }
                     else
                     {
-                        await Task.Delay(500);
+                        await Task.Delay(500, cancellationToken);
                     }
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown in progress — expected, no log.
         }
         catch (Exception ex)
         {
@@ -376,27 +454,60 @@ public class NugetLocalService : INugetLocalService, IDisposable
 
     private void AddLog(string line)
     {
-        // Cap log size to keep the UI list bounded.
-        if (_activityLog.Count >= 200)
+        lock (_stateLock)
         {
-            _activityLog.RemoveAt(_activityLog.Count - 1);
+            // Cap log size to keep the UI list bounded.
+            if (_activityLog.Count >= 200)
+            {
+                _activityLog.RemoveAt(_activityLog.Count - 1);
+            }
+            _activityLog.Insert(0, line);
         }
-        _activityLog.Insert(0, line);
     }
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// Waits for a snapshot of pending file-processing tasks to complete. Bounded because
+    /// the caller (<see cref="Stop"/>) cancels the token those tasks observe, so they
+    /// exit at their next await rather than running to full completion.
+    /// </summary>
+    private static void DrainPending(List<Task> pending)
+    {
+        if (pending.Count == 0) return;
+        try
+        {
+            Task.WaitAll(pending.ToArray(), TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Timed out or failed draining NuGet watcher tasks on stop");
+        }
+    }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
-        if (_watcher != null)
+        CancellationTokenSource cts;
+        List<Task> pending;
+
+        lock (_stateLock)
         {
-            _watcher.EnableRaisingEvents = false;
-            _watcher.Created -= FileCreated;
-            _watcher.Dispose();
-            _watcher = null;
+            if (_watcher != null)
+            {
+                _watcher.EnableRaisingEvents = false;
+                _watcher.Created -= FileCreated;
+                _watcher.Dispose();
+                _watcher = null;
+            }
+            pending = _pendingTasks.ToList();
+            cts = _cts;
         }
+
+        cts.Cancel();
+        DrainPending(pending);
+        cts.Dispose();
     }
 }
