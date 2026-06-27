@@ -54,6 +54,15 @@ public partial class WorkspacesViewModel : PageViewModelBase
     public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
+    public override Task OnNavigatedFromAsync()
+    {
+        // Detach from the singleton so this Transient VM (rebuilt per navigation) is not
+        // kept alive by the service and does not receive further state changes.
+        _workspaceService.Changed -= OnWorkspaceChanged;
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
     public override async Task OnInitializeAsync()
     {
         var settings = await _settingsService.GetSettingsAsync();

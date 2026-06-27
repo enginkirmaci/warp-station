@@ -64,6 +64,15 @@ public partial class NugetLocalViewModel : PageViewModelBase
     public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
+    public override Task OnNavigatedFromAsync()
+    {
+        // Detach from the singleton so this Transient VM (rebuilt per navigation) is not
+        // kept alive by the service and does not receive further state changes.
+        _nugetService.StateChanged -= OnServiceStateChanged;
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
     public override async Task OnInitializeAsync()
     {
         // Seed local properties from the service snapshot.

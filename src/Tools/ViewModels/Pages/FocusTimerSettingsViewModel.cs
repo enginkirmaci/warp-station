@@ -168,6 +168,17 @@ public partial class FocusTimerSettingsViewModel : PageViewModelBase
 
     public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
+    /// <inheritdoc/>
+    public override Task OnNavigatedFromAsync()
+    {
+        // Detach from the singleton so this Transient VM (rebuilt per navigation) is not
+        // kept alive by the service and does not receive further state changes. Also
+        // cancel any pending debounced autosave.
+        _focusTimerService.StateChanged -= OnServiceStateChanged;
+        _autosaveCts?.Cancel();
+        return Task.CompletedTask;
+    }
+
     public override async Task OnInitializeAsync()
     {
         _isInitializing = true;
