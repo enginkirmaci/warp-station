@@ -6,7 +6,6 @@ using Avalonia.Markup.Xaml;
 using Tools.Helpers;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Windows;
-using Tools.Library.Converters;
 
 namespace Tools.Views.Windows;
 
@@ -95,7 +94,7 @@ public partial class MainWindow : Window
     private void NavigateToPage(string pageKey, int selectedIndex)
     {
         _isNavigatingFromCode = true;
-        var pageType = NameToPageTypeConverter.Convert(pageKey);
+        var pageType = PageNavigationMapper.Convert(pageKey);
         if (pageType != null)
         {
             _navigationService.Navigate(pageType);
@@ -142,7 +141,7 @@ public partial class MainWindow : Window
                 _isNavigatingFromCode = false;
                 return;
             }
-            var pageType = NameToPageTypeConverter.Convert(item.PageKey);
+            var pageType = PageNavigationMapper.Convert(item.PageKey);
             if (pageType != null)
             {
                 _navigationService.Navigate(pageType);

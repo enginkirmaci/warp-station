@@ -36,8 +36,10 @@ public partial class WorkspacesViewModel : PageViewModelBase
         this.devToolsClient = devToolsClient;
         // Mirror the settings.json location: <baseDirectory>/settings/workspaces.cache.json
         _cacheFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "workspaces.cache.json");
-        _ = OnInitializeAsync();
     }
+
+    /// <inheritdoc/>
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
     public override async Task OnInitializeAsync()

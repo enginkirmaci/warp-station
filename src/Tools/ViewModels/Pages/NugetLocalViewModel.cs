@@ -58,8 +58,10 @@ public partial class NugetLocalViewModel : PageViewModelBase
         RegisterSourceCommand = new AsyncRelayCommand(OnRegisterSourceAsync);
 
         _nugetService.StateChanged += OnServiceStateChanged;
-        _ = OnInitializeAsync();
     }
+
+    /// <inheritdoc/>
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
     public override async Task OnInitializeAsync()

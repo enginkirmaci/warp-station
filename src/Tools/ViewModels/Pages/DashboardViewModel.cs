@@ -1,5 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.Input;
-using Tools.Library.Converters;
+using Tools.Helpers;
 using Tools.Library.Entities;
 using Tools.Library.Mvvm;
 using Tools.Library.Providers;
@@ -28,7 +28,7 @@ public partial class DashboardViewModel : PageViewModelBase
         {
             return;
         }
-        Type? pageType = NameToPageTypeConverter.Convert(parameter);
+        Type? pageType = PageNavigationMapper.Convert(parameter);
         if (pageType == null)
         {
             return;

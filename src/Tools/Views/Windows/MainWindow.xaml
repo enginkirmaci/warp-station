@@ -207,8 +207,7 @@
 				<ContentControl
 					x:Name="ContentArea"
 					Grid.Row="0"
-					Padding="0"
-					Content="{Binding CurrentView}" />
+					Padding="0" />
 
 				<!--  Info Bar  -->
 				<!--  InfoBar removed during migration  -->

@@ -3,8 +3,10 @@ using Tools.Views.Pages;
 namespace Tools.Helpers;
 
 /// <summary>
-/// Maps between page types and navigation tags.
-/// Implements Open/Closed Principle - extensible through modification of mappings.
+/// Single source of truth for registered application pages and the mapping between
+/// page keys (strings) and page <see cref="Type"/>s. Consolidates the former
+/// <c>NameToPageTypeConverter</c> reflection scan into one explicit registry so the
+/// two mechanisms cannot drift out of sync.
 /// </summary>
 public static class PageNavigationMapper
 {
@@ -47,6 +49,27 @@ public static class PageNavigationMapper
         if (string.IsNullOrEmpty(tag))
             return null;
         return Array.Find(_registeredPageTypes, t => t.Name == tag);
+    }
+
+    /// <summary>
+    /// Converts a page name to its <see cref="Type"/>.
+    /// </summary>
+    /// <param name="pageName">
+    /// The page name. Matched either as the exact type name or with a "Page" suffix appended.
+    /// </param>
+    /// <returns>The matching page type, or <c>null</c> if none is registered.</returns>
+    public static Type? Convert(string? pageName)
+    {
+        if (string.IsNullOrWhiteSpace(pageName))
+            return null;
+
+        // Exact match against registered page type names (e.g. "DashboardPage").
+        var exact = GetPageTypeFromTag(pageName);
+        if (exact != null)
+            return exact;
+
+        // Allow keys without the "Page" suffix (e.g. "Dashboard" -> "DashboardPage").
+        return GetPageTypeFromTag(pageName + "Page");
     }
 
     /// <summary>

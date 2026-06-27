@@ -154,13 +154,13 @@ public partial class FocusTimerSettingsViewModel : PageViewModelBase
 
         // Subscribe to service events
         _focusTimerService.StateChanged += OnServiceStateChanged;
-
-        _ = OnInitializeAsync();
     }
 
     #endregion Constructor
 
     #region Lifecycle
+
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     public override async Task OnInitializeAsync()
     {

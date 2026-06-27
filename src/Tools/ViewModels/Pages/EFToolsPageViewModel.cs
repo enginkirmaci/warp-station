@@ -48,8 +48,10 @@ public partial class EFToolsPageViewModel : PageViewModelBase
         ConvertSqlCommand = new RelayCommand(OnConvertSql);
         CopyToClipboardCommand = new RelayCommand(OnCopyToClipboard);
         CopyRepositoryToClipboardCommand = new RelayCommand(OnCopyRepositoryToClipboard);
-        _ = OnInitializeAsync();
     }
+
+    /// <inheritdoc/>
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
     public override async Task OnInitializeAsync()

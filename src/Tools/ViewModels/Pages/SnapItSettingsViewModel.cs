@@ -33,9 +33,9 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
 
         ToggleSnapItCommand = new RelayCommand(OnToggleSnapIt);
         _snapItService.RunningChanged += OnSnapItRunningChanged;
-
-        _ = OnInitializeAsync();
     }
+
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     public override async Task OnInitializeAsync()
     {

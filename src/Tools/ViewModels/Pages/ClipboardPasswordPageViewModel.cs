@@ -26,8 +26,10 @@ public partial class ClipboardPasswordPageViewModel : PageViewModelBase
     public ClipboardPasswordPageViewModel(ISettingsService settingsService)
     {
         _settingsService = settingsService;
-        _ = LoadPasswordStatusAsync();
     }
+
+    /// <inheritdoc/>
+    public override Task OnNavigatedToAsync(object? parameter = null) => LoadPasswordStatusAsync();
 
     private async Task LoadPasswordStatusAsync()
     {

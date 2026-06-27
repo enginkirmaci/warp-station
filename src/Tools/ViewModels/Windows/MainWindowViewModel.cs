@@ -25,16 +25,6 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public IReadOnlyCollection<NavigationItem> MenuItems { get; }
 
-    /// <summary>
-    /// Gets or sets the currently displayed view.
-    /// </summary>
-    private Control? _currentView;
-    public Control? CurrentView
-    {
-        get => _currentView;
-        set => SetProperty(ref _currentView, value);
-    }
-
     // ---- Status bar: SnapIt ----
     [ObservableProperty]
     private bool _snapItRunning;
