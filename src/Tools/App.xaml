@@ -18,16 +18,9 @@
 			<!--  Align FluentTheme native accent (focus rings, default buttons, etc.) with the indigo brand  -->
 			<Color x:Key="SystemAccentColor">#3B82F6</Color>
 
-			<!--  Boolean value resources used by pages/commands  -->
-			<x:Boolean x:Key="TrueValue">True</x:Boolean>
-			<x:Boolean x:Key="FalseValue">False</x:Boolean>
-
 			<!--  Converters  -->
 			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
 			<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
-			<conv:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
-			<conv:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-			<conv:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
 			<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
 			<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
 			<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
