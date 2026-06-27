@@ -24,6 +24,12 @@ public partial class FocusTimerSettingsViewModel : PageViewModelBase
     // Guard to avoid saving settings while loading/initializing
     private bool _isInitializing;
 
+    // Debounces autosave so rapid edits (spinner drags, repeated selection changes)
+    // coalesce into a single save instead of firing a JSON serialize + disk write per
+    // keystroke. The previous CTS is cancelled on each change.
+    private readonly TimeSpan _autosaveDebounce = TimeSpan.FromMilliseconds(500);
+    private CancellationTokenSource? _autosaveCts;
+
     #endregion Fields
 
     #region Observable Properties - Work Window
@@ -379,7 +385,35 @@ public partial class FocusTimerSettingsViewModel : PageViewModelBase
 
     #region Property Change Handlers
 
-    private void OnSettingChanged() => _ = SaveSettingsAsync();
+    private void OnSettingChanged() => ScheduleAutosave();
+
+    /// <summary>
+    /// Schedules a debounced autosave. Rapid property changes coalesce into one save
+    /// after <see cref="_autosaveDebounce"/> of inactivity, avoiding overlapping saves
+    /// that could race on the shared settings file.
+    /// </summary>
+    private void ScheduleAutosave()
+    {
+        if (_isInitializing) return;
+
+        // Cancel any pending save and start a new timer window.
+        _autosaveCts?.Cancel();
+        _autosaveCts = new CancellationTokenSource();
+        var token = _autosaveCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(_autosaveDebounce, token);
+                await SaveSettingsAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by a newer edit — expected.
+            }
+        });
+    }
 
     partial void OnWorkStartTimeChanged(TimeSpan value) => OnSettingChanged();
     partial void OnWorkEndTimeChanged(TimeSpan value) => OnSettingChanged();
