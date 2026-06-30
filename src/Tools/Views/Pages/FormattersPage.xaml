@@ -4,6 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:tools="using:Tools.Library.MarkupExtensions"
         x:Name="RootPage"
         d:DesignHeight="700"
         d:DesignWidth="900"
@@ -76,16 +77,65 @@
                                         </Grid>
                                 </Border>
 
-                                <!--  Output Area  -->
+                                <!--  History Area  -->
                                 <Border Grid.Row="1" Classes="card">
                                         <Grid RowDefinitions="Auto,*">
-                                                <TextBlock
+                                                <Grid
                                                         Grid.Row="0"
                                                         Margin="0,0,0,6"
-                                                        Classes="card-title"
-                                                        Text="Output" />
+                                                        ColumnDefinitions="*,Auto">
+                                                        <TextBlock
+                                                                Grid.Column="0"
+                                                                VerticalAlignment="Center"
+                                                                Classes="card-title"
+                                                                Text="History" />
+                                                        <Button
+                                                                Grid.Column="1"
+                                                                Classes="icon"
+                                                                Command="{Binding #RootPage.DataContext.ClearHistoryCommand}"
+                                                                IsVisible="{Binding History.Count}"
+                                                                ToolTip.Tip="Clear history">
+                                                                <TextBlock
+                                                                        FontSize="16"
+                                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                        Text="✕" />
+                                                        </Button>
+                                                </Grid>
                                                 <ScrollViewer Grid.Row="1">
-                                                        <TextBlock Classes="body-text" Text="{Binding OutputText, Mode=OneWay}" />
+                                                        <ItemsControl ItemsSource="{Binding History}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                                <Border
+                                                                                        Margin="0,0,0,6"
+                                                                                        Padding="8"
+                                                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                        BorderThickness="1"
+                                                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                                                <TextBlock
+                                                                                                        Grid.Column="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Classes="mono"
+                                                                                                        Text="{Binding}"
+                                                                                                        TextWrapping="Wrap" />
+                                                                                                <Button
+                                                                                                        Grid.Column="1"
+                                                                                                        Margin="8,0,0,0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Classes="icon"
+                                                                                                        Command="{Binding #RootPage.DataContext.CopyToClipboardCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        ToolTip.Tip="Copy to clipboard">
+                                                                                                        <Path
+                                                                                                                Classes="icon"
+                                                                                                                Data="{tools:SvgPath icon-clipboard}" />
+                                                                                                </Button>
+                                                                                        </Grid>
+                                                                                </Border>
+                                                                        </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
                                                 </ScrollViewer>
                                         </Grid>
                                 </Border>

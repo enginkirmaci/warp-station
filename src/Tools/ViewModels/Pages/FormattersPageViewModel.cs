@@ -17,9 +17,6 @@ public partial class FormattersPageViewModel : PageViewModelBase
     private string _inputText = string.Empty;
 
     [ObservableProperty]
-    private string _outputText = string.Empty;
-
-    [ObservableProperty]
     private bool _isBase64EncodeSelected = true;
 
     [ObservableProperty]
@@ -44,49 +41,67 @@ public partial class FormattersPageViewModel : PageViewModelBase
     /// </summary>
     public IRelayCommand<string> CopyToClipboardCommand { get; }
 
+    /// <summary>
+    /// Gets the command to clear the history.
+    /// </summary>
+    public IRelayCommand ClearHistoryCommand { get; }
+
     public FormattersPageViewModel(IClipboardService clipboardService)
     {
         _clipboardService = clipboardService;
         ConvertCommand = new RelayCommand(OnConvert);
         CopyToClipboardCommand = new RelayCommand<string>(OnCopyToClipboard);
+        ClearHistoryCommand = new RelayCommand(OnClearHistory);
     }
 
     private void OnConvert()
     {
-        if (!string.IsNullOrEmpty(InputText))
+        if (string.IsNullOrEmpty(InputText))
         {
-            var lines = InputText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-            var output = new StringBuilder();
-            foreach (var line in lines)
-            {
-                if (IsBase64EncodeSelected)
-                {
-                    output.AppendLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(line)));
-                }
-                else if (IsBase64DecodeSelected)
-                {
-                    try
-                    {
-                        output.AppendLine(Encoding.UTF8.GetString(Convert.FromBase64String(line)));
-                    }
-                    catch
-                    {
-                        output.AppendLine($"[Invalid Base64: {line}]");
-                    }
-                }
-                else if (IsSnakeCaseSelected)
-                {
-                    output.AppendLine(line.ToSnakeCase().ToUpperInvariant());
-                }
-                else if (IsPascalCaseSelected)
-                {
-                    output.AppendLine(line.ToPascalCase());
-                }
-            }
-            OutputText = output.ToString();
-            History.Add(OutputText);
-            InputText = string.Empty;
+            return;
         }
+
+        var lines = InputText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        // Insert newest-first so the latest result stays on top, while
+        // preserving the original order of the converted batch.
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            History.Insert(0, ConvertLine(lines[i]));
+        }
+
+        InputText = string.Empty;
+    }
+
+    private string ConvertLine(string line)
+    {
+        if (IsBase64EncodeSelected)
+        {
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(line));
+        }
+
+        if (IsBase64DecodeSelected)
+        {
+            try
+            {
+                return Encoding.UTF8.GetString(Convert.FromBase64String(line));
+            }
+            catch
+            {
+                return $"[Invalid Base64: {line}]";
+            }
+        }
+
+        if (IsSnakeCaseSelected)
+        {
+            return line.ToSnakeCase().ToUpperInvariant();
+        }
+
+        if (IsPascalCaseSelected)
+        {
+            return line.ToPascalCase();
+        }
+
+        return line;
     }
 
     private void OnCopyToClipboard(string? text)
@@ -95,5 +110,10 @@ public partial class FormattersPageViewModel : PageViewModelBase
         {
             _clipboardService.CopyText(text);
         }
+    }
+
+    private void OnClearHistory()
+    {
+        History.Clear();
     }
 }
