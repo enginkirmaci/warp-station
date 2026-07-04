@@ -31,6 +31,7 @@ public static class IconAssetLoader
         "icon-chart-bar",
         "icon-chevron-down",
         "icon-clipboard",
+        "icon-close",
         "icon-clock",
         "icon-cog",
         "icon-database",

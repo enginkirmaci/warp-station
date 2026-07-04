@@ -31,7 +31,8 @@
                 <ScrollViewer
                         Grid.Row="1"
                         Padding="28,16,28,20"
-                        HorizontalScrollBarVisibility="Disabled">
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding DashboardCards}">
                                 <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>

@@ -24,14 +24,13 @@
 			IsHitTestVisible="True"
 			PointerPressed="TitleBar_PointerPressed">
 			<DockPanel Margin="14,0" VerticalAlignment="Center">
-				<!--  Hamburger Menu  -->
-				<Path
-					Width="18"
-					Height="18"
+				<!--  App Icon  -->
+				<Image
+					Width="20"
+					Height="20"
 					Margin="0,0,10,0"
-					Data="{tools:SvgPath icon-menu}"
 					DockPanel.Dock="Left"
-					Fill="{DynamicResource SubtitleForegroundBrush}"
+					Source="avares://Tools/Assets/logo.png"
 					Stretch="Uniform" />
 				<TextBlock
 					VerticalAlignment="Center"

@@ -80,27 +80,29 @@
                                 <!--  History Area  -->
                                 <Border Grid.Row="1" Classes="card">
                                         <Grid RowDefinitions="Auto,*">
-                                                <Grid
-                                                        Grid.Row="0"
-                                                        Margin="0,0,0,6"
-                                                        ColumnDefinitions="*,Auto">
-                                                        <TextBlock
-                                                                Grid.Column="0"
-                                                                VerticalAlignment="Center"
-                                                                Classes="card-title"
-                                                                Text="History" />
-                                                        <Button
-                                                                Grid.Column="1"
-                                                                Classes="icon"
-                                                                Command="{Binding #RootPage.DataContext.ClearHistoryCommand}"
-                                                                IsVisible="{Binding History.Count}"
-                                                                ToolTip.Tip="Clear history">
-                                                                <TextBlock
-                                                                        FontSize="16"
-                                                                        Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                        Text="✕" />
-                                                        </Button>
-                                                </Grid>
+						<Grid
+							Grid.Row="0"
+							MinHeight="32"
+							Margin="0,0,0,6"
+							ColumnDefinitions="*,Auto">
+							<TextBlock
+								Grid.Column="0"
+								VerticalAlignment="Center"
+								Classes="card-title"
+								Text="History" />
+							<Button
+								Grid.Column="1"
+								Classes="icon"
+								Command="{Binding #RootPage.DataContext.ClearHistoryCommand}"
+								IsVisible="{Binding History.Count}"
+								ToolTip.Tip="Clear history">
+								<Path
+									HorizontalAlignment="Center"
+									VerticalAlignment="Center"
+									Classes="icon"
+									Data="{tools:SvgPath icon-close}" />
+							</Button>
+						</Grid>
                                                 <ScrollViewer Grid.Row="1">
                                                         <ItemsControl ItemsSource="{Binding History}">
                                                                 <ItemsControl.ItemTemplate>
