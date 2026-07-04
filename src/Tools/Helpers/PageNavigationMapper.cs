@@ -21,7 +21,6 @@ public static class PageNavigationMapper
         typeof(ClipboardPasswordPage),
         typeof(EFToolsPage),
         typeof(CodeExecutePage),
-        typeof(FocusTimerSettingsPage),
         typeof(SnapItSettingsPage)
     ];
 

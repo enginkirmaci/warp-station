@@ -18,7 +18,6 @@ public static class NavigationProvider
     private const string LockIcon = "icon-lock";
     private const string DatabaseIcon = "icon-database";
     private const string TerminalIcon = "icon-terminal-alt";
-    private const string ClockIcon = "icon-clock";
     private const string GridLayoutIcon = "icon-grid";
 
     private static string Icon(string name) => IconAssetLoader.GetPathData(name);
@@ -78,14 +77,6 @@ public static class NavigationProvider
                 Icon(TerminalIcon),
                 "#FFFFFF",
                 "CodeExecutePage",
-                cardClickCommand
-            ),
-            CreateNavigationItem(
-                "Focus Timer",
-                "Intelligent break scheduling",
-                Icon(ClockIcon),
-                "#FFFFFF",
-                "FocusTimerSettingsPage",
                 cardClickCommand
             ),
             CreateNavigationItem(

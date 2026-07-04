@@ -55,14 +55,9 @@ public partial class App : Application
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
         services.AddSingleton<IDialogService, DialogService>();
-        // Register Focus Timer service
-        services.AddSingleton<IFocusTimerService, FocusTimerService>();
         // Register windows and view models
         services.AddSingleton<MainWindow>();
         services.AddSingleton<MainWindowViewModel>();
-        // Register Timer Notification Window (singleton to reuse)
-        services.AddSingleton<TimerNotificationWindow>();
-        services.AddSingleton<TimerNotificationWindowViewModel>();
         // Register pages and view models
         RegisterPageWithViewModel<DashboardPage, DashboardViewModel>(services);
         RegisterPageWithViewModel<WorkspacesPage, WorkspacesViewModel>(services);
@@ -71,7 +66,6 @@ public partial class App : Application
         RegisterPageWithViewModel<EFToolsPage, EFToolsPageViewModel>(services);
         RegisterPageWithViewModel<CodeExecutePage, CodeExecutePageViewModel>(services);
         RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordPageViewModel>(services);
-        RegisterPageWithViewModel<FocusTimerSettingsPage, FocusTimerSettingsViewModel>(services);
         RegisterPageWithViewModel<SnapItSettingsPage, SnapItSettingsViewModel>(services);
     }
 

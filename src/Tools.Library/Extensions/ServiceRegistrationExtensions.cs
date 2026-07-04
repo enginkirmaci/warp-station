@@ -25,11 +25,6 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IWorkspaceCacheStore, WorkspaceCacheStore>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
 
-        services.AddSingleton<IFocusTimerScheduler, FocusTimerScheduler>();
-        services.AddSingleton<IFocusTimerStateManager, FocusTimerStateManager>();
-        services.AddSingleton<ITimerProvider, DispatcherTimerProvider>();
-        services.AddSingleton<ITimerNotificationService, TimerNotificationService>();
-
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();
