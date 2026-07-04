@@ -8,9 +8,14 @@ namespace Tools.Library.Services;
 /// Implementation of ITimerNotificationService.
 /// Uses platform-specific audio playback.
 /// </summary>
-public class TimerNotificationService : ITimerNotificationService
+public class TimerNotificationService : ITimerNotificationService, IDisposable
 {
     private readonly ISettingsService _settingsService;
+    // SoundPlayer is IDisposable and holds a wave-out resource. Cache one
+    // instance per sound path and reuse it instead of allocating (and leaking)
+    // a new player on every notification.
+    private readonly Dictionary<string, SoundPlayer> _players = new();
+    private bool _disposed;
 
     public TimerNotificationService(ISettingsService settingsService)
     {
@@ -48,14 +53,27 @@ public class TimerNotificationService : ITimerNotificationService
     [SupportedOSPlatform("windows")]
     private void PlaySound(string relativePath)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         try
         {
             var fullPath = Path.Combine(AppContext.BaseDirectory, relativePath);
-            if (File.Exists(fullPath))
+            if (!File.Exists(fullPath))
             {
-                var player = new SoundPlayer(fullPath);
-                player.Play();
+                return;
             }
+
+            // Reuse a cached player for this path; recreate only if the path changed.
+            if (!_players.TryGetValue(fullPath, out var player))
+            {
+                player = new SoundPlayer(fullPath);
+                _players[fullPath] = player;
+            }
+
+            player.Play();
         }
         catch
         {
@@ -65,5 +83,21 @@ public class TimerNotificationService : ITimerNotificationService
     public void RequestWindowVisibility(bool show)
     {
         VisibilityRequested?.Invoke(this, show);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        foreach (var player in _players.Values)
+        {
+            player.Dispose();
+        }
+
+        _players.Clear();
+        _disposed = true;
     }
 }

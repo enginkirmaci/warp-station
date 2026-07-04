@@ -23,6 +23,11 @@ public class SettingsService : ISettingsService
     private readonly string _settingsDirectory;
     private readonly object _lock = new();
     private AppSettings? _cachedSettings;
+    // Cached JSON of the authoritative _cachedSettings. CopySettings now only
+    // deserializes from this string instead of serialize+deserialize per read,
+    // so repeated GetSettingsAsync() calls (one per page navigation) skip the
+    // serialize half and avoid re-allocating the JSON string each time.
+    private string? _cachedSettingsJson;
 
     public SettingsService()
     {
@@ -38,7 +43,7 @@ public class SettingsService : ISettingsService
         {
             // Load the authoritative copy on demand, then hand back a copy.
             EnsureLoaded();
-            return Task.FromResult(CopySettings(_cachedSettings!));
+            return Task.FromResult(CopySettings());
         }
     }
 
@@ -47,7 +52,7 @@ public class SettingsService : ISettingsService
         lock (_lock)
         {
             EnsureLoaded();
-            return Task.FromResult(CopySettings(_cachedSettings!));
+            return Task.FromResult(CopySettings());
         }
     }
 
@@ -55,15 +60,21 @@ public class SettingsService : ISettingsService
     {
         // Adopt the caller's instance as the new authoritative state under the lock.
         var snapshot = settings;
+        string json;
         lock (_lock)
         {
             EnsureNestedSections(snapshot);
             _cachedSettings = snapshot;
+            // Serialize once under the lock: it's needed both for the atomic
+            // write and for the read cache, and computing it here keeps them in
+            // sync so subsequent reads skip the serialize half.
+            json = JsonSerializer.Serialize(snapshot, WriteOptions);
+            _cachedSettingsJson = json;
         }
 
         try
         {
-            await WriteAtomicallyAsync(snapshot);
+            await WriteAtomicallyAsync(json);
         }
         catch (Exception ex)
         {
@@ -86,16 +97,19 @@ public class SettingsService : ISettingsService
             {
                 var json = File.ReadAllText(_settingsFilePath);
                 _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json, ReadOptions) ?? new AppSettings();
+                _cachedSettingsJson = json;
             }
             else
             {
                 _cachedSettings = new AppSettings();
+                _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, WriteOptions);
             }
         }
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Error loading settings");
             _cachedSettings = new AppSettings();
+            _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, WriteOptions);
         }
 
         EnsureNestedSections(_cachedSettings);
@@ -116,27 +130,28 @@ public class SettingsService : ISettingsService
     }
 
     /// <summary>
-    /// Produces an isolated deep copy of <paramref name="source"/> via a JSON round-trip,
-    /// so callers receive a snapshot they can mutate freely without affecting the cache.
+    /// Produces an isolated deep copy of the cached settings by deserializing
+    /// the cached JSON snapshot, so callers receive a snapshot they can mutate
+    /// freely without affecting the cache. The serialize half is paid only when
+    /// the authoritative state changes (load/save), not on every read.
     /// </summary>
-    private static AppSettings CopySettings(AppSettings source)
+    private AppSettings CopySettings()
     {
-        var json = JsonSerializer.Serialize(source, WriteOptions);
-        var copy = JsonSerializer.Deserialize<AppSettings>(json, ReadOptions)!;
+        var copy = JsonSerializer.Deserialize<AppSettings>(_cachedSettingsJson!, ReadOptions)!;
         EnsureNestedSections(copy);
         return copy;
     }
 
     /// <summary>
-    /// Writes the settings JSON atomically: serialize to a temp file in the same
-    /// directory, then rename it over the target. A crash during the write leaves the
-    /// previous file intact rather than a truncated/partial one.
+    /// Writes the already-serialized settings JSON atomically: write to a temp
+    /// file in the same directory, then rename it over the target. A crash
+    /// during the write leaves the previous file intact rather than a
+    /// truncated/partial one.
     /// </summary>
-    private async Task WriteAtomicallyAsync(AppSettings settings)
+    private async Task WriteAtomicallyAsync(string json)
     {
         Directory.CreateDirectory(_settingsDirectory);
 
-        var json = JsonSerializer.Serialize(settings, WriteOptions);
         var tempPath = _settingsFilePath + ".tmp";
 
         await File.WriteAllTextAsync(tempPath, json);

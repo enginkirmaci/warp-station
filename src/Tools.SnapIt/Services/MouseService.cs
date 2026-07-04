@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Avalonia;
+using Avalonia.Threading;
 using SharpHook;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Events;
@@ -21,6 +23,14 @@ public class MouseService : IMouseService
 	private ActiveWindow activeWindow;
 	private SnapAreaInfo? snapAreaInfo;
 	private System.Drawing.Point startLocation;
+
+	// Latest mouse position reported by the global hook. The hook thread only
+	// writes this + schedules a single UI-thread drain; it never blocks on the
+	// UI thread. Coalescing means we process the most recent position under
+	// load and drop intermediate moves, instead of rendezvousing with the UI
+	// thread on every MouseDragged event (which stalled the hook).
+	private Point _latestMousePos;
+	private volatile bool _uiBusy;
 
 	public bool IsInitialized { get; private set; }
 
@@ -101,61 +111,103 @@ public class MouseService : IMouseService
 
 	private void MouseMoveEvent(object? sender, MouseHookEventArgs e)
 	{
-		if (isListening)
+		if (!isListening)
 		{
-			var p = new Avalonia.Point(e.Data.X, e.Data.Y);
+			return;
+		}
 
-			if (HoldingKeyResult() && IsDelayDone(p))
+		// Hook thread: stash the latest position and ensure exactly one UI-thread
+		// drain is in flight. Never block here — the old code did
+		// Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult() on every
+		// move, deadlocking the hook against the UI thread.
+		_latestMousePos = new Point(e.Data.X, e.Data.Y);
+		if (_uiBusy)
+		{
+			return;
+		}
+
+		_uiBusy = true;
+		Dispatcher.UIThread.Post(ProcessMoveOnUIThread);
+	}
+
+	private void ProcessMoveOnUIThread()
+	{
+		try
+		{
+			// Drain in a loop so we always act on the most recent position seen
+			// so far. If a newer move arrived while we were processing, loop again
+			// instead of scheduling another Post.
+			Point p;
+			do
 			{
-				if (!isWindowDetected)
+				p = _latestMousePos;
+				ProcessSingleMove(p);
+			}
+			while (p != _latestMousePos);
+		}
+		finally
+		{
+			_uiBusy = false;
+		}
+	}
+
+	private void ProcessSingleMove(Point p)
+	{
+		if (!isListening)
+		{
+			return;
+		}
+
+		if (HoldingKeyResult() && IsDelayDone(p))
+		{
+			if (!isWindowDetected)
+			{
+				holdKeyUsed = true;
+
+				activeWindow = winApiService.GetActiveWindow();
+				activeWindow.Dpi = DpiHelper.GetDpiFromPoint((int)p.X, (int)p.Y);
+
+				if (activeWindow?.Title != null && windowsService.IsExcludedApplication(activeWindow.Title))
 				{
-					holdKeyUsed = true;
+					isListening = false;
+				}
+				else if (settingService.Settings.DisableForFullscreen && winApiService.IsFullscreen(activeWindow))
+				{
+					isListening = false;
+				}
+				else if (settingService.Settings.DisableForModal && !winApiService.IsAllowedWindowStyle(activeWindow))
+				{
+					isListening = false;
+				}
+				else if (settingService.Settings.DragByTitle)
+				{
+					var titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
+					var FixedFrameBorderSize = GetSystemMetrics(SM_CYFIXEDFRAME);
 
-					activeWindow = winApiService.GetActiveWindow();
-					activeWindow.Dpi = DpiHelper.GetDpiFromPoint((int)p.X, (int)p.Y);
-
-					if (activeWindow?.Title != null && windowsService.IsExcludedApplication(activeWindow.Title))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DisableForFullscreen && winApiService.IsFullscreen(activeWindow))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DisableForModal && !winApiService.IsAllowedWindowStyle(activeWindow))
-					{
-						isListening = false;
-					}
-					else if (settingService.Settings.DragByTitle)
-					{
-						var titleBarHeight = GetSystemMetrics(SM_CYCAPTION);
-						var FixedFrameBorderSize = GetSystemMetrics(SM_CYFIXEDFRAME);
-
-						if (activeWindow.Boundry.Top + titleBarHeight + 2 + FixedFrameBorderSize * 2 >= p.Y)
-						{
-							isWindowDetected = true;
-						}
-						else
-						{
-							isListening = false;
-						}
-					}
-					else
+					if (activeWindow.Boundry.Top + titleBarHeight + 2 + FixedFrameBorderSize * 2 >= p.Y)
 					{
 						isWindowDetected = true;
 					}
-				}
-				else if (ShowWindowsIfNecessary != null && ShowWindowsIfNecessary.Invoke())
-				{
+					else
+					{
+						isListening = false;
+					}
 				}
 				else
 				{
-					snapAreaInfo = SelectElementWithPoint?.Invoke((int)p.X, (int)p.Y);
+					isWindowDetected = true;
+				}
+			}
+			else if (ShowWindowsIfNecessary != null && ShowWindowsIfNecessary.Invoke())
+			{
+			}
+			else
+			{
+				snapAreaInfo = SelectElementWithPoint?.Invoke((int)p.X, (int)p.Y);
 
-					if (snapAreaInfo?.Screen != null)
-					{
-						settingService.LatestActiveScreen = snapAreaInfo.Screen;
-					}
+				if (snapAreaInfo?.Screen != null)
+				{
+					settingService.LatestActiveScreen = snapAreaInfo.Screen;
 				}
 			}
 		}
@@ -287,7 +339,7 @@ public class MouseService : IMouseService
 		}
 	}
 
-	private bool IsDelayDone(Avalonia.Point endLocation)
+	private bool IsDelayDone(Point endLocation)
 	{
 		if (settingService.Settings.EnableHoldKey)
 			return true;

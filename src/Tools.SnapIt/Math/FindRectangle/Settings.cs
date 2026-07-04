@@ -86,10 +86,18 @@ public class Settings
             UpdatePoint(segment.Location, segment.Orientation == SplitDirection.Horizontal ? SegmentPointConnections.Left : SegmentPointConnections.Top);
             UpdatePoint(segment.EndLocation, segment.Orientation == SplitDirection.Horizontal ? SegmentPointConnections.Right : SegmentPointConnections.Bottom);
 
-            // calculate any intersecting points
+            // calculate any intersecting points. Plain indexed loop skipping the
+            // segment itself (by reference) instead of segments.Where(...), which
+            // allocated a fresh iterator per outer iteration (O(n) allocations).
             currentSegment = segment;
-            foreach (Segment otherSegment in segments.Where(s => s != currentSegment))
+            for (int oi = 0; oi < segments.Count; oi++)
             {
+                Segment otherSegment = segments[oi];
+                if (ReferenceEquals(otherSegment, currentSegment))
+                {
+                    continue;
+                }
+
                 Point intersection;
 
                 intersection = Intersection.FindLineIntersection(segment.Location, segment.EndLocation, otherSegment.Location, otherSegment.EndLocation);
@@ -181,31 +189,73 @@ public class Settings
         horizontalPoints = points.OrderBy(p => p.X).ToArray();
         verticalPoints = points.OrderBy(p => p.Y).ToArray();
 
+        // Exact-coordinate lookup for the bottomRight corner (its X and Y are
+        // both fixed once topRight/bottomLeft are known). Avoids the third
+        // Array.Find scan and the closure it would allocate per iteration.
+        var byCoord = new Dictionary<(int X, int Y), SegmentPoint>();
+        foreach (var p in points)
+        {
+            byCoord[(p.X, p.Y)] = p;
+        }
+
+        // Connection masks used repeatedly below.
+        const SegmentPointConnections topLeftMask = SegmentPointConnections.Left | SegmentPointConnections.Top;
+        const SegmentPointConnections topRightMask = SegmentPointConnections.Right | SegmentPointConnections.Top;
+        const SegmentPointConnections bottomLeftMask = SegmentPointConnections.Left | SegmentPointConnections.Bottom;
+        const SegmentPointConnections bottomRightMask = SegmentPointConnections.Right | SegmentPointConnections.Bottom;
+
         foreach (SegmentPoint topLeft in points)
         {
-            if (!topLeft.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Top))
+            if (!topLeft.Connections.HasFlag(topLeftMask))
                 continue;
 
-            SegmentPoint topRight;
-            SegmentPoint bottomLeft;
-
-            topRight = Array.Find(horizontalPoints, p => p.X > topLeft.X && p.Y == topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Top));
-            bottomLeft = Array.Find(verticalPoints, p => p.X == topLeft.X && p.Y > topLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Left | SegmentPointConnections.Bottom));
-
-            if (topRight != null && bottomLeft != null)
+            // topRight: first point (sorted by X) to the right on the same row
+            // with the Right|Top connections. Manual indexed loop instead of
+            // Array.Find+lambda so no closure is allocated per iteration.
+            SegmentPoint topRight = null;
+            for (int i = 0; i < horizontalPoints.Length; i++)
             {
-                SegmentPoint bottomRight;
-
-                bottomRight = Array.Find(horizontalPoints, p => p.X == topRight.X && p.Y == bottomLeft.Y && p.Connections.HasFlag(SegmentPointConnections.Right | SegmentPointConnections.Bottom));
-
-                if (bottomRight != null)
+                SegmentPoint p = horizontalPoints[i];
+                if (p.X > topLeft.X && p.Y == topLeft.Y && (p.Connections & topRightMask) == topRightMask)
                 {
-                    Rectangle rectangle;
-
-                    rectangle = new Rectangle(topLeft, bottomRight, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
-
-                    Rectangles.Add(rectangle);
+                    topRight = p;
+                    break;
                 }
+            }
+
+            if (topRight == null)
+            {
+                continue;
+            }
+
+            // bottomLeft: first point (sorted by Y) below on the same column
+            // with the Left|Bottom connections.
+            SegmentPoint bottomLeft = null;
+            for (int i = 0; i < verticalPoints.Length; i++)
+            {
+                SegmentPoint p = verticalPoints[i];
+                if (p.X == topLeft.X && p.Y > topLeft.Y && (p.Connections & bottomLeftMask) == bottomLeftMask)
+                {
+                    bottomLeft = p;
+                    break;
+                }
+            }
+
+            if (bottomLeft == null)
+            {
+                continue;
+            }
+
+            // bottomRight: exact coordinate (topRight.X, bottomLeft.Y) with the
+            // Right|Bottom connections. O(1) dictionary lookup.
+            if (byCoord.TryGetValue((topRight.X, bottomLeft.Y), out SegmentPoint bottomRight)
+                && (bottomRight.Connections & bottomRightMask) == bottomRightMask)
+            {
+                Rectangle rectangle;
+
+                rectangle = new Rectangle(topLeft, bottomRight, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+
+                Rectangles.Add(rectangle);
             }
         }
     }

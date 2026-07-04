@@ -22,7 +22,10 @@ public class ProcessLauncher : IProcessLauncher
                 WindowStyle = hidden ? ProcessWindowStyle.Hidden : ProcessWindowStyle.Normal
             };
 
-            Process.Start(startInfo);
+            // Process.Start returns an IDisposable wrapper around an OS handle.
+            // With UseShellExecute=true the launched process runs independently of
+            // this wrapper, so dispose immediately to release the kernel handle.
+            using var process = Process.Start(startInfo);
         }
         catch (Exception ex)
         {

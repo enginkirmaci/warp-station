@@ -31,6 +31,9 @@ public partial class FormattersPageViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<string> _history = new();
 
+    /// <summary>Maximum number of items retained in <see cref="History"/>.</summary>
+    private const int MaxHistory = 100;
+
     /// <summary>
     /// Gets the command to convert text.
     /// </summary>
@@ -67,6 +70,12 @@ public partial class FormattersPageViewModel : PageViewModelBase
         for (var i = lines.Length - 1; i >= 0; i--)
         {
             History.Insert(0, ConvertLine(lines[i]));
+        }
+
+        // Bound the history so it can't grow unbounded across a long session.
+        while (History.Count > MaxHistory)
+        {
+            History.RemoveAt(History.Count - 1);
         }
 
         InputText = string.Empty;

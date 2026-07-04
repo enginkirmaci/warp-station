@@ -238,9 +238,15 @@ public partial class SnapControl : UserControl
 			var factorX = Bounds.Width / Layout.Size.Width;
 			var factorY = Bounds.Height / Layout.Size.Height;
 
-			var borders = this.FindChildren<SnapBorder>();
-			foreach (var border in borders.Where(b => b.IsDraggable))
+			// Walk once and filter inline instead of FindChildren + .Where (which
+			// chains a second iterator over the recursive visual-tree walk).
+			foreach (var border in this.FindChildren<SnapBorder>())
 			{
+				if (!border.IsDraggable)
+				{
+					continue;
+				}
+
 				if (border.LayoutLine != null)
 				{
 					var newPoint = new Point(
@@ -307,7 +313,24 @@ public partial class SnapControl : UserControl
 	{
 		MainAreas.Children.Clear();
 
-		var borders = this.FindChildren<SnapBorder>();
+		// Bail early during initial layout passes where bounds aren't measured
+		// yet — there's nothing meaningful to generate and this avoids a wasted
+		// rebuild once real bounds arrive.
+		if (Bounds.Width == 0 || Bounds.Height == 0)
+		{
+			return;
+		}
+
+		// Collect borders once and filter inline rather than chaining a .Where()
+		// over the FindChildren iterator, which would allocate a second iterator.
+		var draggableBorders = new List<SnapBorder>();
+		foreach (var border in this.FindChildren<SnapBorder>())
+		{
+			if (border.IsDraggable)
+			{
+				draggableBorders.Add(border);
+			}
+		}
 
 		Math.FindRectangle.Settings settings = new Math.FindRectangle.Settings
 		{
@@ -317,7 +340,7 @@ public partial class SnapControl : UserControl
 
 		var newLayoutLines = new List<Line>();
 
-		foreach (var border in borders.Where(b => b.IsDraggable))
+		foreach (var border in draggableBorders)
 		{
 			var line = border.GetLine();
 

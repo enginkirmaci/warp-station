@@ -114,38 +114,37 @@ public class WindowManager : IWindowManager
 
 	private bool MouseService_ShowWindowsIfNecessary()
 	{
-		return Dispatcher.UIThread.InvokeAsync(() =>
+		// Invoked on the UI thread by MouseService (see ProcessMoveOnUIThread).
+		// No Dispatcher marshalling here — wrapping this in InvokeAsync would
+		// deadlock (UI thread synchronously waiting for itself).
+		if (!snapWindows.TrueForAll(window => window.IsVisible))
 		{
-			if (!snapWindows.TrueForAll(window => window.IsVisible))
-			{
-				Show();
+			Show();
 
-				return true;
-			}
+			return true;
+		}
 
-			return false;
-		}).GetAwaiter().GetResult();
+		return false;
 	}
 
 	private SnapAreaInfo MouseService_SelectElementWithPoint(int x, int y)
 	{
-		return Dispatcher.UIThread.InvokeAsync(() =>
+		// Invoked on the UI thread by MouseService. Runs directly so it never
+		// blocks the hook thread (the hook now only posts the latest position).
+		var result = new SnapAreaInfo();
+
+		foreach (var window in snapWindows)
 		{
-			var result = new SnapAreaInfo();
-
-			foreach (var window in snapWindows)
+			var selectedArea = window.SelectElementWithPoint(x, y);
+			if (!selectedArea.Equals(Rectangle.Empty))
 			{
-				var selectedArea = window.SelectElementWithPoint(x, y);
-				if (!selectedArea.Equals(Rectangle.Empty))
-				{
-					result.Rectangle = selectedArea;
-					result.Screen = window.Screen;
+				result.Rectangle = selectedArea;
+				result.Screen = window.Screen;
 
-					break;
-				}
+				break;
 			}
+		}
 
-			return result;
-		}).GetAwaiter().GetResult();
+		return result;
 	}
 }

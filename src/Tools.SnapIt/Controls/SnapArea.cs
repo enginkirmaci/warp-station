@@ -50,7 +50,8 @@ public class SnapArea : TemplatedControl
 
 	public SnapArea()
 	{
-		Name = $"snaparea_{Guid.NewGuid():N}";
+		// No Guid-based Name: hover identity is handled by reference equality in
+		// SnapWindow.SelectElementWithPoint, so avoid the per-control allocation.
 	}
 
 	public void NormalStyle()

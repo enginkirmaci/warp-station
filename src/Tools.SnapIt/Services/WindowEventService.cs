@@ -14,6 +14,9 @@ public class WindowEventService : IWindowEventService
     private WinApiService.WinEventDelegate hookDelegate;
     private readonly ConcurrentDictionary<nint, bool> processedWindows = new();
     private readonly object lockObject = new();
+    // Cancels the delayed processedWindows eviction tasks so they don't outlive
+    // monitoring / the service. Created on StartMonitoring, cancelled on Stop.
+    private CancellationTokenSource? _evictionCts;
 
     [ThreadStatic]
     private static char[] titleBuffer;
@@ -76,6 +79,7 @@ public class WindowEventService : IWindowEventService
 
         if (hookHandle != nint.Zero)
         {
+            _evictionCts ??= new CancellationTokenSource();
             IsMonitoring = true;
             Dev.Log("Window event monitoring started");
         }
@@ -100,6 +104,12 @@ public class WindowEventService : IWindowEventService
             Dev.Log("Window event monitoring stopped");
         }
 
+        // Cancel any in-flight eviction delays so their tasks don't linger for
+        // 30s after monitoring stops, then clear the tracked set.
+        _evictionCts?.Cancel();
+        _evictionCts?.Dispose();
+        _evictionCts = null;
+
         processedWindows.Clear();
     }
 
@@ -112,11 +122,18 @@ public class WindowEventService : IWindowEventService
 
         if (eventType == WinApiService.EVENT_OBJECT_SHOW)
         {
-            Task.Run(() => ProcessNewWindow(hwnd));
+            // Offload the 100ms-delayed processing off the WinEvent callback (it
+            // must return fast). Observe faults so exceptions surface in the log
+            // instead of dying as an unobserved task exception. _evictionCts is
+            // created in StartMonitoring, so it's non-null while monitoring.
+            var token = _evictionCts!.Token;
+            Task.Run(() => ProcessNewWindow(hwnd, token), token).ContinueWith(
+                t => Dev.Log($"Error processing new window: {t.Exception?.GetBaseException()?.Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 
-    private async void ProcessNewWindow(nint hwnd)
+    private async Task ProcessNewWindow(nint hwnd, CancellationToken evictionToken)
     {
         try
         {
@@ -125,7 +142,7 @@ public class WindowEventService : IWindowEventService
                 return;
             }
 
-            await Task.Delay(100);
+            await Task.Delay(100, evictionToken);
 
             if (!PInvoke.User32.IsWindowVisible(hwnd))
             {
@@ -171,17 +188,34 @@ public class WindowEventService : IWindowEventService
 
             winApiService.SetWindowCornerPreference(activeWindow, DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_DONOTROUND);
         }
+        catch (OperationCanceledException)
+        {
+            // Monitoring stopped mid-processing; expected during teardown.
+        }
         catch (Exception ex)
         {
             Dev.Log($"Error processing new window: {ex.Message}");
         }
         finally
         {
-            _ = Task.Run(async () =>
+            // Auto-evict after 30s so the dictionary stays bounded across long
+            // sessions with window churn. Tied to the eviction token so stopping
+            // monitoring cancels the wait instead of orphaning the task.
+            if (!evictionToken.IsCancellationRequested)
             {
-                await Task.Delay(30000);
-                processedWindows.TryRemove(hwnd, out _);
-            });
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(30000, evictionToken);
+                        processedWindows.TryRemove(hwnd, out _);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Monitoring stopped; nothing to evict.
+                    }
+                }, evictionToken);
+            }
         }
     }
 

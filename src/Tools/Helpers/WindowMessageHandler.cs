@@ -59,6 +59,9 @@ internal sealed class WindowMessageHandler
             SetWindowLongPtr(hwnd, GWL_WNDPROC, _oldWndProc);
             _oldWndProc = IntPtr.Zero;
         }
+        // Drop the delegate reference so it (and its capture of `this`) isn't
+        // kept rooted after the subclass is removed.
+        _wndProcDelegate = null;
 #endif
     }
     #endregion

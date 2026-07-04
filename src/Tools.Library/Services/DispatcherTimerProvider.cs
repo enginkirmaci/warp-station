@@ -6,9 +6,23 @@ namespace Tools.Library.Services;
 /// <summary>
 /// Implementation of ITimerProvider using Avalonia's DispatcherTimer.
 /// </summary>
-public class DispatcherTimerProvider : ITimerProvider
+/// <remarks>
+/// A single <see cref="DispatcherTimer"/> is created lazily and reused across
+/// <see cref="Start"/> calls (only its <see cref="DispatcherTimer.Interval"/>
+/// changes), avoiding per-start timer churn and the closure accumulation that
+/// came from recreating the timer plus its Tick handler each time.
+/// </remarks>
+public class DispatcherTimerProvider : ITimerProvider, IDisposable
 {
+    private readonly EventHandler _tickHandler;
     private DispatcherTimer? _timer;
+    private bool _disposed;
+
+    public DispatcherTimerProvider()
+    {
+        // Single fixed handler — no fresh closure per Start() call.
+        _tickHandler = (_, _) => Tick?.Invoke(this, EventArgs.Empty);
+    }
 
     public event EventHandler? Tick;
 
@@ -16,18 +30,38 @@ public class DispatcherTimerProvider : ITimerProvider
 
     public void Start(TimeSpan interval)
     {
-        _timer?.Stop();
-
-        _timer = new DispatcherTimer
+        if (_disposed)
         {
-            Interval = interval
-        };
-        _timer.Tick += (s, e) => Tick?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        _timer ??= new DispatcherTimer();
+        _timer.Tick -= _tickHandler; // no-op on first start; safe otherwise
+
+        _timer.Stop();
+        _timer.Interval = interval;
+        _timer.Tick += _tickHandler;
         _timer.Start();
     }
 
     public void Stop()
     {
         _timer?.Stop();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_timer != null)
+        {
+            _timer.Stop();
+            _timer.Tick -= _tickHandler;
+        }
+
+        _disposed = true;
     }
 }

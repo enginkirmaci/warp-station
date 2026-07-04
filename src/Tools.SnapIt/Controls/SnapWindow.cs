@@ -22,10 +22,15 @@ public class SnapWindow : Window, IWindow
 	public Dictionary<int, Rectangle> SnapAreaRectangles { get; set; }
 	public Dpi Dpi { get; set; }
 
+	// Backing field for IWindow.Loaded. Backing the explicit-interface event
+	// with a real field (instead of a fresh lambda per add + empty remove)
+	// makes -= actually detach handlers instead of silently doing nothing.
+	private event EventHandler? LoadedEvent;
+
 	event EventHandler IWindow.Loaded
 	{
-		add => Loaded += (s, e) => value?.Invoke(s, EventArgs.Empty);
-		remove { }
+		add => LoadedEvent += value;
+		remove => LoadedEvent -= value;
 	}
 
 	public SnapWindow(
@@ -64,6 +69,12 @@ public class SnapWindow : Window, IWindow
 	{
 		base.Show();
 		MaximizeWindow();
+	}
+
+	protected override void OnLoaded(RoutedEventArgs e)
+	{
+		base.OnLoaded(e);
+		LoadedEvent?.Invoke(this, EventArgs.Empty);
 	}
 
 	private void MaximizeWindow()
@@ -149,7 +160,7 @@ public class SnapWindow : Window, IWindow
 				}
 			}
 
-			if (dependencyObject is SnapArea && currentArea?.Name != ((SnapArea)dependencyObject).Name)
+			if (dependencyObject is SnapArea && !ReferenceEquals(currentArea, dependencyObject))
 			{
 				currentArea?.NormalStyle();
 				currentOverlay?.NormalStyle();
@@ -159,7 +170,7 @@ public class SnapWindow : Window, IWindow
 				currentArea?.NormalStyle();
 			}
 
-			if (dependencyObject is SnapOverlay && currentOverlay?.Name != ((SnapOverlay)dependencyObject).Name)
+			if (dependencyObject is SnapOverlay && !ReferenceEquals(currentOverlay, dependencyObject))
 			{
 				currentArea?.NormalStyle();
 				currentOverlay?.NormalStyle();
@@ -173,7 +184,7 @@ public class SnapWindow : Window, IWindow
 			{
 				if (dependencyObject is SnapArea snapArea)
 				{
-					if (!(currentArea != null && currentArea.Name == snapArea.Name))
+					if (!ReferenceEquals(currentArea, snapArea))
 					{
 						snapArea.OnHoverStyle();
 					}
@@ -186,7 +197,7 @@ public class SnapWindow : Window, IWindow
 
 				if (dependencyObject is SnapOverlay snapOverlay)
 				{
-					if (!(currentOverlay != null && currentOverlay?.Name == snapOverlay.Name))
+					if (!ReferenceEquals(currentOverlay, snapOverlay))
 					{
 						snapOverlay.OnHoverStyle();
 					}
