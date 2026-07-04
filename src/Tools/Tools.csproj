@@ -25,6 +25,7 @@
 	 
 	<ItemGroup>
 		<ProjectReference Include="..\Tools.Library\Tools.Library.csproj" />
+		<ProjectReference Include="..\Tools.SnapIt\Tools.SnapIt.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

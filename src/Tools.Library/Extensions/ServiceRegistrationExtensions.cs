@@ -18,7 +18,6 @@ public static class ServiceRegistrationExtensions
     {
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IClipboardService, ClipboardService>();
-        services.AddSingleton<ISnapItService, SnapItService>();
         services.AddSingleton<INugetLocalService, NugetLocalService>();
 
         // Workspaces subsystem: scanner, cache store, and the singleton orchestrator

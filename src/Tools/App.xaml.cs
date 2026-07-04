@@ -5,6 +5,7 @@ using Serilog;
 using Tools.Library.Extensions;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.SnapIt.Extensions;
 using Tools.Services;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
@@ -47,6 +48,9 @@ public partial class App : Application
     {
         // Register core library services
         services.AddCoreServices();
+        // Register the SnapIt engine and its in-process host adapter (ISnapItService)
+        services.AddSnapItEngine();
+        services.AddSingleton<ISnapItService, SnapItService>();
         // Register application services
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
