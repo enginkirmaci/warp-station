@@ -37,9 +37,9 @@ public class DialogService : IDialogService
     }
 
     /// <inheritdoc/>
-    public async Task<WorkspacesSettings?> ShowWorkspaceSettingsDialogAsync(WorkspacesSettings current)
+    public async Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current)
     {
-        var dialog = new WorkspaceSettingsDialog(current);
+        var dialog = new ReposSettingsDialog(current);
         var confirmed = await dialog.ShowDialog<bool>(_mainWindow);
         return confirmed ? dialog.Settings : null;
     }

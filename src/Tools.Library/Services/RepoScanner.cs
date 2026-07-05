@@ -6,20 +6,29 @@ using Tools.Library.Services.Abstractions;
 namespace Tools.Library.Services;
 
 /// <summary>
-/// File-system implementation of <see cref="IWorkspaceScanner"/>. Walks configured
-/// folders recursively up to a depth limit, honoring exclusions, to discover solution
-/// files (workspaces) and platform folders.
+/// File-system implementation of <see cref="IRepoScanner"/>. Walks configured folders
+/// recursively up to a depth limit, honoring exclusions, to discover git repositories
+/// (one <see cref="Repo"/> per .git folder's parent). Auto-tags repos whose path
+/// contains the configured platform folder name.
 /// </summary>
-public class WorkspaceScanner : IWorkspaceScanner
+public class RepoScanner : IRepoScanner
 {
-    public Task<WorkspaceScanResult> ScanAsync(WorkspacesSettings settings)
-    {
-        var workspaces = new List<WorkspaceItem>();
-        var platforms = new List<WorkspaceItem>();
+    /// <summary>
+    /// The auto-tag applied to repos whose folder path matches the configured
+    /// <see cref="ReposSettings.PlatformFolderName"/>. Recomputed on every scan and
+    /// therefore excluded from the user-defined tag merge in <see cref="RepoService"/>.
+    /// Mirrors <see cref="Repo.PlatformTag"/>; kept for backward reference from the
+    /// services layer.
+    /// </summary>
+    public const string PlatformTag = Repo.PlatformTag;
 
-        var scanFolders = settings.WorkspaceScanFolders ?? Array.Empty<string>();
+    public Task<RepoScanResult> ScanAsync(ReposSettings settings)
+    {
+        var repos = new List<Repo>();
+
+        var scanFolders = settings.RepoScanFolders ?? Array.Empty<string>();
         var gitPattern = settings.GitFolderPattern ?? ".git";
-        var platformPattern = settings.PlatformFolderName ?? "platform";
+        var platformPattern = settings.PlatformFolderName ?? PlatformTag;
         var slnPattern = settings.SolutionFilePattern ?? "*.sln";
         var maxDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth : 3;
 
@@ -33,31 +42,34 @@ public class WorkspaceScanner : IWorkspaceScanner
                 if (parentDir == null) continue;
 
                 var solutionFiles = Directory.GetFiles(parentDir, slnPattern);
-                foreach (var solutionFile in solutionFiles)
+
+                var repo = new Repo
                 {
-                    workspaces.Add(new WorkspaceItem
-                    {
-                        SolutionName = Path.GetFileNameWithoutExtension(solutionFile),
-                        FolderPath = Path.GetDirectoryName(solutionFile),
-                        SolutionPath = solutionFile
-                    });
+                    Name = Path.GetFileName(parentDir.TrimEnd(Path.DirectorySeparatorChar)),
+                    FolderPath = parentDir,
+                    SolutionPath = solutionFiles.Length > 0 ? solutionFiles[0] : null
+                };
+
+                // Auto-tag platform folders so the filter list stays meaningful without
+                // requiring users to tag each one by hand.
+                if (parentDir.Contains(platformPattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    repo.AddTag(PlatformTag);
                 }
 
-                if (dir.Contains(platformPattern, StringComparison.OrdinalIgnoreCase))
-                {
-                    platforms.Add(new WorkspaceItem
-                    {
-                        PlatformName = Path.GetFileName(parentDir.TrimEnd(Path.DirectorySeparatorChar)),
-                        FolderPath = parentDir
-                    });
-                }
+                repos.Add(repo);
             }
         }
 
-        var result = new WorkspaceScanResult
+        var result = new RepoScanResult
         {
-            Workspaces = workspaces.DistinctBy(w => w.SolutionPath).OrderBy(w => w.SolutionName).ToList(),
-            Platforms = platforms.DistinctBy(p => p.FolderPath).OrderBy(p => p.PlatformName).ToList()
+            // Distinct by FolderPath: a repo reachable through multiple scan roots or
+            // nested layouts should appear only once.
+            Repos = repos
+                .GroupBy(r => r.FolderPath)
+                .Select(g => g.First())
+                .OrderBy(r => r.Name)
+                .ToList()
         };
         return Task.FromResult(result);
     }

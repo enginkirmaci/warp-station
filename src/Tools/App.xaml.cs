@@ -60,7 +60,7 @@ public partial class App : Application
         services.AddSingleton<MainWindowViewModel>();
         // Register pages and view models
         RegisterPageWithViewModel<DashboardPage, DashboardViewModel>(services);
-        RegisterPageWithViewModel<WorkspacesPage, WorkspacesViewModel>(services);
+        RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);
         RegisterPageWithViewModel<FormattersPage, FormattersPageViewModel>(services);
         RegisterPageWithViewModel<NugetLocalPage, NugetLocalViewModel>(services);
         RegisterPageWithViewModel<EFToolsPage, EFToolsPageViewModel>(services);

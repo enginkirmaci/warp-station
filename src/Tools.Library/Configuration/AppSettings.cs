@@ -16,9 +16,9 @@ public class AppSettings
     public NugetLocalSettings? NugetLocal { get; set; }
 
     /// <summary>
-    /// Gets or sets the Workspaces settings.
+    /// Gets or sets the Repos settings.
     /// </summary>
-    public WorkspacesSettings? Workspaces { get; set; }
+    public ReposSettings? Repos { get; set; }
 
     /// <summary>
     /// Gets or sets the Clipboard Password settings.
@@ -74,14 +74,14 @@ public class NugetLocalSettings
 }
 
 /// <summary>
-/// Settings specific to Workspaces functionality.
+/// Settings specific to Repos functionality.
 /// </summary>
-public class WorkspacesSettings
+public class ReposSettings
 {
     /// <summary>
-    /// Gets or sets the folders to scan for workspaces.
+    /// Gets or sets the folders to scan for repositories.
     /// </summary>
-    public string[]? WorkspaceScanFolders { get; set; }
+    public string[]? RepoScanFolders { get; set; }
 
     /// <summary>
     /// Gets or sets the git folder pattern to search for.
@@ -94,7 +94,8 @@ public class WorkspacesSettings
     public string? SolutionFilePattern { get; set; } = "*.sln";
 
     /// <summary>
-    /// Gets or sets the platform folder name identifier.
+    /// Gets or sets the platform folder name identifier. A repo whose path contains
+    /// this substring is auto-tagged <c>platform</c>.
     /// </summary>
     public string? PlatformFolderName { get; set; } = "platform";
 
@@ -107,6 +108,11 @@ public class WorkspacesSettings
     /// Gets or sets the terminal executable path or command.
     /// </summary>
     public string? TerminalExecutable { get; set; } = "wt";
+
+    /// <summary>
+    /// Gets or sets the OpenCode executable path or command.
+    /// </summary>
+    public string? OpenCodeExecutable { get; set; } = "opencode";
 
     /// <summary>
     /// Gets or sets the folders to exclude during scanning.

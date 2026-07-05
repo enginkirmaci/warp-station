@@ -7,28 +7,28 @@ using Tools.ViewModels.Windows;
 namespace Tools.Views.Windows;
 
 /// <summary>
-/// Modal dialog for editing workspace scan settings. A thin view: all editing state
-/// and the array/string translation live in <see cref="WorkspaceSettingsViewModel"/>.
+/// Modal dialog for editing repo scan settings. A thin view: all editing state
+/// and the array/string translation live in <see cref="ReposSettingsViewModel"/>.
 /// </summary>
-public partial class WorkspaceSettingsDialog : Window
+public partial class ReposSettingsDialog : Window
 {
     /// <summary>
     /// Gets the ViewModel backing this dialog.
     /// </summary>
-    public WorkspaceSettingsViewModel ViewModel { get; }
+    public ReposSettingsViewModel ViewModel { get; }
 
     /// <summary>
-    /// Gets the edited workspace settings (valid after the user confirms via Save).
+    /// Gets the edited repo settings (valid after the user confirms via Save).
     /// </summary>
-    public WorkspacesSettings Settings => ViewModel.BuildSettings();
+    public ReposSettings Settings => ViewModel.BuildSettings();
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="WorkspaceSettingsDialog"/> class.
+    /// Initializes a new instance of the <see cref="ReposSettingsDialog"/> class.
     /// </summary>
-    /// <param name="currentSettings">The current workspace settings to edit.</param>
-    public WorkspaceSettingsDialog(WorkspacesSettings currentSettings)
+    /// <param name="currentSettings">The current repo settings to edit.</param>
+    public ReposSettingsDialog(ReposSettings currentSettings)
     {
-        ViewModel = new WorkspaceSettingsViewModel(currentSettings);
+        ViewModel = new ReposSettingsViewModel(currentSettings);
         DataContext = ViewModel;
         InitializeComponent();
     }

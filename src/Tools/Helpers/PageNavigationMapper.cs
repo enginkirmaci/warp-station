@@ -15,7 +15,7 @@ public static class PageNavigationMapper
     private static readonly Type[] _registeredPageTypes =
     [
         typeof(DashboardPage),
-        typeof(WorkspacesPage),
+        typeof(ReposPage),
         typeof(NugetLocalPage),
         typeof(FormattersPage),
         typeof(ClipboardPasswordPage),

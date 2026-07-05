@@ -19,11 +19,11 @@ public interface IDialogService
     Task<string?> PickFolderAsync(string title);
 
     /// <summary>
-    /// Shows the modal workspace settings dialog for editing.
+    /// Shows the modal repo settings dialog for editing.
     /// </summary>
-    /// <param name="current">The current workspace settings to edit.</param>
+    /// <param name="current">The current repo settings to edit.</param>
     /// <returns>
     /// The edited settings if the user confirmed, or <c>null</c> if the user cancelled.
     /// </returns>
-    Task<WorkspacesSettings?> ShowWorkspaceSettingsDialogAsync(WorkspacesSettings current);
+    Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current);
 }

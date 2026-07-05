@@ -4,16 +4,16 @@ using Tools.ViewModels.Pages;
 
 namespace Tools.Views.Pages;
 
-public partial class WorkspacesPage : UserControl
+public partial class ReposPage : UserControl
 {
-    public WorkspacesViewModel ViewModel { get; }
+    public ReposViewModel ViewModel { get; }
 
-    public WorkspacesPage()
+    public ReposPage()
     {
         InitializeComponent();
     }
 
-    public WorkspacesPage(WorkspacesViewModel viewModel)
+    public ReposPage(ReposViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

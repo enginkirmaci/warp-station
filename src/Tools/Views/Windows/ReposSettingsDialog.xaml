@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Window
-    x:Class="Tools.Views.Windows.WorkspaceSettingsDialog"
+    x:Class="Tools.Views.Windows.ReposSettingsDialog"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Workspace Settings"
+    Title="Repo Settings"
     Width="650"
-    Height="580"
+    Height="620"
     CanResize="False"
     WindowStartupLocation="CenterOwner">
 
@@ -13,16 +13,16 @@
         <!--  Scrollable content area  -->
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Classes="page-root" Spacing="16">
-                <!--  Workspace Scan Folders  -->
+                <!--  Repo Scan Folders  -->
                 <StackPanel Spacing="8">
                     <TextBlock
                         Classes="field-label"
-                        Text="Workspace Scan Folders"
-                        ToolTip.Tip="Folders to scan for workspaces (one per line)" />
+                        Text="Repo Scan Folders"
+                        ToolTip.Tip="Folders to scan for repositories (one per line)" />
                     <TextBox
                         Height="120"
                         AcceptsReturn="True"
-                        Text="{Binding WorkspaceScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                        Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
                         TextWrapping="Wrap"
                         Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
                 </StackPanel>
@@ -75,7 +75,7 @@
                         <TextBlock
                             Classes="field-label"
                             Text="Platform Folder Name"
-                            ToolTip.Tip="Identifier for platform folders" />
+                            ToolTip.Tip="Identifier for platform folders (auto-tags repos whose path contains it)" />
                         <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
                     </StackPanel>
 
@@ -101,6 +101,18 @@
                             Text="Terminal Executable"
                             ToolTip.Tip="Path or command for terminal" />
                         <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
+                    </StackPanel>
+
+                    <!--  OpenCode Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="OpenCode Executable"
+                            ToolTip.Tip="Path or command for OpenCode" />
+                        <TextBox Text="{Binding OpenCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="opencode" />
                     </StackPanel>
 
                     <!--  Max Scan Depth  -->

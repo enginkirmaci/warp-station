@@ -32,11 +32,11 @@ public static class NavigationProvider
         return new List<NavigationItem>
         {
             CreateNavigationItem(
-                "Workspaces",
-                "Manage your workspaces",
+                "Repos",
+                "Browse and open repositories",
                 Icon(FolderIcon),
                 "#FFFFFF",
-                "WorkspacesPage",
+                "ReposPage",
                 cardClickCommand
             ),
             CreateNavigationItem(

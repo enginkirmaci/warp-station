@@ -4,22 +4,22 @@ using Tools.Library.Configuration;
 namespace Tools.ViewModels.Windows;
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Windows.WorkspaceSettingsDialog"/>. Holds the
-/// editing state for <see cref="WorkspacesSettings"/> (multi-line text for the array
+/// ViewModel for the <see cref="Views.Windows.ReposSettingsDialog"/>. Holds the
+/// editing state for <see cref="ReposSettings"/> (multi-line text for the array
 /// fields, plain strings for the rest) and translates between the two on load/save.
-/// Extracted from the dialog's code-behind so editing logic lives in the ViewModel layer.
 /// </summary>
-public partial class WorkspaceSettingsViewModel : ObservableObject
+public partial class ReposSettingsViewModel : ObservableObject
 {
     private const string DefaultGitPattern = "*.git";
     private const string DefaultSolutionPattern = "*.sln";
     private const string DefaultPlatformName = "platform";
     private const string DefaultVSCode = "code";
     private const string DefaultTerminal = "wt";
+    private const string DefaultOpenCode = "opencode";
     private const int DefaultMaxScanDepth = 3;
 
     [ObservableProperty]
-    private string _workspaceScanFoldersText = string.Empty;
+    private string _repoScanFoldersText = string.Empty;
 
     [ObservableProperty]
     private string _excludedFoldersText = string.Empty;
@@ -40,41 +40,45 @@ public partial class WorkspaceSettingsViewModel : ObservableObject
     private string _terminalExecutable = DefaultTerminal;
 
     [ObservableProperty]
+    private string _openCodeExecutable = DefaultOpenCode;
+
+    [ObservableProperty]
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
 
     /// <summary>
     /// Initializes a new instance from the current settings to edit.
     /// </summary>
-    /// <param name="current">The current workspace settings to edit.</param>
-    public WorkspaceSettingsViewModel(WorkspacesSettings current)
+    /// <param name="current">The current repo settings to edit.</param>
+    public ReposSettingsViewModel(ReposSettings current)
     {
-        LoadFrom(current ?? new WorkspacesSettings());
+        LoadFrom(current ?? new ReposSettings());
     }
 
     /// <summary>
-    /// Builds a <see cref="WorkspacesSettings"/> from the edited values, applying
+    /// Builds a <see cref="ReposSettings"/> from the edited values, applying
     /// defaults for blank fields and parsing the multi-line text fields back to arrays.
     /// </summary>
-    /// <returns>The edited workspace settings.</returns>
-    public WorkspacesSettings BuildSettings()
+    /// <returns>The edited repo settings.</returns>
+    public ReposSettings BuildSettings()
     {
-        return new WorkspacesSettings
+        return new ReposSettings
         {
-            WorkspaceScanFolders = ToLines(WorkspaceScanFoldersText),
+            RepoScanFolders = ToLines(RepoScanFoldersText),
             ExcludedFolders = ToLines(ExcludedFoldersText),
             GitFolderPattern = WithDefault(GitFolderPattern, DefaultGitPattern),
             SolutionFilePattern = WithDefault(SolutionFilePattern, DefaultSolutionPattern),
             PlatformFolderName = WithDefault(PlatformFolderName, DefaultPlatformName),
             VSCodeExecutable = WithDefault(VsCodeExecutable, DefaultVSCode),
             TerminalExecutable = WithDefault(TerminalExecutable, DefaultTerminal),
+            OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
         };
     }
 
-    private void LoadFrom(WorkspacesSettings settings)
+    private void LoadFrom(ReposSettings settings)
     {
-        WorkspaceScanFoldersText = settings.WorkspaceScanFolders is { Length: > 0 }
-            ? string.Join(Environment.NewLine, settings.WorkspaceScanFolders)
+        RepoScanFoldersText = settings.RepoScanFolders is { Length: > 0 }
+            ? string.Join(Environment.NewLine, settings.RepoScanFolders)
             : string.Empty;
 
         ExcludedFoldersText = settings.ExcludedFolders is { Length: > 0 }
@@ -86,6 +90,7 @@ public partial class WorkspaceSettingsViewModel : ObservableObject
         PlatformFolderName = settings.PlatformFolderName ?? DefaultPlatformName;
         VsCodeExecutable = settings.VSCodeExecutable ?? DefaultVSCode;
         TerminalExecutable = settings.TerminalExecutable ?? DefaultTerminal;
+        OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
     }
 

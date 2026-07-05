@@ -20,10 +20,10 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<INugetLocalService, NugetLocalService>();
 
-        // Workspaces subsystem: scanner, cache store, and the singleton orchestrator
-        services.AddSingleton<IWorkspaceScanner, WorkspaceScanner>();
-        services.AddSingleton<IWorkspaceCacheStore, WorkspaceCacheStore>();
-        services.AddSingleton<IWorkspaceService, WorkspaceService>();
+        // Repos subsystem: scanner, cache store, and the singleton orchestrator
+        services.AddSingleton<IRepoScanner, RepoScanner>();
+        services.AddSingleton<IRepoCacheStore, RepoCacheStore>();
+        services.AddSingleton<IRepoService, RepoService>();
 
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();

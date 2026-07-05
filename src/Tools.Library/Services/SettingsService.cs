@@ -123,7 +123,7 @@ public class SettingsService : ISettingsService
     {
         settings.EFToolsPage ??= new EFToolsPageSettings();
         settings.NugetLocal ??= new NugetLocalSettings();
-        settings.Workspaces ??= new WorkspacesSettings();
+        settings.Repos ??= new ReposSettings();
         settings.ClipboardPassword ??= new ClipboardPasswordSettings();
         settings.SnapIt ??= new SnapItSettings();
         settings.General ??= new GeneralSettings();
