@@ -272,11 +272,11 @@ public partial class ReposViewModel : PageViewModelBase
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
 
-        // Build the inner command line: opencode "prompt" when a prompt is given,
+        // Build the inner command line: opencode --prompt "prompt" when a prompt is given,
         // otherwise plain opencode.
         var commandLine = string.IsNullOrWhiteSpace(prompt)
             ? openCodeExe
-            : $"{openCodeExe} \"{EscapeForCommandLine(prompt)}\"";
+            : $"{openCodeExe} --prompt \"{EscapeForCommandLine(prompt)}\"";
 
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
 

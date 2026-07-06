@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Tools.Library.Entities;
 
 /// <summary>
@@ -7,7 +9,13 @@ namespace Tools.Library.Entities;
 /// </summary>
 public class RepoTag
 {
-    /// <summary>Gets the repo this tag belongs to.</summary>
+    /// <summary>
+    /// Gets the repo this tag belongs to. Excluded from JSON serialization because it
+    /// forms a reference cycle with <see cref="Repo.Tags"/> (which would otherwise throw
+    /// <c>JsonException</c> on save); it is re-parented in memory when the cache loads
+    /// (see <c>RepoService.EnsureLoadedAsync</c>).
+    /// </summary>
+    [JsonIgnore]
     public Repo Repo { get; }
 
     /// <summary>Gets the tag name.</summary>
