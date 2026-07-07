@@ -11,7 +11,7 @@ namespace Tools.ViewModels.Windows;
 public partial class ReposSettingsViewModel : ObservableObject
 {
     private const string DefaultGitPattern = "*.git";
-    private const string DefaultSolutionPattern = "*.sln";
+    private const string DefaultSolutionPattern = "*.sln,*.slnx";
     private const string DefaultPlatformName = "platform";
     private const string DefaultVSCode = "code";
     private const string DefaultTerminal = "wt";

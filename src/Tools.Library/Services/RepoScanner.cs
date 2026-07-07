@@ -29,7 +29,7 @@ public class RepoScanner : IRepoScanner
         var scanFolders = settings.RepoScanFolders ?? Array.Empty<string>();
         var gitPattern = settings.GitFolderPattern ?? ".git";
         var platformPattern = settings.PlatformFolderName ?? PlatformTag;
-        var slnPattern = settings.SolutionFilePattern ?? "*.sln";
+        var slnPatterns = ParseSolutionPatterns(settings.SolutionFilePattern);
         var maxDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth : 3;
 
         foreach (var folderPath in scanFolders)
@@ -41,7 +41,7 @@ public class RepoScanner : IRepoScanner
                 var parentDir = Path.GetDirectoryName(dir);
                 if (parentDir == null) continue;
 
-                var solutionFiles = Directory.GetFiles(parentDir, slnPattern);
+                var solutionFiles = GetSolutionFiles(parentDir, slnPatterns);
 
                 var repo = new Repo
                 {
@@ -72,6 +72,43 @@ public class RepoScanner : IRepoScanner
                 .ToList()
         };
         return Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// Splits the solution file pattern setting into individual patterns. Supports
+    /// comma- or semicolon-separated values (e.g. <c>"*.sln, *.slnx"</c>) so multiple
+    /// solution formats can be discovered at once. Falls back to <c>"*.sln"</c>.
+    /// </summary>
+    private static string[] ParseSolutionPatterns(string? solutionFilePattern)
+    {
+        var patterns = (solutionFilePattern ?? string.Empty)
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+        return patterns.Length == 0 ? new[] { "*.sln" } : patterns;
+    }
+
+    /// <summary>
+    /// Returns the solution files in <paramref name="directory"/> matching any of the
+    /// given <paramref name="patterns"/>, de-duplicated and ordered so the result is
+    /// stable across scans.
+    /// </summary>
+    private static string[] GetSolutionFiles(string directory, string[] patterns)
+    {
+        var solutionFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pattern in patterns)
+        {
+            foreach (var file in Directory.GetFiles(directory, pattern))
+            {
+                solutionFiles.Add(file);
+            }
+        }
+
+        return solutionFiles
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static IEnumerable<string> GetAccessibleDirectoriesRecursively(

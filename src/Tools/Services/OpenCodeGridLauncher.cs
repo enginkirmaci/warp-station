@@ -85,7 +85,13 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 
     // --- helpers ---
 
-    private static string BuildCommandLine(string openCodeExe, string model, string prompt)
+    /// <summary>
+    /// Builds the opencode command line (e.g.
+    /// <c>opencode --model "gpt-4" --prompt "fix the bug"</c>) shared by the grid and
+    /// non-grid launch paths so both stay in sync. <c>--model</c>/<c>--prompt</c> are only
+    /// emitted when non-empty; values are trimmed and quotes escaped.
+    /// </summary>
+    internal static string BuildCommandLine(string openCodeExe, string model, string prompt)
     {
         openCodeExe = string.IsNullOrWhiteSpace(openCodeExe) ? "opencode" : openCodeExe;
         var cleanModel = (model ?? string.Empty).Trim();

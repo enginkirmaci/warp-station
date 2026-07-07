@@ -63,8 +63,8 @@
                         <TextBlock
                             Classes="field-label"
                             Text="Solution File Pattern"
-                            ToolTip.Tip="Pattern to search for solution files" />
-                        <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln" />
+                            ToolTip.Tip="Pattern(s) to search for solution files. Separate multiple patterns with commas or semicolons (e.g. *.sln,*.slnx)" />
+                        <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
                     </StackPanel>
 
                     <!--  Platform Folder Name  -->

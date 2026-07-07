@@ -7,6 +7,7 @@ using Tools.Library.Entities;
 using Tools.Library.Formatters;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
+using Tools.Services;
 using Tools.Services.Abstractions;
 
 namespace Tools.ViewModels.Pages;
@@ -340,11 +341,9 @@ public partial class ReposViewModel : PageViewModelBase
         }
         else
         {
-            // Legacy path: open N terminals without positioning.
-            var commandLine = string.IsNullOrWhiteSpace(prompt)
-                ? $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\""
-                : $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
-
+            // Legacy path: open N terminals without positioning. The command line is
+            // built with the same helper as the grid path so both stay in sync.
+            var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, prompt ?? string.Empty);
             var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
 
             for (var i = 0; i < count; i++)
@@ -355,9 +354,6 @@ public partial class ReposViewModel : PageViewModelBase
 
         IsOpenCodePanelOpen = false;
     }
-
-    private static string EscapeForCommandLine(string value)
-        => value.Replace("\"", "\\\"");
 
     // --- Tag management ---
 

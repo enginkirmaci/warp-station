@@ -89,9 +89,11 @@ public class ReposSettings
     public string? GitFolderPattern { get; set; } = "*.git";
 
     /// <summary>
-    /// Gets or sets the solution file pattern to search for.
+    /// Gets or sets the solution file pattern(s) to search for. Multiple patterns may be
+    /// comma- or semicolon-separated (e.g. <c>"*.sln,*.slnx"</c>) so both classic and
+    /// XML-based solution formats are discovered. Defaults to <c>"*.sln,*.slnx"</c>.
     /// </summary>
-    public string? SolutionFilePattern { get; set; } = "*.sln";
+    public string? SolutionFilePattern { get; set; } = "*.sln,*.slnx";
 
     /// <summary>
     /// Gets or sets the platform folder name identifier. A repo whose path contains
