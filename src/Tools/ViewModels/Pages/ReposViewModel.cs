@@ -7,6 +7,7 @@ using Tools.Library.Entities;
 using Tools.Library.Formatters;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
+using Tools.Services.Abstractions;
 
 namespace Tools.ViewModels.Pages;
 
@@ -25,6 +26,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IRepoService _repoService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeModelService _openCodeModelService;
+    private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
     private ReposSettings _reposSettings = new();
 
     /// <summary>
@@ -58,6 +60,14 @@ public partial class ReposViewModel : PageViewModelBase
 
     [ObservableProperty]
     private int _openCodeInstanceCount = 1;
+
+    /// <summary>
+    /// When <see langword="true"/> (default), launching multiple OpenCode instances tiles
+    /// them across the active screen in a grid (e.g. 6 instances -> a 3x2 grid). When
+    /// <see langword="false"/>, instances open without positioning, as before.
+    /// </summary>
+    [ObservableProperty]
+    private bool _arrangeInGrid = true;
 
     /// <summary>
     /// The models available in the OpenCode model selector, loaded from
@@ -96,7 +106,8 @@ public partial class ReposViewModel : PageViewModelBase
         IDialogService dialogService,
         IRepoService repoService,
         IProcessLauncher processLauncher,
-        IOpenCodeModelService openCodeModelService)
+        IOpenCodeModelService openCodeModelService,
+        IOpenCodeGridLauncher openCodeGridLauncher)
     {
         _settingsService = settingsService;
         _devToolsClient = devToolsClient;
@@ -104,6 +115,7 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService = repoService;
         _processLauncher = processLauncher;
         _openCodeModelService = openCodeModelService;
+        _openCodeGridLauncher = openCodeGridLauncher;
 
         _repoService.Changed += OnRepoChanged;
     }
@@ -319,19 +331,27 @@ public partial class ReposViewModel : PageViewModelBase
             ? _defaultOpenCodeModel
             : OpenCodeSelectedModel;
 
-        // Build the inner command line: opencode model "<model>" [--prompt "prompt"].
-        var commandLine = string.IsNullOrWhiteSpace(prompt)
-            ? $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\""
-            : $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
-
-        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-
-        for (var i = 0; i < count; i++)
+        if (ArrangeInGrid && count > 1)
         {
-            _processLauncher.StartProcess(terminalExe, args);
+            // Tile the instances across the active screen (e.g. 6 -> 3x2). The launcher
+            // owns window detection and positioning; here we just hand off the parameters.
+            await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
+        }
+        else
+        {
+            // Legacy path: open N terminals without positioning.
+            var commandLine = string.IsNullOrWhiteSpace(prompt)
+                ? $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\""
+                : $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
+
+            var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
+
+            for (var i = 0; i < count; i++)
+            {
+                _processLauncher.StartProcess(terminalExe, args);
+            }
         }
 
-        await Task.CompletedTask;
         IsOpenCodePanelOpen = false;
     }
 

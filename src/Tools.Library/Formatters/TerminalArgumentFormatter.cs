@@ -40,19 +40,31 @@ public static class TerminalArgumentFormatter
     /// <param name="terminalExecutable">The terminal executable path or command.</param>
     /// <param name="folderPath">The folder to open the terminal in.</param>
     /// <param name="commandLine">The command line to run after the terminal opens.</param>
+    /// <param name="forceNewWindow">
+    /// When <see langword="true"/>, request that the terminal open in a standalone window
+    /// rather than reusing an existing instance (e.g. a new tab). Only honored by terminals
+    /// that support it (Windows Terminal); ignored otherwise.
+    /// </param>
     /// <returns>The terminal-specific argument string that cds then runs the command.</returns>
-    public static string BuildCommandArguments(string terminalExecutable, string folderPath, string commandLine)
+    public static string BuildCommandArguments(string terminalExecutable, string folderPath, string commandLine, bool forceNewWindow = false)
     {
         var exeLower = (terminalExecutable ?? string.Empty).ToLowerInvariant();
 
         if (exeLower.EndsWith("wt.exe") || exeLower == "wt")
+        {
+            // `-w 0 new` targets a brand-new Windows Terminal window instead of a
+            // tab in an already-running instance, which is required when tiling
+            // several windows into a grid (otherwise they collapse into one window).
+            var windowTarget = forceNewWindow ? "-w 0 new " : string.Empty;
+
             // Run the command through `cmd /k` rather than directly after `--`.
             // Windows Terminal resolves the command after `--` against `.exe`
             // files only and does NOT apply PATHEXT, so npm-installed CLIs that
             // ship as `.cmd` shims (e.g. opencode) are not found (error
             // 0x80070002). `cmd` resolves `.cmd`/`.bat` shims via PATHEXT, and
             // `/k` keeps the window open after the command exits.
-            return $"-d \"{folderPath}\" -- cmd /k {commandLine}";
+            return $"{windowTarget}-d \"{folderPath}\" -- cmd /k {commandLine}";
+        }
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'; {commandLine}\"";

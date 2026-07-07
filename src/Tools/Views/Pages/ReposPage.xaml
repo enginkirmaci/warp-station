@@ -371,7 +371,7 @@
                         VerticalAlignment="Stretch"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -413,14 +413,27 @@
                                                 Minimum="1"
                                                 Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="2" Spacing="8">
+                                <CheckBox
+                                        Grid.Row="2"
+                                        Margin="0,0,0,16"
+                                        IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
+                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -> a 3x2 grid). Only applies when more than one instance is opened.">
+                                        <StackPanel>
+                                                <TextBlock Text="Arrange into grid" />
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        FontSize="11"
+                                                        Text="Tile windows across the screen (e.g. 6 -> 3x2)" />
+                                        </StackPanel>
+                                </CheckBox>
+                                <StackPanel Grid.Row="3" Spacing="8">
                                         <TextBlock Classes="field-label" Text="Model" />
                                         <ComboBox
                                                 HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding OpenCodeModels}"
                                                 SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="3" Spacing="8">
+                                <StackPanel Grid.Row="4" Spacing="8">
                                         <TextBlock Classes="field-label" Text="Start prompt (optional)" />
                                         <TextBox
                                                 Height="120"
@@ -430,13 +443,13 @@
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
                                 <Button
-                                        Grid.Row="4"
+                                        Grid.Row="5"
                                         HorizontalAlignment="Stretch"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"
                                         IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="5" />
+                                <Border Grid.Row="6" />
                         </Grid>
                 </Border>
 

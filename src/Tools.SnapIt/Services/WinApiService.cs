@@ -164,7 +164,19 @@ public class WinApiService : IWinApiService
 		}
 	}
 
-	public ActiveWindow GetActiveWindow()
+    public Rectangle GetWindowRect(nint handle)
+    {
+        if (handle == nint.Zero) return Rectangle.Empty;
+
+        if (PInvoke.User32.GetWindowRect(handle, out PInvoke.RECT rct))
+        {
+            return new Rectangle(rct.left, rct.top, rct.right, rct.bottom);
+        }
+
+        return Rectangle.Empty;
+    }
+
+    public ActiveWindow GetActiveWindow()
 	{
 		var activeWindow = new ActiveWindow
 		{

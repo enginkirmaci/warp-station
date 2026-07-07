@@ -7,6 +7,7 @@ using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.SnapIt.Extensions;
 using Tools.Services;
+using Tools.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
 using Tools.Views.Pages;
@@ -55,6 +56,7 @@ public partial class App : Application
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
         services.AddSingleton<IDialogService, DialogService>();
+        services.AddSingleton<IOpenCodeGridLauncher, OpenCodeGridLauncher>();
         // Register windows and view models
         services.AddSingleton<MainWindow>();
         services.AddSingleton<MainWindowViewModel>();

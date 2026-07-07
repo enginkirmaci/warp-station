@@ -22,6 +22,13 @@ public interface IWinApiService : IInitialize
 
     void GetWindowMargin(ActiveWindow activeWindow, out Rectangle withMargin);
 
+    /// <summary>
+    /// Returns the outer window rectangle of the handle, or <see cref="Rectangle.Empty"/>
+    /// when invalid. Unlike <see cref="GetWindowMargin"/> this takes only a handle, so it
+    /// suits windows discovered after launch by <see cref="GetOpenWindows"/>.
+    /// </summary>
+    Rectangle GetWindowRect(nint handle);
+
     ActiveWindow GetActiveWindow();
 
     string GetCurrentDesktopWallpaper();
