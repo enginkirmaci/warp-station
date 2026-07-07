@@ -28,7 +28,16 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "bin\output\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Everything except user-data JSONs, which are handled below so reinstalls preserve them.
+Source: "bin\output\win-x64\publish\*"; DestDir: "{app}"; Excludes: "settings\settings.json,settings\repos.cache.json,settings\opencode\models.json,settings\snapit\Settings.json,settings\snapit\ExcludedApplicationSettings.json,settings\snapit\layouts\*.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; User-data files: ship defaults on fresh install, keep existing on upgrade so the app
+; can migrate them to %USERPROFILE%\.devtools on first run. neveruninstall so a
+; repair/upgrade never drops the migration source.
+Source: "bin\output\win-x64\publish\settings\settings.json"; DestDir: "{app}\settings"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "bin\output\win-x64\publish\settings\opencode\models.json"; DestDir: "{app}\settings\opencode"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "bin\output\win-x64\publish\settings\snapit\Settings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "bin\output\win-x64\publish\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "bin\output\win-x64\publish\settings\snapit\layouts\*.json"; DestDir: "{app}\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

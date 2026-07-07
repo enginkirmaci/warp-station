@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Serilog;
+using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
 
@@ -18,8 +19,9 @@ public class RepoCacheStore : IRepoCacheStore
 
     public RepoCacheStore()
     {
-        // Mirror the settings.json location: <baseDirectory>/settings/repos.cache.json
-        _cacheFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "repos.cache.json");
+        // User data under %USERPROFILE%\.devtools so it survives reinstalls. The cache
+        // is not seeded from shipped defaults — it rebuilds from the file system.
+        _cacheFilePath = UserPaths.GetUserDataFile("settings", "repos.cache.json");
     }
 
     /// <inheritdoc/>

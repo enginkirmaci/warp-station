@@ -23,16 +23,23 @@ public class FileOperationService : IFileOperationService
 			return;
 		}
 
-		await _initLock.WaitAsync();
-		try
-		{
-			if (_isInitialized)
+			await _initLock.WaitAsync();
+			try
 			{
-				return;
-			}
+				if (_isInitialized)
+				{
+					return;
+				}
 
-			Directory.CreateDirectory(_rootFolder);
-			_isInitialized = true;
+				Directory.CreateDirectory(_rootFolder);
+
+				// One-time seed/migration: on first run (or the first run after an upgrade
+				// from a version that stored SnapIt data inside the install dir), copy the
+				// shipped defaults into the per-user folder so existing settings/layouts are
+				// preserved. Files already present in the user folder are never overwritten.
+				SeedFromShippedDefaults();
+
+				_isInitialized = true;
 		}
 		finally
 		{
@@ -50,6 +57,54 @@ public class FileOperationService : IFileOperationService
 			lockObj?.Dispose();
 		}
 		_fileLocks.Clear();
+	}
+
+	/// <summary>
+	/// Copies shipped default files from <see cref="Constants.InstallDefaultsFolder"/> into
+	/// the per-user <see cref="Constants.RootFolder"/> when no user copy exists yet. Best
+	/// effort: any error is swallowed so a missing/blocked default never blocks startup —
+	/// <see cref="LoadAsync{T}"/> and <see cref="GetLayouts"/> synthesize empty defaults.
+	/// </summary>
+	private void SeedFromShippedDefaults()
+	{
+		var sourceFolder = Constants.InstallDefaultsFolder;
+		if (!Directory.Exists(sourceFolder))
+		{
+			return;
+		}
+
+		try
+		{
+			// Seed top-level defaults (Settings.json, ExcludedApplicationSettings.json, ...).
+			foreach (var sourceFile in Directory.GetFiles(sourceFolder, "*.json"))
+			{
+				var destFile = Path.Combine(_rootFolder, Path.GetFileName(sourceFile));
+				if (!File.Exists(destFile))
+				{
+					File.Copy(sourceFile, destFile);
+				}
+			}
+
+			// Seed layouts/*.json.
+			var layoutsFolder = Path.Combine(_rootFolder, LayoutFolder);
+			Directory.CreateDirectory(layoutsFolder);
+			var sourceLayoutsFolder = Path.Combine(sourceFolder, LayoutFolder);
+			if (Directory.Exists(sourceLayoutsFolder))
+			{
+				foreach (var sourceFile in Directory.GetFiles(sourceLayoutsFolder, "*.json"))
+				{
+					var destFile = Path.Combine(layoutsFolder, Path.GetFileName(sourceFile));
+					if (!File.Exists(destFile))
+					{
+						File.Copy(sourceFile, destFile);
+					}
+				}
+			}
+		}
+		catch
+		{
+			// Best-effort: fall through to per-file default creation on read.
+		}
 	}
 
 	public async Task SaveAsync<T>(T config)

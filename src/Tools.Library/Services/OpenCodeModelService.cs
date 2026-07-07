@@ -32,8 +32,9 @@ public class OpenCodeModelService : IOpenCodeModelService
 
     public OpenCodeModelService()
     {
-        // Mirror the settings.json location: <baseDirectory>/settings/opencode/models.json
-        _modelsFilePath = Path.Combine(AppContext.BaseDirectory, "settings", "opencode", "models.json");
+        // User data under %USERPROFILE%\.devtools so it survives reinstalls. Seeded from
+        // the shipped default on first run; the in-memory Fallback is the last resort.
+        _modelsFilePath = UserPaths.GetUserDataFile("settings", "opencode", "models.json");
     }
 
     /// <inheritdoc/>
@@ -41,6 +42,9 @@ public class OpenCodeModelService : IOpenCodeModelService
     {
         try
         {
+            // One-time seed/migration from the shipped default on first run.
+            UserPaths.SeedFromDefault(_modelsFilePath, "opencode\\models.json");
+
             if (!File.Exists(_modelsFilePath))
                 return CloneFallback();
 

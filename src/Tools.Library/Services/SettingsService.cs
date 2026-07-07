@@ -31,9 +31,9 @@ public class SettingsService : ISettingsService
 
     public SettingsService()
     {
-        // BaseDirectory (where the executable lives) is reliable across hosts
-        string baseDirectory = AppContext.BaseDirectory;
-        _settingsDirectory = Path.Combine(baseDirectory, "settings");
+        // User settings live under %USERPROFILE%\.devtools so they survive reinstalls.
+        // The shipped <install>/settings/settings.json is used only as a one-time seed.
+        _settingsDirectory = UserPaths.GetUserDataFile("settings");
         _settingsFilePath = Path.Combine(_settingsDirectory, SettingsFileName);
     }
 
@@ -93,6 +93,10 @@ public class SettingsService : ISettingsService
 
         try
         {
+            // One-time seed/migration: copy the shipped default into the user folder on
+            // first run (or the first run after upgrading from an in-install-dir version).
+            UserPaths.SeedFromDefault(_settingsFilePath, SettingsFileName);
+
             if (File.Exists(_settingsFilePath))
             {
                 var json = File.ReadAllText(_settingsFilePath);
