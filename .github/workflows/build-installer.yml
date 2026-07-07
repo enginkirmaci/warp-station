@@ -19,6 +19,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            # Tag like v1.2.3 -> 1.2.3
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # Manual dispatch has no tag; fall back so the build still works.
+            VERSION="0.0.0-dev"
+            echo "::warning::Build is not running from a tag; falling back to ${VERSION}"
+          fi
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Version '${VERSION}' (from '${GITHUB_REF_NAME}') is not in x.y.z format"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -29,13 +48,13 @@ jobs:
         run: dotnet restore Tools.slnx
 
       - name: Build solution
-        run: dotnet build Tools.slnx --configuration Release --no-restore
+        run: dotnet build Tools.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
 
       - name: Publish Tools
-        run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64
+        run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }}
 
       - name: Publish DevTools
-        run: dotnet publish src\DevTools\DevTools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64
+        run: dotnet publish src\DevTools\DevTools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }}
 
       - name: Install Inno Setup
         run: |
@@ -43,7 +62,7 @@ jobs:
 
       - name: Build installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.version }} setup.iss
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

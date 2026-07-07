@@ -1,5 +1,9 @@
 #define MyAppName "Dev Tools"
-#define MyAppVersion "1.0.0"
+; Default version for local/manual compiles. CI overrides this with
+;   iscc /DMyAppVersion=x.y.z setup.iss
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "DevTools"
 #define MyAppExeName "DevTools.exe"
 
@@ -11,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName=C:\{#MyAppPublisher}
 DisableProgramGroupPage=yes
 OutputDir=installer
-OutputBaseFilename=DevTools-Setup
+OutputBaseFilename=DevTools-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
