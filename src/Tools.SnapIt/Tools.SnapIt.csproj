@@ -29,13 +29,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Settings.json">
+    <Content Include="settings\snapit\Settings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>settings\snapit\Settings.json</Link>
     </Content>
-    <Content Include="ExcludedApplicationSettings.json">
+    <Content Include="settings\snapit\ExcludedApplicationSettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>settings\snapit\ExcludedApplicationSettings.json</Link>
+    </Content>
+    <Content Include="settings\snapit\layouts\3PartHorizontal.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 

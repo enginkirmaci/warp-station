@@ -321,8 +321,8 @@ public partial class ReposViewModel : PageViewModelBase
 
         // Build the inner command line: opencode model "<model>" [--prompt "prompt"].
         var commandLine = string.IsNullOrWhiteSpace(prompt)
-            ? $"{openCodeExe} model \"{EscapeForCommandLine(model)}\""
-            : $"{openCodeExe} model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
+            ? $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\""
+            : $"{openCodeExe} --model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
 
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
 

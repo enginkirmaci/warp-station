@@ -7,7 +7,7 @@ namespace Tools.SnapIt.Services;
 
 public class FileOperationService : IFileOperationService
 {
-	private const string LayoutFolder = "Layoutsv20";
+	private const string LayoutFolder = "layouts";
 
 	private readonly string _rootFolder = Constants.RootFolder;
 	private readonly SemaphoreSlim _initLock = new(1, 1);
