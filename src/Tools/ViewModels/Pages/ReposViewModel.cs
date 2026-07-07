@@ -24,7 +24,15 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IRepoService _repoService;
     private readonly IProcessLauncher _processLauncher;
+    private readonly IOpenCodeModelService _openCodeModelService;
     private ReposSettings _reposSettings = new();
+
+    /// <summary>
+    /// The model selected when the OpenCode panel opens, loaded from
+    /// <c>settings/opencode/models.json</c>. Falls back to the first available model
+    /// until the file is loaded.
+    /// </summary>
+    private string _defaultOpenCodeModel = string.Empty;
 
     [ObservableProperty]
     private string _filterText = string.Empty;
@@ -51,6 +59,21 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private int _openCodeInstanceCount = 1;
 
+    /// <summary>
+    /// The models available in the OpenCode model selector, loaded from
+    /// <c>settings/opencode/models.json</c>. Empty until <see cref="OnInitializeAsync"/>
+    /// has loaded the model list.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<string> _openCodeModels = new();
+
+    /// <summary>
+    /// The currently selected model in the OpenCode panel. Passed to opencode via
+    /// <c>opencode model "&lt;model&gt;"</c>.
+    /// </summary>
+    [ObservableProperty]
+    private string _openCodeSelectedModel = string.Empty;
+
     [ObservableProperty]
     private string _openCodePrompt = string.Empty;
 
@@ -72,13 +95,15 @@ public partial class ReposViewModel : PageViewModelBase
         IDevToolsClient devToolsClient,
         IDialogService dialogService,
         IRepoService repoService,
-        IProcessLauncher processLauncher)
+        IProcessLauncher processLauncher,
+        IOpenCodeModelService openCodeModelService)
     {
         _settingsService = settingsService;
         _devToolsClient = devToolsClient;
         _dialogService = dialogService;
         _repoService = repoService;
         _processLauncher = processLauncher;
+        _openCodeModelService = openCodeModelService;
 
         _repoService.Changed += OnRepoChanged;
     }
@@ -101,8 +126,25 @@ public partial class ReposViewModel : PageViewModelBase
         var settings = await _settingsService.GetSettingsAsync();
         _reposSettings = settings.Repos ?? new ReposSettings();
         await _repoService.EnsureLoadedAsync(_reposSettings);
+        await LoadOpenCodeModelsAsync();
         RebuildTagFilters();
         ApplyFilter();
+    }
+
+    /// <summary>
+    /// Loads the OpenCode model list from <c>settings/opencode/models.json</c> into
+    /// <see cref="OpenCodeModels"/> and resolves the default selection. Safe to call
+    /// before the panel opens: the service falls back to built-in defaults.
+    /// </summary>
+    private async Task LoadOpenCodeModelsAsync()
+    {
+        var config = await _openCodeModelService.LoadAsync();
+        OpenCodeModels = new ObservableCollection<string>(config.Models);
+        _defaultOpenCodeModel = string.IsNullOrWhiteSpace(config.DefaultModel) && OpenCodeModels.Count > 0
+            ? OpenCodeModels[0]
+            : config.DefaultModel;
+        if (string.IsNullOrEmpty(OpenCodeSelectedModel) && OpenCodeModels.Count > 0)
+            OpenCodeSelectedModel = _defaultOpenCodeModel;
     }
 
     private void OnRepoChanged(object? sender, EventArgs e)
@@ -127,6 +169,7 @@ public partial class ReposViewModel : PageViewModelBase
         {
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
+            OpenCodeSelectedModel = _defaultOpenCodeModel;
             OpenCodePrompt = string.Empty;
         }
     }
@@ -254,6 +297,7 @@ public partial class ReposViewModel : PageViewModelBase
         if (repo is null) return;
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
+        OpenCodeSelectedModel = _defaultOpenCodeModel;
         OpenCodePrompt = string.Empty;
         IsOpenCodePanelOpen = true;
     }
@@ -271,12 +315,14 @@ public partial class ReposViewModel : PageViewModelBase
         var openCodeExe = _reposSettings.OpenCodeExecutable ?? "opencode";
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
+        var model = string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
+            ? _defaultOpenCodeModel
+            : OpenCodeSelectedModel;
 
-        // Build the inner command line: opencode --prompt "prompt" when a prompt is given,
-        // otherwise plain opencode.
+        // Build the inner command line: opencode model "<model>" [--prompt "prompt"].
         var commandLine = string.IsNullOrWhiteSpace(prompt)
-            ? openCodeExe
-            : $"{openCodeExe} --prompt \"{EscapeForCommandLine(prompt)}\"";
+            ? $"{openCodeExe} model \"{EscapeForCommandLine(model)}\""
+            : $"{openCodeExe} model \"{EscapeForCommandLine(model)}\" --prompt \"{EscapeForCommandLine(prompt)}\"";
 
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
 

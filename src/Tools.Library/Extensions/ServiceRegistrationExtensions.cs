@@ -19,6 +19,7 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<INugetLocalService, NugetLocalService>();
+        services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
 
         // Repos subsystem: scanner, cache store, and the singleton orchestrator
         services.AddSingleton<IRepoScanner, RepoScanner>();

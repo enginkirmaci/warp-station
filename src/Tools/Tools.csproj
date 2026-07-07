@@ -45,11 +45,15 @@
 		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 	</ItemGroup>
 
-	<ItemGroup> 
-		<Content Include="settings.json">
+	<ItemGroup>
+		<Content Include="settings\settings.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\settings.json</Link>
-		</Content>  
+		</Content>
+		<Content Include="settings\opencode\models.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Link>settings\opencode\models.json</Link>
+		</Content>
 	</ItemGroup>
 
 </Project>
