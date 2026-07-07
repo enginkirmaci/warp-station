@@ -46,7 +46,13 @@ public static class TerminalArgumentFormatter
         var exeLower = (terminalExecutable ?? string.Empty).ToLowerInvariant();
 
         if (exeLower.EndsWith("wt.exe") || exeLower == "wt")
-            return $"-d \"{folderPath}\" -- {commandLine}";
+            // Run the command through `cmd /k` rather than directly after `--`.
+            // Windows Terminal resolves the command after `--` against `.exe`
+            // files only and does NOT apply PATHEXT, so npm-installed CLIs that
+            // ship as `.cmd` shims (e.g. opencode) are not found (error
+            // 0x80070002). `cmd` resolves `.cmd`/`.bat` shims via PATHEXT, and
+            // `/k` keeps the window open after the command exits.
+            return $"-d \"{folderPath}\" -- cmd /k {commandLine}";
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'; {commandLine}\"";
