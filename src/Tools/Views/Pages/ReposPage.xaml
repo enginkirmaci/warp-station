@@ -271,6 +271,25 @@
                                                                                                         Background="Transparent"
                                                                                                         BorderBrush="{DynamicResource HairlineBrush}"
                                                                                                         BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenFolderCommand}"
+                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        ToolTip.Tip="Open folder">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-folder}"
+                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
                                                                                                         Command="{Binding #Root.DataContext.OpenVisualStudioCommand}"
                                                                                                         CommandParameter="{Binding}"
                                                                                                         CornerRadius="{DynamicResource ControlRadius}"
