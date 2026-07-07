@@ -1,0 +1,157 @@
+namespace Tools.Library.Configuration;
+
+/// <summary>
+/// Root object mirroring the settings.json structure.
+/// </summary>
+public class AppSettings
+{
+    /// <summary>
+    /// Gets or sets the EF Tools page settings.
+    /// </summary>
+    public EFToolsPageSettings? EFToolsPage { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Nuget Local settings.
+    /// </summary>
+    public NugetLocalSettings? NugetLocal { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Repos settings.
+    /// </summary>
+    public ReposSettings? Repos { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Clipboard Password settings.
+    /// </summary>
+    public ClipboardPasswordSettings? ClipboardPassword { get; set; }
+
+    /// <summary>
+    /// Gets or sets the SnapIt settings.
+    /// </summary>
+    public SnapItSettings? SnapIt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the general application settings.
+    /// </summary>
+    public GeneralSettings? General { get; set; }
+}
+
+/// <summary>
+/// Settings specific to EF Tools page.
+/// </summary>
+public class EFToolsPageSettings
+{
+    /// <summary>
+    /// Gets or sets the repository code template.
+    /// </summary>
+    public string? RepositoryTemplate { get; set; }
+}
+
+/// <summary>
+/// Settings specific to Nuget Local functionality.
+/// </summary>
+public class NugetLocalSettings
+{
+    /// <summary>
+    /// Gets or sets the folder path to watch for new nuget packages.
+    /// </summary>
+    public string? WatchFolder { get; set; }
+
+    /// <summary>
+    /// Gets or sets the file filter pattern for nuget packages.
+    /// </summary>
+    public string? NugetPackageFilter { get; set; } = "*.nupkg";
+
+    /// <summary>
+    /// Gets or sets the delay in milliseconds before copying files.
+    /// </summary>
+    public int FileCopyDelayMs { get; set; } = 2000;
+
+    /// <summary>
+    /// Gets or sets the interval in seconds for resetting the counter.
+    /// </summary>
+    public int CountResetIntervalSeconds { get; set; } = 60;
+}
+
+/// <summary>
+/// Settings specific to Repos functionality.
+/// </summary>
+public class ReposSettings
+{
+    /// <summary>
+    /// Gets or sets the folders to scan for repositories.
+    /// </summary>
+    public string[]? RepoScanFolders { get; set; }
+
+    /// <summary>
+    /// Gets or sets the git folder pattern to search for.
+    /// </summary>
+    public string? GitFolderPattern { get; set; } = "*.git";
+
+    /// <summary>
+    /// Gets or sets the solution file pattern to search for.
+    /// </summary>
+    public string? SolutionFilePattern { get; set; } = "*.sln";
+
+    /// <summary>
+    /// Gets or sets the platform folder name identifier. A repo whose path contains
+    /// this substring is auto-tagged <c>platform</c>.
+    /// </summary>
+    public string? PlatformFolderName { get; set; } = "platform";
+
+    /// <summary>
+    /// Gets or sets the VS Code executable path or command.
+    /// </summary>
+    public string? VSCodeExecutable { get; set; } = "code";
+
+    /// <summary>
+    /// Gets or sets the terminal executable path or command.
+    /// </summary>
+    public string? TerminalExecutable { get; set; } = "wt";
+
+    /// <summary>
+    /// Gets or sets the OpenCode executable path or command.
+    /// </summary>
+    public string? OpenCodeExecutable { get; set; } = "opencode";
+
+    /// <summary>
+    /// Gets or sets the folders to exclude during scanning.
+    /// </summary>
+    public string[]? ExcludedFolders { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum folder depth to scan recursively.
+    /// A value of 1 scans only the root scan folder, 2 includes its immediate
+    /// subfolders, and so on. Defaults to 3.
+    /// </summary>
+    public int MaxScanDepth { get; set; } = 3;
+}
+
+/// <summary>
+/// Settings for Clipboard Password functionality.
+/// </summary>
+public class ClipboardPasswordSettings
+{
+    /// <summary>
+    /// Gets or sets the encrypted password.
+    /// </summary>
+    public string? EncryptedPassword { get; set; }
+}
+
+/// <summary>
+/// Application-wide general settings.
+/// </summary>
+public class GeneralSettings
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether the app should start with the
+    /// main window minimized to the taskbar.
+    /// </summary>
+    public bool StartMinimized { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the app should launch automatically
+    /// when the user signs in (synced to the Windows registry Run key on startup).
+    /// </summary>
+    public bool StartAtBoot { get; set; }
+}

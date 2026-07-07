@@ -1,0 +1,41 @@
+#if DEBUG
+
+#endif
+
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace Tools.SnapIt;
+
+public static class Dev
+{
+	private static readonly bool isInDesignMode = Design.IsDesignMode;
+
+	public static bool IsInDesignMode => isInDesignMode;
+
+#if DEBUG
+	public const bool IsActive = false;
+	public const bool ShowSnapWindowOnStartup = false;
+	public const bool IsTopmostDisabled = false;
+	public const bool SkipRunAsAdmin = true;
+#else
+    public const bool IsActive = false;
+    public const bool ShowSnapWindowOnStartup = false;
+    public const bool IsTopmostDisabled = false;
+    public const bool SkipRunAsAdmin = false;
+#endif
+
+	public static void Log(object message = null, bool showTime = false, [CallerLineNumber] int lineNumber = 0, [CallerMemberName] string caller = null)
+	{
+#if DEBUG
+		if (!showTime)
+		{
+			Debug.WriteLine($"Line: {lineNumber}, Method: {caller}, Message: {message}");
+		}
+		else
+		{
+			Debug.WriteLine($"{DateTime.Now:hh.mm.ss.ffffff} -> Line: {lineNumber}, Method: {caller}, Message: {message}");
+		}
+#endif
+	}
+}

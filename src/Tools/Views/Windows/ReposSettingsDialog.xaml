@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Tools.Views.Windows.ReposSettingsDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Repo Settings"
+    Width="650"
+    Height="620"
+    CanResize="False"
+    WindowStartupLocation="CenterOwner">
+
+    <Grid RowDefinitions="*,Auto">
+        <!--  Scrollable content area  -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Classes="page-root" Spacing="16">
+                <!--  Repo Scan Folders  -->
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Classes="field-label"
+                        Text="Repo Scan Folders"
+                        ToolTip.Tip="Folders to scan for repositories (one per line)" />
+                    <TextBox
+                        Height="120"
+                        AcceptsReturn="True"
+                        Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                        TextWrapping="Wrap"
+                        Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
+                </StackPanel>
+
+                <!--  Excluded Folders  -->
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Classes="field-label"
+                        Text="Excluded Folders"
+                        ToolTip.Tip="Folders to exclude from scanning (one per line)" />
+                    <TextBox
+                        Height="100"
+                        AcceptsReturn="True"
+                        Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                        TextWrapping="Wrap"
+                        Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />
+                </StackPanel>
+
+                <!--  Pattern and executable fields  -->
+                <WrapPanel HorizontalAlignment="Stretch">
+                    <!--  Git Folder Pattern  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Git Folder Pattern"
+                            ToolTip.Tip="Pattern to search for git folders" />
+                        <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
+                    </StackPanel>
+
+                    <!--  Solution File Pattern  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Solution File Pattern"
+                            ToolTip.Tip="Pattern to search for solution files" />
+                        <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln" />
+                    </StackPanel>
+
+                    <!--  Platform Folder Name  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Platform Folder Name"
+                            ToolTip.Tip="Identifier for platform folders (auto-tags repos whose path contains it)" />
+                        <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
+                    </StackPanel>
+
+                    <!--  VS Code Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="VS Code Executable"
+                            ToolTip.Tip="Path or command for VS Code" />
+                        <TextBox Text="{Binding VsCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="code" />
+                    </StackPanel>
+
+                    <!--  Terminal Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Terminal Executable"
+                            ToolTip.Tip="Path or command for terminal" />
+                        <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
+                    </StackPanel>
+
+                    <!--  OpenCode Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="OpenCode Executable"
+                            ToolTip.Tip="Path or command for OpenCode" />
+                        <TextBox Text="{Binding OpenCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="opencode" />
+                    </StackPanel>
+
+                    <!--  Max Scan Depth  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Max Scan Depth"
+                            ToolTip.Tip="Maximum number of folder levels to scan recursively (e.g. 3)" />
+                        <TextBox Text="{Binding MaxScanDepth, UpdateSourceTrigger=PropertyChanged}" Watermark="3" />
+                    </StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  Footer with action buttons (outside scroll area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel
+                HorizontalAlignment="Right"
+                Classes="actions">
+                <Button
+                    Click="OnCancelClick"
+                    Content="Cancel" />
+                <Button
+                    Click="OnSaveClick"
+                    Classes="accent"
+                    Content="Save"
+                    IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

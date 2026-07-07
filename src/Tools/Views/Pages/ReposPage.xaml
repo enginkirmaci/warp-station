@@ -1,0 +1,444 @@
+<UserControl
+        x:Class="Tools.Views.Pages.ReposPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:tools="using:Tools.Library.MarkupExtensions"
+        x:Name="Root"
+        d:DesignHeight="600"
+        d:DesignWidth="1000"
+        mc:Ignorable="d">
+
+        <Grid ColumnDefinitions="240,*,Auto" ColumnSpacing="16">
+
+                <Border
+                        Grid.Column="0"
+                        VerticalAlignment="Stretch"
+                        Classes="card">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+                                <TextBlock
+                                        Grid.Row="0"
+                                        Margin="0,0,0,12"
+                                        Classes="section-title"
+                                        FontSize="16"
+                                        Text="Filter" />
+                                <TextBox
+                                        Grid.Row="1"
+                                        Margin="0,0,0,12"
+                                        Text="{Binding FilterText, Mode=TwoWay}"
+                                        Watermark="Search repos...">
+                                        <TextBox.InnerRightContent>
+                                                <Button
+                                                        Width="20"
+                                                        Height="20"
+                                                        Padding="2"
+                                                        Classes="icon"
+                                                        Command="{Binding ClearFilterCommand}"
+                                                        IsVisible="{Binding FilterText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                        <Path
+                                                                Width="12"
+                                                                Height="12"
+                                                                Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                Stretch="Uniform" />
+                                                </Button>
+                                        </TextBox.InnerRightContent>
+                                </TextBox>
+                                <Grid
+                                        Grid.Row="2"
+                                        Margin="0,0,0,8"
+                                        ColumnDefinitions="*,Auto">
+                                        <TextBlock
+                                                Grid.Column="0"
+                                                VerticalAlignment="Center"
+                                                Classes="field-label"
+                                                Text="Tags" />
+                                        <Button
+                                                Grid.Column="1"
+                                                Width="44"
+                                                Padding="6,2"
+                                                VerticalAlignment="Center"
+                                                Classes="icon"
+                                                Command="{Binding ClearTagFiltersCommand}"
+                                                ToolTip.Tip="Clear selected tags">
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="Clear" />
+                                        </Button>
+                                </Grid>
+                                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding TagFilters}">
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                                <CheckBox
+                                                                        Command="{Binding #Root.DataContext.TagFilterChangedCommand}"
+                                                                        Content="{Binding Name}"
+                                                                        IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                </ScrollViewer>
+                        </Grid>
+                </Border>
+
+                <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                        <Grid
+                                Grid.Row="0"
+                                Margin="0,12,0,12"
+                                ColumnDefinitions="*,Auto"
+                                ColumnSpacing="8">
+                                <StackPanel
+                                        Grid.Column="0"
+                                        Margin="0,12,0,0"
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                        <TextBlock VerticalAlignment="Center" Classes="section-title">
+                                                <Run Text="Repos" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text=" (" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text="{Binding FilteredRepos.Count}" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text=")" />
+                                        </TextBlock>
+                                </StackPanel>
+                                <StackPanel
+                                        Grid.Column="1"
+                                        HorizontalAlignment="Right"
+                                        Classes="actions">
+                                        <Button
+                                                Classes="icon"
+                                                Command="{Binding RefreshCommand}"
+                                                IsEnabled="{Binding !IsBusy}"
+                                                ToolTip.Tip="Refresh">
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                                        </Button>
+                                        <Button
+                                                Classes="icon"
+                                                Command="{Binding OpenSettingsCommand}"
+                                                ToolTip.Tip="Settings">
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
+                                        </Button>
+                                </StackPanel>
+                        </Grid>
+                        <ScrollViewer Grid.Row="1">
+                                <StackPanel Spacing="10">
+                                        <ItemsControl ItemsSource="{Binding FilteredRepos}">
+                                                <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                                <StackPanel Spacing="12" />
+                                                        </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                                <Border Padding="14" Classes="card">
+                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                                <StackPanel
+                                                                                        Grid.Column="0"
+                                                                                        Margin="0,0,12,0"
+                                                                                        Orientation="Vertical"
+                                                                                        Spacing="10">
+                                                                                        <StackPanel Spacing="2">
+                                                                                                <TextBlock
+                                                                                                        FontWeight="Medium"
+                                                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                                        Text="{Binding Name}" />
+                                                                                                <TextBlock
+                                                                                                        Classes="subtle"
+                                                                                                        Text="{Binding FolderPath}"
+                                                                                                        TextTrimming="CharacterEllipsis" />
+                                                                                        </StackPanel>
+                                                                                        <WrapPanel Orientation="Horizontal">
+                                                                                                <ItemsControl ItemsSource="{Binding Tags}">
+                                                                                                        <ItemsControl.ItemsPanel>
+                                                                                                                <ItemsPanelTemplate>
+                                                                                                                        <WrapPanel Orientation="Horizontal" />
+                                                                                                                </ItemsPanelTemplate>
+                                                                                                        </ItemsControl.ItemsPanel>
+                                                                                                        <ItemsControl.ItemTemplate>
+                                                                                                                <DataTemplate>
+                                                                                                                        <Border
+                                                                                                                                Margin="0,0,6,6"
+                                                                                                                                Padding="8,3"
+                                                                                                                                Classes="chip">
+                                                                                                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                                                                                        <TextBlock
+                                                                                                                                                VerticalAlignment="Center"
+                                                                                                                                                Classes="subtle"
+                                                                                                                                                Text="{Binding Name}" />
+                                                                                                                                        <Button
+                                                                                                                                                Width="14"
+                                                                                                                                                Height="14"
+                                                                                                                                                Padding="0"
+                                                                                                                                                Background="Transparent"
+                                                                                                                                                BorderThickness="0"
+                                                                                                                                                Command="{Binding #Root.DataContext.RemoveTagCommand}"
+                                                                                                                                                CommandParameter="{Binding}"
+                                                                                                                                                Cursor="Hand"
+                                                                                                                                                ToolTip.Tip="Remove tag">
+                                                                                                                                                <Path
+                                                                                                                                                        Width="9"
+                                                                                                                                                        Height="9"
+                                                                                                                                                        Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                                                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                                                                        Stretch="Uniform" />
+                                                                                                                                        </Button>
+                                                                                                                                </StackPanel>
+                                                                                                                        </Border>
+                                                                                                                </DataTemplate>
+                                                                                                        </ItemsControl.ItemTemplate>
+                                                                                                </ItemsControl>
+                                                                                                <Button
+                                                                                                        Margin="0,0,0,6"
+                                                                                                        Padding="8,3"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                        Cursor="Hand"
+                                                                                                        ToolTip.Tip="Add tag">
+                                                                                                        <TextBlock
+                                                                                                                FontSize="12"
+                                                                                                                Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                                                                Text="+" />
+                                                                                                        <Button.Flyout>
+                                                                                                                <Flyout Placement="BottomEdgeAlignedLeft">
+                                                                                                                        <StackPanel Width="220" Spacing="10">
+                                                                                                                                <TextBlock Classes="field-label" Text="Quick add" />
+                                                                                                                                <ItemsControl ItemsSource="{Binding #Root.DataContext.AvailableTags}">
+                                                                                                                                        <ItemsControl.ItemsPanel>
+                                                                                                                                                <ItemsPanelTemplate>
+                                                                                                                                                        <WrapPanel Orientation="Horizontal" />
+                                                                                                                                                </ItemsPanelTemplate>
+                                                                                                                                        </ItemsControl.ItemsPanel>
+                                                                                                                                        <ItemsControl.ItemTemplate>
+                                                                                                                                                <DataTemplate>
+                                                                                                                                                        <Button
+                                                                                                                                                                Margin="0,0,6,6"
+                                                                                                                                                                Padding="8,3"
+                                                                                                                                                                Background="Transparent"
+                                                                                                                                                                BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                                                                                BorderThickness="1"
+                                                                                                                                                                Command="{Binding #Root.DataContext.AddTagByNameCommand}"
+                                                                                                                                                                Content="{Binding}"
+                                                                                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                                                                                Cursor="Hand"
+                                                                                                                                                                FontSize="12">
+                                                                                                                                                                <Button.CommandParameter>
+                                                                                                                                                                        <MultiBinding Converter="{StaticResource PairConverter}">
+                                                                                                                                                                                <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=Border}" />
+                                                                                                                                                                                <Binding Path="." />
+                                                                                                                                                                        </MultiBinding>
+                                                                                                                                                                </Button.CommandParameter>
+                                                                                                                                                        </Button>
+                                                                                                                                                </DataTemplate>
+                                                                                                                                        </ItemsControl.ItemTemplate>
+                                                                                                                                </ItemsControl>
+                                                                                                                                <Border Margin="0,4" Classes="horizontal-divider" />
+                                                                                                                                <TextBlock Classes="field-label" Text="New tag" />
+                                                                                                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                                                                                        <TextBox
+                                                                                                                                                Grid.Column="0"
+                                                                                                                                                Text="{Binding #Root.DataContext.NewTagText, Mode=TwoWay}"
+                                                                                                                                                Watermark="Tag name" />
+                                                                                                                                        <Button
+                                                                                                                                                Grid.Column="1"
+                                                                                                                                                Classes="accent"
+                                                                                                                                                Command="{Binding #Root.DataContext.AddTagCommand}"
+                                                                                                                                                CommandParameter="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Border}}"
+                                                                                                                                                Content="Add" />
+                                                                                                                                </Grid>
+                                                                                                                        </StackPanel>
+                                                                                                                </Flyout>
+                                                                                                        </Button.Flyout>
+                                                                                                </Button>
+                                                                                        </WrapPanel>
+                                                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenVisualStudioCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                                        ToolTip.Tip="Open in Visual Studio">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-sln-box}"
+                                                                                                                Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenWithVSCodeCommand}"
+                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        ToolTip.Tip="Open in VS Code">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-vscode}"
+                                                                                                                Fill="#007ACC"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenWithTerminalCommand}"
+                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        ToolTip.Tip="Open in Terminal">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-terminal}"
+                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        ToolTip.Tip="Open with OpenCode">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-opencode}"
+                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                        </StackPanel>
+                                                                                </StackPanel>
+                                                                                <Button
+                                                                                        Grid.Column="1"
+                                                                                        VerticalAlignment="Top"
+                                                                                        Classes="icon"
+                                                                                        Command="{Binding #Root.DataContext.ToggleFavoriteCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        ToolTip.Tip="Toggle favorite">
+                                                                                        <Path
+                                                                                                Width="16"
+                                                                                                Height="16"
+                                                                                                Data="{tools:SvgPath icon-star}"
+                                                                                                Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                        </Grid>
+                                                                </Border>
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                </StackPanel>
+                        </ScrollViewer>
+                </Grid>
+
+                <Border
+                        Grid.Column="2"
+                        Width="340"
+                        VerticalAlignment="Stretch"
+                        Classes="card"
+                        IsVisible="{Binding IsOpenCodePanelOpen}">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+                                <Grid
+                                        Grid.Row="0"
+                                        Margin="0,0,0,16"
+                                        ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                                <TextBlock
+                                                        Classes="card-title"
+                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                        Text="OpenCode" />
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        Text="{Binding OpenCodeRepo.Name}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <Button
+                                                Grid.Column="1"
+                                                VerticalAlignment="Top"
+                                                Classes="icon"
+                                                Command="{Binding CloseOpenCodePanelCommand}"
+                                                ToolTip.Tip="Close">
+                                                <Path
+                                                        Width="14"
+                                                        Height="14"
+                                                        Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                        Stretch="Uniform" />
+                                        </Button>
+                                </Grid>
+                                <StackPanel
+                                        Grid.Row="1"
+                                        Margin="0,0,0,16"
+                                        Spacing="8">
+                                        <TextBlock
+                                                Classes="field-label"
+                                                Text="Instances"
+                                                ToolTip.Tip="How many terminal windows to open, each running opencode" />
+                                        <NumericUpDown
+                                                Maximum="32"
+                                                Minimum="1"
+                                                Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2" Spacing="8">
+                                        <TextBlock Classes="field-label" Text="Model" />
+                                        <ComboBox
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding OpenCodeModels}"
+                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="3" Spacing="8">
+                                        <TextBlock Classes="field-label" Text="Start prompt (optional)" />
+                                        <TextBox
+                                                Height="120"
+                                                AcceptsReturn="True"
+                                                Text="{Binding OpenCodePrompt, Mode=TwoWay}"
+                                                TextWrapping="Wrap"
+                                                Watermark="e.g. fix the login bug" />
+                                </StackPanel>
+                                <Button
+                                        Grid.Row="4"
+                                        HorizontalAlignment="Stretch"
+                                        Classes="accent"
+                                        Command="{Binding LaunchOpenCodeCommand}"
+                                        Content="Open"
+                                        IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
+                                <Border Grid.Row="5" />
+                        </Grid>
+                </Border>
+
+        </Grid>
+</UserControl>

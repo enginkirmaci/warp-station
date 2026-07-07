@@ -1,0 +1,25 @@
+<Styles
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:control="using:Tools.SnapIt.Controls">
+
+	<Style Selector="control|SnapArea">
+		<Setter Property="VerticalAlignment" Value="Top" />
+		<Setter Property="HorizontalAlignment" Value="Left" />
+		<Setter Property="Focusable" Value="False" />
+		<Setter Property="Template">
+			<ControlTemplate>
+				<Grid Margin="{Binding AreaPadding, RelativeSource={RelativeSource TemplatedParent}}">
+				<Grid
+					x:Name="Area"
+					Background="{Binding SnapTheme.OverlayBrush, RelativeSource={RelativeSource TemplatedParent}}"
+					Opacity="{Binding SnapTheme.Opacity, RelativeSource={RelativeSource TemplatedParent}}" />
+				<Border
+					x:Name="Border"
+					BorderBrush="{Binding SnapTheme.BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"
+					BorderThickness="{Binding SnapTheme.BorderThickness, RelativeSource={RelativeSource TemplatedParent}}" />
+				</Grid>
+			</ControlTemplate>
+		</Setter>
+	</Style>
+</Styles>

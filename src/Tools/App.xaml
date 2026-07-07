@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Application
+	x:Class="Tools.App"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:conv="using:Tools.Library.Converters"
+	RequestedThemeVariant="Dark">
+	<Application.Styles>
+		<FluentTheme />
+		<StyleInclude Source="/Styles/AppStyles.axaml" />
+		<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapIt.Controls.UI.xaml" />
+	</Application.Styles>
+	<Application.Resources>
+		<ResourceDictionary>
+			<ResourceDictionary.MergedDictionaries>
+				<ResourceInclude Source="/Styles/ThemeResources.axaml" />
+			</ResourceDictionary.MergedDictionaries>
+
+			<!--  Align FluentTheme native accent (focus rings, default buttons, etc.) with the indigo brand  -->
+			<Color x:Key="SystemAccentColor">#3B82F6</Color>
+
+			<!--  Converters  -->
+			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
+			<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
+			<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
+			<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
+			<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
+			<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
+			<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
+			<conv:StringNotNullToBoolConverter x:Key="StringNotNullToBoolConverter" />
+			<conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
+			<conv:PairConverter x:Key="PairConverter" />
+			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
+		</ResourceDictionary>
+	</Application.Resources>
+</Application>

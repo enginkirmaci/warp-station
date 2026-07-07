@@ -1,17 +1,17 @@
 # Dev Tools
 
-Compact WinUI 3 developer utilities collection.
+Compact Avalonia developer utilities collection.
 
 ## Quick start
  
 Build:
 ```sh
-dotnet build Tools.sln
+dotnet build Tools.slnx
 ```
 
 Run (from IDE or CLI):
 ```sh
-dotnet run --project Tools/Tools.csproj
+dotnet run --project src/Tools/Tools.csproj
 ```
 
 
@@ -21,10 +21,12 @@ This repository includes a GitHub Actions workflow that builds the application a
 
 How it works:
 - Restores and builds the solution with .NET 10
-- Publishes a self-contained x64 publish of `Tools` project
+- Publishes self-contained x64 builds of both `Tools` and `DevTools`
 - Installs Inno Setup on the runner and compiles `setup.iss`
 - Uploads the generated installer as a workflow artifact
 - When triggered by a tag (for example `v1.0.0`) the workflow will also create a GitHub Release and attach the installer
+
+`DevTools.exe` is the supervisor: it launches `Tools.exe` and hosts the named pipe server the GUI uses. The installer places both in the same folder and the Start Menu / Desktop shortcuts launch `DevTools.exe`, which starts `Tools.exe` automatically.
 
 Triggering a release (example):
 

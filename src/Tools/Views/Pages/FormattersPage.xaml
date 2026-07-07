@@ -1,0 +1,147 @@
+<UserControl
+        x:Class="Tools.Views.Pages.FormattersPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:tools="using:Tools.Library.MarkupExtensions"
+        x:Name="RootPage"
+        d:DesignHeight="700"
+        d:DesignWidth="900"
+        mc:Ignorable="d">
+
+        <Grid Classes="page-root" RowDefinitions="Auto,*">
+                <TextBlock
+                        Grid.Row="0"
+                        Classes="section-title"
+                        Text="Formatters" />
+
+                <Grid Grid.Row="1" ColumnDefinitions="260,*">
+                        <!--  Operation Selection  -->
+                        <Border
+                                Grid.Column="0"
+                                Margin="0,0,12,0"
+                                VerticalAlignment="Top"
+                                Classes="card">
+                                <StackPanel Spacing="4">
+                                        <TextBlock
+                                                Margin="0,0,0,8"
+                                                Classes="card-title"
+                                                Text="Convert to" />
+                                        <RadioButton
+                                                Content="Base64 Encode"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsBase64EncodeSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Base64 Decode"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsBase64DecodeSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Snake Case"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsSnakeCaseSelected, Mode=TwoWay}" />
+                                        <RadioButton
+                                                Content="Pascal Case"
+                                                GroupName="Operation"
+                                                IsChecked="{Binding IsPascalCaseSelected, Mode=TwoWay}" />
+                                </StackPanel>
+                        </Border>
+
+                        <!--  Input and Output Area  -->
+                        <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                                <!--  Input Area  -->
+                                <Border
+                                        Grid.Row="0"
+                                        Margin="0,0,0,12"
+                                        Classes="card">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                                <TextBox
+                                                        Grid.Column="0"
+                                                        Margin="0,0,8,0"
+                                                        VerticalAlignment="Center"
+                                                        AcceptsReturn="True"
+                                                        Text="{Binding InputText, Mode=TwoWay}"
+                                                        TextWrapping="Wrap"
+                                                        Watermark="Enter text to convert..." />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Height="36"
+                                                        VerticalAlignment="Center"
+                                                        Classes="accent"
+                                                        Command="{Binding ConvertCommand}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <TextBlock VerticalAlignment="Center" Text="▶" />
+                                                                <TextBlock VerticalAlignment="Center" Text="Convert" />
+                                                        </StackPanel>
+                                                </Button>
+                                        </Grid>
+                                </Border>
+
+                                <!--  History Area  -->
+                                <Border Grid.Row="1" Classes="card">
+                                        <Grid RowDefinitions="Auto,*">
+						<Grid
+							Grid.Row="0"
+							MinHeight="32"
+							Margin="0,0,0,6"
+							ColumnDefinitions="*,Auto">
+							<TextBlock
+								Grid.Column="0"
+								VerticalAlignment="Center"
+								Classes="card-title"
+								Text="History" />
+							<Button
+								Grid.Column="1"
+								Classes="icon"
+								Command="{Binding #RootPage.DataContext.ClearHistoryCommand}"
+								IsVisible="{Binding History.Count}"
+								ToolTip.Tip="Clear history">
+								<Path
+									HorizontalAlignment="Center"
+									VerticalAlignment="Center"
+									Classes="icon"
+									Data="{tools:SvgPath icon-close}" />
+							</Button>
+						</Grid>
+                                                <ScrollViewer Grid.Row="1">
+                                                        <ItemsControl ItemsSource="{Binding History}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                                <Border
+                                                                                        Margin="0,0,0,6"
+                                                                                        Padding="8"
+                                                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                        BorderThickness="1"
+                                                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                                                <TextBlock
+                                                                                                        Grid.Column="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Classes="mono"
+                                                                                                        Text="{Binding}"
+                                                                                                        TextWrapping="Wrap" />
+                                                                                                <Button
+                                                                                                        Grid.Column="1"
+                                                                                                        Margin="8,0,0,0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Classes="icon"
+                                                                                                        Command="{Binding #RootPage.DataContext.CopyToClipboardCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        ToolTip.Tip="Copy to clipboard">
+                                                                                                        <Path
+                                                                                                                Classes="icon"
+                                                                                                                Data="{tools:SvgPath icon-clipboard}" />
+                                                                                                </Button>
+                                                                                        </Grid>
+                                                                                </Border>
+                                                                        </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                </ScrollViewer>
+                                        </Grid>
+                                </Border>
+                        </Grid>
+                </Grid>
+        </Grid>
+</UserControl>

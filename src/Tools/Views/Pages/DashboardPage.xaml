@@ -1,0 +1,100 @@
+<UserControl
+        x:Class="Tools.Views.Pages.DashboardPage"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:Tools.Views.Controls"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        d:DesignHeight="600"
+        d:DesignWidth="900"
+        mc:Ignorable="d">
+
+        <Grid Classes="page-root" RowDefinitions="Auto,*">
+
+                <!--  Header Banner  -->
+                <Border
+                        Grid.Row="0"
+                        Padding="32,28,32,24"
+                        Background="{DynamicResource ContentBackgroundBrush}">
+                        <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        Spacing="6">
+                                        <TextBlock Classes="page-title" Text="Development Tools" />
+                                        <TextBlock Classes="page-subtitle" Text="Quick access to your development utilities" />
+                                </StackPanel>
+                        </Grid>
+                </Border>
+
+                <!--  Dashboard Cards Grid  -->
+                <ScrollViewer
+                        Grid.Row="1"
+                        Padding="28,16,28,20"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding DashboardCards}">
+                                <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                                <controls:ResponsiveWrapPanel MinItemWidth="240" Spacing="12" />
+                                        </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                                <Button
+                                                        Height="84"
+                                                        Margin="0"
+                                                        Padding="16,14"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        VerticalContentAlignment="Stretch"
+                                                        BorderThickness="1"
+                                                        Classes="card-button"
+                                                        Command="{Binding Command}"
+                                                        CommandParameter="{Binding PageKey}"
+                                                        CornerRadius="{DynamicResource CardRadius}"
+                                                        Cursor="Hand">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                                                <!--  Accent-tinted icon chip  -->
+                                                                <Border
+                                                                        Grid.Column="0"
+                                                                        Width="40"
+                                                                        Height="40"
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center"
+                                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                                        <Path
+                                                                                Width="22"
+                                                                                Height="22"
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+                                                                                Fill="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}"
+                                                                                Stretch="Uniform" />
+                                                                </Border>
+
+                                                                <StackPanel
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Center"
+                                                                        Spacing="2">
+                                                                        <TextBlock
+                                                                                FontSize="14"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                Text="{Binding Title}"
+                                                                                TextWrapping="Wrap" />
+                                                                        <TextBlock
+                                                                                FontSize="12"
+                                                                                Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                                LineHeight="16"
+                                                                                Text="{Binding Subtitle}"
+                                                                                TextWrapping="Wrap" />
+                                                                </StackPanel>
+                                                        </Grid>
+                                                </Button>
+                                        </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                </ScrollViewer>
+        </Grid>
+</UserControl>

@@ -1,0 +1,6 @@
+﻿<Solution>
+    <Project Path="src/DevTools/DevTools.csproj" />
+    <Project Path="src/Tools/Tools.csproj" />
+    <Project Path="src/Tools.Library/Tools.Library.csproj" />
+    <Project Path="src/Tools.SnapIt/Tools.SnapIt.csproj" />
+</Solution>

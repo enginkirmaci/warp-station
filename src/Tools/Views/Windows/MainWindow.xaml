@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+	x:Class="Tools.Views.Windows.MainWindow"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:tools="using:Tools.Library.MarkupExtensions"
+	Title=""
+	Width="1200"
+	Height="800"
+	MinWidth="800"
+	MinHeight="600"
+	ExtendClientAreaToDecorationsHint="True">
+
+	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*,28">
+		<!--  Custom Title Bar  -->
+		<Border
+			Grid.Row="0"
+			Grid.ColumnSpan="2"
+			Background="{DynamicResource SidebarBackgroundBrush}"
+			BorderBrush="{DynamicResource DividerBrush}"
+			BorderThickness="0,0,0,1"
+			IsHitTestVisible="True"
+			PointerPressed="TitleBar_PointerPressed">
+			<DockPanel Margin="14,0" VerticalAlignment="Center">
+				<!--  App Icon  -->
+				<Image
+					Width="20"
+					Height="20"
+					Margin="0,0,10,0"
+					DockPanel.Dock="Left"
+					Source="avares://Tools/Assets/logo.png"
+					Stretch="Uniform" />
+				<TextBlock
+					VerticalAlignment="Center"
+					DockPanel.Dock="Left"
+					FontSize="13"
+					FontWeight="SemiBold"
+					Foreground="{DynamicResource SubtitleForegroundBrush}"
+					Text="DevTools" />
+				<Button
+					x:Name="BackButton"
+					Margin="16,0,0,0"
+					Padding="8,4"
+					Click="BackButton_Click"
+					Classes="accent"
+					Content="←"
+					DockPanel.Dock="Left"
+					IsVisible="False" />
+			</DockPanel>
+		</Border>
+
+		<!--  Sidebar Navigation  -->
+		<Border
+			Grid.Row="1"
+			Grid.Column="0"
+			Padding="0,8,0,0"
+			Background="{DynamicResource SidebarBackgroundBrush}"
+			BorderBrush="{DynamicResource DividerBrush}"
+			BorderThickness="0,0,1,0">
+			<ListBox
+				x:Name="NavigationListBox"
+				Padding="8,0"
+				Background="Transparent"
+				BorderThickness="0"
+				ItemsSource="{Binding MenuItems}"
+				SelectedIndex="0"
+				SelectionChanged="NavigationListBox_SelectionChanged">
+				<ListBox.Styles>
+					<Style Selector="ListBoxItem">
+						<Setter Property="Padding" Value="0" />
+						<Setter Property="Background" Value="Transparent" />
+					</Style>
+					<!--  Nav surface: transparent by default, indigo-tinted when selected  -->
+					<Style Selector="Border.nav-item-surface">
+						<Setter Property="Background" Value="Transparent" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Background" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected Border.nav-item-surface">
+						<Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+					</Style>
+					<!--  Left accent bar: hidden by default, indigo when selected  -->
+					<Style Selector="Border.nav-accent-bar">
+						<Setter Property="Opacity" Value="0" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected Border.nav-accent-bar">
+						<Setter Property="Opacity" Value="1" />
+					</Style>
+					<!--  Nav icon: muted by default, accent when selected  -->
+					<Style Selector="Path.nav-icon">
+						<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Fill" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected Path.nav-icon">
+						<Setter Property="Fill" Value="{DynamicResource AccentPrimaryBrush}" />
+					</Style>
+					<!--  Nav label: body by default, title when selected  -->
+					<Style Selector="TextBlock.nav-label">
+						<Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+						<Setter Property="Transitions">
+							<Setter.Value>
+								<Transitions>
+									<BrushTransition Property="Foreground" Duration="0:0:0.12" />
+								</Transitions>
+							</Setter.Value>
+						</Setter>
+					</Style>
+					<Style Selector="ListBoxItem:selected TextBlock.nav-label">
+						<Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+						<Setter Property="FontWeight" Value="SemiBold" />
+					</Style>
+				</ListBox.Styles>
+				<ListBox.ItemTemplate>
+					<DataTemplate>
+						<Panel>
+							<!--  Separator line  -->
+							<Border
+								Height="1"
+								Margin="16,8"
+								Background="{DynamicResource DividerBrush}"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualVisibilityConverter}, ConverterParameter=__separator__}" />
+							<!--  Section header  -->
+							<TextBlock
+								Margin="16,12,0,4"
+								FontSize="11"
+								FontWeight="SemiBold"
+								Foreground="{DynamicResource FaintForegroundBrush}"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualVisibilityConverter}, ConverterParameter=__header__}"
+								Text="{Binding Title}" />
+							<!--  Normal navigation item  -->
+							<Border
+								Margin="0,1"
+								Padding="0"
+								CornerRadius="{DynamicResource ControlRadius}"
+								IsVisible="{Binding PageKey, Converter={StaticResource EqualNotVisibilityConverter}, ConverterParameter=__separator__}">
+								<Grid ColumnDefinitions="3,*">
+									<!--  Indigo left accent bar (revealed on selection)  -->
+									<Border
+										Grid.Column="0"
+										Height="18"
+										VerticalAlignment="Center"
+										HorizontalAlignment="Left"
+										Background="{DynamicResource AccentPrimaryBrush}"
+										CornerRadius="2"
+										Classes="nav-accent-bar" />
+									<!--  Nav surface + content  -->
+									<Border
+										Grid.Column="1"
+										Margin="0"
+										Padding="12,8"
+										Classes="nav-item-surface"
+										CornerRadius="{DynamicResource ControlRadius}">
+										<StackPanel Orientation="Horizontal" Spacing="12">
+											<Path
+												Width="18"
+												Height="18"
+												VerticalAlignment="Center"
+												Classes="nav-icon"
+												Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+												Stretch="Uniform" />
+											<TextBlock
+												VerticalAlignment="Center"
+												FontSize="13"
+												Classes="nav-label"
+												Text="{Binding Title}" />
+										</StackPanel>
+									</Border>
+								</Grid>
+							</Border>
+						</Panel>
+					</DataTemplate>
+				</ListBox.ItemTemplate>
+			</ListBox>
+		</Border>
+
+		<!--  Content Area  -->
+		<Grid
+			Grid.Row="1"
+			Grid.Column="1"
+			Background="{DynamicResource ContentBackgroundBrush}">
+			<Grid.RowDefinitions>
+				<RowDefinition Height="*" />
+				<RowDefinition Height="Auto" />
+			</Grid.RowDefinitions>
+
+				<ContentControl
+					x:Name="ContentArea"
+					Grid.Row="0"
+					Padding="0" />
+
+				<!--  Info Bar  -->
+				<!--  InfoBar removed during migration  -->
+			</Grid>
+
+			<!--  Status Bar  -->
+			<Border
+				Grid.Row="2"
+				Grid.ColumnSpan="2"
+				Background="{DynamicResource SidebarTranslucentBrush}"
+				BorderBrush="{DynamicResource DividerBrush}"
+				BorderThickness="0,1,0,0">
+				<DockPanel Margin="14,0" VerticalAlignment="Center">
+					<!--  SnapIt indicator (moved from dashboard)  -->
+					<Button
+						Padding="8,2"
+						Background="Transparent"
+						BorderThickness="0"
+						Command="{Binding ToggleSnapItCommand}"
+						CornerRadius="{DynamicResource ChipRadius}"
+						Cursor="Hand"
+						DockPanel.Dock="Left">
+						<StackPanel Orientation="Horizontal" Spacing="6">
+							<Border
+								Width="8"
+								Height="8"
+								VerticalAlignment="Center"
+								Background="{Binding SnapItRunning, Converter={StaticResource BoolToBrushConverter}}"
+								CornerRadius="4" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								FontWeight="Medium"
+								Foreground="{DynamicResource BodyForegroundBrush}"
+								Text="SnapIt" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								Foreground="{DynamicResource MutedForegroundBrush}"
+								Text="{Binding SnapItStatusText, Mode=OneWay}" />
+						</StackPanel>
+						<Button.Styles>
+							<Style Selector="Button /template/ ContentPresenter">
+								<Setter Property="Background" Value="Transparent" />
+							</Style>
+							<Style Selector="Button:pointerover /template/ ContentPresenter">
+								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+							</Style>
+						</Button.Styles>
+					</Button>
+
+					<!--  NuGet Local watch indicator  -->
+					<Button
+						Margin="6,0,0,0"
+						Padding="8,2"
+						Background="Transparent"
+						BorderThickness="0"
+						Command="{Binding ToggleNugetWatchCommand}"
+						CornerRadius="{DynamicResource ChipRadius}"
+						Cursor="Hand"
+						DockPanel.Dock="Left">
+						<StackPanel Orientation="Horizontal" Spacing="6">
+							<Border
+								Width="8"
+								Height="8"
+								VerticalAlignment="Center"
+								Background="{Binding NugetWatchRunning, Converter={StaticResource BoolToBrushConverter}}"
+								CornerRadius="4" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								FontWeight="Medium"
+								Foreground="{DynamicResource BodyForegroundBrush}"
+								Text="NuGet Watch" />
+							<TextBlock
+								VerticalAlignment="Center"
+								FontSize="11"
+								Foreground="{DynamicResource MutedForegroundBrush}"
+								Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
+						</StackPanel>
+						<Button.Styles>
+							<Style Selector="Button /template/ ContentPresenter">
+								<Setter Property="Background" Value="Transparent" />
+							</Style>
+							<Style Selector="Button:pointerover /template/ ContentPresenter">
+								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+							</Style>
+						</Button.Styles>
+					</Button>
+				</DockPanel>
+			</Border>
+	</Grid>
+</Window>

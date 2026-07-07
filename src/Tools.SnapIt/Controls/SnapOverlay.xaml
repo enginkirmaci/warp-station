@@ -1,0 +1,46 @@
+<UserControl
+	x:Class="Tools.SnapIt.Controls.SnapOverlay"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:controls="using:Tools.SnapIt.Controls"
+	HorizontalAlignment="Left"
+	VerticalAlignment="Top">
+
+	<Grid
+		x:Name="Overlay"
+		Background="{Binding SnapTheme.OverlayBrush, FallbackValue=#FF636363}"
+		Opacity="{Binding SnapTheme.Opacity, FallbackValue=0.85}">
+		<Border
+			x:Name="Border"
+			BorderBrush="{Binding SnapTheme.BorderBrush, FallbackValue=#FFC8C8C8}"
+			BorderThickness="{Binding SnapTheme.BorderThickness}" />
+
+		<Grid
+			x:Name="MergedIcon"
+			Width="64"
+			Height="64"
+			HorizontalAlignment="Center"
+			VerticalAlignment="Center">
+			<TextBlock
+				x:Name="icon1"
+				HorizontalAlignment="Center"
+				VerticalAlignment="Center"
+				FontFamily="Segoe MDL2 Assets"
+				FontSize="64"
+				Foreground="{Binding SnapTheme.BorderBrush, FallbackValue=#FFC8C8C8}"
+				Text="{x:Static controls:IconGlyph.ResizeLarge24}" />
+			<TextBlock
+				x:Name="icon2"
+				HorizontalAlignment="Center"
+				VerticalAlignment="Center"
+				FontFamily="Segoe MDL2 Assets"
+				FontSize="64"
+				Foreground="{Binding SnapTheme.BorderBrush, FallbackValue=#FFC8C8C8}"
+				Text="{x:Static controls:IconGlyph.ResizeLarge24}">
+				<TextBlock.RenderTransform>
+					<ScaleTransform ScaleX="-1" />
+				</TextBlock.RenderTransform>
+			</TextBlock>
+		</Grid>
+	</Grid>
+</UserControl>
