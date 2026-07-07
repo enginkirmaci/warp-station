@@ -159,10 +159,10 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 
     /// <summary>
     /// Polls <see cref="IWinApiService.GetOpenWindows"/> until <paramref name="count"/> new
-    /// top-level windows (handles not present in <paramref name="beforeHandles"/>) have
-    /// appeared, or the timeout elapses. When <paramref name="titleHint"/> is provided,
-    /// windows whose title contains that hint are preferred and moved to the front of the
-    /// returned list so they are tiled first.
+    /// top-level windows whose title contains <paramref name="titleHint"/> have appeared,
+    /// or the timeout elapses. Non-hinted windows are tracked as a fallback and only used
+    /// once the deadline passes (the opencode TUI sets its title asynchronously, so tiling
+    /// before the title appears lets the terminal fight the positioning).
     /// </summary>
     private async Task<List<nint>> WaitForNewWindowsAsync(HashSet<nint> beforeHandles, int count, string? titleHint)
     {
@@ -171,7 +171,9 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         var others = new List<nint>();
         var seen = new HashSet<nint>();
 
-        while (DateTime.UtcNow < deadline && hinted.Count + others.Count < count)
+        // Stop early only once we have enough hinted windows; otherwise keep polling for
+        // the opencode titles to show up, falling back to other windows at the deadline.
+        while (DateTime.UtcNow < deadline && hinted.Count < count)
         {
             await Task.Delay(PollInterval);
 
@@ -180,7 +182,6 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
             {
                 if (beforeHandles.Contains(handle) || !seen.Add(handle)) continue;
 
-                // Prefer the opencode windows once their titles have been set.
                 if (!string.IsNullOrEmpty(titleHint)
                     && title != null
                     && title.Contains(titleHint, StringComparison.OrdinalIgnoreCase))
