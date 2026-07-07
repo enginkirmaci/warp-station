@@ -9,10 +9,10 @@ using Tools.SnapIt.Services.Abstractions;
 namespace Tools.Services;
 
 /// <summary>
-/// Default <see cref="IOpenCodeGridLauncher"/>. For each instance it: snapshots the
-/// currently open top-level windows, launches a terminal running opencode, polls
-/// <see cref="IWinApiService.GetOpenWindows"/> for the newly-appeared handle, then moves
-/// that window into a grid cell derived from the active screen's working area. The grid
+/// Default <see cref="IOpenCodeGridLauncher"/>. It snapshots the currently open top-level
+/// windows, launches one terminal process per requested opencode instance (all at once),
+/// then polls <see cref="IWinApiService.GetOpenWindows"/> for the newly-appeared handles
+/// and moves them into a grid derived from the active screen's working area. The grid
 /// dimensions auto-compute from the instance count (6 -> 3 columns x 2 rows).
 /// </summary>
 public class OpenCodeGridLauncher : IOpenCodeGridLauncher
@@ -54,29 +54,32 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         var cells = BuildCells(ResolveWorkingArea(), cols, rows, count);
 
         var commandLine = BuildCommandLine(openCodeExe, model, prompt);
-        // Force each instance into its own window so they can be tiled individually
-        // (otherwise Windows Terminal merges them into tabs of one window).
-        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, folderPath, commandLine, forceNewWindow: true);
+        // Use exactly the same arguments as a single-instance launch (no extra
+        // window-targeting flags prepended); each StartProcess call below still
+        // spawns its own process.
+        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, folderPath, commandLine);
 
+        // Snapshot the windows that already exist so the new ones can be told apart.
+        var beforeHandles = _winApiService.GetOpenWindows().Keys.ToHashSet();
+
+        // Open all instances at once, one process each.
         for (var i = 0; i < count; i++)
         {
-            var beforeHandles = _winApiService.GetOpenWindows().Keys.ToHashSet();
-
             _processLauncher.StartProcess(terminalExe, args);
+        }
 
-            var handle = await WaitForNewWindowAsync(beforeHandles, OpenCodeWindowTitleHint);
-            if (handle == nint.Zero)
-            {
-                Log.Logger.Warning(
-                    "OpenCodeGridLauncher: timed out waiting for instance {Index}/{Count}; skipping positioning",
-                    i + 1, count);
-                continue;
-            }
+        // Now collect the newly-appeared windows and tile them into the grid.
+        var handles = await WaitForNewWindowsAsync(beforeHandles, count, OpenCodeWindowTitleHint);
+        for (var i = 0; i < handles.Count && i < cells.Count; i++)
+        {
+            MoveIntoCell(handles[i], cells[i]);
+        }
 
-            if (i < cells.Count)
-            {
-                MoveIntoCell(handle, cells[i]);
-            }
+        if (handles.Count < count)
+        {
+            Log.Logger.Warning(
+                "OpenCodeGridLauncher: detected {Found}/{Count} windows within the timeout",
+                handles.Count, count);
         }
     }
 
@@ -155,45 +158,47 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
     }
 
     /// <summary>
-    /// Polls <see cref="IWinApiService.GetOpenWindows"/> for a handle that was not present
-    /// before launch. When <paramref name="titleHint"/> is provided, prefers a window whose
-    /// title contains that hint (the opencode TUI sets its title); otherwise returns the
-    /// first new handle. Returns <see cref="nint.Zero"/> on timeout.
+    /// Polls <see cref="IWinApiService.GetOpenWindows"/> until <paramref name="count"/> new
+    /// top-level windows (handles not present in <paramref name="beforeHandles"/>) have
+    /// appeared, or the timeout elapses. When <paramref name="titleHint"/> is provided,
+    /// windows whose title contains that hint are preferred and moved to the front of the
+    /// returned list so they are tiled first.
     /// </summary>
-    private async Task<nint> WaitForNewWindowAsync(HashSet<nint> beforeHandles, string? titleHint)
+    private async Task<List<nint>> WaitForNewWindowsAsync(HashSet<nint> beforeHandles, int count, string? titleHint)
     {
         var deadline = DateTime.UtcNow + WindowAppearTimeout;
-        nint fallbackNewHandle = nint.Zero;
+        var hinted = new List<nint>();
+        var others = new List<nint>();
+        var seen = new HashSet<nint>();
 
-        while (DateTime.UtcNow < deadline)
+        while (DateTime.UtcNow < deadline && hinted.Count + others.Count < count)
         {
             await Task.Delay(PollInterval);
 
             var current = _winApiService.GetOpenWindows();
             foreach (var (handle, title) in current)
             {
-                if (beforeHandles.Contains(handle)) continue;
+                if (beforeHandles.Contains(handle) || !seen.Add(handle)) continue;
 
-                // Prefer the opencode window when its title has been set.
+                // Prefer the opencode windows once their titles have been set.
                 if (!string.IsNullOrEmpty(titleHint)
                     && title != null
                     && title.Contains(titleHint, StringComparison.OrdinalIgnoreCase))
                 {
-                    return handle;
+                    hinted.Add(handle);
                 }
-
-                fallbackNewHandle = handle;
-            }
-
-            if (fallbackNewHandle != nint.Zero)
-            {
-                // A new window appeared; once is enough. Keep looping briefly only if we're
-                // still hunting for the hinted title, otherwise return immediately.
-                if (string.IsNullOrEmpty(titleHint)) return fallbackNewHandle;
+                else
+                {
+                    others.Add(handle);
+                }
             }
         }
 
-        return fallbackNewHandle;
+        // Prefer hinted windows, then fall back to any other new windows so tiling still
+        // happens if the title hint never showed up.
+        var result = new List<nint>(hinted);
+        result.AddRange(others);
+        return result;
     }
 
     /// <summary>

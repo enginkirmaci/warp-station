@@ -331,10 +331,11 @@ public partial class ReposViewModel : PageViewModelBase
             ? _defaultOpenCodeModel
             : OpenCodeSelectedModel;
 
-        if (ArrangeInGrid && count > 1)
+        if (ArrangeInGrid)
         {
-            // Tile the instances across the active screen (e.g. 6 -> 3x2). The launcher
-            // owns window detection and positioning; here we just hand off the parameters.
+            // Tile the instances across the active screen: a single instance fills the
+            // screen as a 1x1 grid, 6 instances form a 3x2 grid. The launcher owns window
+            // detection and positioning, so single and multiple share one path/class.
             await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
         }
         else
