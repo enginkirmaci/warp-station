@@ -27,6 +27,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IRepoService _repoService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeModelService _openCodeModelService;
+    private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
     private ReposSettings _reposSettings = new();
 
@@ -85,6 +86,23 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private string _openCodeSelectedModel = string.Empty;
 
+    /// <summary>
+    /// The templates available in the OpenCode template selector, loaded from
+    /// <c>settings/opencode/templates/</c>. The first entry is always the
+    /// <see cref="OpenCodeTemplate.None"/> sentinel, so the selector is optional.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<OpenCodeTemplate> _openCodeTemplates = new() { OpenCodeTemplate.None };
+
+    /// <summary>
+    /// The currently selected template in the OpenCode panel. Defaults to
+    /// <see cref="OpenCodeTemplate.None"/> (no template). When a real template is picked,
+    /// its default prompt is loaded into <see cref="OpenCodePrompt"/>; on launch the
+    /// template folder is copied to <c>&lt;repo&gt;/.opencode</c>.
+    /// </summary>
+    [ObservableProperty]
+    private OpenCodeTemplate _openCodeSelectedTemplate = OpenCodeTemplate.None;
+
     [ObservableProperty]
     private string _openCodePrompt = string.Empty;
 
@@ -108,6 +126,7 @@ public partial class ReposViewModel : PageViewModelBase
         IRepoService repoService,
         IProcessLauncher processLauncher,
         IOpenCodeModelService openCodeModelService,
+        IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodeGridLauncher openCodeGridLauncher)
     {
         _settingsService = settingsService;
@@ -116,6 +135,7 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService = repoService;
         _processLauncher = processLauncher;
         _openCodeModelService = openCodeModelService;
+        _openCodeTemplateService = openCodeTemplateService;
         _openCodeGridLauncher = openCodeGridLauncher;
 
         _repoService.Changed += OnRepoChanged;
@@ -140,6 +160,7 @@ public partial class ReposViewModel : PageViewModelBase
         _reposSettings = settings.Repos ?? new ReposSettings();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeModelsAsync();
+        await LoadOpenCodeTemplatesAsync();
         RebuildTagFilters();
         ApplyFilter();
     }
@@ -156,8 +177,35 @@ public partial class ReposViewModel : PageViewModelBase
         _defaultOpenCodeModel = string.IsNullOrWhiteSpace(config.DefaultModel) && OpenCodeModels.Count > 0
             ? OpenCodeModels[0]
             : config.DefaultModel;
-        if (string.IsNullOrEmpty(OpenCodeSelectedModel) && OpenCodeModels.Count > 0)
-            OpenCodeSelectedModel = _defaultOpenCodeModel;
+            if (string.IsNullOrEmpty(OpenCodeSelectedModel) && OpenCodeModels.Count > 0)
+                OpenCodeSelectedModel = _defaultOpenCodeModel;
+    }
+
+    /// <summary>
+    /// Loads the OpenCode template list from <c>settings/opencode/templates/</c> into
+    /// <see cref="OpenCodeTemplates"/>. The <see cref="OpenCodeTemplate.None"/> sentinel
+    /// is always first, keeping the selector optional. Safe to call before the panel
+    /// opens; the service seeds and reads files without throwing.
+    /// </summary>
+    private async Task LoadOpenCodeTemplatesAsync()
+    {
+        var templates = await _openCodeTemplateService.LoadAsync();
+        var collection = new ObservableCollection<OpenCodeTemplate> { OpenCodeTemplate.None };
+        foreach (var template in templates)
+            collection.Add(template);
+        OpenCodeTemplates = collection;
+    }
+
+    /// <summary>
+    /// When a real template is selected, load its default prompt into the Start prompt
+    /// box (the user can still edit it before launching). The None sentinel leaves the
+    /// prompt untouched.
+    /// </summary>
+    partial void OnOpenCodeSelectedTemplateChanged(OpenCodeTemplate value)
+    {
+        if (value is null || value.IsNone)
+            return;
+        OpenCodePrompt = value.Prompt;
     }
 
     private void OnRepoChanged(object? sender, EventArgs e)
@@ -183,6 +231,7 @@ public partial class ReposViewModel : PageViewModelBase
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
             OpenCodeSelectedModel = _defaultOpenCodeModel;
+            OpenCodeSelectedTemplate = OpenCodeTemplate.None;
             OpenCodePrompt = string.Empty;
         }
     }
@@ -311,6 +360,7 @@ public partial class ReposViewModel : PageViewModelBase
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
         OpenCodeSelectedModel = _defaultOpenCodeModel;
+        OpenCodeSelectedTemplate = OpenCodeTemplate.None;
         OpenCodePrompt = string.Empty;
         IsOpenCodePanelOpen = true;
     }
@@ -323,6 +373,10 @@ public partial class ReposViewModel : PageViewModelBase
     {
         var repo = OpenCodeRepo;
         if (repo?.FolderPath is null) return;
+
+        // Copy the selected template (if any) to <repo>/.opencode before launching so
+        // opencode picks it up. Replaces an existing .opencode wholesale. No-op for None.
+        await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
 
         var terminalExe = _reposSettings.TerminalExecutable ?? "wt";
         var openCodeExe = _reposSettings.OpenCodeExecutable ?? "opencode";

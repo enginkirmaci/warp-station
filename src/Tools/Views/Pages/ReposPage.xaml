@@ -271,25 +271,6 @@
                                                                                                         Background="Transparent"
                                                                                                         BorderBrush="{DynamicResource HairlineBrush}"
                                                                                                         BorderThickness="1"
-                                                                                                        Command="{Binding #Root.DataContext.OpenFolderCommand}"
-                                                                                                        CommandParameter="{Binding FolderPath}"
-                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
-                                                                                                        ToolTip.Tip="Open folder">
-                                                                                                        <Path
-                                                                                                                Width="18"
-                                                                                                                Height="18"
-                                                                                                                Data="{tools:SvgPath icon-folder}"
-                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
-                                                                                                                Stretch="Uniform" />
-                                                                                                </Button>
-                                                                                                <Button
-                                                                                                        Width="36"
-                                                                                                        Height="36"
-                                                                                                        Padding="0"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Background="Transparent"
-                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                                        BorderThickness="1"
                                                                                                         Command="{Binding #Root.DataContext.OpenVisualStudioCommand}"
                                                                                                         CommandParameter="{Binding}"
                                                                                                         CornerRadius="{DynamicResource ControlRadius}"
@@ -319,6 +300,25 @@
                                                                                                                 Height="18"
                                                                                                                 Data="{tools:SvgPath icon-vscode}"
                                                                                                                 Fill="#007ACC"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Width="36"
+                                                                                                        Height="36"
+                                                                                                        Padding="0"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="Transparent"
+                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                        BorderThickness="1"
+                                                                                                        Command="{Binding #Root.DataContext.OpenFolderCommand}"
+                                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                                        CornerRadius="{DynamicResource ControlRadius}"
+                                                                                                        ToolTip.Tip="Open folder">
+                                                                                                        <Path
+                                                                                                                Width="18"
+                                                                                                                Height="18"
+                                                                                                                Data="{tools:SvgPath icon-folder}"
+                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                                 <Button
@@ -390,7 +390,7 @@
                         VerticalAlignment="Stretch"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -425,6 +425,25 @@
                                         Spacing="8">
                                         <TextBlock
                                                 Classes="field-label"
+                                                Text="Template (optional)"
+                                                ToolTip.Tip="Copy a template's .opencode folder into the repo and load its default prompt" />
+                                        <ComboBox
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding OpenCodeTemplates}"
+                                                SelectedItem="{Binding OpenCodeSelectedTemplate, Mode=TwoWay}" />
+                                        <TextBlock
+                                                Classes="subtle"
+                                                FontSize="11"
+                                                IsVisible="{Binding OpenCodeSelectedTemplate.Description, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                Text="{Binding OpenCodeSelectedTemplate.Description}"
+                                                TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel
+                                        Grid.Row="2"
+                                        Margin="0,0,0,16"
+                                        Spacing="8">
+                                        <TextBlock
+                                                Classes="field-label"
                                                 Text="Instances"
                                                 ToolTip.Tip="How many terminal windows to open, each running opencode" />
                                         <NumericUpDown
@@ -433,26 +452,26 @@
                                                 Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
                                 </StackPanel>
                                 <CheckBox
-                                        Grid.Row="2"
+                                        Grid.Row="3"
                                         Margin="0,0,0,16"
                                         IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
-                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -> a 3x2 grid). Only applies when more than one instance is opened.">
+                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -&gt; a 3x2 grid). Only applies when more than one instance is opened.">
                                         <StackPanel>
                                                 <TextBlock Text="Arrange into grid" />
                                                 <TextBlock
                                                         Classes="subtle"
                                                         FontSize="11"
-                                                        Text="Tile windows across the screen (e.g. 6 -> 3x2)" />
+                                                        Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
                                         </StackPanel>
                                 </CheckBox>
-                                <StackPanel Grid.Row="3" Spacing="8">
+                                <StackPanel Grid.Row="4" Spacing="8">
                                         <TextBlock Classes="field-label" Text="Model" />
                                         <ComboBox
                                                 HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding OpenCodeModels}"
                                                 SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="4" Spacing="8">
+                                <StackPanel Grid.Row="5" Spacing="8">
                                         <TextBlock Classes="field-label" Text="Start prompt (optional)" />
                                         <TextBox
                                                 Height="120"
@@ -462,13 +481,13 @@
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
                                 <Button
-                                        Grid.Row="5"
+                                        Grid.Row="6"
                                         HorizontalAlignment="Stretch"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"
                                         IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="6" />
+                                <Border Grid.Row="7" />
                         </Grid>
                 </Border>
 

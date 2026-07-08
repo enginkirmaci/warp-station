@@ -64,4 +64,82 @@ public static class UserPaths
             return false;
         }
     }
+
+    /// <summary>
+    /// Always refreshes <paramref name="userFile"/> from the shipped default at
+    /// <c>&lt;install&gt;/settings/<paramref name="shippedRelPath"/></c> when that default
+    /// exists, overwriting any existing user copy. Used for files the app owns
+    /// authoritatively (e.g. the OpenCode model catalog): the shipped copy is the source
+    /// of truth and replaces the user copy on every load so upgrades pick up new model
+    /// lists. Safe to call on every load. Best-effort: errors are swallowed so a missing
+    /// default never blocks startup. Returns true when a refresh was performed.
+    /// </summary>
+    public static bool RefreshFromDefault(string userFile, string shippedRelPath)
+    {
+        try
+        {
+            var shippedFile = Path.Combine(InstallRoot, ShippedSettingsFolder, shippedRelPath);
+            if (!File.Exists(shippedFile))
+                return false;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(userFile)!);
+            File.Copy(shippedFile, userFile, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// One-time seed for a folder of subfolders: for each top-level subfolder under the
+    /// shipped default at <c>&lt;install&gt;/settings/<paramref name="shippedRelDirectory"/></c>,
+    /// copy it (recursively) into <paramref name="userDirectory"/> only when the matching
+    /// user subfolder does not exist yet. Used to seed editable folder-based resources
+    /// (e.g. OpenCode templates) without clobbering user edits or user-added entries.
+    /// Safe to call on every load. Best-effort: errors are swallowed so a missing default
+    /// never blocks startup. Returns true when at least one subfolder was seeded.
+    /// </summary>
+    public static bool SeedDirectoryFromDefault(string userDirectory, string shippedRelDirectory)
+    {
+        try
+        {
+            var shippedDirectory = Path.Combine(InstallRoot, ShippedSettingsFolder, shippedRelDirectory);
+            if (!Directory.Exists(shippedDirectory))
+                return false;
+
+            var seeded = false;
+            foreach (var shippedSub in Directory.EnumerateDirectories(shippedDirectory))
+            {
+                var subName = Path.GetFileName(shippedSub);
+                var userSub = Path.Combine(userDirectory, subName);
+                if (Directory.Exists(userSub))
+                    continue; // never overwrite user edits / user-added templates
+
+                Directory.CreateDirectory(userDirectory);
+                CopyDirectory(shippedSub, userSub);
+                seeded = true;
+            }
+            return seeded;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Recursively copies a directory tree (contents included).</summary>
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: true);
+        }
+        foreach (var dir in Directory.EnumerateDirectories(source))
+        {
+            CopyDirectory(dir, Path.Combine(destination, Path.GetFileName(dir)));
+        }
+    }
 }

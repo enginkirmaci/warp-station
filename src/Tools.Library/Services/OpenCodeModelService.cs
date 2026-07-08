@@ -19,9 +19,10 @@ public class OpenCodeModelService : IOpenCodeModelService
     /// </summary>
     private static readonly OpenCodeModelsConfig Fallback = new()
     {
-        DefaultModel = "Model-Garden/minimax-2.5-230b-awq-garden",
+        DefaultModel = "Model-Garden/glm-5.2-fp8",
         Models = new()
         {
+            "Model-Garden/glm-5.2-fp8",
             "Model-Garden/minimax-2.5-230b-awq-garden",
             "Model-Garden/qwen3.5-397b-a17b-awq",
             "Model-Garden/qwen3.6-35b-a3b",
@@ -42,8 +43,9 @@ public class OpenCodeModelService : IOpenCodeModelService
     {
         try
         {
-            // One-time seed/migration from the shipped default on first run.
-            UserPaths.SeedFromDefault(_modelsFilePath, "opencode\\models.json");
+            // models.json is app-authored (not user-edited): always refresh from the
+            // shipped default so upgrades pick up the latest model list and default.
+            UserPaths.RefreshFromDefault(_modelsFilePath, "opencode\\models.json");
 
             if (!File.Exists(_modelsFilePath))
                 return CloneFallback();

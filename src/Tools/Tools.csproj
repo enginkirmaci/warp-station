@@ -54,6 +54,10 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\opencode\models.json</Link>
 		</Content>
+		<Content Include="settings\opencode\templates\**\*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Link>settings\opencode\templates\%(RecursiveDir)%(FileName)%(Extension)</Link>
+		</Content>
 	</ItemGroup>
 
 </Project>
