@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Serilog;
 using Tools.Library.Configuration;
@@ -35,8 +36,13 @@ public class OpenCodeTemplateService : IOpenCodeTemplateService
     {
         try
         {
-            // Seed shipped templates once, non-destructively (existing user folders kept).
-            UserPaths.SeedDirectoryFromDefault(_templatesDirectory, ShippedRelDirectory);
+            // Seed the predefined templates only when the user has none yet: once the user
+            // has any templates (theirs or previously seeded on first run), respect their
+            // setup entirely and never introduce new predefined ones into a customized folder.
+            var hasUserTemplates = Directory.Exists(_templatesDirectory) &&
+                                   Directory.EnumerateDirectories(_templatesDirectory).Any();
+            if (!hasUserTemplates)
+                UserPaths.SeedDirectoryFromDefault(_templatesDirectory, ShippedRelDirectory);
 
             if (!Directory.Exists(_templatesDirectory))
                 return Task.FromResult<IReadOnlyList<OpenCodeTemplate>>(Array.Empty<OpenCodeTemplate>());
