@@ -15,11 +15,18 @@ public partial class DashboardViewModel : PageViewModelBase
 
     public IReadOnlyCollection<NavigationItem> DashboardCards { get; }
 
-    public DashboardViewModel(INavigationService navigationService)
+    public DashboardViewModel(INavigationService navigationService, ISettingsService settingsService)
     {
         _navigationService = navigationService;
         CardClickCommand = new RelayCommand<string>(OnCardClick);
-        DashboardCards = NavigationProvider.GetDashboardItems(CardClickCommand);
+        // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached
+        // read (Task.FromResult), so this never blocks on async work.
+        var hideClipboardPassword = settingsService
+            .GetSettingsAsync()
+            .GetAwaiter()
+            .GetResult()
+            .ClipboardPassword?.HideFromGui == true;
+        DashboardCards = NavigationProvider.GetDashboardItems(CardClickCommand, hideClipboardPassword);
     }
 
     private void OnCardClick(string? parameter)

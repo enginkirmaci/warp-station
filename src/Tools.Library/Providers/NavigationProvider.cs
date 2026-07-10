@@ -16,9 +16,12 @@ public static class NavigationProvider
     private const string PackageIcon = "icon-package";
     private const string TextFormatIcon = "icon-text-format";
     private const string LockIcon = "icon-lock";
-    private const string DatabaseIcon = "icon-database";
     private const string TerminalIcon = "icon-terminal-alt";
     private const string GridLayoutIcon = "icon-grid";
+
+    // Page key for the Clipboard Password page, used to filter it from navigation
+    // when its HideFromGui setting is enabled.
+    private const string ClipboardPasswordPageKey = "ClipboardPasswordPage";
 
     private static string Icon(string name) => IconAssetLoader.GetPathData(name);
 
@@ -26,10 +29,16 @@ public static class NavigationProvider
     /// Gets navigation items for dashboard cards.
     /// </summary>
     /// <param name="cardClickCommand">Command to execute when a card is clicked.</param>
+    /// <param name="hideClipboardPassword">
+    /// When <c>true</c>, omits the Clipboard Password card so the feature can be used
+    /// via its hotkey without surfacing it in the dashboard.
+    /// </param>
     /// <returns>Collection of navigation items.</returns>
-    public static IReadOnlyCollection<NavigationItem> GetDashboardItems(ICommand? cardClickCommand)
+    public static IReadOnlyCollection<NavigationItem> GetDashboardItems(
+        ICommand? cardClickCommand,
+        bool hideClipboardPassword = false)
     {
-        return new List<NavigationItem>
+        var items = new List<NavigationItem>
         {
             CreateNavigationItem(
                 "Repos",
@@ -60,15 +69,7 @@ public static class NavigationProvider
                 "Generate and copy passwords",
                 Icon(LockIcon),
                 "#FFFFFF",
-                "ClipboardPasswordPage",
-                cardClickCommand
-            ),
-            CreateNavigationItem(
-                "EF Tools",
-                "Entity Framework tools and utilities",
-                Icon(DatabaseIcon),
-                "#FFFFFF",
-                "EFToolsPage",
+                ClipboardPasswordPageKey,
                 cardClickCommand
             ),
             CreateNavigationItem(
@@ -88,13 +89,20 @@ public static class NavigationProvider
                 cardClickCommand
             )
         };
+
+        return hideClipboardPassword
+            ? items.Where(i => i.PageKey != ClipboardPasswordPageKey).ToList()
+            : items;
     }
 
     /// <summary>
     /// Gets navigation menu items for the sidebar navigation.
     /// </summary>
+    /// <param name="hideClipboardPassword">
+    /// When <c>true</c>, omits the Clipboard Password entry from the sidebar.
+    /// </param>
     /// <returns>Collection of navigation items.</returns>
-    public static IReadOnlyCollection<NavigationItem> GetNavigationMenuItems()
+    public static IReadOnlyCollection<NavigationItem> GetNavigationMenuItems(bool hideClipboardPassword = false)
     {
         var items = new List<NavigationItem>
         {
@@ -113,7 +121,7 @@ public static class NavigationProvider
             }
         };
 
-        foreach (var item in GetDashboardItems(null))
+        foreach (var item in GetDashboardItems(null, hideClipboardPassword))
         {
             items.Add(item);
         }

@@ -19,7 +19,6 @@ public static class PageNavigationMapper
         typeof(NugetLocalPage),
         typeof(FormattersPage),
         typeof(ClipboardPasswordPage),
-        typeof(EFToolsPage),
         typeof(CodeExecutePage),
         typeof(SnapItSettingsPage)
     ];

@@ -33,7 +33,6 @@ public static class IconAssetLoader
         "icon-clipboard",
         "icon-close",
         "icon-cog",
-        "icon-database",
         "icon-folder",
         "icon-folder-alt",
         "icon-grid",

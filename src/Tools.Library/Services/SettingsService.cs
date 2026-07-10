@@ -125,7 +125,6 @@ public class SettingsService : ISettingsService
     /// </summary>
     private static void EnsureNestedSections(AppSettings settings)
     {
-        settings.EFToolsPage ??= new EFToolsPageSettings();
         settings.NugetLocal ??= new NugetLocalSettings();
         settings.Repos ??= new ReposSettings();
         settings.ClipboardPassword ??= new ClipboardPasswordSettings();

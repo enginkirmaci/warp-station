@@ -48,12 +48,19 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
-    public MainWindowViewModel(ISnapItService snapItService, INugetLocalService nugetLocalService)
+    public MainWindowViewModel(ISnapItService snapItService, INugetLocalService nugetLocalService, ISettingsService settingsService)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
 
-        MenuItems = NavigationProvider.GetNavigationMenuItems();
+        // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached
+        // read (Task.FromResult), so this never blocks on async work.
+        var hideClipboardPassword = settingsService
+            .GetSettingsAsync()
+            .GetAwaiter()
+            .GetResult()
+            .ClipboardPassword?.HideFromGui == true;
+        MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);

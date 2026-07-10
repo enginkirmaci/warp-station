@@ -65,7 +65,6 @@ public partial class App : Application
         RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);
         RegisterPageWithViewModel<FormattersPage, FormattersPageViewModel>(services);
         RegisterPageWithViewModel<NugetLocalPage, NugetLocalViewModel>(services);
-        RegisterPageWithViewModel<EFToolsPage, EFToolsPageViewModel>(services);
         RegisterPageWithViewModel<CodeExecutePage, CodeExecutePageViewModel>(services);
         RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordPageViewModel>(services);
         RegisterPageWithViewModel<SnapItSettingsPage, SnapItSettingsViewModel>(services);

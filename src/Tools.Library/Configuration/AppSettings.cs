@@ -6,11 +6,6 @@ namespace Tools.Library.Configuration;
 public class AppSettings
 {
     /// <summary>
-    /// Gets or sets the EF Tools page settings.
-    /// </summary>
-    public EFToolsPageSettings? EFToolsPage { get; set; }
-
-    /// <summary>
     /// Gets or sets the Nuget Local settings.
     /// </summary>
     public NugetLocalSettings? NugetLocal { get; set; }
@@ -34,17 +29,6 @@ public class AppSettings
     /// Gets or sets the general application settings.
     /// </summary>
     public GeneralSettings? General { get; set; }
-}
-
-/// <summary>
-/// Settings specific to EF Tools page.
-/// </summary>
-public class EFToolsPageSettings
-{
-    /// <summary>
-    /// Gets or sets the repository code template.
-    /// </summary>
-    public string? RepositoryTemplate { get; set; }
 }
 
 /// <summary>
@@ -138,6 +122,14 @@ public class ClipboardPasswordSettings
     /// Gets or sets the encrypted password.
     /// </summary>
     public string? EncryptedPassword { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the Clipboard Password page should be
+    /// hidden from the dashboard and sidebar. When hidden, the stored password can
+    /// still be pasted via the Ctrl+Shift+V hotkey; only the GUI entry points are
+    /// concealed. Configured manually via settings.json.
+    /// </summary>
+    public bool HideFromGui { get; set; }
 }
 
 /// <summary>
