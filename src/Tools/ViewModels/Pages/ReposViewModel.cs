@@ -28,6 +28,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
+    private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
     private ReposSettings _reposSettings = new();
 
@@ -96,15 +97,39 @@ public partial class ReposViewModel : PageViewModelBase
 
     /// <summary>
     /// The currently selected template in the OpenCode panel. Defaults to
-    /// <see cref="OpenCodeTemplate.None"/> (no template). When a real template is picked,
-    /// its default prompt is loaded into <see cref="OpenCodePrompt"/>; on launch the
-    /// template folder is copied to <c>&lt;repo&gt;/.opencode</c>.
+    /// <see cref="OpenCodeTemplate.None"/> (no template). On launch the selected template's
+    /// folder is copied to <c>&lt;repo&gt;/.opencode</c>. Templates no longer carry a
+    /// prompt — see <see cref="OpenCodePrompts"/>.
     /// </summary>
     [ObservableProperty]
     private OpenCodeTemplate _openCodeSelectedTemplate = OpenCodeTemplate.None;
 
+    /// <summary>
+    /// The prompts available in the OpenCode prompt selector, loaded from
+    /// <c>settings/opencode/prompts.json</c>. The first entry is always the
+    /// <see cref="OpenCodePromptEntry.None"/> sentinel, so the selector is optional.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<OpenCodePromptEntry> _openCodePrompts = new() { OpenCodePromptEntry.None };
+
+    /// <summary>
+    /// The currently selected prompt in the OpenCode panel. Defaults to
+    /// <see cref="OpenCodePromptEntry.None"/> (no prompt). When a real prompt is picked,
+    /// its text is loaded into <see cref="OpenCodePrompt"/>; the user can still edit it
+    /// before launching.
+    /// </summary>
+    [ObservableProperty]
+    private OpenCodePromptEntry _openCodeSelectedPrompt = OpenCodePromptEntry.None;
+
     [ObservableProperty]
     private string _openCodePrompt = string.Empty;
+
+    /// <summary>
+    /// Bound to the save-prompt flyout TextBox (the name to save the current Start prompt
+    /// under); cleared after a prompt is saved.
+    /// </summary>
+    [ObservableProperty]
+    private string _newPromptName = string.Empty;
 
     /// <summary>
     /// Bound to the add-tag flyout TextBox; cleared after a tag is added.
@@ -127,6 +152,7 @@ public partial class ReposViewModel : PageViewModelBase
         IProcessLauncher processLauncher,
         IOpenCodeModelService openCodeModelService,
         IOpenCodeTemplateService openCodeTemplateService,
+        IOpenCodePromptService openCodePromptService,
         IOpenCodeGridLauncher openCodeGridLauncher)
     {
         _settingsService = settingsService;
@@ -136,6 +162,7 @@ public partial class ReposViewModel : PageViewModelBase
         _processLauncher = processLauncher;
         _openCodeModelService = openCodeModelService;
         _openCodeTemplateService = openCodeTemplateService;
+        _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
 
         _repoService.Changed += OnRepoChanged;
@@ -161,6 +188,7 @@ public partial class ReposViewModel : PageViewModelBase
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeModelsAsync();
         await LoadOpenCodeTemplatesAsync();
+        await LoadOpenCodePromptsAsync();
         RebuildTagFilters();
         ApplyFilter();
     }
@@ -197,11 +225,25 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// When a real template is selected, load its default prompt into the Start prompt
-    /// box (the user can still edit it before launching). The None sentinel leaves the
-    /// prompt untouched.
+    /// Loads the OpenCode prompt list from <c>settings/opencode/prompts.json</c> into
+    /// <see cref="OpenCodePrompts"/>. The <see cref="OpenCodePromptEntry.None"/> sentinel is
+    /// always first, keeping the selector optional. Safe to call before the panel opens;
+    /// the service seeds and reads the file without throwing.
     /// </summary>
-    partial void OnOpenCodeSelectedTemplateChanged(OpenCodeTemplate value)
+    private async Task LoadOpenCodePromptsAsync()
+    {
+        var prompts = await _openCodePromptService.LoadAsync();
+        var collection = new ObservableCollection<OpenCodePromptEntry> { OpenCodePromptEntry.None };
+        foreach (var prompt in prompts)
+            collection.Add(prompt);
+        OpenCodePrompts = collection;
+    }
+
+    /// <summary>
+    /// When a real prompt is selected, load its text into the Start prompt box (the user
+    /// can still edit it before launching). The None sentinel leaves the prompt untouched.
+    /// </summary>
+    partial void OnOpenCodeSelectedPromptChanged(OpenCodePromptEntry value)
     {
         if (value is null || value.IsNone)
             return;
@@ -232,7 +274,9 @@ public partial class ReposViewModel : PageViewModelBase
             OpenCodeInstanceCount = 1;
             OpenCodeSelectedModel = _defaultOpenCodeModel;
             OpenCodeSelectedTemplate = OpenCodeTemplate.None;
+            OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
             OpenCodePrompt = string.Empty;
+            NewPromptName = string.Empty;
         }
     }
 
@@ -361,7 +405,9 @@ public partial class ReposViewModel : PageViewModelBase
         OpenCodeInstanceCount = 1;
         OpenCodeSelectedModel = _defaultOpenCodeModel;
         OpenCodeSelectedTemplate = OpenCodeTemplate.None;
+        OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
         OpenCodePrompt = string.Empty;
+        NewPromptName = string.Empty;
         IsOpenCodePanelOpen = true;
     }
 
@@ -408,6 +454,64 @@ public partial class ReposViewModel : PageViewModelBase
 
         IsOpenCodePanelOpen = false;
     }
+
+    /// <summary>
+    /// Saves the current Start prompt under the name in <see cref="NewPromptName"/> (a
+    /// blank prompt body is allowed — only the name is required). Reloads the selector and
+    /// selects the saved entry so the panel reflects the persisted state.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSavePrompt))]
+    private async Task SavePromptAsync()
+    {
+        var name = (NewPromptName ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name)) return;
+
+        await _openCodePromptService.SaveAsync(name, OpenCodePrompt ?? string.Empty);
+        NewPromptName = string.Empty;
+
+        await LoadOpenCodePromptsAsync();
+
+        // Select the just-saved prompt so the UI reflects what was persisted.
+        OpenCodeSelectedPrompt = OpenCodePrompts.FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) ?? OpenCodePromptEntry.None;
+    }
+
+    /// <summary>
+    /// Save requires a non-empty name and some prompt text to be worth persisting.
+    /// </summary>
+    private bool CanSavePrompt()
+        => !string.IsNullOrWhiteSpace(NewPromptName) && !string.IsNullOrWhiteSpace(OpenCodePrompt);
+
+    /// <summary>Re-evaluate <see cref="SavePromptCommand"/> when its inputs change.</summary>
+    partial void OnNewPromptNameChanged(string value) => SavePromptCommand.NotifyCanExecuteChanged();
+    partial void OnOpenCodePromptChanged(string value) => SavePromptCommand.NotifyCanExecuteChanged();
+
+    /// <summary>
+    /// Removes the selected repo's <c>.opencode</c> folder and re-copies the currently
+    /// selected template into it, without launching OpenCode. Useful to re-apply a
+    /// template (and pick up edits to it) independently of launching.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanResetOpenCodeTemplate))]
+    private async Task ResetOpenCodeTemplateAsync()
+    {
+        var repo = OpenCodeRepo;
+        if (repo?.FolderPath is null || OpenCodeSelectedTemplate.IsNone)
+            return;
+
+        // CopyToRepoAsync deletes any existing .opencode first, then re-copies the
+        // template folder — exactly the "remove and re-seed" behavior.
+        await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
+    }
+
+    /// <summary>Reset needs both a real template selection and a target repo.</summary>
+    private bool CanResetOpenCodeTemplate()
+        => OpenCodeRepo?.FolderPath is not null && !OpenCodeSelectedTemplate.IsNone;
+
+    /// <summary>Re-evaluate <see cref="ResetOpenCodeTemplateCommand"/> when its inputs change.</summary>
+    partial void OnOpenCodeSelectedTemplateChanged(OpenCodeTemplate value)
+        => ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
+    partial void OnOpenCodeRepoChanged(Repo? value)
+        => ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
 
     // --- Tag management ---
 

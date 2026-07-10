@@ -116,7 +116,6 @@ public class OpenCodeTemplateService : IOpenCodeTemplateService
             {
                 Name = string.IsNullOrWhiteSpace(config.Name) ? folderName : config.Name,
                 Description = config.Description ?? string.Empty,
-                Prompt = config.Prompt ?? string.Empty,
                 FolderPath = folder,
             };
         }

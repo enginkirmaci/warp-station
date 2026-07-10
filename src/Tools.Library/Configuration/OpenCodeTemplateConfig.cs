@@ -2,8 +2,8 @@ namespace Tools.Library.Configuration;
 
 /// <summary>
 /// The contents of a template's <c>template.json</c>: metadata shown in the
-/// OpenCode template selector plus the default prompt loaded when the template
-/// is picked.
+/// OpenCode template selector. The prompt is managed separately in
+/// <c>settings/opencode/prompts.json</c>.
 /// </summary>
 public sealed class OpenCodeTemplateConfig
 {
@@ -17,12 +17,6 @@ public sealed class OpenCodeTemplateConfig
     /// Short description rendered under the selector. May be empty.
     /// </summary>
     public string Description { get; set; } = string.Empty;
-
-    /// <summary>
-    /// The default prompt loaded into the Start prompt box when this template is
-    /// selected. The user can edit it before launching.
-    /// </summary>
-    public string Prompt { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -39,7 +33,6 @@ public sealed class OpenCodeTemplate
     {
         Name = "(None)",
         Description = string.Empty,
-        Prompt = string.Empty,
         FolderPath = string.Empty,
     };
 
@@ -48,9 +41,6 @@ public sealed class OpenCodeTemplate
 
     /// <summary>Short description from <c>template.json</c>.</summary>
     public string Description { get; set; } = string.Empty;
-
-    /// <summary>Default prompt from <c>template.json</c>.</summary>
-    public string Prompt { get; set; } = string.Empty;
 
     /// <summary>
     /// Absolute path to the template source folder under

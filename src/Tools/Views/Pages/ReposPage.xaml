@@ -390,7 +390,7 @@
                         VerticalAlignment="Stretch"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -423,10 +423,21 @@
                                         Grid.Row="1"
                                         Margin="0,0,0,16"
                                         Spacing="8">
-                                        <TextBlock
-                                                Classes="field-label"
-                                                Text="Template (optional)"
-                                                ToolTip.Tip="Copy a template's .opencode folder into the repo and load its default prompt" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock
+                                                        Grid.Column="0"
+                                                        Classes="field-label"
+                                                        Text="Template (optional)"
+                                                        ToolTip.Tip="Copy a template's .opencode folder into the repo" />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Padding="8,2"
+                                                        VerticalAlignment="Center"
+                                                        Command="{Binding ResetOpenCodeTemplateCommand}"
+                                                        Content="Reset"
+                                                        FontSize="11"
+                                                        ToolTip.Tip="Remove the repo's .opencode folder and re-copy the selected template into it" />
+                                        </Grid>
                                         <ComboBox
                                                 HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding OpenCodeTemplates}"
@@ -471,8 +482,52 @@
                                                 ItemsSource="{Binding OpenCodeModels}"
                                                 SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="5" Spacing="8">
-                                        <TextBlock Classes="field-label" Text="Start prompt (optional)" />
+                                <StackPanel
+                                        Grid.Row="5"
+                                        Margin="0,0,0,16"
+                                        Spacing="8">
+                                        <TextBlock
+                                                Classes="field-label"
+                                                Text="Prompt (optional)"
+                                                ToolTip.Tip="Load a named prompt into the Start prompt box" />
+                                        <ComboBox
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding OpenCodePrompts}"
+                                                SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="6" Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock
+                                                        Grid.Column="0"
+                                                        Classes="field-label"
+                                                        Text="Start prompt (optional)" />
+                                                <Button
+                                                        Grid.Column="1"
+                                                        Padding="8,2"
+                                                        VerticalAlignment="Center"
+                                                        Classes="accent"
+                                                        Content="Save"
+                                                        FontSize="11"
+                                                        ToolTip.Tip="Save the current prompt under a name so it can be reused from the Prompt selector">
+                                                        <Button.Flyout>
+                                                                <Flyout Placement="BottomEdgeAlignedRight">
+                                                                        <StackPanel Width="220" Spacing="10">
+                                                                                <TextBlock
+                                                                                        Classes="field-label"
+                                                                                        Text="Save prompt as" />
+                                                                                <TextBox
+                                                                                        Text="{Binding NewPromptName, Mode=TwoWay}"
+                                                                                        Watermark="Prompt name" />
+                                                                                <Button
+                                                                                        HorizontalAlignment="Right"
+                                                                                        Classes="accent"
+                                                                                        Command="{Binding SavePromptCommand}"
+                                                                                        Content="Save" />
+                                                                        </StackPanel>
+                                                                </Flyout>
+                                                        </Button.Flyout>
+                                                </Button>
+                                        </Grid>
                                         <TextBox
                                                 Height="120"
                                                 AcceptsReturn="True"
@@ -481,13 +536,13 @@
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
                                 <Button
-                                        Grid.Row="6"
+                                        Grid.Row="7"
                                         HorizontalAlignment="Stretch"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"
                                         IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="7" />
+                                <Border Grid.Row="8" />
                         </Grid>
                 </Border>
 
