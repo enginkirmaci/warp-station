@@ -113,12 +113,15 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
     private static string Escape(string value) => value.Replace("\"", "\\\"");
 
     /// <summary>
-    /// Picks the most square-ish grid that fits the count (6 -> 3x2, 4 -> 2x2, 8 -> 3x3).
-    /// Columns are rounded up so the last row may be partial.
+    /// Picks the grid that fits the count. Counts up to 4 always divide the screen into a
+    /// 2x2 grid (so 1 instance occupies a single quadrant); 5+ fall back to the square-ish
+    /// layout (6 -> 3x2, 8 -> 3x3). Columns are rounded up so the last row may be partial.
     /// </summary>
     internal static (int cols, int rows) ComputeGrid(int count)
     {
         count = Math.Max(1, count);
+        if (count <= 4)
+            return (2, 2);
         var cols = (int)Math.Ceiling(Math.Sqrt(count));
         var rows = (int)Math.Ceiling(count / (double)cols);
         return (cols, rows);

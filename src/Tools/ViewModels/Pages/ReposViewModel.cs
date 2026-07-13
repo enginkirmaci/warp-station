@@ -65,12 +65,17 @@ public partial class ReposViewModel : PageViewModelBase
     private int _openCodeInstanceCount = 1;
 
     /// <summary>
-    /// When <see langword="true"/> (default), launching multiple OpenCode instances tiles
-    /// them across the active screen in a grid (e.g. 6 instances -> a 3x2 grid). When
+    /// When <see langword="true"/>, launching multiple OpenCode instances tiles them
+    /// across the active screen in a grid (e.g. 6 instances -> a 3x2 grid). When
     /// <see langword="false"/>, instances open without positioning, as before.
+    /// <para>
+    /// Defaults to <see langword="false"/> (a single instance needs no tiling). It is
+    /// auto-enabled the moment <see cref="OpenCodeInstanceCount"/> rises above 1; the user
+    /// can still turn it off manually afterwards.
+    /// </para>
     /// </summary>
     [ObservableProperty]
-    private bool _arrangeInGrid = true;
+    private bool _arrangeInGrid;
 
     /// <summary>
     /// The models available in the OpenCode model selector, loaded from
@@ -272,12 +277,24 @@ public partial class ReposViewModel : PageViewModelBase
         {
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
+            ArrangeInGrid = false;
             OpenCodeSelectedModel = _defaultOpenCodeModel;
             OpenCodeSelectedTemplate = OpenCodeTemplate.None;
             OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
             OpenCodePrompt = string.Empty;
             NewPromptName = string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Auto-enable grid tiling as soon as more than one instance is requested; a single
+    /// instance needs no positioning. The user can turn it back off manually afterwards
+    /// (this only reacts to count changes, not manual toggles of the checkbox).
+    /// </summary>
+    partial void OnOpenCodeInstanceCountChanged(int value)
+    {
+        if (value > 1)
+            ArrangeInGrid = true;
     }
 
     [RelayCommand]
@@ -403,6 +420,7 @@ public partial class ReposViewModel : PageViewModelBase
         if (repo is null) return;
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
+        ArrangeInGrid = false;
         OpenCodeSelectedModel = _defaultOpenCodeModel;
         OpenCodeSelectedTemplate = OpenCodeTemplate.None;
         OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
