@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.Logging;
 using Tools.Library.Services.OpenCode;
 
 namespace Tools.Library.Extensions;
@@ -36,6 +37,9 @@ public static class ServiceRegistrationExtensions
         // opencode serve integration: HTTP/SSE client + managed subprocess service
         services.AddSingleton<IOpenCodeServeClient, OpenCodeServeClient>();
         services.AddSingleton<IOpenCodeServeService, OpenCodeServeService>();
+
+        // Note: MemoryLogSink is registered in App.ConfigureServices so the same instance the
+        // logger writes to is shared with the log panel VM.
 
         return services;
     }

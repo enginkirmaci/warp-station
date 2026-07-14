@@ -33,6 +33,7 @@
 			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
 			<conv:OpenCodeStatusToBrushConverter x:Key="OpenCodeStatusToBrushConverter" />
 			<conv:OpenCodeStatusToTextConverter x:Key="OpenCodeStatusToTextConverter" />
+			<conv:LogLevelToBrushConverter x:Key="LogLevelToBrushConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
 </Application>

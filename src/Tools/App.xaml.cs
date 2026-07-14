@@ -5,6 +5,7 @@ using Serilog;
 using Tools.Library.Extensions;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.Logging;
 using Tools.SnapIt.Extensions;
 using Tools.Services;
 using Tools.Services.Abstractions;
@@ -24,13 +25,20 @@ public partial class App : Application
 
     private Window? _mainWindow;
 
+    /// <summary>
+    /// The in-memory log sink, created before DI so the logger can write to it from the very
+    /// first log call. Registered as a singleton in DI so the log panel can read the same instance.
+    /// </summary>
+    private readonly MemoryLogSink _memoryLogSink = new();
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
-        // Configure Serilog using the shared bootstrap configuration
+        // Configure Serilog: Information-level to the in-memory sink (for the log panel) and
+        // Error-level to the daily rolling file (kept terse as before).
         var logFilePath = Path.Combine(AppContext.BaseDirectory, "logs", "log.txt");
         Log.Logger = new LoggerConfiguration()
-            .WriteToFileDaily(logFilePath)
+            .WriteToFileDailyWithMemory(logFilePath, _memoryLogSink)
             .CreateLogger();
         // Configure icon asset loader to resolve SVG icons from this assembly
         IconAssetLoader.Configure(typeof(App).Assembly.GetName().Name ?? "Tools");
@@ -45,10 +53,12 @@ public partial class App : Application
         Log.Logger.Information("Dev Tools Started");
     }
 
-    private static void ConfigureServices(IServiceCollection services)
+    private void ConfigureServices(IServiceCollection services)
     {
         // Register core library services
         services.AddCoreServices();
+        // Register the shared in-memory log sink instance (already wired into the logger)
+        services.AddSingleton(_memoryLogSink);
         // Register the SnapIt engine and its in-process host adapter (ISnapItService)
         services.AddSnapItEngine();
         services.AddSingleton<ISnapItService, SnapItService>();

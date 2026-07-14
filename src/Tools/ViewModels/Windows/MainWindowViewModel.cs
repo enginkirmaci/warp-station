@@ -1,10 +1,12 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Mvvm;
 using Tools.Library.Providers;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.Logging;
 
 namespace Tools.ViewModels.Windows;
 
@@ -17,6 +19,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly INugetLocalService _nugetLocalService;
     private readonly IOpenCodeServeService _openCodeServeService;
     private readonly ISettingsService _settingsService;
+    private readonly MemoryLogSink _memoryLogSink;
     private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
@@ -62,16 +65,36 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to start/stop the managed opencode serve subprocess from the status bar.</summary>
     public IAsyncRelayCommand ToggleOpenCodeServeCommand { get; }
 
+    // ---- Log panel ----
+
+    /// <summary>
+    /// The log entries shown in the log sidebar, newest-last. Fed by <see cref="MemoryLogSink"/>.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<LogEntry> _logEntries = new();
+
+    /// <summary>Whether the log sidebar is open.</summary>
+    [ObservableProperty]
+    private bool _isLogPanelOpen;
+
+    /// <summary>Command to toggle the log sidebar open/closed.</summary>
+    public IRelayCommand ToggleLogPanelCommand { get; }
+
+    /// <summary>Command to clear all retained log entries.</summary>
+    public IRelayCommand ClearLogCommand { get; }
+
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         IOpenCodeServeService openCodeServeService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        MemoryLogSink memoryLogSink)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _openCodeServeService = openCodeServeService;
         _settingsService = settingsService;
+        _memoryLogSink = memoryLogSink;
 
         // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
         // in-memory cached read (Task.FromResult), so this never blocks on async work.
@@ -83,14 +106,20 @@ public partial class MainWindowViewModel : ViewModelBase
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
         ToggleOpenCodeServeCommand = new AsyncRelayCommand(OnToggleOpenCodeServeAsync);
+        ToggleLogPanelCommand = new RelayCommand(OnToggleLogPanel);
+        ClearLogCommand = new RelayCommand(OnClearLog);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
         _openCodeServeService.ConnectionChanged += OnOpenCodeServeConnectionChanged;
+        _memoryLogSink.EntryAppended += OnLogEntryAppended;
 
         UpdateSnapItStatus(_snapItService.IsRunning);
         UpdateNugetWatchStatus();
         UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
+
+        // Seed the panel with anything already captured (e.g. logs emitted before the VM was built).
+        LogEntries = new ObservableCollection<LogEntry>(_memoryLogSink.Entries);
 
         // Auto-start serve at app launch when configured (so it's ready before the user opens Repos).
         if (_openCodeServeSettings.AutoConnect)
@@ -180,5 +209,24 @@ public partial class MainWindowViewModel : ViewModelBase
         OpenCodeServeStatusText = isConnected
             ? $"serve :{_openCodeServeSettings.Port}"
             : "Disconnected";
+    }
+
+    // ---- Log panel ----
+
+    private void OnToggleLogPanel() => IsLogPanelOpen = !IsLogPanelOpen;
+
+    private void OnClearLog()
+    {
+        _memoryLogSink.Clear();
+        LogEntries.Clear();
+    }
+
+    /// <summary>
+    /// Appends a log entry to <see cref="LogEntries"/> on the UI thread. The sink raises this on
+    /// a background (Serilog pipeline) thread, so we marshal to the UI thread.
+    /// </summary>
+    private void OnLogEntryAppended(LogEntry entry)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEntries.Add(entry));
     }
 }
