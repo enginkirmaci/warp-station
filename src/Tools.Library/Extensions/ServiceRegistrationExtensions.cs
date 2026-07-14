@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.OpenCode;
 
 namespace Tools.Library.Extensions;
 
@@ -31,6 +32,10 @@ public static class ServiceRegistrationExtensions
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();
+
+        // opencode serve integration: HTTP/SSE client + managed subprocess service
+        services.AddSingleton<IOpenCodeServeClient, OpenCodeServeClient>();
+        services.AddSingleton<IOpenCodeServeService, OpenCodeServeService>();
 
         return services;
     }

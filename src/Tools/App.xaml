@@ -31,6 +31,8 @@
 			<conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
 			<conv:PairConverter x:Key="PairConverter" />
 			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
+			<conv:OpenCodeStatusToBrushConverter x:Key="OpenCodeStatusToBrushConverter" />
+			<conv:OpenCodeStatusToTextConverter x:Key="OpenCodeStatusToTextConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
 </Application>

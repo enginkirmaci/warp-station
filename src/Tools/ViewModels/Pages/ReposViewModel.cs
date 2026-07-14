@@ -30,7 +30,9 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
+    private readonly IOpenCodeServeService _openCodeServeService;
     private ReposSettings _reposSettings = new();
+    private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
     /// The model selected when the OpenCode panel opens, loaded from
@@ -76,6 +78,15 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     [ObservableProperty]
     private bool _arrangeInGrid;
+
+    /// <summary>
+    /// When <see langword="true"/>, the instance launched from the panel is registered with
+    /// auto-approve: the serve service replies <c>"once"</c> to each of its
+    /// <c>permission.updated</c> events. Defaults from <c>OpenCodeServeSettings.AutoApprove</c>
+    /// when the panel opens, and is reset when the panel closes.
+    /// </summary>
+    [ObservableProperty]
+    private bool _openCodeAutoApprove;
 
     /// <summary>
     /// The models available in the OpenCode model selector, loaded from
@@ -158,7 +169,8 @@ public partial class ReposViewModel : PageViewModelBase
         IOpenCodeModelService openCodeModelService,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
-        IOpenCodeGridLauncher openCodeGridLauncher)
+        IOpenCodeGridLauncher openCodeGridLauncher,
+        IOpenCodeServeService openCodeServeService)
     {
         _settingsService = settingsService;
         _devToolsClient = devToolsClient;
@@ -169,6 +181,7 @@ public partial class ReposViewModel : PageViewModelBase
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
+        _openCodeServeService = openCodeServeService;
 
         _repoService.Changed += OnRepoChanged;
     }
@@ -190,12 +203,18 @@ public partial class ReposViewModel : PageViewModelBase
     {
         var settings = await _settingsService.GetSettingsAsync();
         _reposSettings = settings.Repos ?? new ReposSettings();
+        _openCodeServeSettings = settings.OpenCode ?? new OpenCodeServeSettings();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeModelsAsync();
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
         RebuildTagFilters();
         ApplyFilter();
+
+        // Auto-start + connect the opencode serve subprocess once Repos is open, so the status
+        // bar reflects a live connection and instances can be tracked. Idempotent: a no-op if
+        // already running (e.g. auto-started by MainWindowViewModel at app launch).
+        await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
     }
 
     /// <summary>
@@ -283,6 +302,7 @@ public partial class ReposViewModel : PageViewModelBase
             OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
             OpenCodePrompt = string.Empty;
             NewPromptName = string.Empty;
+            OpenCodeAutoApprove = false;
         }
     }
 
@@ -428,6 +448,10 @@ public partial class ReposViewModel : PageViewModelBase
         OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
         OpenCodePrompt = string.Empty;
         NewPromptName = string.Empty;
+        // Default auto-approve from settings; an existing tracked instance overrides it so the
+        // toggle reflects the live instance's current state when reopening the panel.
+        var existing = repo.FolderPath is null ? null : _openCodeServeService.GetInstance(repo.FolderPath);
+        OpenCodeAutoApprove = existing?.AutoApprove ?? _openCodeServeSettings.AutoApprove;
         IsOpenCodePanelOpen = true;
     }
 
@@ -472,7 +496,22 @@ public partial class ReposViewModel : PageViewModelBase
             }
         }
 
+        // Register the launched instance with the serve service so it can be matched to a
+        // serve session, tracked for status, and auto-approved (when enabled). The launcher is
+        // fire-and-forget, so pid is unknown here; matching happens by working directory.
+        _openCodeServeService.Register(repo.FolderPath, pid: null, OpenCodeAutoApprove);
+
         IsOpenCodePanelOpen = false;
+    }
+
+    /// <summary>
+    /// When the panel's auto-approve toggle changes while an instance for the open repo is
+    /// already tracked, propagate the new value to the live instance immediately.
+    /// </summary>
+    partial void OnOpenCodeAutoApproveChanged(bool value)
+    {
+        if (OpenCodeRepo?.FolderPath is not null)
+            _openCodeServeService.SetAutoApprove(OpenCodeRepo.FolderPath, value);
     }
 
     /// <summary>

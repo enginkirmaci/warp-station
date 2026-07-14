@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Tools.Library.Entities;
 
@@ -7,7 +8,7 @@ namespace Tools.Library.Entities;
 /// application. The solution file, if present, becomes a property of the repo;
 /// otherwise the Visual Studio action is disabled for it.
 /// </summary>
-public class Repo
+public partial class Repo : ObservableObject
 {
     /// <summary>
     /// Gets or sets the display name (the repo folder name).
@@ -78,4 +79,20 @@ public class Repo
     /// </summary>
     public bool IsFavorite
         => Tags.Any(t => string.Equals(t.Name, FavoritesTag, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The live opencode instance status for this repo, pushed by the serve service as it
+    /// matches and tracks the launched instance. Bound directly by the repo card's OpenCode
+    /// status section. Not persisted (runtime-only); defaults to <see cref="OpenCodeInstanceStatus.Stopped"/>.
+    /// </summary>
+    [ObservableProperty]
+    private OpenCodeInstanceStatus _openCodeStatus = OpenCodeInstanceStatus.Stopped;
+
+    /// <summary>
+    /// Whether auto-approve is active for this repo's opencode instance (the serve service
+    /// replies <c>"once"</c> to its <c>permission.updated</c> events). Shown as a badge on
+    /// the repo card. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _openCodeAutoApprove;
 }

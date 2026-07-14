@@ -362,6 +362,58 @@
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
                                                                                 </StackPanel>
+
+                                                                                <!--  OpenCode status section: status dot + status text (left), OpenCode button (right)  -->
+                                                                                <Grid
+                                                                                        Grid.Column="0"
+                                                                                        Margin="0,2,0,0"
+                                                                                        ColumnDefinitions="Auto,Auto,*,Auto">
+                                                                                        <Border
+                                                                                                Grid.Column="0"
+                                                                                                Width="8"
+                                                                                                Height="8"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToBrushConverter}}"
+                                                                                                CornerRadius="4" />
+                                                                                        <StackPanel
+                                                                                                Grid.Column="1"
+                                                                                                Margin="6,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Orientation="Horizontal"
+                                                                                                Spacing="6">
+                                                                                                <TextBlock
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        FontSize="11"
+                                                                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                                                        Text="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToTextConverter}}" />
+                                                                                                <Border
+                                                                                                        Padding="6,1"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="{DynamicResource AccentSoftBrush}"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                        IsVisible="{Binding OpenCodeAutoApprove}">
+                                                                                                        <TextBlock
+                                                                                                                FontSize="10"
+                                                                                                                Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                                                                                Text="auto-approve" />
+                                                                                                </Border>
+                                                                                        </StackPanel>
+                                                                                        <Button
+                                                                                                Grid.Column="3"
+                                                                                                Padding="6,2"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="Transparent"
+                                                                                                BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                                BorderThickness="1"
+                                                                                                Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                Cursor="Hand"
+                                                                                                FontSize="10"
+                                                                                                ToolTip.Tip="Open the OpenCode panel for this repo">
+                                                                                                OpenCode ▸
+                                                                                        </Button>
+                                                                                </Grid>
                                                                         </StackPanel>
                                                                         <Button
                                                                                 Grid.Column="1"
@@ -393,7 +445,7 @@
                         VerticalAlignment="Stretch"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -422,8 +474,21 @@
                                                         Stretch="Uniform" />
                                         </Button>
                                 </Grid>
-                                <StackPanel
+                                <CheckBox
                                         Grid.Row="1"
+                                        Margin="0,0,0,16"
+                                        IsChecked="{Binding OpenCodeAutoApprove, Mode=TwoWay}"
+                                        ToolTip.Tip="When on, opencode serve auto-approves tool permission requests for this instance (replies &quot;once&quot; to each request).">
+                                        <StackPanel>
+                                                <TextBlock Text="Auto-approve" />
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        FontSize="11"
+                                                        Text="Serve auto-approves tool requests for this instance" />
+                                        </StackPanel>
+                                </CheckBox>
+                                <StackPanel
+                                        Grid.Row="2"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto">
@@ -458,7 +523,7 @@
                                                 TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel
-                                        Grid.Row="2"
+                                        Grid.Row="3"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <TextBlock
@@ -471,7 +536,7 @@
                                                 Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
                                 </StackPanel>
                                 <CheckBox
-                                        Grid.Row="3"
+                                        Grid.Row="4"
                                         Margin="0,0,0,16"
                                         IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
                                         ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -&gt; a 3x2 grid). Only applies when more than one instance is opened.">
@@ -483,7 +548,7 @@
                                                         Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
                                         </StackPanel>
                                 </CheckBox>
-                                <StackPanel Grid.Row="4" Spacing="8">
+                                <StackPanel Grid.Row="5" Spacing="8">
                                         <TextBlock Classes="field-label" Text="Model" />
                                         <ComboBox
                                                 HorizontalAlignment="Stretch"
@@ -491,7 +556,7 @@
                                                 SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
                                 </StackPanel>
                                 <StackPanel
-                                        Grid.Row="5"
+                                        Grid.Row="6"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <TextBlock
@@ -503,7 +568,7 @@
                                                 ItemsSource="{Binding OpenCodePrompts}"
                                                 SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="6" Spacing="8">
+                                <StackPanel Grid.Row="7" Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
@@ -540,13 +605,13 @@
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
                                 <Button
-                                        Grid.Row="7"
+                                        Grid.Row="8"
                                         HorizontalAlignment="Stretch"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"
                                         IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="8" />
+                                <Border Grid.Row="9" />
                         </Grid>
                 </Border>
 

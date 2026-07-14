@@ -280,12 +280,50 @@
 							FontSize="11"
 							FontWeight="Medium"
 							Foreground="{DynamicResource BodyForegroundBrush}"
-							Text="NuGet Watch" />
+							Text="NuGet watch" />
 						<TextBlock
 							VerticalAlignment="Center"
 							FontSize="11"
 							Foreground="{DynamicResource MutedForegroundBrush}"
 							Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
+					</StackPanel>
+					<Button.Styles>
+						<Style Selector="Button /template/ ContentPresenter">
+							<Setter Property="Background" Value="Transparent" />
+						</Style>
+						<Style Selector="Button:pointerover /template/ ContentPresenter">
+							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+						</Style>
+					</Button.Styles>
+				</Button>
+
+				<!--  OpenCode serve indicator (docked right)  -->
+				<Button
+					Padding="8,2"
+					Background="Transparent"
+					BorderThickness="0"
+					Command="{Binding ToggleOpenCodeServeCommand}"
+					CornerRadius="{DynamicResource ChipRadius}"
+					Cursor="Hand"
+					DockPanel.Dock="Right">
+					<StackPanel Orientation="Horizontal" Spacing="6">
+						<Border
+							Width="8"
+							Height="8"
+							VerticalAlignment="Center"
+							Background="{Binding OpenCodeServeConnected, Converter={StaticResource BoolToBrushConverter}}"
+							CornerRadius="4" />
+						<TextBlock
+							VerticalAlignment="Center"
+							FontSize="11"
+							FontWeight="Medium"
+							Foreground="{DynamicResource BodyForegroundBrush}"
+							Text="OpenCode" />
+						<TextBlock
+							VerticalAlignment="Center"
+							FontSize="11"
+							Foreground="{DynamicResource MutedForegroundBrush}"
+							Text="{Binding OpenCodeServeStatusText, Mode=OneWay}" />
 					</StackPanel>
 					<Button.Styles>
 						<Style Selector="Button /template/ ContentPresenter">

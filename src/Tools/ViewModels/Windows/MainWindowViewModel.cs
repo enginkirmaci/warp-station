@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Mvvm;
 using Tools.Library.Providers;
@@ -14,6 +15,9 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ISnapItService _snapItService;
     private readonly INugetLocalService _nugetLocalService;
+    private readonly IOpenCodeServeService _openCodeServeService;
+    private readonly ISettingsService _settingsService;
+    private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
     /// Gets the title of the application.
@@ -48,28 +52,51 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
-    public MainWindowViewModel(ISnapItService snapItService, INugetLocalService nugetLocalService, ISettingsService settingsService)
+    // ---- Status bar: OpenCode serve ----
+    [ObservableProperty]
+    private bool _openCodeServeConnected;
+
+    [ObservableProperty]
+    private string _openCodeServeStatusText = "Disconnected";
+
+    /// <summary>Command to start/stop the managed opencode serve subprocess from the status bar.</summary>
+    public IAsyncRelayCommand ToggleOpenCodeServeCommand { get; }
+
+    public MainWindowViewModel(
+        ISnapItService snapItService,
+        INugetLocalService nugetLocalService,
+        IOpenCodeServeService openCodeServeService,
+        ISettingsService settingsService)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
+        _openCodeServeService = openCodeServeService;
+        _settingsService = settingsService;
 
-        // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached
-        // read (Task.FromResult), so this never blocks on async work.
-        var hideClipboardPassword = settingsService
-            .GetSettingsAsync()
-            .GetAwaiter()
-            .GetResult()
-            .ClipboardPassword?.HideFromGui == true;
+        // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
+        // in-memory cached read (Task.FromResult), so this never blocks on async work.
+        var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
+        var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
+        _openCodeServeSettings = appSettings.OpenCode ?? new OpenCodeServeSettings();
         MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
+        ToggleOpenCodeServeCommand = new AsyncRelayCommand(OnToggleOpenCodeServeAsync);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
+        _openCodeServeService.ConnectionChanged += OnOpenCodeServeConnectionChanged;
 
         UpdateSnapItStatus(_snapItService.IsRunning);
         UpdateNugetWatchStatus();
+        UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
+
+        // Auto-start serve at app launch when configured (so it's ready before the user opens Repos).
+        if (_openCodeServeSettings.AutoConnect)
+        {
+            _ = _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
+        }
     }
 
     private async Task OnToggleSnapItAsync()
@@ -119,5 +146,39 @@ public partial class MainWindowViewModel : ViewModelBase
         NugetWatchStatusText = _nugetLocalService.IsWatching
             ? (_nugetLocalService.Count > 0 ? $"Watching ({_nugetLocalService.Count})" : "Watching")
             : "Idle";
+    }
+
+    /// <summary>
+    /// Toggles the managed opencode serve subprocess. Starting reads the latest serve settings
+    /// (so a settings-dialog edit is picked up); stopping tears the subprocess down.
+    /// </summary>
+    private async Task OnToggleOpenCodeServeAsync()
+    {
+        if (_openCodeServeService.IsConnected)
+        {
+            _openCodeServeService.Stop();
+            UpdateOpenCodeServeStatus(false);
+        }
+        else
+        {
+            // Pick up any settings changes since construction.
+            var appSettings = await _settingsService.GetSettingsAsync();
+            _openCodeServeSettings = appSettings.OpenCode ?? new OpenCodeServeSettings();
+            await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings, force: true);
+            UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
+        }
+    }
+
+    private void OnOpenCodeServeConnectionChanged(object? sender, bool isConnected)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateOpenCodeServeStatus(isConnected));
+    }
+
+    private void UpdateOpenCodeServeStatus(bool isConnected)
+    {
+        OpenCodeServeConnected = isConnected;
+        OpenCodeServeStatusText = isConnected
+            ? $"serve :{_openCodeServeSettings.Port}"
+            : "Disconnected";
     }
 }
