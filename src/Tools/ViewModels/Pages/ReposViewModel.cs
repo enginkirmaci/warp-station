@@ -301,11 +301,13 @@ public partial class ReposViewModel : PageViewModelBase
     private void ClearFilter() => FilterText = string.Empty;
 
     /// <summary>
-    /// Clears every tag checkbox (does not touch the tags on the repos themselves).
+    /// Clears the search box and every tag checkbox (does not touch the tags on the
+    /// repos themselves).
     /// </summary>
     [RelayCommand]
     private void ClearTagFilters()
     {
+        FilterText = string.Empty;
         foreach (var tag in TagFilters)
             tag.IsChecked = false;
         ApplyFilter();

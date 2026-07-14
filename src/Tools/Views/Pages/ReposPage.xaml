@@ -61,7 +61,7 @@
                                                 VerticalAlignment="Center"
                                                 Classes="icon"
                                                 Command="{Binding ClearTagFiltersCommand}"
-                                                ToolTip.Tip="Clear selected tags">
+                                                ToolTip.Tip="Clear search and selected tags">
                                                 <TextBlock
                                                         VerticalAlignment="Center"
                                                         Classes="subtle"
@@ -438,6 +438,11 @@
                                                         FontSize="11"
                                                         ToolTip.Tip="Remove the repo's .opencode folder and re-copy the selected template into it" />
                                         </Grid>
+                                        <TextBlock
+                                                Classes="subtle"
+                                                FontSize="11"
+                                                Text="Reset removes the repo's .opencode folder and re-copies the selected template into it."
+                                                TextWrapping="Wrap" />
                                         <ComboBox
                                                 HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding OpenCodeTemplates}"
