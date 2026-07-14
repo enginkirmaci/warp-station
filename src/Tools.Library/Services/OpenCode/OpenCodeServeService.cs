@@ -24,7 +24,14 @@ public sealed class OpenCodeServeService : IOpenCodeServeService
     // --- timing ---
     private static readonly TimeSpan HealthInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialHealthTimeout = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan SessionResyncInterval = TimeSpan.FromSeconds(4);
+
+    /// <summary>
+    /// How long to wait after launch before transitioning an unmatched instance from
+    /// <see cref="OpenCodeInstanceStatus.Starting"/> to <see cref="OpenCodeInstanceStatus.Running"/>.
+    /// The terminal-launched TUI may never register a session with our serve instance, so after
+    /// this grace we trust the launch succeeded.
+    /// </summary>
+    private static readonly TimeSpan StartingGracePeriod = TimeSpan.FromSeconds(15);
 
     // --- collaborators ---
     private readonly IOpenCodeServeClient _client;
@@ -270,10 +277,12 @@ public sealed class OpenCodeServeService : IOpenCodeServeService
     // --- session ↔ instance matching ---
 
     /// <summary>
-    /// Lists serve sessions and reconciles them against registered instances: an instance whose
-    /// folder has a live session is <see cref="OpenCodeInstanceStatus.Running"/>; one with no
-    /// session is <see cref="OpenCodeInstanceStatus.Stopped"/> (if it had been running) or left
-    /// as <see cref="OpenCodeInstanceStatus.Starting"/> (still warming up) for a short grace.
+    /// Lists serve sessions and reconciles them against registered instances. The terminal-
+    /// launched opencode TUI is a separate process from <c>opencode serve</c> and may not
+    /// register sessions visible to our serve instance, so session matching is used only to
+    /// <em>upgrade</em> status (Starting→Running) and acquire a SessionId for auto-approve —
+    /// never to <em>downgrade</em> to Stopped when no session is found. A previously-matched
+    /// session disappearing IS treated as stopped (the user closed opencode).
     /// </summary>
     private async Task SyncSessionsAsync(CancellationToken ct)
     {
@@ -295,20 +304,34 @@ public sealed class OpenCodeServeService : IOpenCodeServeService
             var key = NormalizePath(instance.FolderPath);
             if (byDir.TryGetValue(key, out var session))
             {
+                // Found a live session for this folder — upgrade to Running and remember the id.
                 instance.SessionId = session.Id;
                 instance.Status = OpenCodeInstanceStatus.Running;
             }
             else if (instance.SessionId is not null
                      && sessions.Any(s => string.Equals(s.Id, instance.SessionId, StringComparison.Ordinal)))
             {
+                // The previously-matched session is still alive.
                 instance.Status = OpenCodeInstanceStatus.Running;
+            }
+            else if (instance.SessionId is not null)
+            {
+                // We HAD a matched session before, and now it's gone — the user closed opencode.
+                instance.Status = OpenCodeInstanceStatus.Stopped;
             }
             else
             {
-                // No session yet. If it's been starting for a while, mark it stopped.
-                var age = instance.StartedAt is null ? TimeSpan.MaxValue : DateTimeOffset.UtcNow - instance.StartedAt.Value;
-                if (instance.Status == OpenCodeInstanceStatus.Running || age > TimeSpan.FromSeconds(30))
-                    instance.Status = OpenCodeInstanceStatus.Stopped;
+                // No session was ever found. The terminal-launched TUI is a separate process
+                // from serve and may simply not register sessions here. Trust the launch: after
+                // a brief grace, transition Starting→Running so the UI reflects reality.
+                if (instance.Status == OpenCodeInstanceStatus.Starting)
+                {
+                    var age = instance.StartedAt is null
+                        ? TimeSpan.MaxValue
+                        : DateTimeOffset.UtcNow - instance.StartedAt.Value;
+                    if (age > StartingGracePeriod)
+                        instance.Status = OpenCodeInstanceStatus.Running;
+                }
             }
         }
     }
