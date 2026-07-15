@@ -51,10 +51,10 @@ jobs:
         run: dotnet build Tools.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
 
       - name: Publish Tools
-        run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 
       - name: Publish DevTools
-        run: dotnet publish src\DevTools\DevTools.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet publish src\DevTools\DevTools.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 
       - name: Install Inno Setup
         run: |
@@ -70,11 +70,33 @@ jobs:
           name: DevTools-Installer
           path: installer/*.exe
 
+      - name: Build portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          # Stage to a clean folder, excluding pdbs/xml so the zip stays lean and the
+          # installer's source dir is not mutated. The portable build stores its data
+          # in %USERPROFILE%\.devtools, same as the installer; the bundled settings\
+          # tree is seeded into the user folder on first run via UserPaths.SeedFromDefault.
+          robocopy "bin\output\publish" "bin\portable-stage" /E /XF *.pdb *.xml | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          Compress-Archive -Path "bin\portable-stage\*" `
+            -DestinationPath "portable\DevTools-Portable-${{ steps.version.outputs.version }}.zip" `
+            -CompressionLevel Optimal
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DevTools-Portable
+          path: portable/*.zip
+
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: installer/*.exe
+          files: |
+            installer/*.exe
+            portable/*.zip
           draft: true
           prerelease: false
         env:
