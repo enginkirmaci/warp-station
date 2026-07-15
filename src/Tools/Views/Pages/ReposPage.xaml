@@ -466,7 +466,7 @@
                                                         Text="OpenCode" />
                                                 <TextBlock
                                                         Classes="subtle"
-                                                        Text="{Binding OpenCodeRepo.Name}"
+                                                        Text="{Binding OpenCodeRepo.Name, FallbackValue='', TargetNullValue=''}"
                                                         TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                         <Button
@@ -527,8 +527,8 @@
                                         <TextBlock
                                                 Classes="subtle"
                                                 FontSize="11"
-                                                IsVisible="{Binding OpenCodeSelectedTemplate.Description, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                Text="{Binding OpenCodeSelectedTemplate.Description}"
+                                                IsVisible="{Binding OpenCodeSelectedTemplate.Description, Converter={StaticResource StringNotNullToBoolConverter}, FallbackValue=False}"
+                                                Text="{Binding OpenCodeSelectedTemplate.Description, FallbackValue=''}"
                                                 TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel

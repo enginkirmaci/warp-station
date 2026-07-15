@@ -15,6 +15,7 @@ public partial class NugetLocalViewModel : PageViewModelBase
 {
     private readonly INugetLocalService _nugetService;
     private readonly IDialogService _dialogService;
+    private readonly INotificationService _notificationService;
 
     /// <summary>
     /// Exposes the singleton service for direct XAML binding (paths, status, log).
@@ -48,10 +49,11 @@ public partial class NugetLocalViewModel : PageViewModelBase
     /// <summary>Gets the command to register the watch folder as a NuGet source.</summary>
     public IAsyncRelayCommand RegisterSourceCommand { get; }
 
-    public NugetLocalViewModel(INugetLocalService nugetService, IDialogService dialogService)
+    public NugetLocalViewModel(INugetLocalService nugetService, IDialogService dialogService, INotificationService notificationService)
     {
         _nugetService = nugetService;
         _dialogService = dialogService;
+        _notificationService = notificationService;
 
         WatchChangesCommand = new RelayCommand<object>(OnWatchChanges);
         SelectFolderCommand = new AsyncRelayCommand<string>(OnSelectFolderAsync);
@@ -99,10 +101,19 @@ public partial class NugetLocalViewModel : PageViewModelBase
     {
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
+            var wasWatching = WatchStarted;
             WatchStarted = _nugetService.IsWatching;
             Count = _nugetService.Count;
             ComputedCopyFolder = _nugetService.ComputedCopyFolder;
             GlobalPackagesFolder = _nugetService.GlobalPackagesFolder;
+
+            // Only toast on the actual watch state transition, not every count/file update.
+            if (wasWatching != WatchStarted)
+            {
+                _notificationService.Show(
+                    WatchStarted ? "Started watching for packages" : "Stopped watching",
+                    NotificationKind.Info);
+            }
 
             // Update the log collection in place to keep it bound/scrolled.
             if (!ReferenceEquals(FileList, _nugetService.ActivityLog))
@@ -137,6 +148,7 @@ public partial class NugetLocalViewModel : PageViewModelBase
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Avalonia FolderPicker failed");
+            _notificationService.Show("Could not open folder picker", NotificationKind.Error);
         }
     }
 

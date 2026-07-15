@@ -17,7 +17,14 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly INugetLocalService _nugetLocalService;
     private readonly IOpenCodeServeService _openCodeServeService;
     private readonly ISettingsService _settingsService;
+    private readonly INotificationService _notificationService;
     private OpenCodeServeSettings _openCodeServeSettings = new();
+
+    /// <summary>
+    /// Tracks whether the serve connection change came from an explicit user toggle (vs. the
+    /// auto-start at app launch), so launch-time connects don't fire a toast.
+    /// </summary>
+    private bool _isExplicitServeToggle;
 
     /// <summary>
     /// Gets the title of the application.
@@ -66,12 +73,14 @@ public partial class MainWindowViewModel : ViewModelBase
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         IOpenCodeServeService openCodeServeService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        INotificationService notificationService)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _openCodeServeService = openCodeServeService;
         _settingsService = settingsService;
+        _notificationService = notificationService;
 
         // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
         // in-memory cached read (Task.FromResult), so this never blocks on async work.
@@ -154,6 +163,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private async Task OnToggleOpenCodeServeAsync()
     {
+        _isExplicitServeToggle = true;
         if (_openCodeServeService.IsConnected)
         {
             _openCodeServeService.Stop();
@@ -167,11 +177,23 @@ public partial class MainWindowViewModel : ViewModelBase
             await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings, force: true);
             UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
         }
+        _isExplicitServeToggle = false;
     }
 
     private void OnOpenCodeServeConnectionChanged(object? sender, bool isConnected)
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateOpenCodeServeStatus(isConnected));
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            UpdateOpenCodeServeStatus(isConnected);
+
+            // Only toast on explicit user toggles, not the app-launch auto-start.
+            if (_isExplicitServeToggle)
+            {
+                _notificationService.Show(
+                    isConnected ? "OpenCode serve connected" : "OpenCode serve disconnected",
+                    isConnected ? NotificationKind.Success : NotificationKind.Info);
+            }
+        });
     }
 
     private void UpdateOpenCodeServeStatus(bool isConnected)

@@ -13,6 +13,7 @@ namespace Tools.ViewModels.Pages;
 public partial class ClipboardPasswordPageViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
+    private readonly INotificationService _notificationService;
 
     [ObservableProperty]
     private string _password = string.Empty;
@@ -23,9 +24,10 @@ public partial class ClipboardPasswordPageViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _hasStoredPassword;
 
-    public ClipboardPasswordPageViewModel(ISettingsService settingsService)
+    public ClipboardPasswordPageViewModel(ISettingsService settingsService, INotificationService notificationService)
     {
         _settingsService = settingsService;
+        _notificationService = notificationService;
     }
 
     /// <inheritdoc/>
@@ -71,10 +73,12 @@ public partial class ClipboardPasswordPageViewModel : PageViewModelBase
             Password = string.Empty;
             HasStoredPassword = true;
             StatusMessage = "Password saved successfully! Use Ctrl+Shift+V to paste it.";
+            _notificationService.Show("Password saved", NotificationKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Error saving password: {ex.Message}";
+            _notificationService.Show("Failed to save password", NotificationKind.Error);
         }
     }
 
@@ -92,10 +96,12 @@ public partial class ClipboardPasswordPageViewModel : PageViewModelBase
             Password = string.Empty;
             HasStoredPassword = false;
             StatusMessage = "Password cleared";
+            _notificationService.Show("Password cleared", NotificationKind.Success);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Error clearing password: {ex.Message}";
+            _notificationService.Show("Failed to clear password", NotificationKind.Error);
         }
     }
 }

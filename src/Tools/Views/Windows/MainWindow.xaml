@@ -341,18 +341,18 @@
 				</DockPanel>
 			</Border>
 
-		<!--  Toast overlay (floats above all pages, top-right)  -->
+		<!--  Toast overlay (floats above all pages, top-center)  -->
 		<ItemsControl
 			x:Name="ToastHost"
 			Grid.RowSpan="3"
 			Grid.ColumnSpan="2"
-			HorizontalAlignment="Right"
+			HorizontalAlignment="Center"
 			VerticalAlignment="Top"
-			Margin="0,46,16,0"
+			Margin="0,46,0,0"
 			IsHitTestVisible="True">
 			<ItemsControl.ItemsPanel>
 				<ItemsPanelTemplate>
-					<StackPanel Orientation="Vertical" Spacing="8" />
+					<StackPanel HorizontalAlignment="Center" Orientation="Vertical" Spacing="8" />
 				</ItemsPanelTemplate>
 			</ItemsControl.ItemsPanel>
 			<ItemsControl.ItemTemplate>

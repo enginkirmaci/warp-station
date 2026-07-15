@@ -31,6 +31,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
     private readonly IOpenCodeServeService _openCodeServeService;
+    private readonly INotificationService _notificationService;
     private ReposSettings _reposSettings = new();
     private OpenCodeServeSettings _openCodeServeSettings = new();
 
@@ -170,7 +171,8 @@ public partial class ReposViewModel : PageViewModelBase
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
         IOpenCodeGridLauncher openCodeGridLauncher,
-        IOpenCodeServeService openCodeServeService)
+        IOpenCodeServeService openCodeServeService,
+        INotificationService notificationService)
     {
         _settingsService = settingsService;
         _devToolsClient = devToolsClient;
@@ -182,6 +184,7 @@ public partial class ReposViewModel : PageViewModelBase
         _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
         _openCodeServeService = openCodeServeService;
+        _notificationService = notificationService;
 
         _repoService.Changed += OnRepoChanged;
     }
@@ -533,6 +536,7 @@ public partial class ReposViewModel : PageViewModelBase
         // Select the just-saved prompt so the UI reflects what was persisted.
         OpenCodeSelectedPrompt = OpenCodePrompts.FirstOrDefault(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) ?? OpenCodePromptEntry.None;
+        _notificationService.Show("Prompt saved", NotificationKind.Success);
     }
 
     /// <summary>
@@ -560,6 +564,7 @@ public partial class ReposViewModel : PageViewModelBase
         // CopyToRepoAsync deletes any existing .opencode first, then re-copies the
         // template folder — exactly the "remove and re-seed" behavior.
         await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
+        _notificationService.Show("Template reset", NotificationKind.Success);
     }
 
     /// <summary>Reset needs both a real template selection and a target repo.</summary>
@@ -637,10 +642,12 @@ public partial class ReposViewModel : PageViewModelBase
 
             _reposSettings = edited;
             await _repoService.RefreshAsync(_reposSettings);
+            _notificationService.Show("Settings saved", NotificationKind.Success);
         }
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Error opening repo settings");
+            _notificationService.Show("Failed to save settings", NotificationKind.Error);
         }
     }
 }
