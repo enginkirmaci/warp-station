@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Configuration;
@@ -20,6 +21,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IOpenCodeServeService _openCodeServeService;
     private readonly ISettingsService _settingsService;
     private readonly MemoryLogSink _memoryLogSink;
+    private readonly IClipboardService _clipboardService;
     private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
@@ -83,18 +85,23 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to clear all retained log entries.</summary>
     public IRelayCommand ClearLogCommand { get; }
 
+    /// <summary>Command to copy all retained log entries to the clipboard.</summary>
+    public IRelayCommand CopyLogsCommand { get; }
+
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         IOpenCodeServeService openCodeServeService,
         ISettingsService settingsService,
-        MemoryLogSink memoryLogSink)
+        MemoryLogSink memoryLogSink,
+        IClipboardService clipboardService)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _openCodeServeService = openCodeServeService;
         _settingsService = settingsService;
         _memoryLogSink = memoryLogSink;
+        _clipboardService = clipboardService;
 
         // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
         // in-memory cached read (Task.FromResult), so this never blocks on async work.
@@ -108,6 +115,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ToggleOpenCodeServeCommand = new AsyncRelayCommand(OnToggleOpenCodeServeAsync);
         ToggleLogPanelCommand = new RelayCommand(OnToggleLogPanel);
         ClearLogCommand = new RelayCommand(OnClearLog);
+        CopyLogsCommand = new RelayCommand(OnCopyLogs);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
@@ -219,6 +227,28 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _memoryLogSink.Clear();
         LogEntries.Clear();
+    }
+
+    /// <summary>
+    /// Copies all retained log entries to the clipboard, formatted one per line with the
+    /// timestamp, level, message, and (when present) exception — mirroring the panel layout.
+    /// </summary>
+    private void OnCopyLogs()
+    {
+        if (LogEntries.Count == 0)
+            return;
+
+        var sb = new StringBuilder();
+        foreach (var entry in LogEntries)
+        {
+            sb.Append(entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+            sb.Append(' ').Append(entry.LevelText).Append(' ').Append(entry.Message);
+            if (!string.IsNullOrEmpty(entry.Exception))
+                sb.Append(Environment.NewLine).Append(entry.Exception);
+            sb.Append(Environment.NewLine);
+        }
+
+        _clipboardService.CopyText(sb.ToString().TrimEnd());
     }
 
     /// <summary>

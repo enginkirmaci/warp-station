@@ -223,7 +223,7 @@
 					<Grid
 						Grid.Row="0"
 						Margin="14,12,8,8"
-						ColumnDefinitions="*,Auto,Auto">
+						ColumnDefinitions="*,Auto,Auto,Auto">
 						<TextBlock
 							Grid.Column="0"
 							VerticalAlignment="Center"
@@ -232,6 +232,19 @@
 							Text="Logs" />
 						<Button
 							Grid.Column="1"
+							Margin="4,0,0,0"
+							Classes="icon"
+							Command="{Binding CopyLogsCommand}"
+							ToolTip.Tip="Copy logs to clipboard">
+							<Path
+								Width="14"
+								Height="14"
+								Data="{tools:SvgPath icon-clipboard}"
+								Fill="{DynamicResource MutedForegroundBrush}"
+								Stretch="Uniform" />
+						</Button>
+						<Button
+							Grid.Column="2"
 							Margin="4,0,0,0"
 							Classes="icon"
 							Command="{Binding ClearLogCommand}"
@@ -244,7 +257,7 @@
 								Stretch="Uniform" />
 						</Button>
 						<Button
-							Grid.Column="2"
+							Grid.Column="3"
 							Classes="icon"
 							Command="{Binding ToggleLogPanelCommand}"
 							ToolTip.Tip="Close">
@@ -407,8 +420,35 @@
 					</Button.Styles>
 				</Button>
 
-				<!--  OpenCode serve indicator (docked right)  -->
+				<!--  Logs toggle button (docked right, far right)  -->
 				<Button
+					Padding="8,2"
+					Background="Transparent"
+					BorderThickness="0"
+					Command="{Binding ToggleLogPanelCommand}"
+					CornerRadius="{DynamicResource ChipRadius}"
+					Cursor="Hand"
+					DockPanel.Dock="Right"
+					ToolTip.Tip="Toggle log panel">
+					<Path
+						Width="14"
+						Height="14"
+						Data="{tools:SvgPath icon-log}"
+						Fill="{DynamicResource MutedForegroundBrush}"
+						Stretch="Uniform" />
+					<Button.Styles>
+						<Style Selector="Button /template/ ContentPresenter">
+							<Setter Property="Background" Value="Transparent" />
+						</Style>
+						<Style Selector="Button:pointerover /template/ ContentPresenter">
+							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+						</Style>
+					</Button.Styles>
+				</Button>
+
+				<!--  OpenCode serve indicator (docked right, left of logs toggle)  -->
+				<Button
+					Margin="0,0,6,0"
 					Padding="8,2"
 					Background="Transparent"
 					BorderThickness="0"
@@ -435,33 +475,6 @@
 							Foreground="{DynamicResource MutedForegroundBrush}"
 							Text="{Binding OpenCodeServeStatusText, Mode=OneWay}" />
 					</StackPanel>
-					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
-							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-						</Style>
-					</Button.Styles>
-				</Button>
-
-				<!--  Logs toggle button (docked right, left of OpenCode serve)  -->
-				<Button
-					Margin="0,0,6,0"
-					Padding="8,2"
-					Background="Transparent"
-					BorderThickness="0"
-					Command="{Binding ToggleLogPanelCommand}"
-					CornerRadius="{DynamicResource ChipRadius}"
-					Cursor="Hand"
-					DockPanel.Dock="Right"
-					ToolTip.Tip="Toggle log panel">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-log}"
-						Fill="{DynamicResource MutedForegroundBrush}"
-						Stretch="Uniform" />
 					<Button.Styles>
 						<Style Selector="Button /template/ ContentPresenter">
 							<Setter Property="Background" Value="Transparent" />

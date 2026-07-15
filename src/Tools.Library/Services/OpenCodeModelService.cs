@@ -43,9 +43,9 @@ public class OpenCodeModelService : IOpenCodeModelService
     {
         try
         {
-            // models.json is app-authored (not user-edited): always refresh from the
-            // shipped default so upgrades pick up the latest model list and default.
-            UserPaths.RefreshFromDefault(_modelsFilePath, "opencode\\models.json");
+            // Seed from the shipped default only when no user copy exists yet, so an
+            // existing models.json (including user/runtime edits) is never overwritten.
+            UserPaths.SeedFromDefault(_modelsFilePath, "opencode\\models.json");
 
             if (!File.Exists(_modelsFilePath))
                 return CloneFallback();

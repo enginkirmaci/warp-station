@@ -184,7 +184,7 @@ public class ClipboardPasswordSettings
     /// still be pasted via the Ctrl+Shift+V hotkey; only the GUI entry points are
     /// concealed. Configured manually via settings.json.
     /// </summary>
-    public bool HideFromGui { get; set; }
+    public bool HideFromGui { get; set; } = true;
 }
 
 /// <summary>
