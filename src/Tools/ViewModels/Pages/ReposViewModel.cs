@@ -64,6 +64,13 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private Repo? _openCodeRepo;
 
+    /// <summary>
+    /// A null-safe computed view of <see cref="OpenCodeRepo"/>'s name for binding.
+    /// Binding directly to <c>OpenCodeRepo.Name</c> fails to traverse the path when
+    /// <see cref="OpenCodeRepo"/> is null (panel closed); this wrapper avoids that.
+    /// </summary>
+    public string OpenCodeRepoName => OpenCodeRepo?.Name ?? string.Empty;
+
     [ObservableProperty]
     private int _openCodeInstanceCount = 1;
 
@@ -120,6 +127,12 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     [ObservableProperty]
     private OpenCodeTemplate _openCodeSelectedTemplate = OpenCodeTemplate.None;
+
+    /// <summary>
+    /// A null-safe computed view of the selected template's description for binding, avoiding
+    /// a null-intermediate path traversal on <see cref="OpenCodeSelectedTemplate"/>.
+    /// </summary>
+    public string OpenCodeSelectedTemplateDescription => OpenCodeSelectedTemplate?.Description ?? string.Empty;
 
     /// <summary>
     /// The prompts available in the OpenCode prompt selector, loaded from
@@ -571,11 +584,27 @@ public partial class ReposViewModel : PageViewModelBase
     private bool CanResetOpenCodeTemplate()
         => OpenCodeRepo?.FolderPath is not null && !OpenCodeSelectedTemplate.IsNone;
 
-    /// <summary>Re-evaluate <see cref="ResetOpenCodeTemplateCommand"/> when its inputs change.</summary>
+    /// <summary>
+    /// Re-evaluate <see cref="ResetOpenCodeTemplateCommand"/>, refresh the computed
+    /// description binding, and coerce transient nulls (the ComboBox TwoWay binding pushes
+    /// null when <see cref="OpenCodeTemplates"/> is swapped) back to the None sentinel.
+    /// </summary>
     partial void OnOpenCodeSelectedTemplateChanged(OpenCodeTemplate value)
-        => ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
+    {
+        if (value is null)
+        {
+            OpenCodeSelectedTemplate = OpenCodeTemplate.None;
+            return;
+        }
+        ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(OpenCodeSelectedTemplateDescription));
+    }
+
     partial void OnOpenCodeRepoChanged(Repo? value)
-        => ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
+    {
+        ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(OpenCodeRepoName));
+    }
 
     // --- Tag management ---
 
