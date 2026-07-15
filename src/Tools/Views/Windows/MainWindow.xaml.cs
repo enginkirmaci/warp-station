@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private ContentControl ContentArea = null!;
     private ListBox NavigationListBox = null!;
     private Button BackButton = null!;
+    private ItemsControl ToastHost = null!;
 
     private void InitializeComponent()
     {
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
         ContentArea = this.FindControl<ContentControl>("ContentArea")!;
         NavigationListBox = this.FindControl<ListBox>("NavigationListBox")!;
         BackButton = this.FindControl<Button>("BackButton")!;
+        ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
     }
 
     /// <summary>
@@ -42,7 +44,8 @@ public partial class MainWindow : Window
     public MainWindow(
         MainWindowViewModel viewModel,
         INavigationService navigationService,
-        IClipboardPasswordService clipboardPasswordService)
+        IClipboardPasswordService clipboardPasswordService,
+        INotificationService notificationService)
     {
         _navigationService = navigationService;
         _clipboardPasswordService = clipboardPasswordService;
@@ -55,6 +58,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         InitializeNavigation();
         InitializeWindow();
+
+        // Wire the toast overlay: the service is its DataContext (provides DismissCommand)
+        // and its Toasts collection is the items source.
+        ToastHost.DataContext = notificationService;
+        ToastHost.ItemsSource = notificationService.Toasts;
     }
 
     #region Initialization

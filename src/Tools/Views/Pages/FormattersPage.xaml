@@ -69,10 +69,16 @@
                                                         VerticalAlignment="Center"
                                                         Classes="accent"
                                                         Command="{Binding ConvertCommand}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                                <TextBlock VerticalAlignment="Center" Text="▶" />
-                                                                <TextBlock VerticalAlignment="Center" Text="Convert" />
-                                                        </StackPanel>
+							<StackPanel Orientation="Horizontal" Spacing="8">
+								<Path
+									Width="12"
+									Height="12"
+									VerticalAlignment="Center"
+									Data="{tools:SvgPath icon-play}"
+									Fill="{DynamicResource AccentForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock VerticalAlignment="Center" Text="Convert" />
+							</StackPanel>
                                                 </Button>
                                         </Grid>
                                 </Border>

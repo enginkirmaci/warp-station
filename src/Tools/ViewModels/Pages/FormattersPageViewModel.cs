@@ -12,6 +12,7 @@ namespace Tools.ViewModels.Pages;
 public partial class FormattersPageViewModel : PageViewModelBase
 {
     private readonly IClipboardService _clipboardService;
+    private readonly INotificationService _notificationService;
 
     [ObservableProperty]
     private string _inputText = string.Empty;
@@ -49,9 +50,10 @@ public partial class FormattersPageViewModel : PageViewModelBase
     /// </summary>
     public IRelayCommand ClearHistoryCommand { get; }
 
-    public FormattersPageViewModel(IClipboardService clipboardService)
+    public FormattersPageViewModel(IClipboardService clipboardService, INotificationService notificationService)
     {
         _clipboardService = clipboardService;
+        _notificationService = notificationService;
         ConvertCommand = new RelayCommand(OnConvert);
         CopyToClipboardCommand = new RelayCommand<string>(OnCopyToClipboard);
         ClearHistoryCommand = new RelayCommand(OnClearHistory);
@@ -118,6 +120,7 @@ public partial class FormattersPageViewModel : PageViewModelBase
         if (!string.IsNullOrEmpty(text))
         {
             _clipboardService.CopyText(text);
+            _notificationService.Show("Copied to clipboard", NotificationKind.Success);
         }
     }
 

@@ -14,7 +14,7 @@
 		<TextBlock
 			Grid.Row="0"
 			Classes="section-title"
-			Text="Nuget Package Manager" />
+			Text="NuGet Package Manager" />
 
 		<Border
 			Grid.Row="1"

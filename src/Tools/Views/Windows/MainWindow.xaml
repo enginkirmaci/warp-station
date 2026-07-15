@@ -45,9 +45,15 @@
 					Padding="8,4"
 					Classes="accent"
 					Click="BackButton_Click"
-					Content="←"
 					DockPanel.Dock="Left"
-					IsVisible="False" />
+					IsVisible="False">
+					<Path
+						Width="14"
+						Height="14"
+						Data="{tools:SvgPath icon-arrow-left}"
+						Fill="{DynamicResource AccentForegroundBrush}"
+						Stretch="Uniform" />
+				</Button>
 			</DockPanel>
 		</Border>
 
@@ -207,132 +213,6 @@
 				x:Name="ContentArea"
 				Grid.Row="0"
 				Padding="0" />
-
-			<!--  Log sidebar (right-side fly-in overlay, across all pages)  -->
-			<Border
-				Grid.Row="0"
-				Width="380"
-				HorizontalAlignment="Right"
-				VerticalAlignment="Stretch"
-				Background="{DynamicResource SidebarBackgroundBrush}"
-				BorderBrush="{DynamicResource DividerBrush}"
-				BorderThickness="1,0,0,0"
-				IsVisible="{Binding IsLogPanelOpen}">
-				<Grid RowDefinitions="Auto,*,Auto">
-					<!--  Header  -->
-					<Grid
-						Grid.Row="0"
-						Margin="14,12,8,8"
-						ColumnDefinitions="*,Auto,Auto,Auto">
-						<TextBlock
-							Grid.Column="0"
-							VerticalAlignment="Center"
-							Classes="card-title"
-							Foreground="{DynamicResource AccentPrimaryBrush}"
-							Text="Logs" />
-						<Button
-							Grid.Column="1"
-							Margin="4,0,0,0"
-							Classes="icon"
-							Command="{Binding CopyLogsCommand}"
-							ToolTip.Tip="Copy logs to clipboard">
-							<Path
-								Width="14"
-								Height="14"
-								Data="{tools:SvgPath icon-clipboard}"
-								Fill="{DynamicResource MutedForegroundBrush}"
-								Stretch="Uniform" />
-						</Button>
-						<Button
-							Grid.Column="2"
-							Margin="4,0,0,0"
-							Classes="icon"
-							Command="{Binding ClearLogCommand}"
-							ToolTip.Tip="Clear logs">
-							<Path
-								Width="14"
-								Height="14"
-								Data="{tools:SvgPath icon-refresh}"
-								Fill="{DynamicResource MutedForegroundBrush}"
-								Stretch="Uniform" />
-						</Button>
-						<Button
-							Grid.Column="3"
-							Classes="icon"
-							Command="{Binding ToggleLogPanelCommand}"
-							ToolTip.Tip="Close">
-							<Path
-								Width="14"
-								Height="14"
-								Data="{tools:SvgPath icon-close}"
-								Fill="{DynamicResource MutedForegroundBrush}"
-								Stretch="Uniform" />
-						</Button>
-					</Grid>
-
-					<!--  Log entries  -->
-					<Border Grid.Row="1" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0">
-						<ScrollViewer Padding="10,8">
-							<ItemsControl ItemsSource="{Binding LogEntries}">
-								<ItemsControl.ItemsPanel>
-									<ItemsPanelTemplate>
-										<StackPanel Orientation="Vertical" Spacing="3" />
-									</ItemsPanelTemplate>
-								</ItemsControl.ItemsPanel>
-								<ItemsControl.ItemTemplate>
-									<DataTemplate>
-										<StackPanel Orientation="Vertical" Spacing="1">
-											<StackPanel Orientation="Horizontal" Spacing="6">
-												<TextBlock
-													VerticalAlignment="Center"
-													FontSize="10"
-													FontFamily="Cascadia Code,Consolas,monospace"
-													Foreground="{DynamicResource FaintForegroundBrush}"
-													Text="{Binding Timestamp, StringFormat='HH:mm:ss'}" />
-												<TextBlock
-													VerticalAlignment="Center"
-													FontSize="10"
-													FontFamily="Cascadia Code,Consolas,monospace"
-													FontWeight="Medium"
-													Foreground="{Binding Level, Converter={StaticResource LogLevelToBrushConverter}}"
-													Text="{Binding LevelText}" />
-											</StackPanel>
-											<TextBlock
-												FontFamily="Cascadia Code,Consolas,monospace"
-												FontSize="11"
-												Foreground="{DynamicResource BodyForegroundBrush}"
-												Text="{Binding Message}"
-												TextWrapping="Wrap" />
-											<TextBlock
-												FontFamily="Cascadia Code,Consolas,monospace"
-												FontSize="10"
-												Foreground="{DynamicResource ErrorBrush}"
-												IsVisible="{Binding Exception, Converter={StaticResource StringNotNullToBoolConverter}}"
-												Text="{Binding Exception}"
-												TextWrapping="Wrap" />
-										</StackPanel>
-									</DataTemplate>
-								</ItemsControl.ItemTemplate>
-							</ItemsControl>
-						</ScrollViewer>
-					</Border>
-
-					<!--  Footer hint  -->
-					<Border
-						Grid.Row="2"
-						BorderBrush="{DynamicResource DividerBrush}"
-						BorderThickness="0,1,0,0">
-						<TextBlock
-							Margin="14,6"
-							FontSize="10"
-							Foreground="{DynamicResource FaintForegroundBrush}"
-							Text="opencode serve · approvals · lifecycle" />
-					</Border>
-				</Grid>
-			</Border>
-
-			<!--  Info Bar  -->
-			<!--  InfoBar removed during migration  -->
 		</Grid>
 
 		<!--  Status Bar  -->
@@ -420,33 +300,7 @@
 					</Button.Styles>
 				</Button>
 
-				<!--  Logs toggle button (docked right, far right)  -->
-				<Button
-					Padding="8,2"
-					Background="Transparent"
-					BorderThickness="0"
-					Command="{Binding ToggleLogPanelCommand}"
-					CornerRadius="{DynamicResource ChipRadius}"
-					Cursor="Hand"
-					DockPanel.Dock="Right"
-					ToolTip.Tip="Toggle log panel">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-log}"
-						Fill="{DynamicResource MutedForegroundBrush}"
-						Stretch="Uniform" />
-					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
-							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-						</Style>
-					</Button.Styles>
-				</Button>
-
-				<!--  OpenCode serve indicator (docked right, left of logs toggle)  -->
+				<!--  OpenCode serve indicator (docked right)  -->
 				<Button
 					Margin="0,0,6,0"
 					Padding="8,2"
@@ -484,7 +338,78 @@
 						</Style>
 					</Button.Styles>
 				</Button>
-			</DockPanel>
-		</Border>
-	</Grid>
-</Window>
+				</DockPanel>
+			</Border>
+
+		<!--  Toast overlay (floats above all pages, top-right)  -->
+		<ItemsControl
+			x:Name="ToastHost"
+			Grid.RowSpan="3"
+			Grid.ColumnSpan="2"
+			HorizontalAlignment="Right"
+			VerticalAlignment="Top"
+			Margin="0,46,16,0"
+			IsHitTestVisible="True">
+			<ItemsControl.ItemsPanel>
+				<ItemsPanelTemplate>
+					<StackPanel Orientation="Vertical" Spacing="8" />
+				</ItemsPanelTemplate>
+			</ItemsControl.ItemsPanel>
+			<ItemsControl.ItemTemplate>
+				<DataTemplate>
+					<Border
+						Width="320"
+						Padding="12,10"
+						Background="{DynamicResource CardBackgroundBrush}"
+						BorderBrush="{DynamicResource HairlineBrush}"
+						BorderThickness="1"
+						BoxShadow="{DynamicResource FlyoutShadow}"
+						CornerRadius="{DynamicResource CardRadius}">
+						<Grid ColumnDefinitions="4,*,Auto">
+							<!--  Accent stripe colored by kind  -->
+							<Border
+								Grid.Column="0"
+								Margin="0,0,10,0"
+								VerticalAlignment="Stretch"
+								Background="{Binding Kind, Converter={StaticResource NotificationKindToBrushConverter}}"
+								CornerRadius="2" />
+							<!--  Title + message  -->
+							<StackPanel
+								Grid.Column="1"
+								Margin="0,0,8,0"
+								VerticalAlignment="Center"
+								Spacing="2">
+								<TextBlock
+									FontWeight="SemiBold"
+									Foreground="{DynamicResource TitleForegroundBrush}"
+									IsVisible="{Binding Title, Converter={StaticResource StringNotNullToBoolConverter}}"
+									Text="{Binding Title}"
+									TextTrimming="CharacterEllipsis" />
+								<TextBlock
+									FontSize="12"
+									Foreground="{DynamicResource BodyForegroundBrush}"
+									Text="{Binding Message}"
+									TextWrapping="Wrap" />
+							</StackPanel>
+							<!--  Dismiss  -->
+							<Button
+								Grid.Column="2"
+								VerticalAlignment="Top"
+								Classes="icon"
+								Command="{Binding #ToastHost.DataContext.DismissCommand}"
+								CommandParameter="{Binding}"
+								ToolTip.Tip="Dismiss">
+								<Path
+									Width="14"
+									Height="14"
+									Data="{tools:SvgPath icon-close}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+							</Button>
+						</Grid>
+					</Border>
+				</DataTemplate>
+			</ItemsControl.ItemTemplate>
+		</ItemsControl>
+		</Grid>
+	</Window>

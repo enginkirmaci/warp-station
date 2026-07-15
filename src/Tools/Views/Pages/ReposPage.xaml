@@ -300,9 +300,9 @@
                                                                                                 <Path
                                                                                                         Width="18"
                                                                                                         Height="18"
-                                                                                                        Data="{tools:SvgPath icon-vscode}"
-                                                                                                        Fill="#007ACC"
-                                                                                                        Stretch="Uniform" />
+												Data="{tools:SvgPath icon-vscode}"
+												Fill="{DynamicResource MutedForegroundBrush}"
+												Stretch="Uniform" />
                                                                                         </Button>
                                                                                         <Button
                                                                                                 Width="36"
@@ -410,9 +410,18 @@
                                                                                                 CornerRadius="{DynamicResource ChipRadius}"
                                                                                                 Cursor="Hand"
                                                                                                 FontSize="10"
-                                                                                                ToolTip.Tip="Open the OpenCode panel for this repo">
-                                                                                                OpenCode ▸
-                                                                                        </Button>
+												ToolTip.Tip="Open the OpenCode panel for this repo">
+												<StackPanel Orientation="Horizontal" Spacing="3">
+													<TextBlock Text="OpenCode" />
+													<Path
+														Width="8"
+														Height="8"
+														VerticalAlignment="Center"
+														Data="{tools:SvgPath icon-chevron-right}"
+														Fill="{DynamicResource BodyForegroundBrush}"
+														Stretch="Uniform" />
+												</StackPanel>
+											</Button>
                                                                                 </Grid>
                                                                         </StackPanel>
                                                                         <Button
