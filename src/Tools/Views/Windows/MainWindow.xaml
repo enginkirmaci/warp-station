@@ -23,7 +23,10 @@
 			BorderThickness="0,0,0,1"
 			IsHitTestVisible="True"
 			PointerPressed="TitleBar_PointerPressed">
-			<DockPanel Margin="14,0" VerticalAlignment="Center">
+			<DockPanel
+				Margin="14,0"
+				LastChildFill="False"
+				VerticalAlignment="Center">
 				<!--  App Icon  -->
 				<Image
 					Width="20"
@@ -39,36 +42,52 @@
 					FontWeight="SemiBold"
 					Foreground="{DynamicResource SubtitleForegroundBrush}"
 					Text="DevTools" />
-					<Button
-						x:Name="BackButton"
-						Margin="16,0,0,0"
-						Padding="8,4"
-						Classes="accent"
-						Click="BackButton_Click"
-						DockPanel.Dock="Left"
-						IsVisible="False">
-						<Path
-							Width="14"
-							Height="14"
-							Data="{tools:SvgPath icon-arrow-left}"
-							Fill="{DynamicResource AccentForegroundBrush}"
-							Stretch="Uniform" />
-					</Button>
+				<Button
+					x:Name="BackButton"
+					Margin="16,0,0,0"
+					Padding="8,4"
+					Classes="accent"
+					Click="BackButton_Click"
+					DockPanel.Dock="Left"
+					IsVisible="False">
+					<Path
+						Width="14"
+						Height="14"
+						Data="{tools:SvgPath icon-arrow-left}"
+						Fill="{DynamicResource AccentForegroundBrush}"
+						Stretch="Uniform" />
+				</Button>
 
-					<!--  Toggle left sidebar (hamburger)  -->
-					<Button
-						Padding="8,4"
-						Command="{Binding ToggleLeftSidebarCommand}"
-						DockPanel.Dock="Right"
-						ToolTip.Tip="Toggle sidebar">
-						<Path
-							Width="16"
-							Height="16"
-							Data="{tools:SvgPath icon-menu}"
-							Fill="{DynamicResource BodyForegroundBrush}"
-							Stretch="Uniform" />
-					</Button>
-				</DockPanel>
+				<!--  Toggle left sidebar (hamburger)  -->
+				<Button
+					Margin="12,0,12,0"
+					Padding="8,4"
+					Command="{Binding ToggleLeftSidebarCommand}"
+					DockPanel.Dock="Left"
+					ToolTip.Tip="Toggle sidebar">
+					<Path
+						Width="16"
+						Height="16"
+						Data="{tools:SvgPath icon-menu}"
+						Fill="{DynamicResource BodyForegroundBrush}"
+						Stretch="Uniform" />
+				</Button>
+
+				<!--  Open settings folder (icon-only)  -->
+				<Button
+					Margin="0,0,6,0"
+					Padding="8,4"
+					Command="{Binding OpenSettingsFolderCommand}"
+					DockPanel.Dock="Right"
+					ToolTip.Tip="Open settings folder">
+					<Path
+						Width="16"
+						Height="16"
+						Data="{tools:SvgPath icon-cog}"
+						Fill="{DynamicResource BodyForegroundBrush}"
+						Stretch="Uniform" />
+				</Button>
+			</DockPanel>
 		</Border>
 
 		<!--  Sidebar Navigation  -->
@@ -316,32 +335,6 @@
 					</Button.Styles>
 				</Button>
 
-				<!--  Open settings folder (docked right, icon-only)  -->
-				<Button
-					Padding="8,2"
-					Background="Transparent"
-					BorderThickness="0"
-					Command="{Binding OpenSettingsFolderCommand}"
-					CornerRadius="{DynamicResource ChipRadius}"
-					Cursor="Hand"
-					DockPanel.Dock="Right"
-					ToolTip.Tip="Open settings folder">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-cog}"
-						Fill="{DynamicResource MutedForegroundBrush}"
-						Stretch="Uniform" />
-					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
-							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-						</Style>
-					</Button.Styles>
-				</Button>
-
 				<!--  OpenCode serve indicator (docked right)  -->
 				<Button
 					Margin="0,0,6,0"
@@ -380,21 +373,24 @@
 						</Style>
 					</Button.Styles>
 				</Button>
-				</DockPanel>
-			</Border>
+			</DockPanel>
+		</Border>
 
 		<!--  Toast overlay (floats above all pages, top-center)  -->
 		<ItemsControl
 			x:Name="ToastHost"
 			Grid.RowSpan="3"
 			Grid.ColumnSpan="2"
+			Margin="0,46,0,0"
 			HorizontalAlignment="Center"
 			VerticalAlignment="Top"
-			Margin="0,46,0,0"
 			IsHitTestVisible="True">
 			<ItemsControl.ItemsPanel>
 				<ItemsPanelTemplate>
-					<StackPanel HorizontalAlignment="Center" Orientation="Vertical" Spacing="8" />
+					<StackPanel
+						HorizontalAlignment="Center"
+						Orientation="Vertical"
+						Spacing="8" />
 				</ItemsPanelTemplate>
 			</ItemsControl.ItemsPanel>
 			<ItemsControl.ItemTemplate>
@@ -453,5 +449,5 @@
 				</DataTemplate>
 			</ItemsControl.ItemTemplate>
 		</ItemsControl>
-		</Grid>
-	</Window>
+	</Grid>
+</Window>
