@@ -1,3 +1,4 @@
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Configuration;
@@ -18,6 +19,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IOpenCodeServeService _openCodeServeService;
     private readonly ISettingsService _settingsService;
     private readonly INotificationService _notificationService;
+    private readonly IProcessLauncher _processLauncher;
     private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
@@ -82,13 +84,15 @@ public partial class MainWindowViewModel : ViewModelBase
         INugetLocalService nugetLocalService,
         IOpenCodeServeService openCodeServeService,
         ISettingsService settingsService,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IProcessLauncher processLauncher)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _openCodeServeService = openCodeServeService;
         _settingsService = settingsService;
         _notificationService = notificationService;
+        _processLauncher = processLauncher;
 
         // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
         // in-memory cached read (Task.FromResult), so this never blocks on async work.
@@ -213,5 +217,20 @@ public partial class MainWindowViewModel : ViewModelBase
         OpenCodeServeStatusText = isConnected
             ? $"serve :{_openCodeServeSettings.Port}"
             : "Disconnected";
+    }
+
+    /// <summary>
+    /// Opens the user settings folder (<c>%USERPROFILE%\.devtools\settings</c>) in the OS
+    /// file explorer. ProcessLauncher uses <c>UseShellExecute=true</c>, so passing a folder
+    /// path opens it in the default explorer. The folder is created on demand by the
+    /// settings service when it persists settings, and is created here as a safety net so
+    /// the button always opens something rather than erroring on first use.
+    /// </summary>
+    [RelayCommand]
+    private void OpenSettingsFolder()
+    {
+        var settingsDirectory = UserPaths.GetUserDataFile("settings");
+        Directory.CreateDirectory(settingsDirectory);
+        _processLauncher.StartProcess(settingsDirectory);
     }
 }

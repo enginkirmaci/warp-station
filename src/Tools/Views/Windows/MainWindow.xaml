@@ -316,6 +316,32 @@
 					</Button.Styles>
 				</Button>
 
+				<!--  Open settings folder (docked right, icon-only)  -->
+				<Button
+					Padding="8,2"
+					Background="Transparent"
+					BorderThickness="0"
+					Command="{Binding OpenSettingsFolderCommand}"
+					CornerRadius="{DynamicResource ChipRadius}"
+					Cursor="Hand"
+					DockPanel.Dock="Right"
+					ToolTip.Tip="Open settings folder">
+					<Path
+						Width="14"
+						Height="14"
+						Data="{tools:SvgPath icon-cog}"
+						Fill="{DynamicResource MutedForegroundBrush}"
+						Stretch="Uniform" />
+					<Button.Styles>
+						<Style Selector="Button /template/ ContentPresenter">
+							<Setter Property="Background" Value="Transparent" />
+						</Style>
+						<Style Selector="Button:pointerover /template/ ContentPresenter">
+							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+						</Style>
+					</Button.Styles>
+				</Button>
+
 				<!--  OpenCode serve indicator (docked right)  -->
 				<Button
 					Margin="0,0,6,0"
