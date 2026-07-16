@@ -7,7 +7,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<AssemblyName>DevTools</AssemblyName>
 		<RootNamespace>DevTools</RootNamespace>
-		<OutputPath>..\..\bin\output\</OutputPath>
+		<OutputPath>..\..\bin\</OutputPath>
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
 		<ApplicationIcon>logo.ico</ApplicationIcon>

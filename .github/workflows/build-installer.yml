@@ -78,7 +78,7 @@ jobs:
           # installer's source dir is not mutated. The portable build stores its data
           # in %USERPROFILE%\.devtools, same as the installer; the bundled settings\
           # tree is seeded into the user folder on first run via UserPaths.SeedFromDefault.
-          robocopy "bin\output\win-x64\publish" "bin\portable-stage" /E /XF *.pdb *.xml | Out-Null
+          robocopy "bin\win-x64\publish" "bin\portable-stage" /E /XF *.pdb *.xml | Out-Null
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
           Compress-Archive -Path "bin\portable-stage\*" `
             -DestinationPath "portable\DevTools-Portable-${{ steps.version.outputs.version }}.zip" `
