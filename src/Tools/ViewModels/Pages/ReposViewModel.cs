@@ -26,7 +26,6 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IRepoService _repoService;
     private readonly IProcessLauncher _processLauncher;
-    private readonly IOpenCodeModelService _openCodeModelService;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
@@ -36,9 +35,8 @@ public partial class ReposViewModel : PageViewModelBase
     private OpenCodeServeSettings _openCodeServeSettings = new();
 
     /// <summary>
-    /// The model selected when the OpenCode panel opens, loaded from
-    /// <c>settings/opencode/models.json</c>. Falls back to the first available model
-    /// until the file is loaded.
+    /// The model selected by default when the OpenCode panel opens, resolved from the
+    /// connected <c>opencode serve</c> instance. Empty (no default) until serve is connected.
     /// </summary>
     private string _defaultOpenCodeModel = string.Empty;
 
@@ -97,19 +95,37 @@ public partial class ReposViewModel : PageViewModelBase
     private bool _openCodeAutoApprove;
 
     /// <summary>
-    /// The models available in the OpenCode model selector, loaded from
-    /// <c>settings/opencode/models.json</c>. Empty until <see cref="OnInitializeAsync"/>
-    /// has loaded the model list.
+    /// The models available in the OpenCode model selector, fetched live from the connected
+    /// <c>opencode serve</c> instance (<c>GET /config/providers</c>). Empty while serve is
+    /// not connected; (re)populated when the panel opens or when serve connects.
     /// </summary>
     [ObservableProperty]
     private ObservableCollection<string> _openCodeModels = new();
 
     /// <summary>
     /// The currently selected model in the OpenCode panel. Passed to opencode via
-    /// <c>opencode model "&lt;model&gt;"</c>.
+    /// <c>opencode model "&lt;model&gt;"</c>. Driven by the editable model ComboBox's selection,
+    /// not its text — see <see cref="OpenCodeModelFilter"/>.
     /// </summary>
     [ObservableProperty]
     private string _openCodeSelectedModel = string.Empty;
+
+    /// <summary>
+    /// The text the user is typing into the editable model ComboBox. This is the live search
+    /// term, kept separate from <see cref="OpenCodeSelectedModel"/> so filtering the dropdown
+    /// never overwrites the committed selection. Reset to the selected model's full name after a
+    /// pick (see <see cref="OnOpenCodeModelSelectionChanged"/> in the page code-behind).
+    /// </summary>
+    [ObservableProperty]
+    private string _openCodeModelFilter = string.Empty;
+
+    /// <summary>
+    /// The model list shown in the editable ComboBox's dropdown: <see cref="OpenCodeModels"/>
+    /// filtered by <see cref="OpenCodeModelFilter"/> (case-insensitive <c>Contains</c>). When the
+    /// filter is empty the full list is shown, so opening the dropdown lists every model.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<string> _openCodeFilteredModels = new();
 
     /// <summary>
     /// The templates available in the OpenCode template selector, loaded from
@@ -180,7 +196,6 @@ public partial class ReposViewModel : PageViewModelBase
         IDialogService dialogService,
         IRepoService repoService,
         IProcessLauncher processLauncher,
-        IOpenCodeModelService openCodeModelService,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
         IOpenCodeGridLauncher openCodeGridLauncher,
@@ -192,7 +207,6 @@ public partial class ReposViewModel : PageViewModelBase
         _dialogService = dialogService;
         _repoService = repoService;
         _processLauncher = processLauncher;
-        _openCodeModelService = openCodeModelService;
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
@@ -200,6 +214,9 @@ public partial class ReposViewModel : PageViewModelBase
         _notificationService = notificationService;
 
         _repoService.Changed += OnRepoChanged;
+        // Refresh the serve-backed model list when serve (re)connects while the panel is open,
+        // so the dropdown populates the moment a previously-down serve comes up.
+        _openCodeServeService.ConnectionChanged += OnServeConnectionChanged;
     }
 
     /// <inheritdoc/>
@@ -208,9 +225,10 @@ public partial class ReposViewModel : PageViewModelBase
     /// <inheritdoc/>
     public override Task OnNavigatedFromAsync()
     {
-        // Detach from the singleton so this Transient VM (rebuilt per navigation) is not
-        // kept alive by the service and does not receive further state changes.
+        // Detach from the singletons so this Transient VM (rebuilt per navigation) is not
+        // kept alive by them and does not receive further state changes.
         _repoService.Changed -= OnRepoChanged;
+        _openCodeServeService.ConnectionChanged -= OnServeConnectionChanged;
         return Task.CompletedTask;
     }
 
@@ -221,7 +239,6 @@ public partial class ReposViewModel : PageViewModelBase
         _reposSettings = settings.Repos ?? new ReposSettings();
         _openCodeServeSettings = settings.OpenCode ?? new OpenCodeServeSettings();
         await _repoService.EnsureLoadedAsync(_reposSettings);
-        await LoadOpenCodeModelsAsync();
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
         RebuildTagFilters();
@@ -234,20 +251,86 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// Loads the OpenCode model list from <c>settings/opencode/models.json</c> into
-    /// <see cref="OpenCodeModels"/> and resolves the default selection. Safe to call
-    /// before the panel opens: the service falls back to built-in defaults.
+    /// Loads the OpenCode model list from the connected <c>opencode serve</c> instance
+    /// (<c>GET /config/providers</c>) into <see cref="OpenCodeModels"/> and resolves the
+    /// default selection. Returns an empty list when serve is not connected, so the selector
+    /// shows its "connect serve" hint. Safe to call before the panel opens; re-called on serve
+    /// connect (see <see cref="OnServeConnectionChanged"/>) and on panel open.
     /// </summary>
-    private async Task LoadOpenCodeModelsAsync()
+    private async Task LoadOpenCodeModelsFromServeAsync()
     {
-        var config = await _openCodeModelService.LoadAsync();
-        OpenCodeModels = new ObservableCollection<string>(config.Models);
-        _defaultOpenCodeModel = string.IsNullOrWhiteSpace(config.DefaultModel) && OpenCodeModels.Count > 0
+        var result = await _openCodeServeService.GetModelsAsync();
+        OpenCodeModels = new ObservableCollection<string>(result.Models);
+        _defaultOpenCodeModel = string.IsNullOrWhiteSpace(result.DefaultModel) && OpenCodeModels.Count > 0
             ? OpenCodeModels[0]
-            : config.DefaultModel;
-            if (string.IsNullOrEmpty(OpenCodeSelectedModel) && OpenCodeModels.Count > 0)
-                OpenCodeSelectedModel = _defaultOpenCodeModel;
+            : result.DefaultModel;
+
+        // Preserve the current selection when it is still offered; otherwise fall back to the
+        // serve default (or clear it when nothing is available).
+        if (OpenCodeModels.Count == 0)
+            OpenCodeSelectedModel = string.Empty;
+        else if (string.IsNullOrEmpty(OpenCodeSelectedModel)
+                 || !OpenCodeModels.Contains(OpenCodeSelectedModel, StringComparer.Ordinal))
+            OpenCodeSelectedModel = _defaultOpenCodeModel;
+
+        // The editable ComboBox binds its text to the filter and its dropdown to the filtered
+        // list; mirror the committed selection into both so the box shows the active model.
+        OpenCodeModelFilter = OpenCodeSelectedModel;
+        RefreshOpenCodeFilteredModels();
+
+        // The computed has/empty flags feed the ComboBox IsEnabled and the hint visibility.
+        OnPropertyChanged(nameof(OpenCodeHasModels));
+        OnPropertyChanged(nameof(OpenCodeModelsEmpty));
     }
+
+    /// <summary>
+    /// Rebuilds <see cref="OpenCodeFilteredModels"/> from <see cref="OpenCodeModels"/> using the
+    /// current <see cref="OpenCodeModelFilter"/> (case-insensitive <c>Contains</c>). The full list
+    /// is shown when the filter is empty or when it just mirrors the committed selection (so the
+    /// box can display the active model without narrowing the dropdown to a single entry); the
+    /// list only narrows when the user is actively typing a partial query.
+    /// </summary>
+    private void RefreshOpenCodeFilteredModels()
+    {
+        var filter = OpenCodeModelFilter ?? string.Empty;
+        bool isFullSelection = string.IsNullOrEmpty(filter)
+            || string.Equals(filter, OpenCodeSelectedModel, StringComparison.Ordinal);
+        IEnumerable<string> source = isFullSelection
+            ? OpenCodeModels
+            : OpenCodeModels.Where(m => m.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        OpenCodeFilteredModels = new ObservableCollection<string>(source);
+    }
+
+    /// <summary>
+    /// When the filter text changes (the user is typing in the editable ComboBox), refresh the
+    /// filtered dropdown so the list narrows live as they type.
+    /// </summary>
+    partial void OnOpenCodeModelFilterChanged(string value) => RefreshOpenCodeFilteredModels();
+
+    /// <summary>
+    /// When the full model list changes (serve connected / reconnected), refresh the filtered
+    /// projection so the dropdown reflects the latest available models.
+    /// </summary>
+    partial void OnOpenCodeModelsChanged(ObservableCollection<string> value)
+        => RefreshOpenCodeFilteredModels();
+
+    /// <summary>
+    /// Re-fetches the serve model list when serve connects while the panel is open, so a
+    /// dropdown that opened disconnected populates the moment serve comes up. No-op when serve
+    /// disconnects or the panel is closed.
+    /// </summary>
+    private void OnServeConnectionChanged(object? sender, bool isConnected)
+    {
+        if (!isConnected || !IsOpenCodePanelOpen) return;
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () => await LoadOpenCodeModelsFromServeAsync());
+    }
+
+    /// <summary>True when at least one model is available (drives the ComboBox IsEnabled).</summary>
+    public bool OpenCodeHasModels => OpenCodeModels.Count > 0;
+
+    /// <summary>True when no models are available — i.e. serve is down (drives the hint text).</summary>
+    public bool OpenCodeModelsEmpty => OpenCodeModels.Count == 0;
 
     /// <summary>
     /// Loads the OpenCode template list from <c>settings/opencode/templates/</c> into
@@ -453,7 +536,7 @@ public partial class ReposViewModel : PageViewModelBase
     // --- OpenCode panel ---
 
     [RelayCommand]
-    private void OpenOpenCodePanel(Repo? repo)
+    private async Task OpenOpenCodePanelAsync(Repo? repo)
     {
         if (repo is null) return;
         OpenCodeRepo = repo;
@@ -469,6 +552,11 @@ public partial class ReposViewModel : PageViewModelBase
         var existing = repo.FolderPath is null ? null : _openCodeServeService.GetInstance(repo.FolderPath);
         OpenCodeAutoApprove = existing?.AutoApprove ?? _openCodeServeSettings.AutoApprove;
         IsOpenCodePanelOpen = true;
+
+        // Fetch the live model list from serve now that the panel is open. If serve is down,
+        // the dropdown stays empty (with its hint) and OnServeConnectionChanged will populate
+        // it when serve connects.
+        await LoadOpenCodeModelsFromServeAsync();
     }
 
     [RelayCommand]

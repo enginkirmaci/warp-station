@@ -489,9 +489,20 @@
                                         Spacing="8">
                                         <TextBlock Classes="field-label" Text="Model" />
                                         <ComboBox
+                                                Name="OpenCodeModelPicker"
                                                 HorizontalAlignment="Stretch"
-                                                ItemsSource="{Binding OpenCodeModels}"
-                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
+                                                IsEditable="True"
+                                                IsEnabled="{Binding OpenCodeHasModels}"
+                                                ItemsSource="{Binding OpenCodeFilteredModels}"
+                                                PlaceholderText="Search or select a model…"
+                                                SelectionChanged="OnOpenCodeModelSelectionChanged"
+                                                Text="{Binding OpenCodeModelFilter, Mode=TwoWay}" />
+                                        <TextBlock
+                                                Classes="subtle"
+                                                FontSize="11"
+                                                IsVisible="{Binding OpenCodeModelsEmpty}"
+                                                Text="Models load when OpenCode serve is connected."
+                                                TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel
                                         Grid.Row="2"
