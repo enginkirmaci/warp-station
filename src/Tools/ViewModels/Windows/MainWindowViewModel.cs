@@ -69,6 +69,14 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to start/stop the managed opencode serve subprocess from the status bar.</summary>
     public IAsyncRelayCommand ToggleOpenCodeServeCommand { get; }
 
+    // ---- Left navigation sidebar visibility ----
+    /// <summary>Tracks whether the left navigation sidebar is shown.</summary>
+    [ObservableProperty]
+    private bool _isLeftSidebarOpen = true;
+
+    /// <summary>Command to toggle the left navigation sidebar open/closed.</summary>
+    public IRelayCommand ToggleLeftSidebarCommand { get; }
+
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
@@ -92,6 +100,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
         ToggleOpenCodeServeCommand = new AsyncRelayCommand(OnToggleOpenCodeServeAsync);
+        ToggleLeftSidebarCommand = new RelayCommand(OnToggleLeftSidebar);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
@@ -119,6 +128,8 @@ public partial class MainWindowViewModel : ViewModelBase
             await _snapItService.StartAsync();
         }
     }
+
+    private void OnToggleLeftSidebar() => IsLeftSidebarOpen = !IsLeftSidebarOpen;
 
     private async Task OnToggleNugetWatchAsync()
     {

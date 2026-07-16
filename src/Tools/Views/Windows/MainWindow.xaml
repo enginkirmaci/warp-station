@@ -13,7 +13,7 @@
 	MinHeight="600"
 	ExtendClientAreaToDecorationsHint="True">
 
-	<Grid ColumnDefinitions="240,*" RowDefinitions="38,*,28">
+	<Grid ColumnDefinitions="Auto,*" RowDefinitions="38,*,28">
 		<!--  Custom Title Bar  -->
 		<Border
 			Grid.Row="0"
@@ -39,32 +39,48 @@
 					FontWeight="SemiBold"
 					Foreground="{DynamicResource SubtitleForegroundBrush}"
 					Text="DevTools" />
-				<Button
-					x:Name="BackButton"
-					Margin="16,0,0,0"
-					Padding="8,4"
-					Classes="accent"
-					Click="BackButton_Click"
-					DockPanel.Dock="Left"
-					IsVisible="False">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-arrow-left}"
-						Fill="{DynamicResource AccentForegroundBrush}"
-						Stretch="Uniform" />
-				</Button>
-			</DockPanel>
+					<Button
+						x:Name="BackButton"
+						Margin="16,0,0,0"
+						Padding="8,4"
+						Classes="accent"
+						Click="BackButton_Click"
+						DockPanel.Dock="Left"
+						IsVisible="False">
+						<Path
+							Width="14"
+							Height="14"
+							Data="{tools:SvgPath icon-arrow-left}"
+							Fill="{DynamicResource AccentForegroundBrush}"
+							Stretch="Uniform" />
+					</Button>
+
+					<!--  Toggle left sidebar (hamburger)  -->
+					<Button
+						Padding="8,4"
+						Command="{Binding ToggleLeftSidebarCommand}"
+						DockPanel.Dock="Right"
+						ToolTip.Tip="Toggle sidebar">
+						<Path
+							Width="16"
+							Height="16"
+							Data="{tools:SvgPath icon-menu}"
+							Fill="{DynamicResource BodyForegroundBrush}"
+							Stretch="Uniform" />
+					</Button>
+				</DockPanel>
 		</Border>
 
 		<!--  Sidebar Navigation  -->
 		<Border
 			Grid.Row="1"
 			Grid.Column="0"
+			Width="240"
 			Padding="0,8,0,0"
 			Background="{DynamicResource SidebarBackgroundBrush}"
 			BorderBrush="{DynamicResource DividerBrush}"
-			BorderThickness="0,0,1,0">
+			BorderThickness="0,0,1,0"
+			IsVisible="{Binding IsLeftSidebarOpen}">
 			<ListBox
 				x:Name="NavigationListBox"
 				Padding="8,0"
