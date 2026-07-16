@@ -33,10 +33,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Everything except user-data JSONs, which are handled below so reinstalls preserve them.
-; Note: settings\opencode\models.json, settings\opencode\prompts.json and
-; settings\opencode\templates\* are app-authored (the shipped copy is authoritative and
-; seeded/refreshed into %USERPROFILE%\.devtools at run), so they are NOT excluded here
-; and are always replaced on upgrade via this catch-all.
+; Note: settings\opencode\prompts.json and settings\opencode\templates\* are app-authored
+; (the shipped copy is authoritative and seeded/refreshed into %USERPROFILE%\.devtools at
+; run), so they are NOT excluded here and are always replaced on upgrade via this catch-all.
 Source: "bin\win-x64\publish\*"; DestDir: "{app}"; Excludes: "settings\settings.json,settings\repos.cache.json,settings\snapit\Settings.json,settings\snapit\ExcludedApplicationSettings.json,settings\snapit\layouts\*.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; User-data files: ship defaults on fresh install, keep existing on upgrade so the app
 ; can migrate them to %USERPROFILE%\.devtools on first run. neveruninstall so a

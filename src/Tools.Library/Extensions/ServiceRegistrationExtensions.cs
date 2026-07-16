@@ -20,7 +20,6 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<INugetLocalService, NugetLocalService>();
-        services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
         services.AddSingleton<IOpenCodeTemplateService, OpenCodeTemplateService>();
         services.AddSingleton<IOpenCodePromptService, OpenCodePromptService>();
 

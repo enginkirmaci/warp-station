@@ -1,5 +1,6 @@
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
+using Tools.Library.Services.OpenCode;
 
 namespace Tools.Library.Services.Abstractions;
 
@@ -57,4 +58,12 @@ public interface IOpenCodeServeService
 
     /// <summary>Toggles a registered instance's auto-approve at runtime.</summary>
     void SetAutoApprove(string folderPath, bool value);
+
+    /// <summary>
+    /// Returns the models the connected serve instance offers, flattened to opencode's
+    /// <c>provider/model-id</c> selector ids (<c>GET /config/providers</c>), plus the default
+    /// model id (or <see langword="null"/> if none is configured). Returns an empty result
+    /// when serve is not connected; never throws.
+    /// </summary>
+    Task<ServeModelsResult> GetModelsAsync(CancellationToken cancellationToken = default);
 }

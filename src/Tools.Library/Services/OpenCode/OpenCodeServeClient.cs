@@ -28,6 +28,7 @@ public sealed class OpenCodeServeClient : IOpenCodeServeClient
     private const string HealthPath = "/global/health";
     private const string SessionsPath = "/session";
     private const string GlobalEventPath = "/global/event";
+    private const string ProvidersPath = "/config/providers";
 
     private readonly HttpClient _http;
     private string _baseUrl = string.Empty;
@@ -86,6 +87,30 @@ public sealed class OpenCodeServeClient : IOpenCodeServeClient
         {
             Log.Logger.Debug(ex, "OpenCodeServeClient: list sessions failed");
             return Array.Empty<ServeSession>();
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<ServeProvidersResponse> ListProvidersAsync(string? directory = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_baseUrl)) return new ServeProvidersResponse();
+        try
+        {
+            var path = ProvidersPath;
+            if (!string.IsNullOrWhiteSpace(directory))
+                path += "?directory=" + Uri.EscapeDataString(directory);
+
+            using var req = BuildRequest(HttpMethod.Get, path);
+            using var resp = await _http.SendAsync(req, cancellationToken);
+            if (!resp.IsSuccessStatusCode) return new ServeProvidersResponse();
+
+            return await resp.Content.ReadFromJsonAsync<ServeProvidersResponse>(JsonOptions, cancellationToken)
+                ?? new ServeProvidersResponse();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Logger.Debug(ex, "OpenCodeServeClient: list providers failed");
+            return new ServeProvidersResponse();
         }
     }
 

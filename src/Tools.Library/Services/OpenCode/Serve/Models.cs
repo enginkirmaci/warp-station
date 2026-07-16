@@ -85,6 +85,49 @@ public sealed class ServeGlobalEvent
 }
 
 /// <summary>
+/// The response shape of <c>GET /config/providers</c>: the configured providers (each with
+/// its own model map) plus the per-category default model ids. Only the fields the
+/// integration needs are mapped; unknown JSON fields are ignored.
+/// </summary>
+public sealed class ServeProvidersResponse
+{
+    [JsonPropertyName("providers")]
+    public List<ServeProvider> Providers { get; set; } = new();
+
+    /// <summary>
+    /// Maps a category (e.g. <c>"model"</c>, <c>"small_model"</c>) to the default model id for
+    /// that category. Values are plain model ids; the <c>provider/</c> prefix may or may not be
+    /// present, so matching against the flattened list tolerates both forms.
+    /// </summary>
+    [JsonPropertyName("default")]
+    public Dictionary<string, string> Default { get; set; } = new();
+}
+
+/// <summary>
+/// One provider as returned by <c>GET /config/providers</c>. <see cref="Models"/> maps each
+/// model id (provider-local) to its info; the flattened selector id is
+/// <c>{Id}/{modelId}</c>.
+/// </summary>
+public sealed class ServeProvider
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("models")]
+    public Dictionary<string, ServeProviderModel> Models { get; set; } = new();
+}
+
+/// <summary>
+/// One model within a provider. Only the display <see cref="Name"/> is captured; the
+/// flattened selector uses the <c>provider/model-id</c> key, not this name.
+/// </summary>
+public sealed class ServeProviderModel
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
+/// <summary>
 /// The properties of a <c>permission.updated</c> event: a tool action awaiting approval.
 /// Parsed lazily from <see cref="ServeGlobalEvent.Payload"/> by the client.
 /// </summary>

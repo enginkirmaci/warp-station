@@ -30,6 +30,15 @@ public interface IOpenCodeServeClient
     Task<IReadOnlyList<ServeSession>> ListSessionsAsync(string? directory = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists the configured providers and their models (<c>GET /config/providers</c>),
+    /// optionally scoped to a working directory via the <c>?directory=</c> query. Returns the
+    /// full response (providers + per-category default model ids) so callers can derive both
+    /// the selector list and the default selection. Never throws on transport failure; returns
+    /// an empty response and logs.
+    /// </summary>
+    Task<ServeProvidersResponse> ListProvidersAsync(string? directory = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Streams the global event bus (<c>GET /global/event</c>), yielding one parsed
     /// <see cref="ServeGlobalEvent"/> per SSE message. The enumeration completes if the
     /// connection drops or the <paramref name="cancellationToken"/> is cancelled.

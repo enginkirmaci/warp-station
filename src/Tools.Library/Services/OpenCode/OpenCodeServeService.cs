@@ -148,6 +148,80 @@ public sealed class OpenCodeServeService : IOpenCodeServeService
             instance.AutoApprove = value;
     }
 
+    /// <inheritdoc/>
+    public async Task<ServeModelsResult> GetModelsAsync(CancellationToken cancellationToken = default)
+    {
+        // No live serve to query (not started / down) — the selector shows its hint instead.
+        if (!IsConnected) return ServeModelsResult.Empty;
+
+        ServeProvidersResponse response;
+        try { response = await _client.ListProvidersAsync(null, cancellationToken); }
+        catch (Exception ex)
+        {
+            Log.Logger.Debug(ex, "OpenCodeServeService: list providers failed");
+            return ServeModelsResult.Empty;
+        }
+
+        var providers = response.Providers;
+        if (providers.Count == 0) return ServeModelsResult.Empty;
+
+        // Flatten each provider's model map to opencode's `provider/model-id` selector id,
+        // skipping empty provider/model ids. Sorted by provider then model for stable order.
+        var models = new List<string>();
+        foreach (var provider in providers.OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(provider.Id)) continue;
+            foreach (var modelId in provider.Models.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(modelId)) continue;
+                models.Add($"{provider.Id}/{modelId}");
+            }
+        }
+
+        if (models.Count == 0) return ServeModelsResult.Empty;
+
+        // The default map is keyed by category (e.g. "model", "small_model"); prefer the
+        // top-level "model" default, then any value, matching it against the flattened ids
+        // (the response may use either the bare id or the `provider/id` form).
+        var modelSet = new HashSet<string>(models, StringComparer.Ordinal);
+        string? defaultModel = null;
+        if (response.Default.TryGetValue("model", out var primary) && Matches(primary, modelSet, out var hit))
+            defaultModel = hit;
+        else
+        {
+            foreach (var value in response.Default.Values)
+            {
+                if (Matches(value, modelSet, out hit)) { defaultModel = hit; break; }
+            }
+        }
+
+        return new ServeModelsResult(models, defaultModel ?? models[0]);
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when <paramref name="value"/> (a default-model id) names
+    /// a model in <paramref name="models"/>, tolerating both the bare id and the
+    /// <c>provider/id</c> forms, with the matched canonical id in <paramref name="match"/>.
+    /// </summary>
+    private static bool Matches(string? value, HashSet<string> models, out string match)
+    {
+        match = string.Empty;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (models.Contains(value!)) { match = value!; return true; }
+        // Bare id -> match the suffix after the last '/' of every flattened id.
+        var bare = value.AsSpan(value.LastIndexOf('/') + 1);
+        foreach (var m in models)
+        {
+            var suffix = m.AsSpan(m.LastIndexOf('/') + 1);
+            if (suffix.Equals(bare, StringComparison.OrdinalIgnoreCase))
+            {
+                match = m;
+                return true;
+            }
+        }
+        return false;
+    }
+
     // --- background loops ---
 
     /// <summary>

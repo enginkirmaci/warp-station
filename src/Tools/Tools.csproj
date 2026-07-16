@@ -50,10 +50,6 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\settings.json</Link>
 		</Content>
-		<Content Include="settings\opencode\models.json">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<Link>settings\opencode\models.json</Link>
-		</Content>
 		<Content Include="settings\opencode\prompts.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\opencode\prompts.json</Link>
