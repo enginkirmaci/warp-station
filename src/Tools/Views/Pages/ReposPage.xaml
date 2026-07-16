@@ -483,19 +483,16 @@
                                                         Stretch="Uniform" />
                                         </Button>
                                 </Grid>
-                                <CheckBox
+                                <StackPanel
                                         Grid.Row="1"
                                         Margin="0,0,0,16"
-                                        IsChecked="{Binding OpenCodeAutoApprove, Mode=TwoWay}"
-                                        ToolTip.Tip="When on, opencode serve auto-approves tool permission requests for this instance (replies &quot;once&quot; to each request).">
-                                        <StackPanel>
-                                                <TextBlock Text="Auto-approve" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        FontSize="11"
-                                                        Text="Serve auto-approves tool requests for this instance" />
-                                        </StackPanel>
-                                </CheckBox>
+                                        Spacing="8">
+                                        <TextBlock Classes="field-label" Text="Model" />
+                                        <ComboBox
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding OpenCodeModels}"
+                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
+                                </StackPanel>
                                 <StackPanel
                                         Grid.Row="2"
                                         Margin="0,0,0,16"
@@ -537,39 +534,6 @@
                                         Spacing="8">
                                         <TextBlock
                                                 Classes="field-label"
-                                                Text="Instances"
-                                                ToolTip.Tip="How many terminal windows to open, each running opencode" />
-                                        <NumericUpDown
-                                                Maximum="32"
-                                                Minimum="1"
-                                                Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
-                                </StackPanel>
-                                <CheckBox
-                                        Grid.Row="4"
-                                        Margin="0,0,0,16"
-                                        IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
-                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -&gt; a 3x2 grid). Only applies when more than one instance is opened.">
-                                        <StackPanel>
-                                                <TextBlock Text="Arrange into grid" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        FontSize="11"
-                                                        Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
-                                        </StackPanel>
-                                </CheckBox>
-                                <StackPanel Grid.Row="5" Spacing="8">
-                                        <TextBlock Classes="field-label" Text="Model" />
-                                        <ComboBox
-                                                HorizontalAlignment="Stretch"
-                                                ItemsSource="{Binding OpenCodeModels}"
-                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=TwoWay}" />
-                                </StackPanel>
-                                <StackPanel
-                                        Grid.Row="6"
-                                        Margin="0,0,0,16"
-                                        Spacing="8">
-                                        <TextBlock
-                                                Classes="field-label"
                                                 Text="Prompt (optional)"
                                                 ToolTip.Tip="Load a named prompt into the Start prompt box" />
                                         <ComboBox
@@ -577,7 +541,10 @@
                                                 ItemsSource="{Binding OpenCodePrompts}"
                                                 SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="7" Spacing="8">
+                                <StackPanel
+                                        Grid.Row="4"
+                                        Margin="0,0,0,16"
+                                        Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
@@ -613,6 +580,45 @@
                                                 TextWrapping="Wrap"
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
+                                <StackPanel
+                                        Grid.Row="5"
+                                        Margin="0,0,0,16"
+                                        Spacing="8">
+                                        <TextBlock
+                                                Classes="field-label"
+                                                Text="Instances"
+                                                ToolTip.Tip="How many terminal windows to open, each running opencode" />
+                                        <NumericUpDown
+                                                Maximum="32"
+                                                Minimum="1"
+                                                Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
+                                </StackPanel>
+                                <CheckBox
+                                        Grid.Row="6"
+                                        Margin="0,0,0,16"
+                                        IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
+                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -&gt; a 3x2 grid). Only applies when more than one instance is opened.">
+                                        <StackPanel>
+                                                <TextBlock Text="Arrange into grid" />
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        FontSize="11"
+                                                        Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
+                                        </StackPanel>
+                                </CheckBox>
+                                <CheckBox
+                                        Grid.Row="7"
+                                        Margin="0,0,0,16"
+                                        IsChecked="{Binding OpenCodeAutoApprove, Mode=TwoWay}"
+                                        ToolTip.Tip="When on, opencode serve auto-approves tool permission requests for this instance (replies &quot;once&quot; to each request).">
+                                        <StackPanel>
+                                                <TextBlock Text="Auto-approve" />
+                                                <TextBlock
+                                                        Classes="subtle"
+                                                        FontSize="11"
+                                                        Text="Serve auto-approves tool requests for this instance" />
+                                        </StackPanel>
+                                </CheckBox>
                                 <Button
                                         Grid.Row="8"
                                         HorizontalAlignment="Stretch"
