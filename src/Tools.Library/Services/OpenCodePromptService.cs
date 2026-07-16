@@ -7,8 +7,8 @@ namespace Tools.Library.Services;
 
 /// <summary>
 /// File-backed implementation of <see cref="IOpenCodePromptService"/>. Reads
-/// <c>settings/opencode/prompts.json</c> (seeded into the user-data folder on first
-/// run) and exposes the named prompts for the OpenCode panel selector.
+/// <c>%USERPROFILE%\.devtools\opencode\prompts.json</c> (seeded into the user-data
+/// folder on first run) and exposes the named prompts for the OpenCode panel selector.
 /// </summary>
 public class OpenCodePromptService : IOpenCodePromptService
 {
@@ -24,7 +24,7 @@ public class OpenCodePromptService : IOpenCodePromptService
     {
         // User data under %USERPROFILE%\.devtools so it survives reinstalls. Seeded from
         // the shipped default on first run; user edits survive (seed-once, not refresh).
-        _promptsFilePath = UserPaths.GetUserDataFile("settings", "opencode", "prompts.json");
+        _promptsFilePath = UserPaths.GetUserDataFile("opencode", "prompts.json");
     }
 
     /// <inheritdoc/>

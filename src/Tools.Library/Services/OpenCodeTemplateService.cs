@@ -9,9 +9,9 @@ namespace Tools.Library.Services;
 
 /// <summary>
 /// File-backed implementation of <see cref="IOpenCodeTemplateService"/>. Reads the
-/// template folders shipped under <c>settings/opencode/templates/</c> (seeded into the
-/// user-data folder on first run) and copies a selected template into a repo as
-/// <c>.opencode</c> when launching OpenCode.
+/// template folders located under <c>%USERPROFILE%\.devtools\opencode\templates\</c>
+/// (seeded into the user-data folder on first run) and copies a selected template into
+/// a repo as <c>.opencode</c> when launching OpenCode.
 /// </summary>
 public class OpenCodeTemplateService : IOpenCodeTemplateService
 {
@@ -28,7 +28,7 @@ public class OpenCodeTemplateService : IOpenCodeTemplateService
     {
         // User data under %USERPROFILE%\.devtools so it survives reinstalls. Seeded from
         // the shipped defaults on first run; user edits and user-added templates survive.
-        _templatesDirectory = UserPaths.GetUserDataFile("settings", "opencode", "templates");
+        _templatesDirectory = UserPaths.GetUserDataFile("opencode", "templates");
     }
 
     /// <inheritdoc/>

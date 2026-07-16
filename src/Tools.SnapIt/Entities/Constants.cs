@@ -12,7 +12,7 @@ public class Constants
 	/// Where SnapIt reads/writes its runtime data. Lives under the per-user folder so
 	/// settings/layouts survive reinstalls. Was previously inside the install directory.
 	/// </summary>
-	public static readonly string RootFolder = Path.Combine(UserDataRoot, "settings", "snapit");
+	public static readonly string RootFolder = Path.Combine(UserDataRoot, "snapit");
 
 	/// <summary>
 	/// Install directory, where shipped default files (used to seed the user folder on

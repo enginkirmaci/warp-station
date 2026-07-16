@@ -33,7 +33,7 @@ public class SettingsService : ISettingsService
     {
         // User settings live under %USERPROFILE%\.devtools so they survive reinstalls.
         // The shipped <install>/settings/settings.json is used only as a one-time seed.
-        _settingsDirectory = UserPaths.GetUserDataFile("settings");
+        _settingsDirectory = UserPaths.UserDataRoot;
         _settingsFilePath = Path.Combine(_settingsDirectory, SettingsFileName);
     }
 

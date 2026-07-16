@@ -220,7 +220,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Opens the user settings folder (<c>%USERPROFILE%\.devtools\settings</c>) in the OS
+    /// Opens the user settings folder (<c>%USERPROFILE%\.devtools</c>) in the OS
     /// file explorer. ProcessLauncher uses <c>UseShellExecute=true</c>, so passing a folder
     /// path opens it in the default explorer. The folder is created on demand by the
     /// settings service when it persists settings, and is created here as a safety net so
@@ -229,7 +229,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void OpenSettingsFolder()
     {
-        var settingsDirectory = UserPaths.GetUserDataFile("settings");
+        var settingsDirectory = UserPaths.UserDataRoot;
         Directory.CreateDirectory(settingsDirectory);
         _processLauncher.StartProcess(settingsDirectory);
     }

@@ -7,7 +7,7 @@ namespace Tools.Library.Services;
 
 /// <summary>
 /// File-backed implementation of <see cref="IOpenCodeModelService"/>. Reads the model
-/// list JSON located next to the executable under <c>settings/opencode/</c>.
+/// list JSON located in the user data folder under <c>%USERPROFILE%\.devtools\opencode\</c>.
 /// </summary>
 public class OpenCodeModelService : IOpenCodeModelService
 {
@@ -35,7 +35,7 @@ public class OpenCodeModelService : IOpenCodeModelService
     {
         // User data under %USERPROFILE%\.devtools so it survives reinstalls. Seeded from
         // the shipped default on first run; the in-memory Fallback is the last resort.
-        _modelsFilePath = UserPaths.GetUserDataFile("settings", "opencode", "models.json");
+        _modelsFilePath = UserPaths.GetUserDataFile("opencode", "models.json");
     }
 
     /// <inheritdoc/>

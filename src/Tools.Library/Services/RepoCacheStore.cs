@@ -8,7 +8,7 @@ namespace Tools.Library.Services;
 
 /// <summary>
 /// File-backed implementation of <see cref="IRepoCacheStore"/>. Reads and writes the
-/// repo cache JSON located next to the executable under <c>settings/</c>.
+/// repo cache JSON located in the user data folder under <c>%USERPROFILE%\.devtools\</c>.
 /// </summary>
 public class RepoCacheStore : IRepoCacheStore
 {
@@ -21,7 +21,7 @@ public class RepoCacheStore : IRepoCacheStore
     {
         // User data under %USERPROFILE%\.devtools so it survives reinstalls. The cache
         // is not seeded from shipped defaults — it rebuilds from the file system.
-        _cacheFilePath = UserPaths.GetUserDataFile("settings", "repos.cache.json");
+        _cacheFilePath = UserPaths.GetUserDataFile("repos.cache.json");
     }
 
     /// <inheritdoc/>
