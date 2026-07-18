@@ -362,82 +362,77 @@
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
                                                                                 </StackPanel>
-
-                                                                                <!--  OpenCode status section: status dot + status text (left), OpenCode button (right)  -->
-                                                                                <Grid
-                                                                                        Grid.Column="0"
-                                                                                        Margin="0,2,0,0"
-                                                                                        ColumnDefinitions="Auto,Auto,*,Auto">
+                                                                        </StackPanel>
+                                                                        <!--  Right column: favorite star on top, OpenCode status stacked vertically below it  -->
+                                                                        <StackPanel
+                                                                                Grid.Column="1"
+                                                                                Orientation="Vertical"
+                                                                                Spacing="10">
+                                                                                <Button
+                                                                                        HorizontalAlignment="Right"
+                                                                                        VerticalAlignment="Top"
+                                                                                        Classes="icon"
+                                                                                        Command="{Binding #Root.DataContext.ToggleFavoriteCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        ToolTip.Tip="Toggle favorite">
+                                                                                        <Path
+                                                                                                Width="16"
+                                                                                                Height="16"
+                                                                                                Data="{tools:SvgPath icon-star}"
+                                                                                                Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                                <StackPanel
+                                                                                        HorizontalAlignment="Right"
+                                                                                        Orientation="Horizontal"
+                                                                                        Spacing="6">
                                                                                         <Border
-                                                                                                Grid.Column="0"
                                                                                                 Width="8"
                                                                                                 Height="8"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToBrushConverter}}"
                                                                                                 CornerRadius="4" />
-                                                                                        <StackPanel
-                                                                                                Grid.Column="1"
-                                                                                                Margin="6,0,0,0"
+                                                                                        <TextBlock
                                                                                                 VerticalAlignment="Center"
-                                                                                                Orientation="Horizontal"
-                                                                                                Spacing="6">
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        FontSize="11"
-                                                                                                        Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                                                        Text="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToTextConverter}}" />
-                                                                                                <Border
-                                                                                                        Padding="6,1"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Background="{DynamicResource AccentSoftBrush}"
-                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
-                                                                                                        IsVisible="{Binding OpenCodeAutoApprove}">
-                                                                                                        <TextBlock
-                                                                                                                FontSize="10"
-                                                                                                                Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                                                                                Text="auto-approve" />
-                                                                                                </Border>
-                                                                                        </StackPanel>
-                                                                                        <Button
-                                                                                                Grid.Column="3"
-                                                                                                Padding="6,2"
+                                                                                                FontSize="11"
+                                                                                                Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                                                Text="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToTextConverter}}" />
+                                                                                        <Border
+                                                                                                Padding="6,1"
                                                                                                 VerticalAlignment="Center"
-                                                                                                Background="Transparent"
-                                                                                                BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                                BorderThickness="1"
-                                                                                                Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
-                                                                                                CommandParameter="{Binding}"
+                                                                                                Background="{DynamicResource AccentSoftBrush}"
                                                                                                 CornerRadius="{DynamicResource ChipRadius}"
-                                                                                                Cursor="Hand"
-                                                                                                FontSize="10"
-												ToolTip.Tip="Open the OpenCode panel for this repo">
-												<StackPanel Orientation="Horizontal" Spacing="3">
-													<TextBlock Text="OpenCode" />
-													<Path
-														Width="8"
-														Height="8"
-														VerticalAlignment="Center"
-														Data="{tools:SvgPath icon-chevron-right}"
-														Fill="{DynamicResource BodyForegroundBrush}"
-														Stretch="Uniform" />
-												</StackPanel>
-											</Button>
-                                                                                </Grid>
+                                                                                                IsVisible="{Binding OpenCodeAutoApprove}">
+                                                                                                <TextBlock
+                                                                                                        FontSize="10"
+                                                                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                                                                        Text="auto-approve" />
+                                                                                        </Border>
+                                                                                </StackPanel>
+                                                                                <Button
+                                                                                        HorizontalAlignment="Right"
+                                                                                        Padding="6,2"
+                                                                                        Background="Transparent"
+                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                        BorderThickness="1"
+                                                                                        Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                        Cursor="Hand"
+                                                                                        FontSize="10"
+                                                                                        ToolTip.Tip="Open the OpenCode panel for this repo">
+                                                                                        <StackPanel Orientation="Horizontal" Spacing="3">
+                                                                                                <TextBlock Text="OpenCode" />
+                                                                                                <Path
+                                                                                                        Width="8"
+                                                                                                        Height="8"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Data="{tools:SvgPath icon-chevron-right}"
+                                                                                                        Fill="{DynamicResource BodyForegroundBrush}"
+                                                                                                        Stretch="Uniform" />
+                                                                                        </StackPanel>
+                                                                                </Button>
                                                                         </StackPanel>
-                                                                        <Button
-                                                                                Grid.Column="1"
-                                                                                VerticalAlignment="Top"
-                                                                                Classes="icon"
-                                                                                Command="{Binding #Root.DataContext.ToggleFavoriteCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                ToolTip.Tip="Toggle favorite">
-                                                                                <Path
-                                                                                        Width="16"
-                                                                                        Height="16"
-                                                                                        Data="{tools:SvgPath icon-star}"
-                                                                                        Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
                                                                 </Grid>
                                                         </Border>
                                                 </DataTemplate>
