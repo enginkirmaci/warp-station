@@ -5,6 +5,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:tools="using:Tools.Library.MarkupExtensions"
+        xmlns:controls="using:Tools.Controls"
         x:Name="Root"
         d:DesignHeight="600"
         d:DesignWidth="1000"
@@ -146,17 +147,19 @@
                                                 <DataTemplate>
                                                         <Border Classes="card">
                                                                 <!--
-                                                                        Card zones sit side by side and wrap to a second row
-                                                                        when space runs out (e.g. the OpenCode side panel is
-                                                                        open). Zones after the first carry their own left
-                                                                        hairline divider.
+                                                                        Sections spread across the full card width
+                                                                        (space-between) on large windows and reflow onto
+                                                                        wrapped rows on small ones: SpaceBetweenPanel
+                                                                        distributes each row's leftover width as even gaps
+                                                                        between its zones, wrapping greedily when a zone no
+                                                                        longer fits. Zones after the first carry their own
+                                                                        left hairline divider.
                                                                 -->
-                                                                <WrapPanel Orientation="Horizontal">
+                                                                <controls:SpaceBetweenPanel ColumnSpacing="16" RowSpacing="8">
 
                                                                         <!--  Info zone: favorite star, name/path, tags  -->
                                                                         <StackPanel
                                                                                 Width="300"
-                                                                                Margin="0,4,16,4"
                                                                                 VerticalAlignment="Center"
                                                                                 Orientation="Vertical"
                                                                                 Spacing="10">
@@ -307,7 +310,6 @@
                                                                         <!--  Workspace zone: launch buttons with captions  -->
                                                                         <Border
                                                                                 Width="340"
-                                                                                Margin="0,4"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -406,7 +408,6 @@
                                                                         <!--  Git zone: branch + modified / ahead / behind stats  -->
                                                                         <Border
                                                                                 Width="250"
-                                                                                Margin="0,4"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -516,7 +517,6 @@
                                                                         <!--  AI / OpenCode zone: serve status + panel launcher  -->
                                                                         <Border
                                                                                 Width="210"
-                                                                                Margin="0,4"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -581,7 +581,7 @@
                                                                                 </StackPanel>
                                                                         </Border>
 
-                                                                </WrapPanel>
+                                                                </controls:SpaceBetweenPanel>
                                                         </Border>
                                                 </DataTemplate>
                                         </ItemsControl.ItemTemplate>

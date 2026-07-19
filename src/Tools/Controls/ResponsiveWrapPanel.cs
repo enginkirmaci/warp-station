@@ -1,7 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 
-namespace Tools.Views.Controls;
+namespace Tools.Controls;
 
 public class ResponsiveWrapPanel : Panel
 {

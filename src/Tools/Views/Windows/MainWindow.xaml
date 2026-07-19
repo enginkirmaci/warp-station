@@ -7,7 +7,7 @@
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 	xmlns:tools="using:Tools.Library.MarkupExtensions"
 	Title=""
-	Width="1400"
+	Width="1500"
 	Height="900"
 	MinWidth="800"
 	MinHeight="600"
