@@ -68,6 +68,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _openCodeServeStatusText = "Disconnected";
 
+    /// <summary>
+    /// Whether the OpenCode integration is surfaced in the GUI (serve indicator,
+    /// per-repo status, launch panel). Mirrors <see cref="OpenCodeServeSettings.Enabled"/>;
+    /// when false, serve is not started and the indicator is hidden.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isOpenCodeVisible;
+
     /// <summary>Command to start/stop the managed opencode serve subprocess from the status bar.</summary>
     public IAsyncRelayCommand ToggleOpenCodeServeCommand { get; }
 
@@ -99,6 +107,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
         var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
         _openCodeServeSettings = appSettings.OpenCode ?? new OpenCodeServeSettings();
+        IsOpenCodeVisible = _openCodeServeSettings.Enabled;
         MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
@@ -108,16 +117,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
-        _openCodeServeService.ConnectionChanged += OnOpenCodeServeConnectionChanged;
 
         UpdateSnapItStatus(_snapItService.IsRunning);
         UpdateNugetWatchStatus();
-        UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
 
-        // Auto-start serve at app launch when configured (so it's ready before the user opens Repos).
-        if (_openCodeServeSettings.AutoConnect)
+        // Only wire up and auto-start serve when the OpenCode integration is enabled. When
+        // disabled, the indicator stays hidden and the subprocess is never started.
+        if (IsOpenCodeVisible)
         {
-            _ = _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
+            _openCodeServeService.ConnectionChanged += OnOpenCodeServeConnectionChanged;
+            UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
+
+            // Auto-start serve at app launch when configured (so it's ready before the user opens Repos).
+            if (_openCodeServeSettings.AutoConnect)
+            {
+                _ = _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
+            }
         }
     }
 

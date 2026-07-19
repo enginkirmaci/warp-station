@@ -127,6 +127,16 @@ public class ReposSettings
 public class OpenCodeServeSettings
 {
     /// <summary>
+    /// Gets or sets a value indicating whether the OpenCode integration (serve
+    /// indicator, per-repo serve status, and the OpenCode launch panel with
+    /// auto-approve) is surfaced in the GUI. When <see langword="false"/>, the
+    /// <c>opencode serve</c> subprocess is not started and all OpenCode UI is
+    /// hidden. Defaults to <see langword="false"/> (hidden). Configured manually
+    /// via settings.json.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the serve subprocess is started and
     /// connected automatically when the Repos page opens.
     /// </summary>

@@ -352,7 +352,8 @@
 					Command="{Binding ToggleOpenCodeServeCommand}"
 					CornerRadius="{DynamicResource ChipRadius}"
 					Cursor="Hand"
-					DockPanel.Dock="Right">
+					DockPanel.Dock="Right"
+					IsVisible="{Binding IsOpenCodeVisible}">
 					<StackPanel Orientation="Horizontal" Spacing="6">
 						<Border
 							Width="8"

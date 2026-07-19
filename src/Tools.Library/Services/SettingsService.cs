@@ -129,6 +129,7 @@ public class SettingsService : ISettingsService
         settings.Repos ??= new ReposSettings();
         settings.ClipboardPassword ??= new ClipboardPasswordSettings();
         settings.SnapIt ??= new SnapItSettings();
+        settings.OpenCode ??= new OpenCodeServeSettings();
         settings.General ??= new GeneralSettings();
     }
 

@@ -56,6 +56,14 @@ public partial class ReposViewModel : PageViewModelBase
 
     // --- OpenCode panel (transient state) ---
 
+    /// <summary>
+    /// Whether the OpenCode integration is enabled (mirrors <see cref="OpenCodeServeSettings.Enabled"/>).
+    /// When false, serve is not started, the launch panel cannot open, and all
+    /// per-repo OpenCode UI is hidden.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isOpenCodeEnabled;
+
     [ObservableProperty]
     private bool _isOpenCodePanelOpen;
 
@@ -238,6 +246,7 @@ public partial class ReposViewModel : PageViewModelBase
         var settings = await _settingsService.GetSettingsAsync();
         _reposSettings = settings.Repos ?? new ReposSettings();
         _openCodeServeSettings = settings.OpenCode ?? new OpenCodeServeSettings();
+        IsOpenCodeEnabled = _openCodeServeSettings.Enabled;
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
@@ -246,8 +255,12 @@ public partial class ReposViewModel : PageViewModelBase
 
         // Auto-start + connect the opencode serve subprocess once Repos is open, so the status
         // bar reflects a live connection and instances can be tracked. Idempotent: a no-op if
-        // already running (e.g. auto-started by MainWindowViewModel at app launch).
-        await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
+        // already running (e.g. auto-started by MainWindowViewModel at app launch). Skipped
+        // entirely when the OpenCode integration is disabled (serve is not needed).
+        if (IsOpenCodeEnabled)
+        {
+            await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
+        }
     }
 
     /// <summary>
@@ -538,7 +551,7 @@ public partial class ReposViewModel : PageViewModelBase
     [RelayCommand]
     private async Task OpenOpenCodePanelAsync(Repo? repo)
     {
-        if (repo is null) return;
+        if (repo is null || !IsOpenCodeEnabled) return;
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
         ArrangeInGrid = false;
