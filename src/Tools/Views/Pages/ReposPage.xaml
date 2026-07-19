@@ -2,10 +2,10 @@
         x:Class="Tools.Views.Pages.ReposPage"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:Tools.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:tools="using:Tools.Library.MarkupExtensions"
-        xmlns:controls="using:Tools.Controls"
         x:Name="Root"
         d:DesignHeight="600"
         d:DesignWidth="1000"
@@ -159,7 +159,7 @@
 
                                                                         <!--  Info zone: favorite star, name/path, tags  -->
                                                                         <StackPanel
-                                                                                Width="300"
+                                                                                Width="350"
                                                                                 VerticalAlignment="Center"
                                                                                 Orientation="Vertical"
                                                                                 Spacing="10">
@@ -309,7 +309,7 @@
 
                                                                         <!--  Workspace zone: launch buttons with captions  -->
                                                                         <Border
-                                                                                Width="340"
+                                                                                Width="300"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -407,7 +407,6 @@
 
                                                                         <!--  Git zone: branch + modified / ahead / behind stats  -->
                                                                         <Border
-                                                                                Width="250"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -516,7 +515,6 @@
 
                                                                         <!--  AI / OpenCode zone: serve status + panel launcher  -->
                                                                         <Border
-                                                                                Width="210"
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
                                                                                 BorderBrush="{DynamicResource HairlineBrush}"
