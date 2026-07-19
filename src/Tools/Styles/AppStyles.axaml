@@ -159,6 +159,32 @@
     </Style>
 
     <!--
+        Tool button — a larger launch button with an icon stacked over a caption
+        (repo card Workspace zone). Subtle fill, hairline border, lifts on hover.
+    -->
+    <Style Selector="Button.tool-button">
+        <Setter Property="MinWidth" Value="68" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Transitions">
+            <Setter.Value>
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style Selector="Button.tool-button:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
+    </Style>
+
+    <!--
         Accent button — primary action. Indigo fill, white text, rounded,
         smooth hover/press transitions.
     -->

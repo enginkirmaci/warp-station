@@ -25,6 +25,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IDevToolsClient _devToolsClient;
     private readonly IDialogService _dialogService;
     private readonly IRepoService _repoService;
+    private readonly IGitStatusService _gitStatusService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
@@ -203,6 +204,7 @@ public partial class ReposViewModel : PageViewModelBase
         IDevToolsClient devToolsClient,
         IDialogService dialogService,
         IRepoService repoService,
+        IGitStatusService gitStatusService,
         IProcessLauncher processLauncher,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
@@ -214,6 +216,7 @@ public partial class ReposViewModel : PageViewModelBase
         _devToolsClient = devToolsClient;
         _dialogService = dialogService;
         _repoService = repoService;
+        _gitStatusService = gitStatusService;
         _processLauncher = processLauncher;
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
@@ -252,6 +255,13 @@ public partial class ReposViewModel : PageViewModelBase
         await LoadOpenCodePromptsAsync();
         RebuildTagFilters();
         ApplyFilter();
+
+        // Kick the local git status checks in the background — the cards render instantly
+        // with a "checking…" placeholder and the counts fill in as each repo's probe
+        // completes. Fire-and-forget so page load never waits on git. (The service also
+        // self-refreshes whenever IRepoService reports fresh data; this call covers the
+        // first navigation, where the singleton may have missed the initial scan events.)
+        _ = _gitStatusService.RefreshAllAsync();
 
         // Auto-start + connect the opencode serve subprocess once Repos is open, so the status
         // bar reflects a live connection and instances can be tracked. Idempotent: a no-op if
@@ -750,6 +760,9 @@ public partial class ReposViewModel : PageViewModelBase
     private async Task RefreshAsync()
     {
         await _repoService.RefreshAsync(_reposSettings);
+        // Re-check git statuses right away against the current list; the scan started
+        // above raises Changed when it completes, which triggers one more pass.
+        _ = _gitStatusService.RefreshAllAsync();
     }
 
     [RelayCommand]

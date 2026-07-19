@@ -28,7 +28,9 @@ public static class IconAssetLoader
     public static IReadOnlyCollection<string> KnownIcons { get; } = new[]
     {
         "icon-account",
+        "icon-arrow-down",
         "icon-arrow-left",
+        "icon-arrow-up",
         "icon-chart-bar",
         "icon-chevron-right",
         "icon-chevron-down",
@@ -42,10 +44,12 @@ public static class IconAssetLoader
         "icon-lock",
         "icon-menu",
         "icon-opencode",
+        "icon-open-in-new",
         "icon-package",
         "icon-play",
         "icon-refresh",
         "icon-sln-box",
+        "icon-source-branch",
         "icon-stop",
         "icon-terminal",
         "icon-terminal-alt",

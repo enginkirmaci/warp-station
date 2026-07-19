@@ -28,6 +28,9 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IRepoCacheStore, RepoCacheStore>();
         services.AddSingleton<IRepoService, RepoService>();
 
+        // Local git status checker: pushes branch/modified/ahead/behind onto repos
+        services.AddSingleton<IGitStatusService, GitStatusService>();
+
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();

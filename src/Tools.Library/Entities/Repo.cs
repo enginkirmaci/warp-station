@@ -95,4 +95,45 @@ public partial class Repo : ObservableObject
     /// </summary>
     [ObservableProperty]
     private bool _openCodeAutoApprove;
+
+    /// <summary>
+    /// The current branch name reported by the local git status check, pushed by
+    /// <c>IGitStatusService</c>. Shown next to the Git section header on the repo card.
+    /// <c>null</c> until the first check completes (or when it fails). Runtime-only;
+    /// not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private string? _gitBranchName;
+
+    /// <summary>
+    /// Number of working-tree changes (modified, renamed, unmerged and untracked files)
+    /// reported by <c>git status --porcelain=v2 --untracked-files=all</c>. Every
+    /// untracked file counts individually (git's default directory collapsing is off).
+    /// Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _gitModifiedCount;
+
+    /// <summary>
+    /// Number of local commits ahead of the upstream branch (to push). Zero when the
+    /// branch has no upstream. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _gitToPushCount;
+
+    /// <summary>
+    /// Number of upstream commits the local branch is behind (to pull). Zero when the
+    /// branch has no upstream. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _gitToPullCount;
+
+    /// <summary>
+    /// Whether the first git status check has completed for this repo. The card shows a
+    /// "checking…" placeholder until this flips to <see langword="true"/>, so the UI
+    /// renders instantly and the counts fill in as the background checks finish.
+    /// Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _gitStatusLoaded;
 }
