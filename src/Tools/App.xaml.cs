@@ -105,7 +105,6 @@ public partial class App : Application
         {
             services.GetRequiredService<ISnapItService>().Stop();
             services.GetRequiredService<INugetLocalService>().Stop();
-            services.GetRequiredService<IOpenCodeServeService>().Stop();
         }
         catch (Exception ex)
         {

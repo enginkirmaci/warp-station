@@ -26,10 +26,9 @@ public class AppSettings
     public SnapItSettings? SnapIt { get; set; }
 
     /// <summary>
-    /// Gets or sets the opencode serve settings (the headless <c>opencode serve</c>
-    /// subprocess the app manages for live status and auto-approve).
+    /// Gets or sets the OpenCode integration settings (the launch panel on the Repos page).
     /// </summary>
-    public OpenCodeServeSettings? OpenCode { get; set; }
+    public OpenCodeSettings? OpenCode { get; set; }
 
     /// <summary>
     /// Gets or sets the general application settings.
@@ -97,6 +96,12 @@ public class ReposSettings
     public string? VSCodeExecutable { get; set; } = "code";
 
     /// <summary>
+    /// Gets or sets the VS Code profile name to launch with (passed as
+    /// <c>--profile &lt;name&gt;</c>). When empty, VS Code opens with the default profile.
+    /// </summary>
+    public string? VSCodeProfile { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the terminal executable path or command.
     /// </summary>
     public string? TerminalExecutable { get; set; } = "wt";
@@ -120,62 +125,18 @@ public class ReposSettings
 }
 
 /// <summary>
-/// Settings for the managed <c>opencode serve</c> subprocess. The app starts a single
-/// headless server (<c>opencode serve --hostname &lt;Host&gt; --port &lt;Port&gt;</c>) and
-/// connects over HTTP for live session status and runtime tool-approval (auto-approve).
+/// Settings for the OpenCode integration (the launch panel on the Repos page). Models are
+/// listed by running <c>opencode models</c> as a one-shot process; no server is managed.
 /// </summary>
-public class OpenCodeServeSettings
+public class OpenCodeSettings
 {
     /// <summary>
-    /// Gets or sets a value indicating whether the OpenCode integration (serve
-    /// indicator, per-repo serve status, and the OpenCode launch panel with
-    /// auto-approve) is surfaced in the GUI. When <see langword="false"/>, the
-    /// <c>opencode serve</c> subprocess is not started and all OpenCode UI is
-    /// hidden. Defaults to <see langword="false"/> (hidden). Configured manually
-    /// via settings.json.
+    /// Gets or sets a value indicating whether the OpenCode integration (the per-repo
+    /// OpenCode launch panel) is surfaced in the GUI. When <see langword="false"/>, all
+    /// OpenCode UI is hidden. Defaults to <see langword="false"/> (hidden). Configured
+    /// manually via settings.json.
     /// </summary>
     public bool Enabled { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the serve subprocess is started and
-    /// connected automatically when the Repos page opens.
-    /// </summary>
-    public bool AutoConnect { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets the hostname passed to <c>opencode serve --hostname</c>. Defaults to
-    /// <c>127.0.0.1</c> (loopback only).
-    /// </summary>
-    public string Host { get; set; } = "127.0.0.1";
-
-    /// <summary>
-    /// Gets or sets the port passed to <c>opencode serve --port</c>. Defaults to
-    /// <c>4096</c> (opencode's documented default). A fixed port lets the app connect
-    /// without parsing the server's startup output.
-    /// </summary>
-    public int Port { get; set; } = 4096;
-
-    /// <summary>
-    /// Gets or sets the optional bearer/basic-auth password. When set, it is provided to
-    /// the subprocess via the <c>OPENCODE_SERVER_PASSWORD</c> environment variable and sent
-    /// to the server as HTTP basic auth (username <c>opencode</c>). When unset the server is
-    /// unsecured (acceptable on loopback).
-    /// </summary>
-    public string? AuthToken { get; set; }
-
-    /// <summary>
-    /// Gets or sets the default auto-approve state applied to newly launched opencode
-    /// instances. The per-launch toggle in the OpenCode panel overrides this.
-    /// </summary>
-    public bool AutoApprove { get; set; }
-
-    /// <summary>
-    /// Gets or sets the opencode executable used to run <c>serve</c>. Falls back to
-    /// <c>opencode</c>. This is the same binary used by the terminal launch path
-    /// (<see cref="ReposSettings.OpenCodeExecutable"/>); kept separate so the two features
-    /// can point at different builds if needed.
-    /// </summary>
-    public string? OpenCodeExecutable { get; set; } = "opencode";
 }
 
 /// <summary>

@@ -13,9 +13,9 @@ namespace Tools.Library.Services;
 /// lines carry the branch name and ahead/behind counts, every non-header line is one
 /// working-tree change. <c>--untracked-files=all</c> counts every untracked file
 /// individually — by default git collapses an untracked directory into a single entry.
-/// Results are pushed onto the <see cref="Repo"/> entities from background threads, the
-/// same way <c>OpenCodeServeService</c> pushes instance status — CommunityToolkit raises
-/// <c>PropertyChanged</c> and the bound cards update without the page VM being involved.
+/// Results are pushed onto the <see cref="Repo"/> entities from background threads —
+/// CommunityToolkit raises <c>PropertyChanged</c> and the bound cards update without the
+/// page VM being involved.
 /// <para>
 /// A refresh is kicked automatically when <see cref="IRepoService"/> raises
 /// <c>Changed</c> outside of a scan, so statuses re-check after every rescan without the

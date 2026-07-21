@@ -35,9 +35,8 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();
 
-        // opencode serve integration: HTTP/SSE client + managed subprocess service
-        services.AddSingleton<IOpenCodeServeClient, OpenCodeServeClient>();
-        services.AddSingleton<IOpenCodeServeService, OpenCodeServeService>();
+        // opencode model list (one-shot 'opencode models' CLI runner)
+        services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
 
         return services;
     }

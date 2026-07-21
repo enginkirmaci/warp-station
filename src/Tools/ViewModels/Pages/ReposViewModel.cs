@@ -30,16 +30,10 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
-    private readonly IOpenCodeServeService _openCodeServeService;
+    private readonly IOpenCodeModelService _openCodeModelService;
     private readonly INotificationService _notificationService;
     private ReposSettings _reposSettings = new();
-    private OpenCodeServeSettings _openCodeServeSettings = new();
-
-    /// <summary>
-    /// The model selected by default when the OpenCode panel opens, resolved from the
-    /// connected <c>opencode serve</c> instance. Empty (no default) until serve is connected.
-    /// </summary>
-    private string _defaultOpenCodeModel = string.Empty;
+    private OpenCodeSettings _openCodeSettings = new();
 
     [ObservableProperty]
     private string _filterText = string.Empty;
@@ -58,9 +52,8 @@ public partial class ReposViewModel : PageViewModelBase
     // --- OpenCode panel (transient state) ---
 
     /// <summary>
-    /// Whether the OpenCode integration is enabled (mirrors <see cref="OpenCodeServeSettings.Enabled"/>).
-    /// When false, serve is not started, the launch panel cannot open, and all
-    /// per-repo OpenCode UI is hidden.
+    /// Whether the OpenCode integration is enabled (mirrors <see cref="OpenCodeSettings.Enabled"/>).
+    /// When false, the launch panel cannot open and all per-repo OpenCode UI is hidden.
     /// </summary>
     [ObservableProperty]
     private bool _isOpenCodeEnabled;
@@ -95,18 +88,9 @@ public partial class ReposViewModel : PageViewModelBase
     private bool _arrangeInGrid;
 
     /// <summary>
-    /// When <see langword="true"/>, the instance launched from the panel is registered with
-    /// auto-approve: the serve service replies <c>"once"</c> to each of its
-    /// <c>permission.updated</c> events. Defaults from <c>OpenCodeServeSettings.AutoApprove</c>
-    /// when the panel opens, and is reset when the panel closes.
-    /// </summary>
-    [ObservableProperty]
-    private bool _openCodeAutoApprove;
-
-    /// <summary>
-    /// The models available in the OpenCode model selector, fetched live from the connected
-    /// <c>opencode serve</c> instance (<c>GET /config/providers</c>). Empty while serve is
-    /// not connected; (re)populated when the panel opens or when serve connects.
+    /// The models available in the OpenCode model selector, fetched by running
+    /// <c>opencode models</c> as a one-shot process (see <see cref="IOpenCodeModelService"/>).
+    /// (Re)populated each time the panel opens; empty when the CLI fails or is missing.
     /// </summary>
     [ObservableProperty]
     private ObservableCollection<string> _openCodeModels = new();
@@ -209,7 +193,7 @@ public partial class ReposViewModel : PageViewModelBase
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
         IOpenCodeGridLauncher openCodeGridLauncher,
-        IOpenCodeServeService openCodeServeService,
+        IOpenCodeModelService openCodeModelService,
         INotificationService notificationService)
     {
         _settingsService = settingsService;
@@ -221,13 +205,10 @@ public partial class ReposViewModel : PageViewModelBase
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
-        _openCodeServeService = openCodeServeService;
+        _openCodeModelService = openCodeModelService;
         _notificationService = notificationService;
 
         _repoService.Changed += OnRepoChanged;
-        // Refresh the serve-backed model list when serve (re)connects while the panel is open,
-        // so the dropdown populates the moment a previously-down serve comes up.
-        _openCodeServeService.ConnectionChanged += OnServeConnectionChanged;
     }
 
     /// <inheritdoc/>
@@ -239,7 +220,6 @@ public partial class ReposViewModel : PageViewModelBase
         // Detach from the singletons so this Transient VM (rebuilt per navigation) is not
         // kept alive by them and does not receive further state changes.
         _repoService.Changed -= OnRepoChanged;
-        _openCodeServeService.ConnectionChanged -= OnServeConnectionChanged;
         return Task.CompletedTask;
     }
 
@@ -248,8 +228,8 @@ public partial class ReposViewModel : PageViewModelBase
     {
         var settings = await _settingsService.GetSettingsAsync();
         _reposSettings = settings.Repos ?? new ReposSettings();
-        _openCodeServeSettings = settings.OpenCode ?? new OpenCodeServeSettings();
-        IsOpenCodeEnabled = _openCodeServeSettings.Enabled;
+        _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
+        IsOpenCodeEnabled = _openCodeSettings.Enabled;
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
@@ -262,39 +242,21 @@ public partial class ReposViewModel : PageViewModelBase
         // self-refreshes whenever IRepoService reports fresh data; this call covers the
         // first navigation, where the singleton may have missed the initial scan events.)
         _ = _gitStatusService.RefreshAllAsync();
-
-        // Auto-start + connect the opencode serve subprocess once Repos is open, so the status
-        // bar reflects a live connection and instances can be tracked. Idempotent: a no-op if
-        // already running (e.g. auto-started by MainWindowViewModel at app launch). Skipped
-        // entirely when the OpenCode integration is disabled (serve is not needed).
-        if (IsOpenCodeEnabled)
-        {
-            await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
-        }
     }
 
     /// <summary>
-    /// Loads the OpenCode model list from the connected <c>opencode serve</c> instance
-    /// (<c>GET /config/providers</c>) into <see cref="OpenCodeModels"/> and resolves the
-    /// default selection. Returns an empty list when serve is not connected, so the selector
-    /// shows its "connect serve" hint. Safe to call before the panel opens; re-called on serve
-    /// connect (see <see cref="OnServeConnectionChanged"/>) and on panel open.
+    /// Loads the OpenCode model list by running <c>opencode models</c> (see
+    /// <see cref="IOpenCodeModelService"/>) into <see cref="OpenCodeModels"/> and selects the
+    /// first entry. Returns an empty list when the CLI is unavailable, so the selector shows
+    /// its "no models" hint. Called each time the panel opens.
     /// </summary>
-    private async Task LoadOpenCodeModelsFromServeAsync()
+    private async Task LoadOpenCodeModelsAsync()
     {
-        var result = await _openCodeServeService.GetModelsAsync();
-        OpenCodeModels = new ObservableCollection<string>(result.Models);
-        _defaultOpenCodeModel = string.IsNullOrWhiteSpace(result.DefaultModel) && OpenCodeModels.Count > 0
-            ? OpenCodeModels[0]
-            : result.DefaultModel;
+        var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
+        OpenCodeModels = new ObservableCollection<string>(models);
 
-        // Preserve the current selection when it is still offered; otherwise fall back to the
-        // serve default (or clear it when nothing is available).
-        if (OpenCodeModels.Count == 0)
-            OpenCodeSelectedModel = string.Empty;
-        else if (string.IsNullOrEmpty(OpenCodeSelectedModel)
-                 || !OpenCodeModels.Contains(OpenCodeSelectedModel, StringComparer.Ordinal))
-            OpenCodeSelectedModel = _defaultOpenCodeModel;
+        // Select the first model on load; clear the selection when nothing is available.
+        OpenCodeSelectedModel = OpenCodeModels.Count > 0 ? OpenCodeModels[0] : string.Empty;
 
         // The editable ComboBox binds its text to the filter and its dropdown to the filtered
         // list; mirror the committed selection into both so the box shows the active model.
@@ -332,27 +294,16 @@ public partial class ReposViewModel : PageViewModelBase
     partial void OnOpenCodeModelFilterChanged(string value) => RefreshOpenCodeFilteredModels();
 
     /// <summary>
-    /// When the full model list changes (serve connected / reconnected), refresh the filtered
+    /// When the full model list changes (panel reopened), refresh the filtered
     /// projection so the dropdown reflects the latest available models.
     /// </summary>
     partial void OnOpenCodeModelsChanged(ObservableCollection<string> value)
         => RefreshOpenCodeFilteredModels();
 
-    /// <summary>
-    /// Re-fetches the serve model list when serve connects while the panel is open, so a
-    /// dropdown that opened disconnected populates the moment serve comes up. No-op when serve
-    /// disconnects or the panel is closed.
-    /// </summary>
-    private void OnServeConnectionChanged(object? sender, bool isConnected)
-    {
-        if (!isConnected || !IsOpenCodePanelOpen) return;
-        Avalonia.Threading.Dispatcher.UIThread.Post(async () => await LoadOpenCodeModelsFromServeAsync());
-    }
-
     /// <summary>True when at least one model is available (drives the ComboBox IsEnabled).</summary>
     public bool OpenCodeHasModels => OpenCodeModels.Count > 0;
 
-    /// <summary>True when no models are available — i.e. serve is down (drives the hint text).</summary>
+    /// <summary>True when no models are available — i.e. the CLI failed (drives the hint text).</summary>
     public bool OpenCodeModelsEmpty => OpenCodeModels.Count == 0;
 
     /// <summary>
@@ -419,12 +370,12 @@ public partial class ReposViewModel : PageViewModelBase
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
             ArrangeInGrid = false;
-            OpenCodeSelectedModel = _defaultOpenCodeModel;
+            OpenCodeSelectedModel = string.Empty;
+            OpenCodeModelFilter = string.Empty;
             OpenCodeSelectedTemplate = OpenCodeTemplate.None;
             OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
             OpenCodePrompt = string.Empty;
             NewPromptName = string.Empty;
-            OpenCodeAutoApprove = false;
         }
     }
 
@@ -533,16 +484,22 @@ public partial class ReposViewModel : PageViewModelBase
 
         var exe = _reposSettings.VSCodeExecutable ?? "code";
 
+        // When a profile is configured, launch VS Code with it (--profile <name>);
+        // otherwise open with the default profile (no extra arguments).
+        var args = string.IsNullOrWhiteSpace(_reposSettings.VSCodeProfile)
+            ? folderPath
+            : $"--profile \"{_reposSettings.VSCodeProfile}\" \"{folderPath}\"";
+
         // Route through the DevTools service (named pipe). The service runs
         // non-elevated, so VS Code launches non-elevated even when Tools runs as admin.
         try
         {
-            await _devToolsClient.SendProcessLaunchRequestAsync(exe, folderPath);
+            await _devToolsClient.SendProcessLaunchRequestAsync(exe, args);
         }
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenWithVSCode: pipe launch failed, falling back to direct launch");
-            _processLauncher.StartProcess(exe, folderPath, hidden: true);
+            _processLauncher.StartProcess(exe, args, hidden: true);
         }
     }
 
@@ -565,21 +522,16 @@ public partial class ReposViewModel : PageViewModelBase
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
         ArrangeInGrid = false;
-        OpenCodeSelectedModel = _defaultOpenCodeModel;
         OpenCodeSelectedTemplate = OpenCodeTemplate.None;
         OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
         OpenCodePrompt = string.Empty;
         NewPromptName = string.Empty;
-        // Default auto-approve from settings; an existing tracked instance overrides it so the
-        // toggle reflects the live instance's current state when reopening the panel.
-        var existing = repo.FolderPath is null ? null : _openCodeServeService.GetInstance(repo.FolderPath);
-        OpenCodeAutoApprove = existing?.AutoApprove ?? _openCodeServeSettings.AutoApprove;
         IsOpenCodePanelOpen = true;
 
-        // Fetch the live model list from serve now that the panel is open. If serve is down,
-        // the dropdown stays empty (with its hint) and OnServeConnectionChanged will populate
-        // it when serve connects.
-        await LoadOpenCodeModelsFromServeAsync();
+        // Fetch the model list (via 'opencode models') now that the panel is open; the first
+        // entry is auto-selected. If the CLI is unavailable the dropdown stays empty (with
+        // its hint).
+        await LoadOpenCodeModelsAsync();
     }
 
     [RelayCommand]
@@ -600,7 +552,7 @@ public partial class ReposViewModel : PageViewModelBase
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
         var model = string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
-            ? _defaultOpenCodeModel
+            ? OpenCodeModels.FirstOrDefault() ?? string.Empty
             : OpenCodeSelectedModel;
 
         if (ArrangeInGrid)
@@ -623,22 +575,7 @@ public partial class ReposViewModel : PageViewModelBase
             }
         }
 
-        // Register the launched instance with the serve service so it can be matched to a
-        // serve session, tracked for status, and auto-approved (when enabled). The launcher is
-        // fire-and-forget, so pid is unknown here; matching happens by working directory.
-        _openCodeServeService.Register(repo.FolderPath, pid: null, OpenCodeAutoApprove);
-
         IsOpenCodePanelOpen = false;
-    }
-
-    /// <summary>
-    /// When the panel's auto-approve toggle changes while an instance for the open repo is
-    /// already tracked, propagate the new value to the live instance immediately.
-    /// </summary>
-    partial void OnOpenCodeAutoApproveChanged(bool value)
-    {
-        if (OpenCodeRepo?.FolderPath is not null)
-            _openCodeServeService.SetAutoApprove(OpenCodeRepo.FolderPath, value);
     }
 
     /// <summary>

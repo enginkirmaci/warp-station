@@ -16,17 +16,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ISnapItService _snapItService;
     private readonly INugetLocalService _nugetLocalService;
-    private readonly IOpenCodeServeService _openCodeServeService;
-    private readonly ISettingsService _settingsService;
-    private readonly INotificationService _notificationService;
     private readonly IProcessLauncher _processLauncher;
-    private OpenCodeServeSettings _openCodeServeSettings = new();
-
-    /// <summary>
-    /// Tracks whether the serve connection change came from an explicit user toggle (vs. the
-    /// auto-start at app launch), so launch-time connects don't fire a toast.
-    /// </summary>
-    private bool _isExplicitServeToggle;
 
     /// <summary>
     /// Gets the title of the application.
@@ -61,24 +51,6 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
-    // ---- Status bar: OpenCode serve ----
-    [ObservableProperty]
-    private bool _openCodeServeConnected;
-
-    [ObservableProperty]
-    private string _openCodeServeStatusText = "Disconnected";
-
-    /// <summary>
-    /// Whether the OpenCode integration is surfaced in the GUI (serve indicator,
-    /// per-repo status, launch panel). Mirrors <see cref="OpenCodeServeSettings.Enabled"/>;
-    /// when false, serve is not started and the indicator is hidden.
-    /// </summary>
-    [ObservableProperty]
-    private bool _isOpenCodeVisible;
-
-    /// <summary>Command to start/stop the managed opencode serve subprocess from the status bar.</summary>
-    public IAsyncRelayCommand ToggleOpenCodeServeCommand { get; }
-
     // ---- Left navigation sidebar visibility ----
     /// <summary>Tracks whether the left navigation sidebar is shown.</summary>
     [ObservableProperty]
@@ -90,29 +62,21 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
-        IOpenCodeServeService openCodeServeService,
         ISettingsService settingsService,
-        INotificationService notificationService,
         IProcessLauncher processLauncher)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
-        _openCodeServeService = openCodeServeService;
-        _settingsService = settingsService;
-        _notificationService = notificationService;
         _processLauncher = processLauncher;
 
-        // Read the hide flag and opencode serve settings synchronously: GetSettingsAsync is an
-        // in-memory cached read (Task.FromResult), so this never blocks on async work.
+        // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
+        // (Task.FromResult), so this never blocks on async work.
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
         var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
-        _openCodeServeSettings = appSettings.OpenCode ?? new OpenCodeServeSettings();
-        IsOpenCodeVisible = _openCodeServeSettings.Enabled;
         MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
-        ToggleOpenCodeServeCommand = new AsyncRelayCommand(OnToggleOpenCodeServeAsync);
         ToggleLeftSidebarCommand = new RelayCommand(OnToggleLeftSidebar);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
@@ -120,20 +84,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         UpdateSnapItStatus(_snapItService.IsRunning);
         UpdateNugetWatchStatus();
-
-        // Only wire up and auto-start serve when the OpenCode integration is enabled. When
-        // disabled, the indicator stays hidden and the subprocess is never started.
-        if (IsOpenCodeVisible)
-        {
-            _openCodeServeService.ConnectionChanged += OnOpenCodeServeConnectionChanged;
-            UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
-
-            // Auto-start serve at app launch when configured (so it's ready before the user opens Repos).
-            if (_openCodeServeSettings.AutoConnect)
-            {
-                _ = _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings);
-            }
-        }
     }
 
     private async Task OnToggleSnapItAsync()
@@ -185,53 +135,6 @@ public partial class MainWindowViewModel : ViewModelBase
         NugetWatchStatusText = _nugetLocalService.IsWatching
             ? (_nugetLocalService.Count > 0 ? $"Watching ({_nugetLocalService.Count})" : "Watching")
             : "Idle";
-    }
-
-    /// <summary>
-    /// Toggles the managed opencode serve subprocess. Starting reads the latest serve settings
-    /// (so a settings-dialog edit is picked up); stopping tears the subprocess down.
-    /// </summary>
-    private async Task OnToggleOpenCodeServeAsync()
-    {
-        _isExplicitServeToggle = true;
-        if (_openCodeServeService.IsConnected)
-        {
-            _openCodeServeService.Stop();
-            UpdateOpenCodeServeStatus(false);
-        }
-        else
-        {
-            // Pick up any settings changes since construction.
-            var appSettings = await _settingsService.GetSettingsAsync();
-            _openCodeServeSettings = appSettings.OpenCode ?? new OpenCodeServeSettings();
-            await _openCodeServeService.EnsureStartedAsync(_openCodeServeSettings, force: true);
-            UpdateOpenCodeServeStatus(_openCodeServeService.IsConnected);
-        }
-        _isExplicitServeToggle = false;
-    }
-
-    private void OnOpenCodeServeConnectionChanged(object? sender, bool isConnected)
-    {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            UpdateOpenCodeServeStatus(isConnected);
-
-            // Only toast on explicit user toggles, not the app-launch auto-start.
-            if (_isExplicitServeToggle)
-            {
-                _notificationService.Show(
-                    isConnected ? "OpenCode serve connected" : "OpenCode serve disconnected",
-                    isConnected ? NotificationKind.Success : NotificationKind.Info);
-            }
-        });
-    }
-
-    private void UpdateOpenCodeServeStatus(bool isConnected)
-    {
-        OpenCodeServeConnected = isConnected;
-        OpenCodeServeStatusText = isConnected
-            ? $"serve :{_openCodeServeSettings.Port}"
-            : "Disconnected";
     }
 
     /// <summary>

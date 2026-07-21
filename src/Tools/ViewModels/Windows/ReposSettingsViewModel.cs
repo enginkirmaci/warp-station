@@ -37,6 +37,9 @@ public partial class ReposSettingsViewModel : ObservableObject
     private string _vsCodeExecutable = DefaultVSCode;
 
     [ObservableProperty]
+    private string _vsCodeProfile = string.Empty;
+
+    [ObservableProperty]
     private string _terminalExecutable = DefaultTerminal;
 
     [ObservableProperty]
@@ -69,6 +72,8 @@ public partial class ReposSettingsViewModel : ObservableObject
             SolutionFilePattern = WithDefault(SolutionFilePattern, DefaultSolutionPattern),
             PlatformFolderName = WithDefault(PlatformFolderName, DefaultPlatformName),
             VSCodeExecutable = WithDefault(VsCodeExecutable, DefaultVSCode),
+            // No default: empty means "open VS Code with the default profile".
+            VSCodeProfile = VsCodeProfile?.Trim() ?? string.Empty,
             TerminalExecutable = WithDefault(TerminalExecutable, DefaultTerminal),
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
@@ -89,6 +94,7 @@ public partial class ReposSettingsViewModel : ObservableObject
         SolutionFilePattern = settings.SolutionFilePattern ?? DefaultSolutionPattern;
         PlatformFolderName = settings.PlatformFolderName ?? DefaultPlatformName;
         VsCodeExecutable = settings.VSCodeExecutable ?? DefaultVSCode;
+        VsCodeProfile = settings.VSCodeProfile ?? string.Empty;
         TerminalExecutable = settings.TerminalExecutable ?? DefaultTerminal;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();

@@ -81,22 +81,6 @@ public partial class Repo : ObservableObject
         => Tags.Any(t => string.Equals(t.Name, FavoritesTag, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// The live opencode instance status for this repo, pushed by the serve service as it
-    /// matches and tracks the launched instance. Bound directly by the repo card's OpenCode
-    /// status section. Not persisted (runtime-only); defaults to <see cref="OpenCodeInstanceStatus.Stopped"/>.
-    /// </summary>
-    [ObservableProperty]
-    private OpenCodeInstanceStatus _openCodeStatus = OpenCodeInstanceStatus.Stopped;
-
-    /// <summary>
-    /// Whether auto-approve is active for this repo's opencode instance (the serve service
-    /// replies <c>"once"</c> to its <c>permission.updated</c> events). Shown as a badge on
-    /// the repo card. Runtime-only; not persisted.
-    /// </summary>
-    [ObservableProperty]
-    private bool _openCodeAutoApprove;
-
-    /// <summary>
     /// The current branch name reported by the local git status check, pushed by
     /// <c>IGitStatusService</c>. Shown next to the Git section header on the repo card.
     /// <c>null</c> until the first check completes (or when it fails). Runtime-only;

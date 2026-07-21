@@ -91,6 +91,18 @@
                         <TextBox Text="{Binding VsCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="code" />
                     </StackPanel>
 
+                    <!--  VS Code Profile  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="VS Code Profile"
+                            ToolTip.Tip="VS Code profile to launch with (--profile). Leave empty to use the default profile" />
+                        <TextBox Text="{Binding VsCodeProfile, UpdateSourceTrigger=PropertyChanged}" Watermark="Leave empty for default profile" />
+                    </StackPanel>
+
                     <!--  Terminal Executable  -->
                     <StackPanel
                         Width="240"

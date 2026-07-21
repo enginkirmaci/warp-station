@@ -13,8 +13,7 @@
 
         <Grid
                 Margin="16"
-                ColumnDefinitions="*,Auto"
-                ColumnSpacing="16"
+                ColumnDefinitions="*"
                 RowDefinitions="Auto,Auto,*"
                 RowSpacing="16">
 
@@ -513,7 +512,7 @@
                                                                                 </StackPanel>
                                                                         </Border>
 
-                                                                        <!--  AI / OpenCode zone: serve status + panel launcher  -->
+                                                                        <!--  AI / OpenCode zone: panel launcher  -->
                                                                         <Border
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
@@ -524,40 +523,10 @@
                                                                                         VerticalAlignment="Center"
                                                                                         Orientation="Vertical"
                                                                                         Spacing="8">
-                                                                                        <Grid ColumnDefinitions="*,Auto">
-                                                                                                <TextBlock
-                                                                                                        Grid.Column="0"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Classes="field-label"
-                                                                                                        Text="AI / OpenCode" />
-                                                                                                <StackPanel
-                                                                                                        Grid.Column="1"
-                                                                                                        Orientation="Horizontal"
-                                                                                                        Spacing="6">
-                                                                                                        <Border
-                                                                                                                Width="8"
-                                                                                                                Height="8"
-                                                                                                                VerticalAlignment="Center"
-                                                                                                                Background="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToBrushConverter}}"
-                                                                                                                CornerRadius="4" />
-                                                                                                        <TextBlock
-                                                                                                                VerticalAlignment="Center"
-                                                                                                                FontSize="11"
-                                                                                                                Foreground="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToBrushConverter}}"
-                                                                                                                Text="{Binding OpenCodeStatus, Converter={StaticResource OpenCodeStatusToTextConverter}}" />
-                                                                                                </StackPanel>
-                                                                                        </Grid>
-                                                                                        <Border
-                                                                                                Padding="6,1"
-                                                                                                HorizontalAlignment="Left"
-                                                                                                Background="{DynamicResource AccentSoftBrush}"
-                                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                                IsVisible="{Binding OpenCodeAutoApprove}">
-                                                                                                <TextBlock
-                                                                                                        FontSize="10"
-                                                                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                                                                        Text="auto-approve" />
-                                                                                        </Border>
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="field-label"
+                                                                                                Text="AI / OpenCode" />
                                                                                         <Button
                                                                                                 HorizontalAlignment="Stretch"
                                                                                                 HorizontalContentAlignment="Center"
@@ -587,15 +556,22 @@
                         </StackPanel>
                 </ScrollViewer>
 
+                <!--
+                        OpenCode panel: an overlay docked to the right edge, floating above the
+                        repo list (declared last so it wins z-order) rather than pushing the
+                        content aside. The card class provides the opaque background; the shadow
+                        separates it from the content underneath.
+                -->
                 <Border
                         Grid.Row="0"
                         Grid.RowSpan="3"
-                        Grid.Column="1"
                         Width="340"
+                        HorizontalAlignment="Right"
                         VerticalAlignment="Stretch"
+                        BoxShadow="{DynamicResource FlyoutShadow}"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -642,7 +618,7 @@
                                                 Classes="subtle"
                                                 FontSize="11"
                                                 IsVisible="{Binding OpenCodeModelsEmpty}"
-                                                Text="Models load when OpenCode serve is connected."
+                                                Text="No models found. Is opencode installed and on the PATH?"
                                                 TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel
@@ -671,21 +647,8 @@
                                                         Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
                                         </StackPanel>
                                 </CheckBox>
-                                <CheckBox
-                                        Grid.Row="4"
-                                        Margin="0,0,0,16"
-                                        IsChecked="{Binding OpenCodeAutoApprove, Mode=TwoWay}"
-                                        ToolTip.Tip="When on, opencode serve auto-approves tool permission requests for this instance (replies &quot;once&quot; to each request).">
-                                        <StackPanel>
-                                                <TextBlock Text="Auto-approve" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        FontSize="11"
-                                                        Text="Serve auto-approves tool requests for this instance" />
-                                        </StackPanel>
-                                </CheckBox>
                                 <StackPanel
-                                        Grid.Row="5"
+                                        Grid.Row="4"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto">
@@ -720,7 +683,7 @@
                                                 TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel
-                                        Grid.Row="6"
+                                        Grid.Row="5"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <TextBlock
@@ -733,7 +696,7 @@
                                                 SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
                                 </StackPanel>
                                 <StackPanel
-                                        Grid.Row="7"
+                                        Grid.Row="6"
                                         Margin="0,0,0,16"
                                         Spacing="8">
                                         <Grid ColumnDefinitions="*,Auto">
@@ -772,13 +735,13 @@
                                                 Watermark="e.g. fix the login bug" />
                                 </StackPanel>
                                 <Button
-                                        Grid.Row="8"
+                                        Grid.Row="7"
                                         HorizontalAlignment="Stretch"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"
                                         IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="9" />
+                                <Border Grid.Row="8" />
                         </Grid>
                 </Border>
 
