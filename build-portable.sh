@@ -130,13 +130,13 @@ rm -f "$ZIP"
 # Absolute output path: the python heredoc runs from the stage dir, so a
 # relative path would resolve against the wrong cwd.
 ABS_ZIP="$SCRIPT_DIR/$ZIP"
-# Produce a real .zip that Windows Explorer opens natively. python3 is present
+# Produce a real .zip that Windows Explorer opens natively. python is present
 # on this dev box; fall back to `tar -a` if it's missing (tar auto-detects .zip).
-if command -v python3 >/dev/null 2>&1; then
+if command -v python >/dev/null 2>&1; then
 	(
 		cd "$STAGE_DIR"
 		# Compression level 6 ≈ PowerShell's CompressionLevel Optimal.
-		python3 - "$ABS_ZIP" <<'PY'
+		python - "$ABS_ZIP" <<'PY'
 import os, sys, zipfile
 out = sys.argv[1]
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
