@@ -12,8 +12,10 @@ namespace Tools.Services;
 /// Default <see cref="IOpenCodeGridLauncher"/>. It snapshots the currently open top-level
 /// windows, launches one terminal process per requested opencode instance (all at once),
 /// then polls <see cref="IWinApiService.GetOpenWindows"/> for the newly-appeared handles
-/// and moves them into a grid derived from the active screen's working area. The grid
-/// dimensions auto-compute from the instance count (6 -> 3 columns x 2 rows).
+/// and moves them into a grid derived from the active screen's working area. Already-open
+/// opencode windows (matched by title) count toward the grid and are re-tiled together
+/// with the new ones, so repeated launches keep filling the screen instead of overlapping.
+/// The grid dimensions auto-compute from the total count (6 -> 3 columns x 2 rows).
 /// </summary>
 public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 {
@@ -50,8 +52,21 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
             return;
 
         count = Math.Max(1, count);
-        var (cols, rows) = ComputeGrid(count);
-        var cells = BuildCells(ResolveWorkingArea(), cols, rows, count);
+
+        // Snapshot the windows that already exist so the new ones can be told apart, and
+        // pick out already-open opencode windows: they count toward the grid so a later
+        // launch re-tiles the whole set instead of overlapping the previous instances.
+        var beforeWindows = _winApiService.GetOpenWindows();
+        var beforeHandles = beforeWindows.Keys.ToHashSet();
+        var existingHandles = beforeWindows
+            .Where(pair => pair.Value != null
+                && pair.Value.Contains(OpenCodeWindowTitleHint, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Key)
+            .ToList();
+
+        var total = existingHandles.Count + count;
+        var (cols, rows) = ComputeGrid(total);
+        var cells = BuildCells(ResolveWorkingArea(), cols, rows, total);
 
         var commandLine = BuildCommandLine(openCodeExe, model, prompt);
         // Use exactly the same arguments as a single-instance launch (no extra
@@ -59,27 +74,26 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         // spawns its own process.
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, folderPath, commandLine);
 
-        // Snapshot the windows that already exist so the new ones can be told apart.
-        var beforeHandles = _winApiService.GetOpenWindows().Keys.ToHashSet();
-
         // Open all instances at once, one process each.
         for (var i = 0; i < count; i++)
         {
             _processLauncher.StartProcess(terminalExe, args);
         }
 
-        // Now collect the newly-appeared windows and tile them into the grid.
-        var handles = await WaitForNewWindowsAsync(beforeHandles, count, OpenCodeWindowTitleHint);
-        for (var i = 0; i < handles.Count && i < cells.Count; i++)
+        // Now collect the newly-appeared windows and tile the whole set (existing first,
+        // so they keep their cells, then the new arrivals) into the grid.
+        var newHandles = await WaitForNewWindowsAsync(beforeHandles, count, OpenCodeWindowTitleHint);
+        var ordered = existingHandles.Concat(newHandles).ToList();
+        for (var i = 0; i < ordered.Count && i < cells.Count; i++)
         {
-            MoveIntoCell(handles[i], cells[i]);
+            MoveIntoCell(ordered[i], cells[i]);
         }
 
-        if (handles.Count < count)
+        if (newHandles.Count < count)
         {
             Log.Logger.Warning(
                 "OpenCodeGridLauncher: detected {Found}/{Count} windows within the timeout",
-                handles.Count, count);
+                newHandles.Count, count);
         }
     }
 

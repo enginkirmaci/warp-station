@@ -11,13 +11,14 @@ public interface IOpenCodeGridLauncher
 {
     /// <summary>
     /// Launches <paramref name="count"/> terminal windows running opencode and arranges
-    /// them in a grid computed from the active screen's working area.
+    /// them in a grid computed from the active screen's working area. Already-open opencode
+    /// windows are included in the grid and re-tiled alongside the new instances.
     /// </summary>
     /// <param name="terminalExe">The terminal executable to host opencode (e.g. <c>wt</c>).</param>
     /// <param name="openCodeExe">The opencode executable or command.</param>
     /// <param name="folderPath">The folder to open the terminals in.</param>
     /// <param name="model">The opencode model string (may be empty).</param>
     /// <param name="prompt">An optional start prompt (may be empty).</param>
-    /// <param name="count">How many instances to launch and tile.</param>
+    /// <param name="count">How many new instances to launch and tile.</param>
     Task LaunchAsync(string terminalExe, string openCodeExe, string folderPath, string model, string prompt, int count);
 }

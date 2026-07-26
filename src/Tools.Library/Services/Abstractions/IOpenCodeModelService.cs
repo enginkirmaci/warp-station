@@ -9,8 +9,16 @@ public interface IOpenCodeModelService
 {
     /// <summary>
     /// Runs <c>&lt;executable&gt; models</c> and returns the printed model ids in the order
-    /// opencode lists them. Returns an empty list when the executable is missing, times out,
-    /// or prints nothing; never throws.
+    /// opencode lists them. A non-empty result is persisted to the cache file for
+    /// <see cref="GetCachedModels"/>. Returns an empty list when the executable is missing,
+    /// times out, or prints nothing; never throws.
     /// </summary>
     Task<IReadOnlyList<string>> GetModelsAsync(string? executable, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the model list persisted by the last successful <see cref="GetModelsAsync"/>
+    /// call (under <c>%USERPROFILE%\.devtools\opencode</c>), or an empty list when no cache
+    /// exists yet. Lets callers show a usable list instantly while the CLI runs. Never throws.
+    /// </summary>
+    IReadOnlyList<string> GetCachedModels();
 }

@@ -245,14 +245,29 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// Loads the OpenCode model list by running <c>opencode models</c> (see
-    /// <see cref="IOpenCodeModelService"/>) into <see cref="OpenCodeModels"/> and selects the
-    /// first entry. Returns an empty list when the CLI is unavailable, so the selector shows
-    /// its "no models" hint. Called each time the panel opens.
+    /// Loads the OpenCode model list: the cached list from the last successful run is shown
+    /// immediately so the selector is usable right away, then <c>opencode models</c> runs (see
+    /// <see cref="IOpenCodeModelService"/>) and the fresh list replaces it. A fresh empty result
+    /// (CLI unavailable) clears the selector, which shows its "no models" hint. Called each time
+    /// the panel opens.
     /// </summary>
     private async Task LoadOpenCodeModelsAsync()
     {
+        var cached = _openCodeModelService.GetCachedModels();
+        if (cached.Count > 0)
+            ApplyOpenCodeModels(cached);
+
         var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
+        ApplyOpenCodeModels(models);
+    }
+
+    /// <summary>
+    /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the first
+    /// entry (or clears the selection when empty), and refreshes the filter projection and the
+    /// computed has/empty flags.
+    /// </summary>
+    private void ApplyOpenCodeModels(IReadOnlyList<string> models)
+    {
         OpenCodeModels = new ObservableCollection<string>(models);
 
         // Select the first model on load; clear the selection when nothing is available.
@@ -515,6 +530,27 @@ public partial class ReposViewModel : PageViewModelBase
 
     // --- OpenCode panel ---
 
+    /// <summary>
+    /// Quick open: launches a single opencode instance in the repo folder with the first
+    /// model from the model list — no panel, no template/prompt/instance options. The cached
+    /// list answers instantly; on a cold start the CLI runs once and fills the cache.
+    /// </summary>
+    [RelayCommand]
+    private async Task QuickOpenOpenCodeAsync(Repo? repo)
+    {
+        if (repo?.FolderPath is null || !IsOpenCodeEnabled) return;
+
+        var models = _openCodeModelService.GetCachedModels();
+        if (models.Count == 0)
+            models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
+
+        var terminalExe = _reposSettings.TerminalExecutable ?? "wt";
+        var openCodeExe = _reposSettings.OpenCodeExecutable ?? "opencode";
+        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, models.FirstOrDefault() ?? string.Empty, string.Empty);
+        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
+        _processLauncher.StartProcess(terminalExe, args);
+    }
+
     [RelayCommand]
     private async Task OpenOpenCodePanelAsync(Repo? repo)
     {
@@ -528,9 +564,9 @@ public partial class ReposViewModel : PageViewModelBase
         NewPromptName = string.Empty;
         IsOpenCodePanelOpen = true;
 
-        // Fetch the model list (via 'opencode models') now that the panel is open; the first
-        // entry is auto-selected. If the CLI is unavailable the dropdown stays empty (with
-        // its hint).
+        // Load the model list now that the panel is open: the cached list shows instantly,
+        // then 'opencode models' refreshes it; the first entry is auto-selected. If the CLI is
+        // unavailable the dropdown ends up empty (with its hint).
         await LoadOpenCodeModelsAsync();
     }
 

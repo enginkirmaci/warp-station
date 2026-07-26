@@ -418,10 +418,13 @@
                                                                                                 <TextBlock Classes="field-label" Text="Git" />
                                                                                                 <TextBlock
                                                                                                         VerticalAlignment="Center"
+                                                                                                        Width="140"
                                                                                                         FontSize="11"
                                                                                                         Foreground="{DynamicResource FaintForegroundBrush}"
                                                                                                         IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                                                                        Text="{Binding GitBranchName}" />
+                                                                                                        Text="{Binding GitBranchName}"
+                                                                                                        TextTrimming="CharacterEllipsis"
+                                                                                                        ToolTip.Tip="{Binding GitBranchName}" />
                                                                                         </StackPanel>
                                                                                         <Grid>
                                                                                                 <StackPanel
@@ -512,7 +515,7 @@
                                                                                 </StackPanel>
                                                                         </Border>
 
-                                                                        <!--  AI / OpenCode zone: panel launcher  -->
+                                                                        <!--  AI / OpenCode zone: quick open + options panel  -->
                                                                         <Border
                                                                                 Padding="16,0"
                                                                                 VerticalAlignment="Stretch"
@@ -531,17 +534,34 @@
                                                                                                 HorizontalAlignment="Stretch"
                                                                                                 HorizontalContentAlignment="Center"
                                                                                                 Classes="accent"
+                                                                                                Command="{Binding #Root.DataContext.QuickOpenOpenCodeCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                ToolTip.Tip="Launch one opencode instance with the first model">
+                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                        <TextBlock VerticalAlignment="Center" Text="Quick Open" />
+                                                                                                        <Path
+                                                                                                                Width="10"
+                                                                                                                Height="10"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-play}"
+                                                                                                                Fill="{DynamicResource AccentForegroundBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </StackPanel>
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                                HorizontalAlignment="Stretch"
+                                                                                                HorizontalContentAlignment="Center"
                                                                                                 Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                ToolTip.Tip="Open the OpenCode panel for this repo">
+                                                                                                ToolTip.Tip="Open the options panel (model, instances, template, prompt)">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                                        <TextBlock VerticalAlignment="Center" Text="Open Panel" />
+                                                                                                        <TextBlock VerticalAlignment="Center" Text="Options…" />
                                                                                                         <Path
                                                                                                                 Width="10"
                                                                                                                 Height="10"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-open-in-new}"
-                                                                                                                Fill="{DynamicResource AccentForegroundBrush}"
+                                                                                                                Fill="{DynamicResource BodyForegroundBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                 </StackPanel>
                                                                                         </Button>
