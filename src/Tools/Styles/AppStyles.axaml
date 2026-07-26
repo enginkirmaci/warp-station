@@ -4,6 +4,58 @@
 
     <!--
         ================================================================
+        POPUPS / LIGHT-IN-POPUP WORKAROUND
+        Popup roots (tooltips, flyouts, menus, ComboBox dropdowns) do not
+        inherit the application's RequestedThemeVariant — they follow the
+        OS theme, so SukiUI theme dictionaries would resolve Light inside
+        popups. Fixed globally in ThemeResources.axaml: the Suki* theme
+        keys are overridden there with their Dark values as plain
+        Application.Resources entries, which win over SukiTheme's
+        style-level theme dictionaries in every lookup context.
+        ================================================================
+    -->
+    <Style Selector="PopupRoot">
+        <Setter Property="RequestedThemeVariant" Value="Dark" />
+    </Style>
+
+    <!--
+        SukiUI's FlyoutPresenter theme paints with ThemeBackgroundBrush /
+        ThemeBorderMidBrush — static light-baked colors from SukiUI's
+        Colors.xaml — and its template hardcodes Background="Transparent",
+        so flyouts render as the white popup window regardless of theme.
+        Style selectors do not reliably reach popup content, so the whole
+        ControlTheme is overridden here — type-keyed theme resolution is
+        the mechanism SukiUI itself uses inside popups.
+    -->
+    <Styles.Resources>
+        <ControlTheme x:Key="{x:Type FlyoutPresenter}" TargetType="FlyoutPresenter">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        BoxShadow="{DynamicResource FlyoutShadow}"
+                        CornerRadius="{TemplateBinding CornerRadius}">
+                        <ContentPresenter
+                            Margin="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+    </Styles.Resources>
+
+    <!--
+        ================================================================
         TYPOGRAPHY
         Reusable TextBlock styles. Apply via Classes="...".
         ================================================================
@@ -84,16 +136,6 @@
         <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}" />
     </Style>
 
-    <!-- Card variant with less padding (for header strips / toolbars). -->
-    <Style Selector="Border.card-tight">
-        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
-        <Setter Property="Padding" Value="12" />
-        <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}" />
-    </Style>
-
     <!-- Subtle chip surface used for status pills, badges, etc. -->
     <Style Selector="Border.chip">
         <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
@@ -146,7 +188,7 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
     </Style>
-    <Style Selector="Button.icon:pointerover /template/ ContentPresenter">
+    <Style Selector="Button.icon:pointerover">
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
     </Style>
 
@@ -179,7 +221,7 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style Selector="Button.tool-button:pointerover /template/ ContentPresenter">
+    <Style Selector="Button.tool-button:pointerover">
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
     </Style>
@@ -202,22 +244,48 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+    <Style Selector="Button.accent:pointerover">
         <Setter Property="Background" Value="{DynamicResource AccentPrimaryHoverBrush}" />
     </Style>
-    <Style Selector="Button.accent:pressed /template/ ContentPresenter">
+    <Style Selector="Button.accent:pressed">
         <Setter Property="Background" Value="{DynamicResource AccentPrimaryPressedBrush}" />
     </Style>
 
     <!--
         Card button — used for dashboard / interactive cards. Subtle
         elevation that lifts on hover with a smooth shadow transition.
+        The template is overridden because SukiUI's Button theme wraps the
+        content in a horizontal StackPanel, which measures content with
+        infinite width — so wrapping TextBlocks inside the card (e.g. the
+        dashboard subtitles) never wrap. Here the ContentPresenter is placed
+        directly in the border so content is measured with the real width.
     -->
     <Style Selector="Button.card-button">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border
+                            Name="RootBorder"
+                            Padding="{TemplateBinding Padding}"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            TextElement.Foreground="{TemplateBinding Foreground}">
+                            <ContentPresenter
+                                    Name="PART_ContentPresenter"
+                                    HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Setter Property="Transitions">
             <Setter.Value>
                 <Transitions>
@@ -227,27 +295,15 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style Selector="Button.card-button /template/ ContentPresenter">
+    <Style Selector="Button.card-button /template/ Border#RootBorder">
         <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}" />
     </Style>
-    <Style Selector="Button.card-button:pointerover /template/ ContentPresenter">
+    <Style Selector="Button.card-button:pointerover">
         <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
+    </Style>
+    <Style Selector="Button.card-button:pointerover /template/ Border#RootBorder">
         <Setter Property="BoxShadow" Value="{DynamicResource CardHoverShadow}" />
-    </Style>
-
-    <!-- Sidebar nav item style. -->
-    <Style Selector="ListBoxItem.nav-item">
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="Transparent" />
-    </Style>
-
-    <Style Selector="ListBoxItem.nav-item:selected">
-        <Setter Property="Background" Value="{DynamicResource SelectionBackgroundBrush}" />
-    </Style>
-
-    <Style Selector="ListBoxItem.nav-item:pointerover">
-        <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
     </Style>
 
 </Styles>

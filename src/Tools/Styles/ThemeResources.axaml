@@ -1,123 +1,145 @@
 <ResourceDictionary
     xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
         ================================================================
-        THEME RESOURCES
-        All semantic colors are defined here and bound to ThemeVariants
-        so that the entire UI responds automatically to the
-        application theme (Light/Dark) without any code-behind.
-
-        Design language: "Refined Dark" — a modern, layered IDE aesthetic
-        (Linear/Vercel style) with elevated surfaces, hairline borders and a
-        cohesive indigo accent.
+        SUKIUI DARK OVERRIDES (static, variant-proof)
+        Plain Application.Resources entries win over SukiTheme's
+        style-level Light/Dark theme dictionaries in every lookup
+        context — including popup roots (tooltips, flyouts, menus,
+        ComboBox dropdowns), which follow the OS theme instead of the
+        app's pinned Dark variant. Values copied from SukiUI Dark.axaml.
+        Remove this section if runtime light/dark switching is ever added.
         ================================================================
     -->
-    <ResourceDictionary.ThemeDictionaries>
+    <Color x:Key="SukiBackground">Transparent</Color>
+    <Color x:Key="SukiStrongBackground">#353535</Color>
+    <Color x:Key="SukiLightBackground">Transparent</Color>
+    <Color x:Key="SukiCardBackground">#323232</Color>
+    <Color x:Key="SukiPopupBackground">#252525</Color>
+    <Color x:Key="SukiGlassCardBackground">#49AAAAAA</Color>
+    <Color x:Key="SukiGlassCardOpaqueBackground">#333333</Color>
+    <Color x:Key="SukiControlTouchBackground">#505050</Color>
+    <Color x:Key="SukiDialogBackground">#000000</Color>
 
-        <ResourceDictionary x:Key="Dark">
-            <!-- Surfaces (stepped neutrals for depth) -->
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0D0D0F" />
-            <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#111114" />
-            <SolidColorBrush x:Key="ContentBackgroundBrush" Color="#0D0D0F" />
-            <SolidColorBrush x:Key="CardBackgroundBrush" Color="#17171B" />
-            <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="#1F1F24" />
-            <SolidColorBrush x:Key="DividerBrush" Color="#262629" />
-            <SolidColorBrush x:Key="HairlineBrush" Color="#2A2A2E" />
-            <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#1A2540" />
-            <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#1E1E23" />
+    <Color x:Key="SukiBorderBrush">#353535</Color>
+    <Color x:Key="SukiControlBorderBrush">#606060</Color>
+    <Color x:Key="SukiMediumBorderBrush">#555555</Color>
+    <Color x:Key="SukiLightBorderBrush">#454545</Color>
+    <Color x:Key="SukiMenuBorderBrush">#454545</Color>
+    <Color x:Key="GlassBorderBrush">#252729</Color>
 
-            <!-- Text -->
-            <SolidColorBrush x:Key="TitleForegroundBrush" Color="#F4F4F5" />
-            <SolidColorBrush x:Key="SubtitleForegroundBrush" Color="#D4D4D8" />
-            <SolidColorBrush x:Key="BodyForegroundBrush" Color="#D4D4D8" />
-            <SolidColorBrush x:Key="MutedForegroundBrush" Color="#8B8B92" />
-            <SolidColorBrush x:Key="FaintForegroundBrush" Color="#5C5C63" />
+    <Color x:Key="SukiText">#EDFFFFFF</Color>
+    <Color x:Key="SukiLowText">#CAFFFFFF</Color>
+    <Color x:Key="SukiMuteText">#B4B4B4</Color>
+    <Color x:Key="SukiDisabledText">#CA727272</Color>
 
-            <!-- Accent (indigo/blue family) -->
-            <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#3B82F6" />
-            <SolidColorBrush x:Key="AccentPrimaryHoverBrush" Color="#2563EB" />
-            <SolidColorBrush x:Key="AccentPrimaryPressedBrush" Color="#1D4ED8" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#1A2540" />
-            <SolidColorBrush x:Key="AccentSoftBorderBrush" Color="#1E3A5F" />
-            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+    <Color x:Key="SukiLiquid1">#FFFFFF</Color>
+    <Color x:Key="SukiLiquid2">#AAFFFFFF</Color>
 
-            <!-- Status indicators -->
-            <SolidColorBrush x:Key="StatusActiveBrush" Color="#22C55E" />
-            <SolidColorBrush x:Key="StatusInactiveBrush" Color="#9E9E9E" />
-            <SolidColorBrush x:Key="InfoAccentBrush" Color="#3B82F6" />
-            <SolidColorBrush x:Key="WarningAccentBrush" Color="#F59E0B" />
-            <SolidColorBrush x:Key="DangerAccentBrush" Color="#EF4444" />
-            <SolidColorBrush x:Key="PurpleAccentBrush" Color="#8B5CF6" />
-        </ResourceDictionary>
+    <Color x:Key="SukiSuccessColor">#CC228B22</Color>
+    <Color x:Key="SukiSuccessMediumColor">#CC1D771D</Color>
+    <Color x:Key="SukiSuccessDarkColor">#CC1D771D</Color>
+    <Color x:Key="SukiSuccessForeground">White</Color>
 
-        <ResourceDictionary x:Key="Light">
-            <!-- Surfaces -->
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F6F7F9" />
-            <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="ContentBackgroundBrush" Color="#F6F7F9" />
-            <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="#F1F2F4" />
-            <SolidColorBrush x:Key="DividerBrush" Color="#E5E7EB" />
-            <SolidColorBrush x:Key="HairlineBrush" Color="#E5E7EB" />
-            <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="#EFF4FF" />
-            <SolidColorBrush x:Key="HoverBackgroundBrush" Color="#F1F2F4" />
+    <Color x:Key="SukiInformationColor">#CC2F54EB</Color>
+    <Color x:Key="SukiInformationMediumColor">#CC1D39C4</Color>
+    <Color x:Key="SukiInformationDarkColor">#CC1D39C4</Color>
+    <Color x:Key="SukiInformationForeground">White</Color>
 
-            <!-- Text -->
-            <SolidColorBrush x:Key="TitleForegroundBrush" Color="#18181B" />
-            <SolidColorBrush x:Key="SubtitleForegroundBrush" Color="#3F3F46" />
-            <SolidColorBrush x:Key="BodyForegroundBrush" Color="#3F3F46" />
-            <SolidColorBrush x:Key="MutedForegroundBrush" Color="#71717A" />
-            <SolidColorBrush x:Key="FaintForegroundBrush" Color="#A1A1AA" />
+    <Color x:Key="SukiWarningColor">#CCFA8C16</Color>
+    <Color x:Key="SukiWarningMediumColor">#CCAD4E00</Color>
+    <Color x:Key="SukiWarningDarkColor">#CCAD4E00</Color>
+    <Color x:Key="SukiWarningForeground">White</Color>
 
-            <!-- Accent (indigo/blue family) -->
-            <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#2563EB" />
-            <SolidColorBrush x:Key="AccentPrimaryHoverBrush" Color="#1D4ED8" />
-            <SolidColorBrush x:Key="AccentPrimaryPressedBrush" Color="#1E40AF" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#EFF4FF" />
-            <SolidColorBrush x:Key="AccentSoftBorderBrush" Color="#DBE6FF" />
-            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+    <Color x:Key="SukiDangerColor">#BBF5222D</Color>
+    <Color x:Key="SukiDangerMediumColor">#BBA8071A</Color>
+    <Color x:Key="SukiDangerDarkColor">#BBA8071A</Color>
+    <Color x:Key="SukiDangerForeground">White</Color>
 
-            <!-- Status indicators -->
-            <SolidColorBrush x:Key="StatusActiveBrush" Color="#16A34A" />
-            <SolidColorBrush x:Key="StatusInactiveBrush" Color="#757575" />
-            <SolidColorBrush x:Key="InfoAccentBrush" Color="#2563EB" />
-            <SolidColorBrush x:Key="WarningAccentBrush" Color="#D97706" />
-            <SolidColorBrush x:Key="DangerAccentBrush" Color="#DC2626" />
-            <SolidColorBrush x:Key="PurpleAccentBrush" Color="#7C3AED" />
-        </ResourceDictionary>
+    <Color x:Key="ControlSukiGlassCardBackground">#49AAAAAA</Color>
+    <Color x:Key="SukiNeedleBrush">#FFFFFF</Color>
 
-    </ResourceDictionary.ThemeDictionaries>
+    <x:Boolean x:Key="IsDark">True</x:Boolean>
+    <x:Boolean x:Key="IsLight">False</x:Boolean>
+    <x:Double x:Key="GlassOpacity">0.18</x:Double>
+    <x:Double x:Key="ControlGlassOpacity">0.3</x:Double>
+    <x:Double x:Key="DiscreteControlGlassOpacity">0.17</x:Double>
+
+    <!--
+        ================================================================
+        THEME RESOURCES — SukiUI alias layer
+        The app's semantic keys are thin aliases over SukiUI theme
+        tokens (Suki*), so the whole palette, light/dark switching and
+        accent color are owned by SukiTheme. Views and styles keep
+        referencing the stable app keys unchanged.
+        ================================================================
+    -->
+
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="{DynamicResource SukiBackground}" />
+    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
+    <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="{DynamicResource SukiCardBackground}" />
+    <SolidColorBrush x:Key="ContentBackgroundBrush" Color="{DynamicResource SukiBackground}" />
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{DynamicResource SukiCardBackground}" />
+    <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
+    <SolidColorBrush x:Key="DividerBrush" Color="{DynamicResource SukiLightBorderBrush}" />
+    <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource SukiBorderBrush}" />
+    <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{DynamicResource SukiPrimaryColor25}" />
+    <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{DynamicResource SukiControlTouchBackground}" />
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="TitleForegroundBrush" Color="{DynamicResource SukiText}" />
+    <SolidColorBrush x:Key="SubtitleForegroundBrush" Color="{DynamicResource SukiLowText}" />
+    <SolidColorBrush x:Key="BodyForegroundBrush" Color="{DynamicResource SukiLowText}" />
+    <SolidColorBrush x:Key="MutedForegroundBrush" Color="{DynamicResource SukiMuteText}" />
+    <SolidColorBrush x:Key="FaintForegroundBrush" Color="{DynamicResource SukiDisabledText}" />
+
+    <!-- Accent (SukiPrimaryColor follows SukiTheme.ThemeColor) -->
+    <SolidColorBrush x:Key="AccentPrimaryBrush" Color="{DynamicResource SukiPrimaryColor}" />
+    <SolidColorBrush x:Key="AccentPrimaryHoverBrush" Color="{DynamicResource SukiPrimaryColor120}" />
+    <SolidColorBrush x:Key="AccentPrimaryPressedBrush" Color="{DynamicResource SukiPrimaryColor75}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="{DynamicResource SukiPrimaryColor15}" />
+    <SolidColorBrush x:Key="AccentSoftBorderBrush" Color="{DynamicResource SukiPrimaryColor50}" />
+    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+
+    <!-- Status indicators -->
+    <SolidColorBrush x:Key="StatusActiveBrush" Color="{DynamicResource SukiSuccessColor}" />
+    <SolidColorBrush x:Key="StatusInactiveBrush" Color="{DynamicResource SukiDisabledText}" />
+    <SolidColorBrush x:Key="InfoAccentBrush" Color="{DynamicResource SukiInformationColor}" />
+    <SolidColorBrush x:Key="WarningAccentBrush" Color="{DynamicResource SukiWarningColor}" />
+    <SolidColorBrush x:Key="DangerAccentBrush" Color="{DynamicResource SukiDangerColor}" />
+    <!-- No SukiUI equivalent — kept as a custom brand color -->
+    <SolidColorBrush x:Key="PurpleAccentBrush" Color="#8B5CF6" />
 
     <!--
         ================================================================
         DESIGN TOKENS
-        Centralized numeric tokens for spacing, sizing and radius.
+        Centralized numeric tokens for sizing and radius.
         ================================================================
     -->
-    <x:Double x:Key="SpacingXs">4</x:Double>
-    <x:Double x:Key="SpacingSm">8</x:Double>
-    <x:Double x:Key="SpacingMd">12</x:Double>
-    <x:Double x:Key="SpacingLg">16</x:Double>
-    <x:Double x:Key="SpacingXl">24</x:Double>
-
     <CornerRadius x:Key="CardRadius">10</CornerRadius>
     <CornerRadius x:Key="ControlRadius">8</CornerRadius>
-    <CornerRadius x:Key="PillRadius">14</CornerRadius>
     <CornerRadius x:Key="ChipRadius">6</CornerRadius>
 
     <!--
         ================================================================
-        ELEVATION SHADOWS
-        BoxShadows used by cards and elevated surfaces. Defined as
-        plain resources (not theme-bound) so they resolve via
-        DynamicResource from the control styles.
+        ELEVATION SHADOWS — same values as SukiUI's theme shadows
+        (SukiLowShadow / SukiSmallPopupShadow / SukiPopupShadow)
         ================================================================
     -->
-    <BoxShadows x:Key="CardShadow">0 1 2 0 #14000000</BoxShadows>
-    <BoxShadows x:Key="CardHoverShadow">0 8 24 0 #24000000</BoxShadows>
-    <BoxShadows x:Key="FlyoutShadow">0 12 32 0 #33000000</BoxShadows>
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <BoxShadows x:Key="CardShadow">0 0 3 0 #353535</BoxShadows>
+            <BoxShadows x:Key="CardHoverShadow">0 2 5 0 #101010</BoxShadows>
+            <BoxShadows x:Key="FlyoutShadow">1 1 14 1 #101010</BoxShadows>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <BoxShadows x:Key="CardShadow">0 0 3 0 #eaeaea</BoxShadows>
+            <BoxShadows x:Key="CardHoverShadow">0 2 5 0 LightGray</BoxShadows>
+            <BoxShadows x:Key="FlyoutShadow">1 1 8 0 LightGray</BoxShadows>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
 
 </ResourceDictionary>

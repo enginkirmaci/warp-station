@@ -6,7 +6,9 @@
     Title="Repo Settings"
     Width="650"
     Height="620"
+    Background="{DynamicResource CardBackgroundBrush}"
     CanResize="False"
+    RequestedThemeVariant="Dark"
     WindowStartupLocation="CenterOwner">
 
     <Grid RowDefinitions="*,Auto">

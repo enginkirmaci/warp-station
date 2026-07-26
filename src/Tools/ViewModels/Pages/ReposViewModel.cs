@@ -75,19 +75,6 @@ public partial class ReposViewModel : PageViewModelBase
     private int _openCodeInstanceCount = 1;
 
     /// <summary>
-    /// When <see langword="true"/>, launching multiple OpenCode instances tiles them
-    /// across the active screen in a grid (e.g. 6 instances -> a 3x2 grid). When
-    /// <see langword="false"/>, instances open without positioning, as before.
-    /// <para>
-    /// Defaults to <see langword="false"/> (a single instance needs no tiling). It is
-    /// auto-enabled the moment <see cref="OpenCodeInstanceCount"/> rises above 1; the user
-    /// can still turn it off manually afterwards.
-    /// </para>
-    /// </summary>
-    [ObservableProperty]
-    private bool _arrangeInGrid;
-
-    /// <summary>
     /// The models available in the OpenCode model selector, fetched by running
     /// <c>opencode models</c> as a one-shot process (see <see cref="IOpenCodeModelService"/>).
     /// (Re)populated each time the panel opens; empty when the CLI fails or is missing.
@@ -384,7 +371,6 @@ public partial class ReposViewModel : PageViewModelBase
         {
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
-            ArrangeInGrid = false;
             OpenCodeSelectedModel = string.Empty;
             OpenCodeModelFilter = string.Empty;
             OpenCodeSelectedTemplate = OpenCodeTemplate.None;
@@ -392,17 +378,6 @@ public partial class ReposViewModel : PageViewModelBase
             OpenCodePrompt = string.Empty;
             NewPromptName = string.Empty;
         }
-    }
-
-    /// <summary>
-    /// Auto-enable grid tiling as soon as more than one instance is requested; a single
-    /// instance needs no positioning. The user can turn it back off manually afterwards
-    /// (this only reacts to count changes, not manual toggles of the checkbox).
-    /// </summary>
-    partial void OnOpenCodeInstanceCountChanged(int value)
-    {
-        if (value > 1)
-            ArrangeInGrid = true;
     }
 
     [RelayCommand]
@@ -557,7 +532,6 @@ public partial class ReposViewModel : PageViewModelBase
         if (repo is null || !IsOpenCodeEnabled) return;
         OpenCodeRepo = repo;
         OpenCodeInstanceCount = 1;
-        ArrangeInGrid = false;
         OpenCodeSelectedTemplate = OpenCodeTemplate.None;
         OpenCodeSelectedPrompt = OpenCodePromptEntry.None;
         OpenCodePrompt = string.Empty;
@@ -591,25 +565,10 @@ public partial class ReposViewModel : PageViewModelBase
             ? OpenCodeModels.FirstOrDefault() ?? string.Empty
             : OpenCodeSelectedModel;
 
-        if (ArrangeInGrid)
-        {
-            // Tile the instances across the active screen: a single instance fills the
-            // screen as a 1x1 grid, 6 instances form a 3x2 grid. The launcher owns window
-            // detection and positioning, so single and multiple share one path/class.
-            await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
-        }
-        else
-        {
-            // Legacy path: open N terminals without positioning. The command line is
-            // built with the same helper as the grid path so both stay in sync.
-            var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, prompt ?? string.Empty);
-            var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-
-            for (var i = 0; i < count; i++)
-            {
-                _processLauncher.StartProcess(terminalExe, args);
-            }
-        }
+        // Tile the instances across the active screen: a single instance fills the
+        // screen as a 1x1 grid, 6 instances form a 3x2 grid. The launcher owns window
+        // detection and positioning, so single and multiple share one path/class.
+        await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
 
         IsOpenCodePanelOpen = false;
     }

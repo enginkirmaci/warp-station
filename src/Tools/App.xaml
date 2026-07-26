@@ -1,23 +1,22 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <Application
 	x:Class="Tools.App"
 	xmlns="https://github.com/avaloniaui"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:conv="using:Tools.Library.Converters"
+	xmlns:suki="https://github.com/kikipoulet/SukiUI"
 	RequestedThemeVariant="Dark">
-	<Application.Styles>
-		<FluentTheme />
-		<StyleInclude Source="/Styles/AppStyles.axaml" />
-		<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapIt.Controls.UI.xaml" />
-	</Application.Styles>
+	<!--  Resources must come before Styles: SukiTheme writes its runtime  -->
+	<!--  color resources (SukiPrimaryColor*) into Application.Resources  -->
+	<!--  during style initialization, and a later Resources assignment    -->
+	<!--  would replace that dictionary and wipe them.                     -->
 	<Application.Resources>
 		<ResourceDictionary>
 			<ResourceDictionary.MergedDictionaries>
 				<ResourceInclude Source="/Styles/ThemeResources.axaml" />
 			</ResourceDictionary.MergedDictionaries>
 
-			<!--  Align FluentTheme native accent (focus rings, default buttons, etc.) with the indigo brand  -->
-			<Color x:Key="SystemAccentColor">#3B82F6</Color>
+			<!--  Accent comes from SukiTheme (ThemeColor="Blue")  -->
 
 			<!--  Converters  -->
 			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
@@ -34,4 +33,9 @@
 			<conv:NotificationKindToBrushConverter x:Key="NotificationKindToBrushConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
+	<Application.Styles>
+		<suki:SukiTheme Locale="en-US" ThemeColor="Blue" />
+		<StyleInclude Source="/Styles/AppStyles.axaml" />
+		<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapIt.Controls.UI.xaml" />
+	</Application.Styles>
 </Application>

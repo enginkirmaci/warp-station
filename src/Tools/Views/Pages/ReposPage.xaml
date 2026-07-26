@@ -95,29 +95,27 @@
                                         Grid.Column="1"
                                         Margin="0,4"
                                         Classes="vertical-divider" />
-                                <StackPanel
+
+
+                                <ItemsControl
                                         Grid.Column="2"
                                         VerticalAlignment="Center"
-                                        Orientation="Vertical"
-                                        Spacing="4">
-                                        <TextBlock Classes="field-label" Text="Filter by Tags" />
-                                        <ItemsControl ItemsSource="{Binding TagFilters}">
-                                                <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                                <WrapPanel Orientation="Horizontal" />
-                                                        </ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                                <CheckBox
-                                                                        Margin="0,0,12,0"
-                                                                        Command="{Binding #Root.DataContext.TagFilterChangedCommand}"
-                                                                        Content="{Binding Name}"
-                                                                        IsChecked="{Binding IsChecked, Mode=TwoWay}" />
-                                                        </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                </StackPanel>
+                                        ItemsSource="{Binding TagFilters}">
+                                        <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                        <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                        <CheckBox
+                                                                Margin="0,0,12,0"
+                                                                Command="{Binding #Root.DataContext.TagFilterChangedCommand}"
+                                                                Content="{Binding Name}"
+                                                                IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                                                </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                                 <Button
                                         Grid.Column="3"
                                         Width="44"
@@ -417,8 +415,8 @@
                                                                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                                                                 <TextBlock Classes="field-label" Text="Git" />
                                                                                                 <TextBlock
-                                                                                                        VerticalAlignment="Center"
                                                                                                         Width="140"
+                                                                                                        VerticalAlignment="Center"
                                                                                                         FontSize="11"
                                                                                                         Foreground="{DynamicResource FaintForegroundBrush}"
                                                                                                         IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
@@ -650,23 +648,13 @@
                                                 Text="Instances"
                                                 ToolTip.Tip="How many terminal windows to open, each running opencode" />
                                         <NumericUpDown
+                                                FormatString="0"
+                                                Increment="1"
                                                 Maximum="32"
                                                 Minimum="1"
+                                                ParsingNumberStyle="Integer"
                                                 Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
                                 </StackPanel>
-                                <CheckBox
-                                        Grid.Row="3"
-                                        Margin="0,0,0,16"
-                                        IsChecked="{Binding ArrangeInGrid, Mode=TwoWay}"
-                                        ToolTip.Tip="Tile the instances across the screen in a grid (e.g. 6 instances -&gt; a 3x2 grid). Only applies when more than one instance is opened.">
-                                        <StackPanel>
-                                                <TextBlock Text="Arrange into grid" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        FontSize="11"
-                                                        Text="Tile windows across the screen (e.g. 6 -&gt; 3x2)" />
-                                        </StackPanel>
-                                </CheckBox>
                                 <StackPanel
                                         Grid.Row="4"
                                         Margin="0,0,0,16"
@@ -749,6 +737,7 @@
                                         </Grid>
                                         <TextBox
                                                 Height="120"
+                                                VerticalAlignment="Stretch"
                                                 AcceptsReturn="True"
                                                 Text="{Binding OpenCodePrompt, Mode=TwoWay}"
                                                 TextWrapping="Wrap"
@@ -757,6 +746,7 @@
                                 <Button
                                         Grid.Row="7"
                                         HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Bottom"
                                         Classes="accent"
                                         Command="{Binding LaunchOpenCodeCommand}"
                                         Content="Open"

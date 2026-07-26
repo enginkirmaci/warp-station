@@ -1,80 +1,64 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<Window
+<suki:SukiWindow
 	x:Class="Tools.Views.Windows.MainWindow"
 	xmlns="https://github.com/avaloniaui"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:suki="https://github.com/kikipoulet/SukiUI"
 	xmlns:tools="using:Tools.Library.MarkupExtensions"
-	Title=""
+	Title="DevTools"
 	Width="1400"
 	Height="900"
 	MinWidth="800"
 	MinHeight="600"
-	ExtendClientAreaToDecorationsHint="True">
+	BackgroundStyle="Flat">
 
-	<Grid ColumnDefinitions="Auto,*" RowDefinitions="38,*,28">
-		<!--  Custom Title Bar  -->
-		<Border
-			Grid.Row="0"
-			Grid.ColumnSpan="2"
-			Background="{DynamicResource SidebarBackgroundBrush}"
-			BorderBrush="{DynamicResource DividerBrush}"
-			BorderThickness="0,0,0,1"
-			IsHitTestVisible="True"
-			PointerPressed="TitleBar_PointerPressed">
-			<DockPanel Margin="14,0" VerticalAlignment="Center">
-				<!--  App Icon  -->
-				<Image
-					Width="20"
-					Height="20"
-					Margin="0,0,10,0"
-					DockPanel.Dock="Left"
-					Source="avares://Tools/Assets/logo.png"
+	<!--  Logo plus sidebar/back buttons hosted on the left of the title bar  -->
+	<suki:SukiWindow.LogoContent>
+		<StackPanel
+			VerticalAlignment="Center"
+			Orientation="Horizontal"
+			Spacing="4">
+			<!-- <Image
+				Width="20"
+				Height="20"
+				Source="avares://Tools/Assets/logo.png"
+				Stretch="Uniform" />-->
+			<Button
+				Margin="8,0,0,0"
+				Padding="8,4"
+				Classes="icon"
+				Command="{Binding ToggleLeftSidebarCommand}"
+				ToolTip.Tip="Toggle sidebar">
+				<Path
+					Width="16"
+					Height="16"
+					Data="{tools:SvgPath icon-menu}"
+					Fill="{DynamicResource BodyForegroundBrush}"
 					Stretch="Uniform" />
-				<TextBlock
-					VerticalAlignment="Center"
-					DockPanel.Dock="Left"
-					FontSize="13"
-					FontWeight="SemiBold"
-					Foreground="{DynamicResource SubtitleForegroundBrush}"
-					Text="DevTools" />
-				<Button
-					x:Name="BackButton"
-					Margin="16,0,0,0"
-					Padding="8,4"
-					Classes="accent"
-					Click="BackButton_Click"
-					DockPanel.Dock="Left"
-					IsVisible="False">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-arrow-left}"
-						Fill="{DynamicResource AccentForegroundBrush}"
-						Stretch="Uniform" />
-				</Button>
+			</Button>
+			<Button
+				x:Name="BackButton"
+				Padding="8,4"
+				Classes="icon"
+				Click="BackButton_Click"
+				IsVisible="False"
+				ToolTip.Tip="Back">
+				<Path
+					Width="14"
+					Height="14"
+					Data="{tools:SvgPath icon-arrow-left}"
+					Fill="{DynamicResource BodyForegroundBrush}"
+					Stretch="Uniform" />
+			</Button>
+		</StackPanel>
+	</suki:SukiWindow.LogoContent>
 
-				<!--  Toggle left sidebar (hamburger)  -->
-				<Button
-					Margin="12,0,12,0"
-					Padding="8,4"
-					Command="{Binding ToggleLeftSidebarCommand}"
-					DockPanel.Dock="Left"
-					ToolTip.Tip="Toggle sidebar">
-					<Path
-						Width="16"
-						Height="16"
-						Data="{tools:SvgPath icon-menu}"
-						Fill="{DynamicResource BodyForegroundBrush}"
-						Stretch="Uniform" />
-				</Button>
-			</DockPanel>
-		</Border>
-
+	<Grid ColumnDefinitions="Auto,*" RowDefinitions="*,28">
 		<!--  Sidebar Navigation  -->
 		<Border
-			Grid.Row="1"
+			Grid.Row="0"
 			Grid.Column="0"
 			Width="240"
 			Padding="0,8,0,0"
@@ -87,6 +71,7 @@
 				Padding="8,0"
 				Background="Transparent"
 				BorderThickness="0"
+				Classes="Void"
 				ItemsSource="{Binding MenuItems}"
 				SelectedIndex="0"
 				SelectionChanged="NavigationListBox_SelectionChanged">
@@ -218,7 +203,7 @@
 
 		<!--  Content Area  -->
 		<Grid
-			Grid.Row="1"
+			Grid.Row="0"
 			Grid.Column="1"
 			Background="{DynamicResource ContentBackgroundBrush}">
 			<Grid.RowDefinitions>
@@ -234,7 +219,7 @@
 
 		<!--  Status Bar  -->
 		<Border
-			Grid.Row="2"
+			Grid.Row="1"
 			Grid.ColumnSpan="2"
 			Background="{DynamicResource SidebarTranslucentBrush}"
 			BorderBrush="{DynamicResource DividerBrush}"
@@ -269,10 +254,7 @@
 							Text="{Binding SnapItStatusText, Mode=OneWay}" />
 					</StackPanel>
 					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
+						<Style Selector="Button:pointerover">
 							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
 						</Style>
 					</Button.Styles>
@@ -308,10 +290,7 @@
 							Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
 					</StackPanel>
 					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
+						<Style Selector="Button:pointerover">
 							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
 						</Style>
 					</Button.Styles>
@@ -320,6 +299,7 @@
 				<!--  Open settings folder (docked right, icon-only)  -->
 				<Button
 					Padding="8,2"
+					HorizontalAlignment="Right"
 					Background="Transparent"
 					BorderThickness="0"
 					Command="{Binding OpenSettingsFolderCommand}"
@@ -334,23 +314,20 @@
 						Fill="{DynamicResource MutedForegroundBrush}"
 						Stretch="Uniform" />
 					<Button.Styles>
-						<Style Selector="Button /template/ ContentPresenter">
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<Style Selector="Button:pointerover /template/ ContentPresenter">
+						<Style Selector="Button:pointerover">
 							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
 						</Style>
 					</Button.Styles>
-					</Button>
-				</DockPanel>
-			</Border>
+				</Button>
+			</DockPanel>
+		</Border>
 
 		<!--  Toast overlay (floats above all pages, top-center)  -->
 		<ItemsControl
 			x:Name="ToastHost"
-			Grid.RowSpan="3"
+			Grid.RowSpan="2"
 			Grid.ColumnSpan="2"
-			Margin="0,46,0,0"
+			Margin="0,12,0,0"
 			HorizontalAlignment="Center"
 			VerticalAlignment="Top"
 			IsHitTestVisible="True">
@@ -419,4 +396,4 @@
 			</ItemsControl.ItemTemplate>
 		</ItemsControl>
 	</Grid>
-</Window>
+</suki:SukiWindow>

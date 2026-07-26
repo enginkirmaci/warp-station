@@ -1,8 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using SukiUI.Controls;
 using Tools.Helpers;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Windows;
@@ -11,8 +11,9 @@ namespace Tools.Views.Windows;
 
 /// <summary>
 /// Main application window with navigation sidebar, content area, and info bar.
+/// Window chrome (title bar, caption buttons, dragging) is provided by SukiWindow.
 /// </summary>
-public partial class MainWindow : Window
+public partial class MainWindow : SukiWindow
 {
     private readonly INavigationService _navigationService;
     private readonly IClipboardPasswordService _clipboardPasswordService;
@@ -114,15 +115,6 @@ public partial class MainWindow : Window
         if (_navigationService.CanGoBack)
         {
             _navigationService.GoBack();
-        }
-    }
-
-    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        var point = e.GetCurrentPoint(this);
-        if (point.Properties.IsLeftButtonPressed)
-        {
-            BeginMoveDrag(e);
         }
     }
 
