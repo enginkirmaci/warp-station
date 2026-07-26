@@ -589,7 +589,7 @@
                         BoxShadow="{DynamicResource FlyoutShadow}"
                         Classes="card"
                         IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
                                 <Grid
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
@@ -703,10 +703,10 @@
                                                 ItemsSource="{Binding OpenCodePrompts}"
                                                 SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
                                 </StackPanel>
-                                <StackPanel
+                                <Grid
                                         Grid.Row="6"
                                         Margin="0,0,0,16"
-                                        Spacing="8">
+                                        RowDefinitions="Auto,*">
                                         <Grid ColumnDefinitions="*,Auto">
                                                 <TextBlock
                                                         Grid.Column="0"
@@ -736,13 +736,15 @@
                                                 </Button>
                                         </Grid>
                                         <TextBox
-                                                Height="120"
+                                                Grid.Row="1"
+                                                MinHeight="120"
+                                                Margin="0,8,0,0"
                                                 VerticalAlignment="Stretch"
                                                 AcceptsReturn="True"
                                                 Text="{Binding OpenCodePrompt, Mode=TwoWay}"
                                                 TextWrapping="Wrap"
                                                 Watermark="e.g. fix the login bug" />
-                                </StackPanel>
+                                </Grid>
                                 <Button
                                         Grid.Row="7"
                                         HorizontalAlignment="Stretch"
