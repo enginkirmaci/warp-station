@@ -9,25 +9,29 @@
         style-level Light/Dark theme dictionaries in every lookup
         context — including popup roots (tooltips, flyouts, menus,
         ComboBox dropdowns), which follow the OS theme instead of the
-        app's pinned Dark variant. Values copied from SukiUI Dark.axaml.
+        app's pinned Dark variant. Surface values follow the SukiUI dark
+        reference look (Images/winuidark.png: #252525 window background,
+        #222222 cards, #292929 sidebar) instead of the current SukiUI
+        Dark.axaml defaults. SukiBorderBrush is bumped to #3F3F3F so 1px
+        card hairlines stay visible after fractional-pixel antialiasing.
         Remove this section if runtime light/dark switching is ever added.
         ================================================================
     -->
-    <Color x:Key="SukiBackground">Transparent</Color>
-    <Color x:Key="SukiStrongBackground">#353535</Color>
-    <Color x:Key="SukiLightBackground">Transparent</Color>
-    <Color x:Key="SukiCardBackground">#323232</Color>
-    <Color x:Key="SukiPopupBackground">#252525</Color>
+    <Color x:Key="SukiBackground">#252525</Color>
+    <Color x:Key="SukiStrongBackground">#292929</Color>
+    <Color x:Key="SukiLightBackground">#252525</Color>
+    <Color x:Key="SukiCardBackground">#222222</Color>
+    <Color x:Key="SukiPopupBackground">#2B2B2B</Color>
     <Color x:Key="SukiGlassCardBackground">#49AAAAAA</Color>
     <Color x:Key="SukiGlassCardOpaqueBackground">#333333</Color>
     <Color x:Key="SukiControlTouchBackground">#505050</Color>
     <Color x:Key="SukiDialogBackground">#000000</Color>
 
-    <Color x:Key="SukiBorderBrush">#353535</Color>
-    <Color x:Key="SukiControlBorderBrush">#606060</Color>
-    <Color x:Key="SukiMediumBorderBrush">#555555</Color>
-    <Color x:Key="SukiLightBorderBrush">#454545</Color>
-    <Color x:Key="SukiMenuBorderBrush">#454545</Color>
+    <Color x:Key="SukiBorderBrush">#3F3F3F</Color>
+    <Color x:Key="SukiControlBorderBrush">#505050</Color>
+    <Color x:Key="SukiMediumBorderBrush">#494949</Color>
+    <Color x:Key="SukiLightBorderBrush">#333333</Color>
+    <Color x:Key="SukiMenuBorderBrush">#333333</Color>
     <Color x:Key="GlassBorderBrush">#252729</Color>
 
     <Color x:Key="SukiText">#EDFFFFFF</Color>
@@ -80,10 +84,11 @@
     <!-- Surfaces -->
     <SolidColorBrush x:Key="AppBackgroundBrush" Color="{DynamicResource SukiBackground}" />
     <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
-    <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="{DynamicResource SukiCardBackground}" />
+    <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="{DynamicResource SukiStrongBackground}" />
     <SolidColorBrush x:Key="ContentBackgroundBrush" Color="{DynamicResource SukiBackground}" />
     <SolidColorBrush x:Key="CardBackgroundBrush" Color="{DynamicResource SukiCardBackground}" />
     <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
+    <SolidColorBrush x:Key="IconChipBackgroundBrush" Color="{DynamicResource SukiGlassCardOpaqueBackground}" />
     <SolidColorBrush x:Key="DividerBrush" Color="{DynamicResource SukiLightBorderBrush}" />
     <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource SukiBorderBrush}" />
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{DynamicResource SukiPrimaryColor25}" />

@@ -91,24 +91,11 @@
 							</Setter.Value>
 						</Setter>
 					</Style>
+					<!--  Selected item: neutral dark pill (SukiUI dark reference look)  -->
 					<Style Selector="ListBoxItem:selected Border.nav-item-surface">
-						<Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+						<Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}" />
 					</Style>
-					<!--  Left accent bar: hidden by default, indigo when selected  -->
-					<Style Selector="Border.nav-accent-bar">
-						<Setter Property="Opacity" Value="0" />
-						<Setter Property="Transitions">
-							<Setter.Value>
-								<Transitions>
-									<DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-								</Transitions>
-							</Setter.Value>
-						</Setter>
-					</Style>
-					<Style Selector="ListBoxItem:selected Border.nav-accent-bar">
-						<Setter Property="Opacity" Value="1" />
-					</Style>
-					<!--  Nav icon: muted by default, accent when selected  -->
+					<!--  Nav icon: muted by default, bright when selected  -->
 					<Style Selector="Path.nav-icon">
 						<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
 						<Setter Property="Transitions">
@@ -120,7 +107,7 @@
 						</Setter>
 					</Style>
 					<Style Selector="ListBoxItem:selected Path.nav-icon">
-						<Setter Property="Fill" Value="{DynamicResource AccentPrimaryBrush}" />
+						<Setter Property="Fill" Value="{DynamicResource TitleForegroundBrush}" />
 					</Style>
 					<!--  Nav label: body by default, title when selected  -->
 					<Style Selector="TextBlock.nav-label">
@@ -162,15 +149,6 @@
 								CornerRadius="{DynamicResource ControlRadius}"
 								IsVisible="{Binding PageKey, Converter={StaticResource EqualNotVisibilityConverter}, ConverterParameter=__separator__}">
 								<Grid ColumnDefinitions="3,*">
-									<!--  Indigo left accent bar (revealed on selection)  -->
-									<Border
-										Grid.Column="0"
-										Height="18"
-										HorizontalAlignment="Left"
-										VerticalAlignment="Center"
-										Background="{DynamicResource AccentPrimaryBrush}"
-										Classes="nav-accent-bar"
-										CornerRadius="2" />
 									<!--  Nav surface + content  -->
 									<Border
 										Grid.Column="1"

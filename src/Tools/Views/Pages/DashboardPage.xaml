@@ -14,7 +14,7 @@
                 <!--  Header Banner  -->
                 <Border
                         Grid.Row="0"
-                        Padding="32,28,32,24"
+                        Padding="28,24,28,16"
                         Background="{DynamicResource ContentBackgroundBrush}">
                         <Grid ColumnDefinitions="*,Auto">
                                 <StackPanel
@@ -36,60 +36,63 @@
                         <ItemsControl ItemsSource="{Binding DashboardCards}">
                                 <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                                <controls:ResponsiveWrapPanel MinItemWidth="240" Spacing="12" />
+                                                <controls:ResponsiveWrapPanel MinItemWidth="260" Spacing="12" />
                                         </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                                 <Button
-                                                        Height="84"
-                                                        Margin="0"
-                                                        Padding="16,14"
+                                                        Height="116"
+                                                        Margin="1"
+                                                        Padding="16"
                                                         HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Stretch"
-                                                        VerticalContentAlignment="Stretch"
+                                                        VerticalContentAlignment="Top"
                                                         BorderThickness="1"
                                                         Classes="card-button"
                                                         Command="{Binding Command}"
                                                         CommandParameter="{Binding PageKey}"
                                                         CornerRadius="{DynamicResource CardRadius}"
                                                         Cursor="Hand">
-                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
-                                                                <!--  Accent-tinted icon chip  -->
-                                                                <Border
-                                                                        Grid.Column="0"
-                                                                        Width="40"
-                                                                        Height="40"
-                                                                        HorizontalAlignment="Center"
-                                                                        VerticalAlignment="Center"
-                                                                        CornerRadius="{DynamicResource ControlRadius}">
-                                                                        <Path
-                                                                                Width="22"
-                                                                                Height="22"
-                                                                                HorizontalAlignment="Center"
-                                                                                VerticalAlignment="Center"
-                                                                                Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
-                                                                                Fill="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}"
-                                                                                Stretch="Uniform" />
-                                                                </Border>
-
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                                <!--  Big bold title at top-left, muted subtitle below  -->
                                                                 <StackPanel
-                                                                        Grid.Column="1"
-                                                                        VerticalAlignment="Center"
-                                                                        Spacing="2">
+                                                                        Grid.Column="0"
+                                                                        VerticalAlignment="Top"
+                                                                        Spacing="6">
                                                                         <TextBlock
-                                                                                FontSize="14"
+                                                                                FontSize="17"
                                                                                 FontWeight="SemiBold"
                                                                                 Foreground="{DynamicResource TitleForegroundBrush}"
                                                                                 Text="{Binding Title}"
                                                                                 TextWrapping="Wrap" />
                                                                         <TextBlock
+                                                                                VerticalAlignment="Top"
                                                                                 FontSize="12"
                                                                                 Foreground="{DynamicResource MutedForegroundBrush}"
                                                                                 LineHeight="16"
                                                                                 Text="{Binding Subtitle}"
                                                                                 TextWrapping="Wrap" />
                                                                 </StackPanel>
+
+                                                                <!--  Accent-tinted icon chip, pinned top-right  -->
+                                                                <Border
+                                                                        Grid.Column="1"
+                                                                        Width="36"
+                                                                        Height="36"
+                                                                        HorizontalAlignment="Right"
+                                                                        VerticalAlignment="Top"
+                                                                        Background="{DynamicResource IconChipBackgroundBrush}"
+                                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                                        <Path
+                                                                                Width="20"
+                                                                                Height="20"
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
+                                                                                Fill="{Binding AccentColor, Converter={StaticResource StringToBrushConverter}}"
+                                                                                Stretch="Uniform" />
+                                                                </Border>
                                                         </Grid>
                                                 </Button>
                                         </DataTemplate>

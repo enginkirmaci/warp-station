@@ -1,21 +1,29 @@
-<Styles
-    xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
         ================================================================
-        POPUPS / LIGHT-IN-POPUP WORKAROUND
+        POPUPS
         Popup roots (tooltips, flyouts, menus, ComboBox dropdowns) do not
         inherit the application's RequestedThemeVariant — they follow the
         OS theme, so SukiUI theme dictionaries would resolve Light inside
-        popups. Fixed globally in ThemeResources.axaml: the Suki* theme
-        keys are overridden there with their Dark values as plain
-        Application.Resources entries, which win over SukiTheme's
-        style-level theme dictionaries in every lookup context.
+        popups. ThemeResources.axaml overrides the Suki* theme keys with
+        their Dark values as plain Application.Resources entries; for
+        flyout surfaces that still resolved Light, the whole ControlTheme
+        is overridden below — type-keyed theme resolution is the mechanism
+        SukiUI itself uses inside popups.
+        
+        Avalonia 12 defaults PopupRoot.Background to White and popup
+        surfaces are not transparency-capable here, so every see-through
+        area of a popup (tooltip shadow margin, rounded corners) painted
+        as a white frame. Fixed by making the popup root transparent;
+        TransparencyBackgroundFallback is what the renderer actually
+        composites with when the surface itself can't be transparent.
         ================================================================
     -->
     <Style Selector="PopupRoot">
         <Setter Property="RequestedThemeVariant" Value="Dark" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="TransparencyBackgroundFallback" Value="Transparent" />
     </Style>
 
     <!--
@@ -61,7 +69,7 @@
         ================================================================
     -->
 
-    <!-- Page-level hero title (used in Dashboard header). -->
+    <!--  Page-level hero title (used in Dashboard header).  -->
     <Style Selector="TextBlock.page-title">
         <Setter Property="FontSize" Value="28" />
         <Setter Property="FontWeight" Value="Bold" />
@@ -74,7 +82,7 @@
         <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
     </Style>
 
-    <!-- H1 used at the top of a content page (above all cards). -->
+    <!--  H1 used at the top of a content page (above all cards).  -->
     <Style Selector="TextBlock.section-title">
         <Setter Property="FontSize" Value="20" />
         <Setter Property="FontWeight" Value="Bold" />
@@ -82,34 +90,34 @@
         <Setter Property="Margin" Value="0,0,0,12" />
     </Style>
 
-    <!-- H2 used inside cards to label a section. -->
+    <!--  H2 used inside cards to label a section.  -->
     <Style Selector="TextBlock.card-title">
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontSize" Value="16" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
     </Style>
 
-    <!-- H3 used as a small field label. -->
+    <!--  H3 used as a small field label.  -->
     <Style Selector="TextBlock.field-label">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
     </Style>
 
-    <!-- Body copy text used inside cards. -->
+    <!--  Body copy text used inside cards.  -->
     <Style Selector="TextBlock.body-text">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
-    <!-- Subtle secondary text (paths, captions, helper text). -->
+    <!--  Subtle secondary text (paths, captions, helper text).  -->
     <Style Selector="TextBlock.subtle">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
     </Style>
 
-    <!-- Inline monospace text used for code/console output. -->
+    <!--  Inline monospace text used for code/console output.  -->
     <Style Selector="TextBlock.mono">
         <Setter Property="FontFamily" Value="Consolas,Menlo,monospace" />
         <Setter Property="FontSize" Value="13" />
@@ -126,7 +134,7 @@
         ================================================================
     -->
 
-    <!-- Standard card surface — elevated, hairline border, soft shadow. -->
+    <!--  Standard card surface — elevated, hairline border, soft shadow.  -->
     <Style Selector="Border.card">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
@@ -136,7 +144,7 @@
         <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}" />
     </Style>
 
-    <!-- Subtle chip surface used for status pills, badges, etc. -->
+    <!--  Subtle chip surface used for status pills, badges, etc.  -->
     <Style Selector="Border.chip">
         <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
@@ -145,23 +153,23 @@
         <Setter Property="Padding" Value="10,6" />
     </Style>
 
-    <!-- Standard root padding for a page (matches 16px gutters). -->
+    <!--  Standard root padding for a page (matches 16px gutters).  -->
     <Style Selector="Grid.page-root, StackPanel.page-root">
         <Setter Property="Margin" Value="16" />
     </Style>
 
-    <!-- Vertical stack used inside cards with consistent spacing. -->
+    <!--  Vertical stack used inside cards with consistent spacing.  -->
     <Style Selector="StackPanel.field-stack">
         <Setter Property="Spacing" Value="12" />
     </Style>
 
-    <!-- Horizontal action row at the bottom of a card/dialog. -->
+    <!--  Horizontal action row at the bottom of a card/dialog.  -->
     <Style Selector="StackPanel.actions">
         <Setter Property="Orientation" Value="Horizontal" />
         <Setter Property="Spacing" Value="8" />
     </Style>
 
-    <!-- Divider line used inside action bars. -->
+    <!--  Divider line used inside action bars.  -->
     <Style Selector="Border.vertical-divider">
         <Setter Property="Width" Value="1" />
         <Setter Property="Margin" Value="0,2" />
@@ -179,7 +187,7 @@
         ================================================================
     -->
 
-    <!-- Icon-only square button (32x32) with hover background. -->
+    <!--  Icon-only square button (32x32) with hover background.  -->
     <Style Selector="Button.icon">
         <Setter Property="Width" Value="32" />
         <Setter Property="Height" Value="32" />
@@ -192,7 +200,7 @@
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
     </Style>
 
-    <!-- Standard icon path (18px, subtle gray). -->
+    <!--  Standard icon path (18px, subtle gray).  -->
     <Style Selector="Path.icon">
         <Setter Property="Width" Value="18" />
         <Setter Property="Height" Value="18" />
@@ -252,13 +260,7 @@
     </Style>
 
     <!--
-        Card button — used for dashboard / interactive cards. Subtle
-        elevation that lifts on hover with a smooth shadow transition.
-        The template is overridden because SukiUI's Button theme wraps the
-        content in a horizontal StackPanel, which measures content with
-        infinite width — so wrapping TextBlocks inside the card (e.g. the
-        dashboard subtitles) never wrap. Here the ContentPresenter is placed
-        directly in the border so content is measured with the real width.
+        Card button — used for dashboard / interactive cards.
     -->
     <Style Selector="Button.card-button">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
@@ -269,19 +271,19 @@
             <Setter.Value>
                 <ControlTemplate>
                     <Border
-                            Name="RootBorder"
-                            Padding="{TemplateBinding Padding}"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="{TemplateBinding CornerRadius}"
-                            TextElement.Foreground="{TemplateBinding Foreground}">
-                            <ContentPresenter
-                                    Name="PART_ContentPresenter"
-                                    HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                    VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                    Content="{TemplateBinding Content}"
-                                    ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        Name="RootBorder"
+                        Padding="{TemplateBinding Padding}"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        TextElement.Foreground="{TemplateBinding Foreground}">
+                        <ContentPresenter
+                            Name="PART_ContentPresenter"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" />
                     </Border>
                 </ControlTemplate>
             </Setter.Value>
@@ -294,9 +296,6 @@
                 </Transitions>
             </Setter.Value>
         </Setter>
-    </Style>
-    <Style Selector="Button.card-button /template/ Border#RootBorder">
-        <Setter Property="BoxShadow" Value="{DynamicResource CardShadow}" />
     </Style>
     <Style Selector="Button.card-button:pointerover">
         <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
