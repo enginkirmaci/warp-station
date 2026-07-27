@@ -32,8 +32,8 @@
 				Command="{Binding ToggleLeftSidebarCommand}"
 				ToolTip.Tip="Toggle sidebar">
 				<Path
-					Width="16"
-					Height="16"
+					Width="14"
+					Height="14"
 					Data="{tools:SvgPath icon-menu}"
 					Fill="{DynamicResource BodyForegroundBrush}"
 					Stretch="Uniform" />

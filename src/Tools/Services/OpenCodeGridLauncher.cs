@@ -19,7 +19,7 @@ namespace Tools.Services;
 /// </summary>
 public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 {
-    private const string OpenCodeWindowTitleHint = "opencode";
+    private static readonly string[] OpenCodeWindowTitleHints = { "opencode", "MantisCLI" };
 
     // How long to wait for a launched window to show up before giving up on tiling it.
     private static readonly TimeSpan WindowAppearTimeout = TimeSpan.FromSeconds(10);
@@ -60,7 +60,7 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         var beforeHandles = beforeWindows.Keys.ToHashSet();
         var existingHandles = beforeWindows
             .Where(pair => pair.Value != null
-                && pair.Value.Contains(OpenCodeWindowTitleHint, StringComparison.OrdinalIgnoreCase))
+                && OpenCodeWindowTitleHints.Any(hint => pair.Value.Contains(hint, StringComparison.OrdinalIgnoreCase)))
             .Select(pair => pair.Key)
             .ToList();
 
@@ -82,7 +82,7 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 
         // Now collect the newly-appeared windows and tile the whole set (existing first,
         // so they keep their cells, then the new arrivals) into the grid.
-        var newHandles = await WaitForNewWindowsAsync(beforeHandles, count, OpenCodeWindowTitleHint);
+        var newHandles = await WaitForNewWindowsAsync(beforeHandles, count, OpenCodeWindowTitleHints);
         var ordered = existingHandles.Concat(newHandles).ToList();
         for (var i = 0; i < ordered.Count && i < cells.Count; i++)
         {
@@ -127,15 +127,15 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
     private static string Escape(string value) => value.Replace("\"", "\\\"");
 
     /// <summary>
-    /// Picks the grid that fits the count. Counts up to 4 always divide the screen into a
-    /// 2x2 grid (so 1 instance occupies a single quadrant); 5+ fall back to the square-ish
-    /// layout (6 -> 3x2, 8 -> 3x3). Columns are rounded up so the last row may be partial.
+    /// Picks the grid that fits the count. Counts up to 6 always divide the screen into a
+    /// 3x2 grid (so 1 instance occupies a single cell); 7+ fall back to the square-ish
+    /// layout (8 -> 3x3). Columns are rounded up so the last row may be partial.
     /// </summary>
     internal static (int cols, int rows) ComputeGrid(int count)
     {
         count = Math.Max(1, count);
-        if (count <= 4)
-            return (2, 2);
+        if (count <= 6)
+            return (3, 2);
         var cols = (int)Math.Ceiling(Math.Sqrt(count));
         var rows = (int)Math.Ceiling(count / (double)cols);
         return (cols, rows);
@@ -182,12 +182,12 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 
     /// <summary>
     /// Polls <see cref="IWinApiService.GetOpenWindows"/> until <paramref name="count"/> new
-    /// top-level windows whose title contains <paramref name="titleHint"/> have appeared,
-    /// or the timeout elapses. Non-hinted windows are tracked as a fallback and only used
-    /// once the deadline passes (the opencode TUI sets its title asynchronously, so tiling
-    /// before the title appears lets the terminal fight the positioning).
+    /// top-level windows whose title contains any of <paramref name="titleHints"/> have
+    /// appeared, or the timeout elapses. Non-hinted windows are tracked as a fallback and
+    /// only used once the deadline passes (the opencode TUI sets its title asynchronously,
+    /// so tiling before the title appears lets the terminal fight the positioning).
     /// </summary>
-    private async Task<List<nint>> WaitForNewWindowsAsync(HashSet<nint> beforeHandles, int count, string? titleHint)
+    private async Task<List<nint>> WaitForNewWindowsAsync(HashSet<nint> beforeHandles, int count, string[]? titleHints)
     {
         var deadline = DateTime.UtcNow + WindowAppearTimeout;
         var hinted = new List<nint>();
@@ -205,9 +205,9 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
             {
                 if (beforeHandles.Contains(handle) || !seen.Add(handle)) continue;
 
-                if (!string.IsNullOrEmpty(titleHint)
+                if (titleHints is { Length: > 0 }
                     && title != null
-                    && title.Contains(titleHint, StringComparison.OrdinalIgnoreCase))
+                    && titleHints.Any(hint => title.Contains(hint, StringComparison.OrdinalIgnoreCase)))
                 {
                     hinted.Add(handle);
                 }
