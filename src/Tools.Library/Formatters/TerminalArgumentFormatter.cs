@@ -2,9 +2,9 @@ namespace Tools.Library.Formatters;
 
 /// <summary>
 /// Builds command-line arguments for launching a terminal at a given folder path,
-/// dispatching on the terminal executable (Windows Terminal, PowerShell, cmd, or a
-/// generic fallback). Encapsulates terminal-specific argument knowledge so it is not
-/// duplicated inside ViewModels.
+/// dispatching on the terminal executable (Windows Terminal, PowerShell, or a generic
+/// fallback). Encapsulates terminal-specific argument knowledge so it is not duplicated
+/// inside ViewModels.
 /// </summary>
 public static class TerminalArgumentFormatter
 {
@@ -24,9 +24,6 @@ public static class TerminalArgumentFormatter
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'\"";
-
-        if (exeLower.EndsWith("cmd.exe") || exeLower == "cmd")
-            return $"/k cd /d \"{folderPath}\"";
 
         return $"\"{folderPath}\"";
     }
@@ -68,9 +65,6 @@ public static class TerminalArgumentFormatter
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'; {commandLine}\"";
-
-        if (exeLower.EndsWith("cmd.exe") || exeLower == "cmd")
-            return $"/k cd /d \"{folderPath}\" && {commandLine}";
 
         // Generic fallback: just open the terminal at the folder. We cannot reliably
         // run an arbitrary command for an unknown terminal, so the command is dropped.
