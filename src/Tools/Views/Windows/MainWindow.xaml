@@ -299,7 +299,7 @@
 			Background="{DynamicResource SidebarTranslucentBrush}"
 			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,1,0,0">
-			<DockPanel Margin="14,0" VerticalAlignment="Center">
+			<DockPanel Margin="14,0" LastChildFill="False" VerticalAlignment="Center">
 				<!--  SnapIt indicator (moved from dashboard)  -->
 				<Button
 					Padding="8,2"
