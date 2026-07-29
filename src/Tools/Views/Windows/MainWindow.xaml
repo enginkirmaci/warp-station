@@ -22,7 +22,7 @@
 		</Style>
 		<!--  Collapsed rail: icon-only width with a smooth transition  -->
 		<Style Selector="Border#SidebarBorder.collapsed">
-			<Setter Property="Width" Value="64" />
+			<Setter Property="Width" Value="70" />
 			<Setter Property="Transitions">
 				<Setter.Value>
 					<Transitions>
@@ -89,65 +89,112 @@
 			BorderBrush="{DynamicResource DividerBrush}"
 			BorderThickness="0,0,1,0"
 			Classes.collapsed="{Binding IsSidebarCollapsed}">
-			<ListBox
-				x:Name="NavigationListBox"
-				Padding="8,0"
-				Background="Transparent"
-				BorderThickness="0"
-				Classes="Void"
-				ItemsSource="{Binding MenuItems}"
-				SelectedIndex="0"
-				SelectionChanged="NavigationListBox_SelectionChanged">
-				<ListBox.Styles>
-					<Style Selector="ListBoxItem">
-						<Setter Property="Padding" Value="0" />
-						<Setter Property="Background" Value="Transparent" />
-					</Style>
-					<!--  Nav surface: transparent by default, indigo-tinted when selected  -->
-					<Style Selector="Border.nav-item-surface">
-						<Setter Property="Background" Value="Transparent" />
-						<Setter Property="Transitions">
-							<Setter.Value>
-								<Transitions>
-									<BrushTransition Property="Background" Duration="0:0:0.12" />
-								</Transitions>
-							</Setter.Value>
-						</Setter>
-					</Style>
-					<!--  Selected item: neutral dark pill (SukiUI dark reference look)  -->
-					<Style Selector="ListBoxItem:selected Border.nav-item-surface">
-						<Setter Property="Background" Value="{DynamicResource ContentBackgroundBrush}" />
-					</Style>
-					<!--  Nav icon: muted by default, bright when selected  -->
-					<Style Selector="Path.nav-icon">
-						<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
-						<Setter Property="Transitions">
-							<Setter.Value>
-								<Transitions>
-									<BrushTransition Property="Fill" Duration="0:0:0.12" />
-								</Transitions>
-							</Setter.Value>
-						</Setter>
-					</Style>
-					<Style Selector="ListBoxItem:selected Path.nav-icon">
-						<Setter Property="Fill" Value="{DynamicResource TitleForegroundBrush}" />
-					</Style>
-					<!--  Nav label: body by default, title when selected  -->
-					<Style Selector="TextBlock.nav-label">
-						<Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-						<Setter Property="Transitions">
-							<Setter.Value>
-								<Transitions>
-									<BrushTransition Property="Foreground" Duration="0:0:0.12" />
-								</Transitions>
-							</Setter.Value>
-						</Setter>
-					</Style>
-					<Style Selector="ListBoxItem:selected TextBlock.nav-label">
-						<Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
-						<Setter Property="FontWeight" Value="SemiBold" />
-					</Style>
-				</ListBox.Styles>
+			<DockPanel Margin="0,0,0,8">
+				<!--  Open settings folder (pinned to the sidebar bottom)  -->
+				<Button
+					Margin="8,4"
+					Padding="0"
+					HorizontalAlignment="Stretch"
+					HorizontalContentAlignment="Stretch"
+					Background="Transparent"
+					BorderThickness="0"
+					Command="{Binding OpenSettingsFolderCommand}"
+					Cursor="Hand"
+					DockPanel.Dock="Bottom"
+					ToolTip.Tip="Open settings folder">
+					<Button.Styles>
+						<!--  Neutralize button chrome so only the surface pill reacts to hover  -->
+						<Style Selector="Button:pointerover">
+							<Setter Property="Background" Value="Transparent" />
+						</Style>
+						<Style Selector="Button:pointerover Border.nav-surface">
+							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+						</Style>
+					</Button.Styles>
+					<Grid ColumnDefinitions="3,*">
+						<Border
+							Grid.Column="1"
+							Margin="0"
+							Padding="12,8"
+							Classes="nav-surface"
+							CornerRadius="{DynamicResource ControlRadius}">
+							<StackPanel Orientation="Horizontal" Spacing="12">
+								<Path
+									Width="18"
+									Height="18"
+									VerticalAlignment="Center"
+									Data="{tools:SvgPath icon-cog}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock
+									VerticalAlignment="Center"
+									Classes="nav-label"
+									FontSize="13"
+									Foreground="{DynamicResource BodyForegroundBrush}"
+									Text="Settings" />
+							</StackPanel>
+						</Border>
+					</Grid>
+				</Button>
+				<ListBox
+					x:Name="NavigationListBox"
+					Padding="8,0"
+					Background="Transparent"
+					BorderThickness="0"
+					Classes="Void"
+					ItemsSource="{Binding MenuItems}"
+					SelectedIndex="0"
+					SelectionChanged="NavigationListBox_SelectionChanged">
+					<ListBox.Styles>
+						<Style Selector="ListBoxItem">
+							<Setter Property="Padding" Value="0" />
+							<Setter Property="Background" Value="Transparent" />
+						</Style>
+						<!--  Nav surface: transparent by default, indigo-tinted when selected  -->
+						<Style Selector="Border.nav-item-surface">
+							<Setter Property="Background" Value="Transparent" />
+							<Setter Property="Transitions">
+								<Setter.Value>
+									<Transitions>
+										<BrushTransition Property="Background" Duration="0:0:0.12" />
+									</Transitions>
+								</Setter.Value>
+							</Setter>
+						</Style>
+						<!--  Selected item: accent-filled pill  -->
+						<Style Selector="ListBoxItem:selected Border.nav-item-surface">
+							<Setter Property="Background" Value="{DynamicResource AccentPrimaryBrush}" />
+						</Style>
+						<!--  Nav icon: muted by default, bright when selected  -->
+						<Style Selector="Path.nav-icon">
+							<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+							<Setter Property="Transitions">
+								<Setter.Value>
+									<Transitions>
+										<BrushTransition Property="Fill" Duration="0:0:0.12" />
+									</Transitions>
+								</Setter.Value>
+							</Setter>
+						</Style>
+						<Style Selector="ListBoxItem:selected Path.nav-icon">
+							<Setter Property="Fill" Value="{DynamicResource AccentForegroundBrush}" />
+						</Style>
+						<!--  Nav label: body by default, title when selected  -->
+						<Style Selector="TextBlock.nav-label">
+							<Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+							<Setter Property="Transitions">
+								<Setter.Value>
+									<Transitions>
+										<BrushTransition Property="Foreground" Duration="0:0:0.12" />
+									</Transitions>
+								</Setter.Value>
+							</Setter>
+						</Style>
+						<Style Selector="ListBoxItem:selected TextBlock.nav-label">
+							<Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+							<Setter Property="FontWeight" Value="SemiBold" />
+						</Style>
+					</ListBox.Styles>
 					<ListBox.ItemTemplate>
 						<DataTemplate>
 							<Panel>
@@ -159,8 +206,14 @@
 									ToolTip.Tip="{Binding Title}">
 									<Border.IsVisible>
 										<MultiBinding Converter="{StaticResource BoolAllConverter}">
-											<Binding Path="PageKey" Converter="{StaticResource EqualVisibilityConverter}" ConverterParameter="__separator__" />
-											<Binding Path="DataContext.IsSidebarCollapsed" RelativeSource="{RelativeSource AncestorType=ListBox}" Converter="{StaticResource InverseBoolConverter}" />
+											<Binding
+												Converter="{StaticResource EqualVisibilityConverter}"
+												ConverterParameter="__separator__"
+												Path="PageKey" />
+											<Binding
+												Converter="{StaticResource InverseBoolConverter}"
+												Path="DataContext.IsSidebarCollapsed"
+												RelativeSource="{RelativeSource AncestorType=ListBox}" />
 										</MultiBinding>
 									</Border.IsVisible>
 								</Border>
@@ -173,8 +226,14 @@
 									Text="{Binding Title}">
 									<TextBlock.IsVisible>
 										<MultiBinding Converter="{StaticResource BoolAllConverter}">
-											<Binding Path="PageKey" Converter="{StaticResource EqualVisibilityConverter}" ConverterParameter="__header__" />
-											<Binding Path="DataContext.IsSidebarCollapsed" RelativeSource="{RelativeSource AncestorType=ListBox}" Converter="{StaticResource InverseBoolConverter}" />
+											<Binding
+												Converter="{StaticResource EqualVisibilityConverter}"
+												ConverterParameter="__header__"
+												Path="PageKey" />
+											<Binding
+												Converter="{StaticResource InverseBoolConverter}"
+												Path="DataContext.IsSidebarCollapsed"
+												RelativeSource="{RelativeSource AncestorType=ListBox}" />
 										</MultiBinding>
 									</TextBlock.IsVisible>
 								</TextBlock>
@@ -213,7 +272,8 @@
 							</Panel>
 						</DataTemplate>
 					</ListBox.ItemTemplate>
-			</ListBox>
+				</ListBox>
+			</DockPanel>
 		</Border>
 
 		<!--  Content Area  -->
@@ -304,30 +364,6 @@
 							Foreground="{DynamicResource MutedForegroundBrush}"
 							Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
 					</StackPanel>
-					<Button.Styles>
-						<Style Selector="Button:pointerover">
-							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-						</Style>
-					</Button.Styles>
-				</Button>
-
-				<!--  Open settings folder (docked right, icon-only)  -->
-				<Button
-					Padding="8,2"
-					HorizontalAlignment="Right"
-					Background="Transparent"
-					BorderThickness="0"
-					Command="{Binding OpenSettingsFolderCommand}"
-					CornerRadius="{DynamicResource ChipRadius}"
-					Cursor="Hand"
-					DockPanel.Dock="Right"
-					ToolTip.Tip="Open settings folder">
-					<Path
-						Width="14"
-						Height="14"
-						Data="{tools:SvgPath icon-cog}"
-						Fill="{DynamicResource MutedForegroundBrush}"
-						Stretch="Uniform" />
 					<Button.Styles>
 						<Style Selector="Button:pointerover">
 							<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
