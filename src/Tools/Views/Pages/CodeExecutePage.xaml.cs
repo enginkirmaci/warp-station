@@ -6,14 +6,14 @@ namespace Tools.Views.Pages;
 
 public partial class CodeExecutePage : UserControl
 {
-    public CodeExecutePageViewModel ViewModel { get; }
+    public CodeExecuteViewModel ViewModel { get; }
 
     public CodeExecutePage()
     {
         InitializeComponent();
     }
 
-    public CodeExecutePage(CodeExecutePageViewModel viewModel)
+    public CodeExecutePage(CodeExecuteViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

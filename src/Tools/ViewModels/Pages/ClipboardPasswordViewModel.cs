@@ -10,7 +10,7 @@ namespace Tools.ViewModels.Pages;
 /// ViewModel for the Clipboard Password page.
 /// Manages password storage with Base64 encoding for clipboard hotkey functionality.
 /// </summary>
-public partial class ClipboardPasswordPageViewModel : PageViewModelBase
+public partial class ClipboardPasswordViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
     private readonly INotificationService _notificationService;
@@ -24,20 +24,21 @@ public partial class ClipboardPasswordPageViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _hasStoredPassword;
 
-    public ClipboardPasswordPageViewModel(ISettingsService settingsService, INotificationService notificationService)
+    public ClipboardPasswordViewModel(ISettingsService settingsService, INotificationService notificationService)
     {
         _settingsService = settingsService;
         _notificationService = notificationService;
     }
 
     /// <inheritdoc/>
-    public override Task OnNavigatedToAsync(object? parameter = null) => LoadPasswordStatusAsync();
+    public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
-    private async Task LoadPasswordStatusAsync()
+    /// <inheritdoc/>
+    public override async Task OnInitializeAsync()
     {
         var settings = await _settingsService.GetSettingsAsync();
         HasStoredPassword = !string.IsNullOrEmpty(settings.ClipboardPassword?.EncryptedPassword);
-        
+
         if (HasStoredPassword)
         {
             StatusMessage = "Password is stored and ready to use with Ctrl+Shift+V";

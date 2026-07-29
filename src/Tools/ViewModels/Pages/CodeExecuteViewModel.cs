@@ -9,7 +9,7 @@ namespace Tools.ViewModels.Pages;
 /// <summary>
 /// ViewModel for the Code Execute page.
 /// </summary>
-public partial class CodeExecutePageViewModel : PageViewModelBase
+public partial class CodeExecuteViewModel : PageViewModelBase
 {
     [ObservableProperty]
     private string _immediateInput = string.Empty;
@@ -18,16 +18,11 @@ public partial class CodeExecutePageViewModel : PageViewModelBase
     private string _immediateOutput = string.Empty;
 
     /// <summary>
-    /// Gets the command to execute code.
+    /// Evaluates the current <see cref="ImmediateInput"/> as a C# script and writes the
+    /// result (or the error message) to <see cref="ImmediateOutput"/>.
     /// </summary>
-    public IAsyncRelayCommand ExecuteCommand { get; }
-
-    public CodeExecutePageViewModel()
-    {
-        ExecuteCommand = new AsyncRelayCommand(OnExecuteAsync);
-    }
-
-    private async Task OnExecuteAsync()
+    [RelayCommand]
+    private async Task ExecuteAsync()
     {
         try
         {

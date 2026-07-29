@@ -6,14 +6,14 @@ namespace Tools.Views.Pages;
 
 public partial class FormattersPage : UserControl
 {
-    public FormattersPageViewModel ViewModel { get; }
+    public FormattersViewModel ViewModel { get; }
 
     public FormattersPage()
     {
         InitializeComponent();
     }
 
-    public FormattersPage(FormattersPageViewModel viewModel)
+    public FormattersPage(FormattersViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

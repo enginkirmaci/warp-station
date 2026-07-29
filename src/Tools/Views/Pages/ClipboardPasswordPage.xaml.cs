@@ -6,14 +6,14 @@ namespace Tools.Views.Pages;
 
 public partial class ClipboardPasswordPage : UserControl
 {
-    public ClipboardPasswordPageViewModel ViewModel { get; }
+    public ClipboardPasswordViewModel ViewModel { get; }
 
     public ClipboardPasswordPage()
     {
         InitializeComponent();
     }
 
-    public ClipboardPasswordPage(ClipboardPasswordPageViewModel viewModel)
+    public ClipboardPasswordPage(ClipboardPasswordViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

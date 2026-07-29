@@ -1,3 +1,4 @@
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Extensions;
@@ -9,7 +10,7 @@ namespace Tools.ViewModels.Pages;
 /// <summary>
 /// ViewModel for the Formatters page.
 /// </summary>
-public partial class FormattersPageViewModel : PageViewModelBase
+public partial class FormattersViewModel : PageViewModelBase
 {
     private readonly IClipboardService _clipboardService;
     private readonly INotificationService _notificationService;
@@ -35,31 +36,19 @@ public partial class FormattersPageViewModel : PageViewModelBase
     /// <summary>Maximum number of items retained in <see cref="History"/>.</summary>
     private const int MaxHistory = 100;
 
-    /// <summary>
-    /// Gets the command to convert text.
-    /// </summary>
-    public IRelayCommand ConvertCommand { get; }
-
-    /// <summary>
-    /// Gets the command to copy text to clipboard.
-    /// </summary>
-    public IRelayCommand<string> CopyToClipboardCommand { get; }
-
-    /// <summary>
-    /// Gets the command to clear the history.
-    /// </summary>
-    public IRelayCommand ClearHistoryCommand { get; }
-
-    public FormattersPageViewModel(IClipboardService clipboardService, INotificationService notificationService)
+    public FormattersViewModel(IClipboardService clipboardService, INotificationService notificationService)
     {
         _clipboardService = clipboardService;
         _notificationService = notificationService;
-        ConvertCommand = new RelayCommand(OnConvert);
-        CopyToClipboardCommand = new RelayCommand<string>(OnCopyToClipboard);
-        ClearHistoryCommand = new RelayCommand(OnClearHistory);
     }
 
-    private void OnConvert()
+    /// <summary>
+    /// Converts each non-empty line of <see cref="InputText"/> under the selected
+    /// transformation, prepending the results to <see cref="History"/> (newest first),
+    /// then clears the input. The history is bounded to <see cref="MaxHistory"/> entries.
+    /// </summary>
+    [RelayCommand]
+    private void Convert()
     {
         if (string.IsNullOrEmpty(InputText))
         {
@@ -87,14 +76,14 @@ public partial class FormattersPageViewModel : PageViewModelBase
     {
         if (IsBase64EncodeSelected)
         {
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(line));
+            return System.Convert.ToBase64String(Encoding.UTF8.GetBytes(line));
         }
 
         if (IsBase64DecodeSelected)
         {
             try
             {
-                return Encoding.UTF8.GetString(Convert.FromBase64String(line));
+                return Encoding.UTF8.GetString(System.Convert.FromBase64String(line));
             }
             catch
             {
@@ -115,7 +104,11 @@ public partial class FormattersPageViewModel : PageViewModelBase
         return line;
     }
 
-    private void OnCopyToClipboard(string? text)
+    /// <summary>
+    /// Copies <paramref name="text"/> to the clipboard and toasts a confirmation.
+    /// </summary>
+    [RelayCommand]
+    private void CopyToClipboard(string? text)
     {
         if (!string.IsNullOrEmpty(text))
         {
@@ -124,7 +117,9 @@ public partial class FormattersPageViewModel : PageViewModelBase
         }
     }
 
-    private void OnClearHistory()
+    /// <summary>Clears the conversion history.</summary>
+    [RelayCommand]
+    private void ClearHistory()
     {
         History.Clear();
     }

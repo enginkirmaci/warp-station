@@ -64,10 +64,10 @@ public partial class App : Application
         // Register pages and view models
         RegisterPageWithViewModel<DashboardPage, DashboardViewModel>(services);
         RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);
-        RegisterPageWithViewModel<FormattersPage, FormattersPageViewModel>(services);
+        RegisterPageWithViewModel<FormattersPage, FormattersViewModel>(services);
         RegisterPageWithViewModel<NugetLocalPage, NugetLocalViewModel>(services);
-        RegisterPageWithViewModel<CodeExecutePage, CodeExecutePageViewModel>(services);
-        RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordPageViewModel>(services);
+        RegisterPageWithViewModel<CodeExecutePage, CodeExecuteViewModel>(services);
+        RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordViewModel>(services);
         RegisterPageWithViewModel<SnapItSettingsPage, SnapItSettingsViewModel>(services);
     }
 

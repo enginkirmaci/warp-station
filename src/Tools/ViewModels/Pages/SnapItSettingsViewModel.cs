@@ -24,17 +24,15 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
     [ObservableProperty]
     private string _toggleButtonText = "Start";
 
-    public IRelayCommand ToggleSnapItCommand { get; }
-
     public SnapItSettingsViewModel(ISettingsService settingsService, ISnapItService snapItService)
     {
         _settingsService = settingsService;
         _snapItService = snapItService;
 
-        ToggleSnapItCommand = new RelayCommand(OnToggleSnapIt);
         _snapItService.RunningChanged += OnSnapItRunningChanged;
     }
 
+    /// <inheritdoc/>
     public override Task OnNavigatedToAsync(object? parameter = null) => OnInitializeAsync();
 
     /// <inheritdoc/>
@@ -46,6 +44,7 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc/>
     public override async Task OnInitializeAsync()
     {
         _isInitializing = true;
@@ -58,7 +57,11 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
         _isInitializing = false;
     }
 
-    private async void OnToggleSnapIt()
+    /// <summary>
+    /// Starts SnapIt when it is stopped, and stops it when running.
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleSnapItAsync()
     {
         if (_snapItService.IsRunning)
         {

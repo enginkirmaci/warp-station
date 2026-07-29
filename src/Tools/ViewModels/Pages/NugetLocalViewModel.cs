@@ -40,24 +40,11 @@ public partial class NugetLocalViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<string> _fileList = new();
 
-    /// <summary>Gets the command to start/stop watching for changes.</summary>
-    public IRelayCommand<object> WatchChangesCommand { get; }
-
-    /// <summary>Gets the command to select folders.</summary>
-    public IAsyncRelayCommand<string> SelectFolderCommand { get; }
-
-    /// <summary>Gets the command to register the watch folder as a NuGet source.</summary>
-    public IAsyncRelayCommand RegisterSourceCommand { get; }
-
     public NugetLocalViewModel(INugetLocalService nugetService, IDialogService dialogService, INotificationService notificationService)
     {
         _nugetService = nugetService;
         _dialogService = dialogService;
         _notificationService = notificationService;
-
-        WatchChangesCommand = new RelayCommand<object>(OnWatchChanges);
-        SelectFolderCommand = new AsyncRelayCommand<string>(OnSelectFolderAsync);
-        RegisterSourceCommand = new AsyncRelayCommand(OnRegisterSourceAsync);
 
         _nugetService.StateChanged += OnServiceStateChanged;
     }
@@ -134,7 +121,12 @@ public partial class NugetLocalViewModel : PageViewModelBase
         }
     }
 
-    private async Task OnSelectFolderAsync(string? operation)
+    /// <summary>
+    /// Opens the folder picker and, when <paramref name="operation"/> is <c>"Watch"</c>,
+    /// sets the picked folder as the watch folder and re-syncs local state from the service.
+    /// </summary>
+    [RelayCommand]
+    private async Task SelectFolderAsync(string? operation)
     {
         try
         {
@@ -152,7 +144,14 @@ public partial class NugetLocalViewModel : PageViewModelBase
         }
     }
 
-    private void OnWatchChanges(object? started)
+    /// <summary>
+    /// Starts watching when invoked with a truthy <paramref name="started"/> value (the bound
+    /// toggle passes the inverse of the current watch state), otherwise stops. Kept as a
+    /// synchronous fire-and-forget so the toggle feels instant; the service reports the
+    /// transition back via <see cref="OnServiceStateChanged"/>.
+    /// </summary>
+    [RelayCommand]
+    private void WatchChanges(object? started)
     {
         if (started is bool isStarted && isStarted)
         {
@@ -164,7 +163,9 @@ public partial class NugetLocalViewModel : PageViewModelBase
         }
     }
 
-    private Task OnRegisterSourceAsync()
+    /// <summary>Registers the watch folder as a NuGet source.</summary>
+    [RelayCommand]
+    private Task RegisterSourceAsync()
     {
         return _nugetService.RegisterSourceAsync();
     }
