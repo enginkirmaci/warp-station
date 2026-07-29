@@ -49,7 +49,7 @@
                                 <Button
                                         Classes="icon"
                                         Command="{Binding RefreshCommand}"
-                                        IsEnabled="{Binding !IsBusy}"
+                                        IsEnabled="{Binding !IsRefreshing}"
                                         ToolTip.Tip="Refresh">
                                         <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
                                 </Button>

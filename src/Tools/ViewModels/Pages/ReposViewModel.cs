@@ -49,6 +49,18 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<TagFilter> _tagFilters = new();
 
+    /// <summary>
+    /// Tracks an in-flight refresh (repo scan + git status pass) so only the Refresh
+    /// button reflects it — the rest of the page (search, tags, cards, OpenCode panel,
+    /// and the per-card "checking…" git placeholders) stays interactive throughout.
+    /// Kept separate from the base <see cref="ViewModelBase.IsBusy"/> (which mirrors the
+    /// repo service's scan state) so nothing else on the page is gated by a refresh.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isRefreshing;
+
+    partial void OnIsRefreshingChanged(bool value) => RefreshCommand.NotifyCanExecuteChanged();
+
     // --- OpenCode panel (transient state) ---
 
     /// <summary>
@@ -351,9 +363,12 @@ public partial class ReposViewModel : PageViewModelBase
 
     private void OnRepoChanged(object? sender, EventArgs e)
     {
+        // Note: the repo service's scan state is intentionally NOT mirrored onto the
+        // base IsBusy here — only IsRefreshing gates the Refresh button, so a scan never
+        // blocks the rest of the page. The cards/tags/list re-render from the service
+        // snapshot below without disabling anything.
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            IsBusy = _repoService.IsBusy;
             RebuildTagFilters();
             ApplyFilter();
         });
@@ -688,14 +703,33 @@ public partial class ReposViewModel : PageViewModelBase
 
     // --- Settings & refresh ---
 
-    [RelayCommand]
+    /// <summary>
+    /// Re-scans the configured folders and re-checks every repo's git status. Only the
+    /// Refresh button is disabled for the duration (see <see cref="IsRefreshing"/>); the
+    /// rest of the page remains fully interactive. Re-entrant-safe: a refresh already in
+    /// progress ignores further clicks via <see cref="CanRefresh"/>.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRefresh))]
     private async Task RefreshAsync()
     {
-        await _repoService.RefreshAsync(_reposSettings);
-        // Re-check git statuses right away against the current list; the scan started
-        // above raises Changed when it completes, which triggers one more pass.
-        _ = _gitStatusService.RefreshAllAsync();
+        IsRefreshing = true;
+        try
+        {
+            await _repoService.RefreshAsync(_reposSettings);
+            // Re-check git statuses against the freshly scanned list and await them so the
+            // button's busy state spans the whole cycle (scan + status). The scan itself
+            // raises Changed on completion, which triggers one more status pass; awaiting
+            // here coalesces both into a single IsRefreshing window.
+            await _gitStatusService.RefreshAllAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
+
+    /// <summary>A refresh can start only when one isn't already running.</summary>
+    private bool CanRefresh() => !IsRefreshing;
 
     [RelayCommand]
     private async Task OpenSettingsAsync()
