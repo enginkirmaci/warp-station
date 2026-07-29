@@ -594,16 +594,11 @@
                                         Grid.Row="0"
                                         Margin="0,0,0,16"
                                         ColumnDefinitions="*,Auto">
-                                        <StackPanel Grid.Column="0" Spacing="2">
-                                                <TextBlock
-                                                        Classes="card-title"
-                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                        Text="OpenCode" />
-                                                <TextBlock
-                                                        Classes="subtle"
-                                                        Text="{Binding OpenCodeRepoName}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
+                                        <TextBlock
+                                                Grid.Column="0"
+                                                Classes="card-title"
+                                                Text="{Binding OpenCodeRepoName}"
+                                                TextTrimming="CharacterEllipsis" />
                                         <Button
                                                 Grid.Column="1"
                                                 VerticalAlignment="Top"

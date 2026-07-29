@@ -16,6 +16,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ISnapItService _snapItService;
     private readonly INugetLocalService _nugetLocalService;
+    private readonly ISettingsService _settingsService;
     private readonly IProcessLauncher _processLauncher;
 
     /// <summary>
@@ -51,13 +52,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
-    // ---- Left navigation sidebar visibility ----
-    /// <summary>Tracks whether the left navigation sidebar is shown.</summary>
+    // ---- Left navigation sidebar collapse state ----
+    /// <summary>Tracks whether the left navigation sidebar is collapsed to an icon-only rail.</summary>
     [ObservableProperty]
-    private bool _isLeftSidebarOpen = true;
+    private bool _isSidebarCollapsed;
 
-    /// <summary>Command to toggle the left navigation sidebar open/closed.</summary>
-    public IRelayCommand ToggleLeftSidebarCommand { get; }
+    /// <summary>Command to toggle the left navigation sidebar between expanded and icon-only.</summary>
+    public IAsyncRelayCommand ToggleSidebarCommand { get; }
 
     public MainWindowViewModel(
         ISnapItService snapItService,
@@ -67,6 +68,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
+        _settingsService = settingsService;
         _processLauncher = processLauncher;
 
         // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
@@ -75,9 +77,14 @@ public partial class MainWindowViewModel : ViewModelBase
         var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
         MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
+        // Restore the sidebar's last collapse state so the layout matches the
+        // previous session. Only the initial value is read sync (cached read);
+        // subsequent toggles persist via the async OnToggleSidebar handler.
+        IsSidebarCollapsed = appSettings.General?.SidebarCollapsed == true;
+
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
-        ToggleLeftSidebarCommand = new RelayCommand(OnToggleLeftSidebar);
+        ToggleSidebarCommand = new AsyncRelayCommand(OnToggleSidebarAsync);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
@@ -98,7 +105,25 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void OnToggleLeftSidebar() => IsLeftSidebarOpen = !IsLeftSidebarOpen;
+    private async Task OnToggleSidebarAsync()
+    {
+        IsSidebarCollapsed = !IsSidebarCollapsed;
+
+        // Persist the new state so it is restored on the next launch. Failures
+        // are non-fatal (the in-memory state is already correct), so log and
+        // swallow rather than surfacing an error for a UI preference.
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            settings.General ??= new GeneralSettings();
+            settings.General.SidebarCollapsed = IsSidebarCollapsed;
+            await _settingsService.SaveSettingsAsync(settings);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to persist sidebar state: {ex.Message}");
+        }
+    }
 
     private async Task OnToggleNugetWatchAsync()
     {

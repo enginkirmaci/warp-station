@@ -23,6 +23,7 @@
 			<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
 			<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
 			<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
+			<conv:BoolAllConverter x:Key="BoolAllConverter" />
 			<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
 			<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
 			<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
