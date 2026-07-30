@@ -19,7 +19,7 @@ namespace Tools.Services;
 /// </summary>
 public class OpenCodeGridLauncher : IOpenCodeGridLauncher
 {
-    private static readonly string[] OpenCodeWindowTitleHints = { "opencode", "MantisCLI" };
+    private static readonly string[] OpenCodeWindowTitleHints = { "opencode", "MantisCLI", "Mantis Cli" };
 
     // How long to wait for a launched window to show up before giving up on tiling it.
     private static readonly TimeSpan WindowAppearTimeout = TimeSpan.FromSeconds(10);
