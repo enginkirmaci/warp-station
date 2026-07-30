@@ -542,7 +542,7 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     [RelayCommand]
-    private async Task OpenOpenCodePanelAsync(Repo? repo)
+    private void OpenOpenCodePanel(Repo? repo)
     {
         if (repo is null || !IsOpenCodeEnabled) return;
         OpenCodeRepo = repo;
@@ -553,10 +553,13 @@ public partial class ReposViewModel : PageViewModelBase
         NewPromptName = string.Empty;
         IsOpenCodePanelOpen = true;
 
-        // Load the model list now that the panel is open: the cached list shows instantly,
-        // then 'opencode models' refreshes it; the first entry is auto-selected. If the CLI is
-        // unavailable the dropdown ends up empty (with its hint).
-        await LoadOpenCodeModelsAsync();
+        // Load the model list in the background so this command returns immediately — the
+        // cached list is shown right away and 'opencode models' (a multi-second CLI call)
+        // refreshes it when it returns. Awaiting it would keep this async command "running"
+        // (CommunityToolkit's AsyncRelayCommand is non-concurrent, so CanExecute stays false),
+        // which leaves the Options button disabled for the whole CLI duration — even after the
+        // panel is closed. Fire-and-forget keeps the button instantly re-clickable.
+        _ = LoadOpenCodeModelsAsync();
     }
 
     [RelayCommand]
