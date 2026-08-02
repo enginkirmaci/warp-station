@@ -20,23 +20,17 @@ public class DevToolsService : IDisposable
         _processLauncher = processLauncher;
         _lifetime = lifetime;
 
-        // Get Tools.exe path - assume it's in the same directory as DevTools.exe
+        // Resolve Tools.exe relative to DevTools.exe. Candidates, in priority order:
+        //   1. ./bin/Tools.exe       — production split layout (Tools ships in a bin/ subfolder)
+        //   2. ../Tools.exe          — parent dir (development when both exes share bin/)
+        //   3. ./Tools.exe           — same dir (development when co-located)
         var currentDir = AppContext.BaseDirectory;
-        _toolsExePath = Path.Combine(currentDir, "Tools.exe");
-
-        // If Tools.exe doesn't exist in current dir, try parent directory (development scenario)
-        if (!File.Exists(_toolsExePath))
+        _toolsExePath = new[]
         {
-            var parentDir = Directory.GetParent(currentDir)?.FullName;
-            if (parentDir != null)
-            {
-                var toolsInParent = Path.Combine(parentDir, "Tools.exe");
-                if (File.Exists(toolsInParent))
-                {
-                    _toolsExePath = toolsInParent;
-                }
-            }
-        }
+            Path.Combine(currentDir, "bin", "Tools.exe"),
+            Path.Combine(currentDir, "..", "Tools.exe"),
+            Path.Combine(currentDir, "Tools.exe"),
+        }.First(File.Exists);
     }
 
     public async Task StartAsync()

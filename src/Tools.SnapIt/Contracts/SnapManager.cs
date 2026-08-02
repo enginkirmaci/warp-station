@@ -101,6 +101,11 @@ public class SnapManager : ISnapManager
 
 	public void Dispose()
 	{
+		if (!IsInitialized)
+		{
+			return;
+		}
+
 		windowManager.Dispose();
 
 		mouseService.MoveWindow -= MoveWindow;

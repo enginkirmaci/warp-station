@@ -75,15 +75,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path portable | Out-Null
           # Stage to a clean folder, excluding pdbs/xml so the zip stays lean and the
-          # installer's source dir is not mutated. The portable build stores its data
-          # in %USERPROFILE%\.devtools, same as the installer; the bundled settings\
-          # tree is seeded into the user folder on first run via UserPaths.SeedFromDefault.
-          robocopy "bin\win-x64\publish" "bin\portable-stage" /E /XF *.pdb *.xml | Out-Null
+          # installer's source dir is not mutated. DevTools and Tools publish to separate
+          # folders (split build layout: DevTools -> build\, Tools -> build\bin\); the zip
+          # mirrors the installer: DevTools at the zip root, Tools under a bin\ subfolder.
+          # The portable build stores its data in %USERPROFILE%\.devtools, same as the
+          # installer; the bundled settings\ tree is seeded into the user folder on first
+          # run via UserPaths.SeedFromDefault.
+          robocopy "build\win-x64\publish" "build\portable-stage" /E /XF *.pdb *.xml | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+          robocopy "build\bin\win-x64\publish" "build\portable-stage\bin" /E /XF *.pdb *.xml | Out-Null
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
           # Robocopy reports success as exit 1-7; reset so the step doesn't inherit it
           # (the GitHub Actions pwsh wrapper exits with $LASTEXITCODE).
           $global:LASTEXITCODE = 0
-          Compress-Archive -Path "bin\portable-stage\*" `
+          Compress-Archive -Path "build\portable-stage\*" `
             -DestinationPath "portable\DevTools-Portable-${{ steps.version.outputs.version }}.zip" `
             -CompressionLevel Optimal
 

@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Tools.SnapIt</RootNamespace>
-    <OutputPath>..\..\bin\</OutputPath>
+    <OutputPath>..\..\build\bin\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>

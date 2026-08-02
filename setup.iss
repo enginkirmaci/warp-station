@@ -32,18 +32,21 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Everything except user-data JSONs, which are handled below so reinstalls preserve them.
-; Note: settings\opencode\prompts.json and settings\opencode\templates\* are app-authored
-; (the shipped copy is authoritative and seeded/refreshed into %USERPROFILE%\.devtools at
-; run), so they are NOT excluded here and are always replaced on upgrade via this catch-all.
-Source: "bin\win-x64\publish\*"; DestDir: "{app}"; Excludes: "settings\settings.json,settings\repos.cache.json,settings\snapit\Settings.json,settings\snapit\ExcludedApplicationSettings.json,settings\snapit\layouts\*.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; DevTools (launcher) installs to {app} root. It ships no user-data JSONs.
+Source: "build\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Tools (main app) installs to {app}\bin. Everything except user-data JSONs, which are
+; handled below so reinstalls preserve them. Note: settings\opencode\prompts.json and
+; settings\opencode\templates\* are app-authored (the shipped copy is authoritative and
+; seeded/refreshed into %USERPROFILE%\.devtools at run), so they are NOT excluded here and
+; are always replaced on upgrade via this catch-all.
+Source: "build\bin\win-x64\publish\*"; DestDir: "{app}\bin"; Excludes: "settings\settings.json,settings\repos.cache.json,settings\snapit\Settings.json,settings\snapit\ExcludedApplicationSettings.json,settings\snapit\layouts\*.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; User-data files: ship defaults on fresh install, keep existing on upgrade so the app
 ; can migrate them to %USERPROFILE%\.devtools on first run. neveruninstall so a
-; repair/upgrade never drops the migration source.
-Source: "bin\win-x64\publish\settings\settings.json"; DestDir: "{app}\settings"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "bin\win-x64\publish\settings\snapit\Settings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "bin\win-x64\publish\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "bin\win-x64\publish\settings\snapit\layouts\*.json"; DestDir: "{app}\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
+; repair/upgrade never drops the migration source. These live under Tools (bin).
+Source: "build\bin\win-x64\publish\settings\settings.json"; DestDir: "{app}\bin\settings"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "build\bin\win-x64\publish\settings\snapit\Settings.json"; DestDir: "{app}\bin\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "build\bin\win-x64\publish\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\bin\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "build\bin\win-x64\publish\settings\snapit\layouts\*.json"; DestDir: "{app}\bin\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

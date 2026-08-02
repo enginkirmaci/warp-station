@@ -69,9 +69,13 @@ echo "::group::Resolve version"
 echo "Version: $VERSION"
 echo "::endgroup::"
 
-# --- Paths (must match CI: bin/win-x64/publish -> bin/portable-stage -> portable/) ---
-PUBLISH_DIR="bin/win-x64/publish"
-STAGE_DIR="bin/portable-stage"
+# --- Paths (must match CI: split build output -> build/portable-stage -> portable/) ---
+# DevTools (launcher) and Tools (main app) publish to separate folders per the csproj
+# OutputPath layout (DevTools -> build/, Tools -> build/bin/). The portable zip mirrors
+# the installer: DevTools at the zip root, Tools under a bin/ subfolder.
+DEVTOOLS_PUBLISH="build/win-x64/publish"
+TOOLS_PUBLISH="build/bin/win-x64/publish"
+STAGE_DIR="build/portable-stage"
 OUT_DIR="portable"
 ZIP="$OUT_DIR/DevTools-Portable-$VERSION.zip"
 
@@ -99,27 +103,35 @@ echo "::group::Publish DevTools"
 dotnet publish src/DevTools/DevTools.csproj "${PUBLISH_FLAGS[@]}"
 echo "::endgroup::"
 
-# Sanity: both projects publish -r win-x64 into bin/win-x64/publish/ (verified
-# at build time; this is the path CI stages from). Make sure the two exes exist.
-for exe in Tools.exe DevTools.exe; do
-	if [[ ! -f "$PUBLISH_DIR/$exe" ]]; then
-		echo "::error::expected $PUBLISH_DIR/$exe after publish, not found." >&2
+# Sanity: each project publishes -r win-x64 into its own folder (verified at build
+# time; these are the paths CI stages from). Make sure the expected exe exists in each.
+for pair in "DevTools.exe:$DEVTOOLS_PUBLISH" "Tools.exe:$TOOLS_PUBLISH"; do
+	exe="${pair%%:*}"
+	dir="${pair##*:}"
+	if [[ ! -f "$dir/$exe" ]]; then
+		echo "::error::expected $dir/$exe after publish, not found." >&2
 		exit 1
 	fi
 done
 
 echo "::group::Stage (exclude *.pdb, *.xml)"
 rm -rf "$STAGE_DIR"
-mkdir -p "$STAGE_DIR"
+mkdir -p "$STAGE_DIR" "$STAGE_DIR/bin"
 # rsync mirrors CI's `robocopy /E /XF *.pdb *.xml` (recursive copy, two excludes).
+# DevTools -> stage root; Tools -> stage/bin (split layout, matching the installer).
 if command -v rsync >/dev/null 2>&1; then
 	rsync -a \
 		--exclude='*.pdb' \
 		--exclude='*.xml' \
-		"$PUBLISH_DIR/" "$STAGE_DIR/"
+		"$DEVTOOLS_PUBLISH/" "$STAGE_DIR/"
+	rsync -a \
+		--exclude='*.pdb' \
+		--exclude='*.xml' \
+		"$TOOLS_PUBLISH/" "$STAGE_DIR/bin/"
 else
-	# Fallback: cp everything, then delete the excluded file types.
-	cp -a "$PUBLISH_DIR/." "$STAGE_DIR/"
+	# Fallback: cp everything, then delete the excluded file types per tree.
+	cp -a "$DEVTOOLS_PUBLISH/." "$STAGE_DIR/"
+	cp -a "$TOOLS_PUBLISH/." "$STAGE_DIR/bin/"
 	find "$STAGE_DIR" -type f \( -name '*.pdb' -o -name '*.xml' \) -delete
 fi
 echo "::endgroup::"
