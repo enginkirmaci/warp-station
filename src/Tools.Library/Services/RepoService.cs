@@ -166,7 +166,11 @@ public class RepoService : IRepoService
 
             await SaveAsync();
 
-            RaiseChanged();
+            // No RaiseChanged here: the start raise above already flipped _busy to true,
+            // and the finally raise below signals both data-ready and _busy=false in one
+            // go. Consumers already handle both — GitStatusService skips while busy and
+            // re-checks on completion; ReposViewModel debounces its rebuild. A third raise
+            // mid-scan would only add an extra redundant rebuild + status pass.
         }
         catch (Exception ex)
         {

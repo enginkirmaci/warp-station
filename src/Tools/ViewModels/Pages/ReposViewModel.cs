@@ -35,6 +35,24 @@ public partial class ReposViewModel : PageViewModelBase
     private ReposSettings _reposSettings = new();
     private OpenCodeSettings _openCodeSettings = new();
 
+    /// <summary>
+    /// Debounce timers for the filter and the service-changed handler. A burst of typing or
+    /// the several <c>Changed</c> raises a single scan produces each cancel the pending
+    /// callback and restart the window, so only one in-place <see cref="ApplyFilter"/> runs
+    /// per burst instead of tearing down the list per keystroke / per event.
+    /// </summary>
+    private CancellationTokenSource? _filterDebounce;
+    private CancellationTokenSource? _changedDebounce;
+
+    /// <summary>Idle window for the search-box filter before the list is re-synced.</summary>
+    private const int FilterDebounceMs = 150;
+
+    /// <summary>
+    /// Idle window for coalescing the multiple <c>Changed</c> raises a single scan emits
+    /// (start, data-ready, finally) into one rebuild.
+    /// </summary>
+    private const int ChangedDebounceMs = 100;
+
     [ObservableProperty]
     private string _filterText = string.Empty;
 
@@ -219,6 +237,15 @@ public partial class ReposViewModel : PageViewModelBase
         // Detach from the singletons so this Transient VM (rebuilt per navigation) is not
         // kept alive by them and does not receive further state changes.
         _repoService.Changed -= OnRepoChanged;
+
+        // Cancel any deferred filter/changed callbacks so a pending debounce does not fire
+        // its UI-thread update after this VM is no longer the active page.
+        _filterDebounce?.Cancel();
+        _filterDebounce?.Dispose();
+        _changedDebounce?.Cancel();
+        _changedDebounce?.Dispose();
+        _filterDebounce = null;
+        _changedDebounce = null;
         return Task.CompletedTask;
     }
 
@@ -367,14 +394,65 @@ public partial class ReposViewModel : PageViewModelBase
         // base IsBusy here — only IsRefreshing gates the Refresh button, so a scan never
         // blocks the rest of the page. The cards/tags/list re-render from the service
         // snapshot below without disabling anything.
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        //
+        // A single scan raises Changed several times (start, after replacing the repos,
+        // and in the finally block). Debounce so those collapse into one rebuild pass
+        // rather than tearing the list down and rebuilding it per event.
+        ScheduleChangedDebounce();
+    }
+
+    /// <summary>
+    /// Coalesces a burst of <see cref="IRepoService.Changed"/> raises into a single
+    /// tag-filter rebuild + in-place list sync on the UI thread.
+    /// </summary>
+    private void ScheduleChangedDebounce()
+    {
+        _changedDebounce?.Cancel();
+        _changedDebounce?.Dispose();
+        _changedDebounce = new CancellationTokenSource();
+        var token = _changedDebounce.Token;
+        Task.Run(async () =>
         {
-            RebuildTagFilters();
-            ApplyFilter();
+            try
+            {
+                await Task.Delay(ChangedDebounceMs, token);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    RebuildTagFilters();
+                    ApplyFilter();
+                });
+            }
+            catch (OperationCanceledException) { }
         });
     }
 
-    partial void OnFilterTextChanged(string value) => ApplyFilter();
+    partial void OnFilterTextChanged(string value) => ScheduleFilterDebounce();
+
+    /// <summary>
+    /// Coalesces a burst of keystrokes into a single in-place list sync so the cards are
+    /// not torn down and rebuilt per character.
+    /// </summary>
+    private void ScheduleFilterDebounce()
+    {
+        _filterDebounce?.Cancel();
+        _filterDebounce?.Dispose();
+        _filterDebounce = new CancellationTokenSource();
+        var token = _filterDebounce.Token;
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(FilterDebounceMs, token);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    ApplyFilter();
+                });
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
 
     /// <summary>
     /// Re-apply the filter when the panel closes so the OpenCode-targeted repo is not
@@ -464,10 +542,19 @@ public partial class ReposViewModel : PageViewModelBase
         }
 
         // Favorites always float to the top, then alphabetical by name.
-        FilteredRepos = new ObservableCollection<Repo>(
-            result
-                .OrderByDescending(r => r.IsFavorite)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase));
+        var ordered = result
+            .OrderByDescending(r => r.IsFavorite)
+            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Sync the existing collection in place rather than replacing it. Reassigning a new
+        // instance here would force every card container to be torn down and rebuilt (and
+        // with a non-virtualizing panel, re-realized up front). Clear/Add flow through
+        // CollectionChanged so the virtualized ListBox only recycles affected containers, and
+        // the count binding ({Binding FilteredRepos.Count}) updates from those same notifications.
+        FilteredRepos.Clear();
+        foreach (var repo in ordered)
+            FilteredRepos.Add(repo);
     }
 
     // --- Launch commands ---
