@@ -105,6 +105,15 @@ public partial class ReposViewModel : PageViewModelBase
     private int _openCodeInstanceCount = 1;
 
     /// <summary>
+    /// Whether to tile the launched opencode instances across the screen in a grid. Off by
+    /// default — instances open as plain terminal windows; checking it routes the launch
+    /// through <see cref="IOpenCodeGridLauncher"/>, which positions each window into a cell.
+    /// Reset to off each time the panel closes, like the other panel fields.
+    /// </summary>
+    [ObservableProperty]
+    private bool _openCodeArrangeIntoGrid;
+
+    /// <summary>
     /// The models available in the OpenCode model selector, fetched by running
     /// <c>opencode models</c> as a one-shot process (see <see cref="IOpenCodeModelService"/>).
     /// (Re)populated each time the panel opens; empty when the CLI fails or is missing.
@@ -464,6 +473,7 @@ public partial class ReposViewModel : PageViewModelBase
         {
             OpenCodeRepo = null;
             OpenCodeInstanceCount = 1;
+            OpenCodeArrangeIntoGrid = false;
             OpenCodeSelectedModel = string.Empty;
             OpenCodeModelFilter = string.Empty;
             OpenCodeSelectedTemplate = OpenCodeTemplate.None;
@@ -670,10 +680,25 @@ public partial class ReposViewModel : PageViewModelBase
             ? OpenCodeModels.FirstOrDefault() ?? string.Empty
             : OpenCodeSelectedModel;
 
-        // Tile the instances across the active screen: a single instance fills the
-        // screen as a 1x1 grid, 6 instances form a 3x2 grid. The launcher owns window
-        // detection and positioning, so single and multiple share one path/class.
-        await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
+        if (OpenCodeArrangeIntoGrid)
+        {
+            // Tile the instances across the active screen: a single instance fills the
+            // screen as a 1x1 grid, 6 instances form a 3x2 grid. The launcher owns window
+            // detection and positioning, so single and multiple share one path/class.
+            await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
+        }
+        else
+        {
+            // No tiling: open the instances as plain terminal windows, the same way Quick
+            // Open launches a single one. BuildCommandLine is shared with the grid path so
+            // the command line stays in sync.
+            var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, prompt ?? string.Empty);
+            var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
+            for (var i = 0; i < count; i++)
+            {
+                _processLauncher.StartProcess(terminalExe, args);
+            }
+        }
 
         IsOpenCodePanelOpen = false;
     }

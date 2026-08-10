@@ -688,6 +688,10 @@
                                                 Minimum="1"
                                                 ParsingNumberStyle="Integer"
                                                 Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
+                                        <CheckBox
+                                                Content="Arrange into grid"
+                                                IsChecked="{Binding OpenCodeArrangeIntoGrid, Mode=TwoWay}"
+                                                ToolTip.Tip="Tile the launched instances across the screen in a grid" />
                                 </StackPanel>
                                 <StackPanel
                                         Grid.Row="4"
