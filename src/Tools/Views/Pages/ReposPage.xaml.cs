@@ -53,6 +53,30 @@ public partial class ReposPage : UserControl
     /// actual selection is committed here and the filter text is snapped back to the chosen
     /// model's full name — otherwise the box would keep showing the partial search term.
     /// </summary>
+    /// <summary>
+    /// Swallows pointer presses on the card background before they bubble up to the
+    /// ListBoxItem, which would otherwise select the item and flash the theme's
+    /// selected-state indicator. Buttons inside the template sit deeper in the visual
+    /// tree and handle their own presses first, so their clicks are unaffected.
+    /// </summary>
+    private void OnCardPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// The repo cards are non-interactive containers — every action is an explicit button
+    /// inside the template — so ListBox selection carries no meaning. Clear it immediately
+    /// to suppress the theme's selected-state indicator (the pill shown on a clicked card).
+    /// </summary>
+    private void OnRepoSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: not null } listBox)
+        {
+            listBox.SelectedItem = null;
+        }
+    }
+
     private void OnOpenCodeModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is ComboBox { SelectedItem: string model } && ViewModel is { } vm)

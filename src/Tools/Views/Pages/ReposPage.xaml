@@ -150,7 +150,8 @@
                         BorderThickness="0"
                         Padding="0"
                         SelectionMode="Single"
-                        ItemsSource="{Binding FilteredRepos}">
+                        ItemsSource="{Binding FilteredRepos}"
+                        SelectionChanged="OnRepoSelectionChanged">
                         <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                         <VirtualizingStackPanel />
@@ -170,6 +171,20 @@
                                         <Setter Property="Background" Value="Transparent" />
                                         <Setter Property="FocusAdorner" Value="{x:Null}" />
                                 </Style>
+                                <!--
+                                        The theme's pseudoclass selectors (e.g. ListBoxItem:pointerover) beat the
+                                        plain ListBoxItem style above by specificity, so repeat the neutralization
+                                        at matching specificity to keep hover/press/selection chrome invisible.
+                                -->
+                                <Style Selector="ListBoxItem:pointerover">
+                                        <Setter Property="Background" Value="Transparent" />
+                                </Style>
+                                <Style Selector="ListBoxItem:pressed">
+                                        <Setter Property="Background" Value="Transparent" />
+                                </Style>
+                                <Style Selector="ListBoxItem:selected">
+                                        <Setter Property="Background" Value="Transparent" />
+                                </Style>
                                 <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
                                         <Setter Property="Background" Value="Transparent" />
                                 </Style>
@@ -183,7 +198,7 @@
                         <ListBox.ItemTemplate>
                                 <DataTemplate>
                                         <!-- Bottom margin replaces the old items-panel Spacing="12"; VirtualizingStackPanel has no Spacing. -->
-                                        <Border Classes="card" Margin="0,0,0,12">
+                                        <Border Classes="card" Margin="0,0,0,12" PointerPressed="OnCardPointerPressed">
                                                                 <!--
                                                                         Sections spread across the full card width
                                                                         (space-between) on large windows and reflow onto
@@ -443,6 +458,59 @@
                                                                                 </StackPanel>
                                                                         </Border>
 
+                                                                        <!--  OpenCode zone: quick open + options panel  -->
+                                                                        <Border
+                                                                                Padding="16,0"
+                                                                                VerticalAlignment="Stretch"
+                                                                                BorderBrush="{DynamicResource HairlineBrush}"
+                                                                                BorderThickness="1,0,0,0"
+                                                                                IsVisible="{Binding #Root.DataContext.IsOpenCodeEnabled}">
+                                                                                <StackPanel
+                                                                                        VerticalAlignment="Center"
+                                                                                        Orientation="Vertical"
+                                                                                        Spacing="8">
+                                                                                        <TextBlock Classes="field-label" Text="OpenCode" />
+                                                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                                                <Button
+                                                                                                        Classes="tool-button accent-outline"
+                                                                                                        Command="{Binding #Root.DataContext.QuickOpenOpenCodeCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        ToolTip.Tip="Launch one opencode instance with the first model">
+                                                                                                        <StackPanel HorizontalAlignment="Center" Spacing="6">
+                                                                                                                <Path
+                                                                                                                        Width="20"
+                                                                                                                        Height="20"
+                                                                                                                        HorizontalAlignment="Center"
+                                                                                                                        Data="{tools:SvgPath icon-opencode}"
+                                                                                                                        Fill="{DynamicResource InfoAccentBrush}"
+                                                                                                                        Stretch="Uniform" />
+                                                                                                                <TextBlock
+                                                                                                                        HorizontalAlignment="Center"
+                                                                                                                        FontSize="11"
+                                                                                                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                                                                                                        Text="OpenCode" />
+                                                                                                        </StackPanel>
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        MinWidth="0"
+                                                                                                        Padding="8"
+                                                                                                        Classes="tool-button"
+                                                                                                        Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        ToolTip.Tip="Open the options panel (model, instances, template, prompt)">
+                                                                                                        <Path
+                                                                                                                Width="16"
+                                                                                                                Height="16"
+                                                                                                                HorizontalAlignment="Center"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-ellipsis-vertical}"
+                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                        </StackPanel>
+                                                                                </StackPanel>
+                                                                        </Border>
+
                                                                         <!--  Git zone: branch + modified / ahead / behind stats  -->
                                                                         <Border
                                                                                 Padding="16,0"
@@ -551,59 +619,6 @@
                                                                                                         IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
                                                                                                         Text="checking…" />
                                                                                         </Grid>
-                                                                                </StackPanel>
-                                                                        </Border>
-
-                                                                        <!--  AI / OpenCode zone: quick open + options panel  -->
-                                                                        <Border
-                                                                                Padding="16,0"
-                                                                                VerticalAlignment="Stretch"
-                                                                                BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                BorderThickness="1,0,0,0"
-                                                                                IsVisible="{Binding #Root.DataContext.IsOpenCodeEnabled}">
-                                                                                <StackPanel
-                                                                                        VerticalAlignment="Center"
-                                                                                        Orientation="Vertical"
-                                                                                        Spacing="8">
-                                                                                        <TextBlock
-                                                                                                VerticalAlignment="Center"
-                                                                                                Classes="field-label"
-                                                                                                Text="AI / OpenCode" />
-                                                                                        <Button
-                                                                                                HorizontalAlignment="Stretch"
-                                                                                                HorizontalContentAlignment="Center"
-                                                                                                Classes="accent"
-                                                                                                Command="{Binding #Root.DataContext.QuickOpenOpenCodeCommand}"
-                                                                                                CommandParameter="{Binding}"
-                                                                                                ToolTip.Tip="Launch one opencode instance with the first model">
-                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                                        <TextBlock VerticalAlignment="Center" Text="Quick Open" />
-                                                                                                        <Path
-                                                                                                                Width="10"
-                                                                                                                Height="10"
-                                                                                                                VerticalAlignment="Center"
-                                                                                                                Data="{tools:SvgPath icon-play}"
-                                                                                                                Fill="{DynamicResource AccentForegroundBrush}"
-                                                                                                                Stretch="Uniform" />
-                                                                                                </StackPanel>
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                                HorizontalAlignment="Stretch"
-                                                                                                HorizontalContentAlignment="Center"
-                                                                                                Command="{Binding #Root.DataContext.OpenOpenCodePanelCommand}"
-                                                                                                CommandParameter="{Binding}"
-                                                                                                ToolTip.Tip="Open the options panel (model, instances, template, prompt)">
-                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                                        <TextBlock VerticalAlignment="Center" Text="Options…" />
-                                                                                                        <Path
-                                                                                                                Width="10"
-                                                                                                                Height="10"
-                                                                                                                VerticalAlignment="Center"
-                                                                                                                Data="{tools:SvgPath icon-open-in-new}"
-                                                                                                                Fill="{DynamicResource BodyForegroundBrush}"
-                                                                                                                Stretch="Uniform" />
-                                                                                                </StackPanel>
-                                                                                        </Button>
                                                                                 </StackPanel>
                                                                         </Border>
 
