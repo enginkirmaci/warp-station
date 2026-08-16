@@ -19,6 +19,7 @@ public class RepoService : IRepoService
     private List<Repo> _repos = new();
     private bool _busy;
     private bool _cacheLoaded;
+    private bool _scannedThisSession;
 
     public RepoService(IRepoScanner scanner, IRepoCacheStore cacheStore)
     {
@@ -62,6 +63,9 @@ public class RepoService : IRepoService
     public event EventHandler? Changed;
 
     /// <inheritdoc/>
+    public event EventHandler? TagsChanged;
+
+    /// <inheritdoc/>
     public async Task EnsureLoadedAsync(ReposSettings settings)
     {
         // Load cache once if we have no data yet, so the UI renders instantly.
@@ -85,8 +89,13 @@ public class RepoService : IRepoService
             }
         }
 
-        // Always scan in background to keep data fresh, even if we loaded from cache.
-        if (settings.RepoScanFolders?.Any() == true)
+        // Scan once per app session: the background scan is disk-bound (recursive walk
+        // plus a per-repo solution file lookup), so re-running it on every navigation to
+        // the Repos page would hammer the file system and re-trigger a full git status
+        // pass each time. Later navigations serve the in-memory/cache data; the manual
+        // Refresh command (RefreshAsync) forces a rescan. A failed scan leaves the flag
+        // unset so the next navigation retries.
+        if (!_scannedThisSession && settings.RepoScanFolders?.Any() == true)
         {
             _ = ScanAsync(settings);
         }
@@ -98,6 +107,7 @@ public class RepoService : IRepoService
         // Keep the in-memory repos so the UI does not blank out during a manual refresh;
         // the scan replaces them once it completes.
         _cacheLoaded = false;
+        _scannedThisSession = false;
         RaiseChanged();
         await EnsureLoadedAsync(settings);
     }
@@ -107,7 +117,7 @@ public class RepoService : IRepoService
     {
         repo.AddTag(tag);
         await SaveAsync();
-        RaiseChanged();
+        RaiseTagsChanged();
     }
 
     /// <inheritdoc/>
@@ -115,7 +125,7 @@ public class RepoService : IRepoService
     {
         if (!repo.RemoveTag(tag)) return;
         await SaveAsync();
-        RaiseChanged();
+        RaiseTagsChanged();
     }
 
     /// <inheritdoc/>
@@ -125,7 +135,7 @@ public class RepoService : IRepoService
             repo.AddTag(FavoritesTag);
 
         await SaveAsync();
-        RaiseChanged();
+        RaiseTagsChanged();
     }
 
     private async Task ScanAsync(ReposSettings settings)
@@ -159,10 +169,20 @@ public class RepoService : IRepoService
                             continue;
                         repo.AddTag(tag.Name);
                     }
+
+                    // Carry over the last-known git status so a rescan of an unchanged
+                    // repo does not flip its card back to the "checking…" placeholder;
+                    // the status service re-probes in the background anyway.
+                    repo.GitBranchName = prev.GitBranchName;
+                    repo.GitModifiedCount = prev.GitModifiedCount;
+                    repo.GitToPushCount = prev.GitToPushCount;
+                    repo.GitToPullCount = prev.GitToPullCount;
+                    repo.GitStatusLoaded = prev.GitStatusLoaded;
                 }
             }
 
             _repos = scanned;
+            _scannedThisSession = true;
 
             await SaveAsync();
 
@@ -192,4 +212,6 @@ public class RepoService : IRepoService
     }
 
     private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);
+
+    private void RaiseTagsChanged() => TagsChanged?.Invoke(this, EventArgs.Empty);
 }

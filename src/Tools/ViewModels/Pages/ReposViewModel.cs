@@ -235,6 +235,7 @@ public partial class ReposViewModel : PageViewModelBase
         _notificationService = notificationService;
 
         _repoService.Changed += OnRepoChanged;
+        _repoService.TagsChanged += OnRepoChanged;
     }
 
     /// <inheritdoc/>
@@ -246,6 +247,7 @@ public partial class ReposViewModel : PageViewModelBase
         // Detach from the singletons so this Transient VM (rebuilt per navigation) is not
         // kept alive by them and does not receive further state changes.
         _repoService.Changed -= OnRepoChanged;
+        _repoService.TagsChanged -= OnRepoChanged;
 
         // Cancel any deferred filter/changed callbacks so a pending debounce does not fire
         // its UI-thread update after this VM is no longer the active page.
@@ -273,10 +275,14 @@ public partial class ReposViewModel : PageViewModelBase
 
         // Kick the local git status checks in the background — the cards render instantly
         // with a "checking…" placeholder and the counts fill in as each repo's probe
-        // completes. Fire-and-forget so page load never waits on git. (The service also
-        // self-refreshes whenever IRepoService reports fresh data; this call covers the
-        // first navigation, where the singleton may have missed the initial scan events.)
-        _ = _gitStatusService.RefreshAllAsync();
+        // completes. Only repos without a status yet need probing (first navigation, or
+        // after a scan added repos); later navigations of the same session reuse the
+        // statuses the earlier passes pushed onto the entities, instead of re-spawning
+        // one git process per repo on every page visit.
+        if (_repoService.Repos.Any(r => !r.GitStatusLoaded))
+        {
+            _ = _gitStatusService.RefreshAllAsync();
+        }
     }
 
     /// <summary>
@@ -399,6 +405,9 @@ public partial class ReposViewModel : PageViewModelBase
 
     private void OnRepoChanged(object? sender, EventArgs e)
     {
+        // Wired to both Changed and TagsChanged: both mean "the projection may be stale"
+        // (fresh scan data, or a tag/favorite edit that can reorder or re-filter).
+        //
         // Note: the repo service's scan state is intentionally NOT mirrored onto the
         // base IsBusy here — only IsRefreshing gates the Refresh button, so a scan never
         // blocks the rest of the page. The cards/tags/list re-render from the service
@@ -556,6 +565,24 @@ public partial class ReposViewModel : PageViewModelBase
             .OrderByDescending(r => r.IsFavorite)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        // Skip the sync when the projection is unchanged (e.g. adding a tag while no tag
+        // filter is checked, or a search term that matches the same set): Clear/Add would
+        // churn every recycled container and re-render the list for nothing. Same-count
+        // lists are compared by reference — repos are shared instances, and Repo has no
+        // value-equality that would catch a name/path edit anyway.
+        if (ordered.Count == FilteredRepos.Count)
+        {
+            var unchanged = true;
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                if (ReferenceEquals(ordered[i], FilteredRepos[i])) continue;
+                unchanged = false;
+                break;
+            }
+
+            if (unchanged) return;
+        }
 
         // Sync the existing collection in place rather than replacing it. Reassigning a new
         // instance here would force every card container to be torn down and rebuilt (and

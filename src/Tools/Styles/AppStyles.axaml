@@ -209,12 +209,13 @@
     </Style>
 
     <!--
-        Tool button — a larger launch button with an icon stacked over a caption
-        (repo card Workspace zone). Subtle fill, hairline border, lifts on hover.
+        Tool button — an icon-only launch button (repo card Workspace zone).
+        Subtle fill, hairline border, lifts on hover; the tooltip names the action.
     -->
     <Style Selector="Button.tool-button">
-        <Setter Property="MinWidth" Value="68" />
-        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="Width" Value="40" />
+        <Setter Property="Height" Value="40" />
+        <Setter Property="Padding" Value="0" />
         <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
         <Setter Property="BorderThickness" Value="1" />

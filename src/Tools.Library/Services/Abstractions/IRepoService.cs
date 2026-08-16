@@ -29,13 +29,22 @@ public interface IRepoService
     IReadOnlyCollection<string> AllTags { get; }
 
     /// <summary>
-    /// Raised whenever the discovered data, tags, or busy state changes.
+    /// Raised whenever the discovered data or busy state changes (cache load, scan
+    /// start/completion). Not raised for tag/favorite edits — see <see cref="TagsChanged"/>.
     /// </summary>
     event EventHandler? Changed;
 
     /// <summary>
-    /// Loads cached data (if available and not already loaded) and kicks off a fresh
-    /// background scan when scan folders are configured. Idempotent for the cache load.
+    /// Raised when tags or favorites are edited without the discovered repo set changing.
+    /// Kept separate from <see cref="Changed"/> so consumers that react to structural
+    /// changes (e.g. re-probing git status after a scan) can ignore routine tag edits.
+    /// </summary>
+    event EventHandler? TagsChanged;
+
+    /// <summary>
+    /// Loads cached data (if available and not already loaded) and kicks off the
+    /// session's background scan (once per app session) when scan folders are
+    /// configured. <see cref="RefreshAsync"/> forces a rescan.
     /// </summary>
     /// <param name="settings">The repo scan configuration.</param>
     Task EnsureLoadedAsync(ReposSettings settings);

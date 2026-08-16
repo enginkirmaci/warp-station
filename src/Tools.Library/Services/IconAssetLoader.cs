@@ -46,6 +46,7 @@ public static class IconAssetLoader
         "icon-menu",
         "icon-opencode",
         "icon-open-in-new",
+        "icon-options",
         "icon-package",
         "icon-play",
         "icon-refresh",

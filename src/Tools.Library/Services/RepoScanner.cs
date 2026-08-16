@@ -22,7 +22,14 @@ public class RepoScanner : IRepoScanner
     /// </summary>
     public const string PlatformTag = Repo.PlatformTag;
 
-    public Task<RepoScanResult> ScanAsync(ReposSettings settings)
+    /// <summary>
+    /// Runs the disk walk on the thread pool: the recursive enumeration and per-repo
+    /// solution lookup are pure blocking I/O, so offloading keeps callers (typically the
+    /// UI thread kicking a background scan) responsive for the whole scan.
+    /// </summary>
+    public Task<RepoScanResult> ScanAsync(ReposSettings settings) => Task.Run(() => Scan(settings));
+
+    private static RepoScanResult Scan(ReposSettings settings)
     {
         var repos = new List<Repo>();
 
@@ -71,7 +78,7 @@ public class RepoScanner : IRepoScanner
                 .OrderBy(r => r.Name)
                 .ToList()
         };
-        return Task.FromResult(result);
+        return result;
     }
 
     /// <summary>

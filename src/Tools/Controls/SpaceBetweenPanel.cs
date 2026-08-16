@@ -15,6 +15,15 @@ namespace Tools.Controls;
 /// </summary>
 public class SpaceBetweenPanel : Panel
 {
+    /// <summary>
+    /// Layout scratch buffers, reused across measure/arrange passes so scrolling
+    /// (which recycles and re-lays-out many panels) does not allocate per pass:
+    /// <see cref="_visibleChildren"/> holds the visible children in tree order and
+    /// <see cref="_rowCounts"/> the number of children packed into each row.
+    /// </summary>
+    private readonly List<Control> _visibleChildren = new();
+    private readonly List<int> _rowCounts = new();
+
     /// <summary>Minimum horizontal gap between two children on the same row.</summary>
     public static readonly StyledProperty<double> ColumnSpacingProperty =
         AvaloniaProperty.Register<SpaceBetweenPanel, double>(nameof(ColumnSpacing), 16);
@@ -40,51 +49,63 @@ public class SpaceBetweenPanel : Panel
     /// <inheritdoc/>
     protected override Size MeasureOverride(Size availableSize)
     {
-        var rows = LayoutRows(availableSize.Width, measure: true);
+        LayoutRows(availableSize.Width, measure: true);
 
         var width = 0.0;
         var height = 0.0;
-        foreach (var row in rows)
+        var offset = 0;
+        foreach (var count in _rowCounts)
         {
             var rowWidth = 0.0;
             var rowHeight = 0.0;
-            foreach (var child in row)
+            for (var i = 0; i < count; i++)
             {
+                var child = _visibleChildren[offset + i];
                 rowWidth += child.DesiredSize.Width;
                 rowHeight = Math.Max(rowHeight, child.DesiredSize.Height);
             }
+            offset += count;
             width = Math.Max(width, rowWidth);
             height += rowHeight;
         }
 
-        height += Math.Max(0, rows.Count - 1) * RowSpacing;
+        height += Math.Max(0, _rowCounts.Count - 1) * RowSpacing;
         return new Size(Math.Min(width, availableSize.Width), height);
     }
 
     /// <inheritdoc/>
     protected override Size ArrangeOverride(Size finalSize)
     {
-        var rows = LayoutRows(finalSize.Width, measure: false);
+        LayoutRows(finalSize.Width, measure: false);
 
         var y = 0.0;
-        foreach (var row in rows)
+        var offset = 0;
+        foreach (var count in _rowCounts)
         {
-            var rowHeight = row.Max(c => c.DesiredSize.Height);
-            var contentWidth = row.Sum(c => c.DesiredSize.Width);
+            var rowHeight = 0.0;
+            var contentWidth = 0.0;
+            for (var i = 0; i < count; i++)
+            {
+                var child = _visibleChildren[offset + i];
+                rowHeight = Math.Max(rowHeight, child.DesiredSize.Height);
+                contentWidth += child.DesiredSize.Width;
+            }
 
             // Space-between: leftover width becomes even gaps between the row's
             // children (never less than ColumnSpacing, so sections never touch).
-            var gap = row.Count > 1
-                ? Math.Max(ColumnSpacing, (finalSize.Width - contentWidth) / (row.Count - 1))
+            var gap = count > 1
+                ? Math.Max(ColumnSpacing, (finalSize.Width - contentWidth) / (count - 1))
                 : 0;
 
             var x = 0.0;
-            foreach (var child in row)
+            for (var i = 0; i < count; i++)
             {
+                var child = _visibleChildren[offset + i];
                 child.Arrange(new Rect(x, y, child.DesiredSize.Width, rowHeight));
                 x += child.DesiredSize.Width + gap;
             }
 
+            offset += count;
             y += rowHeight + RowSpacing;
         }
 
@@ -96,10 +117,13 @@ public class SpaceBetweenPanel : Panel
     /// a new row when it no longer fits next to the current row's children (including
     /// the <see cref="ColumnSpacing"/> gap). Optionally measures the children first.
     /// </summary>
-    private List<List<Control>> LayoutRows(double availableWidth, bool measure)
+    private void LayoutRows(double availableWidth, bool measure)
     {
-        var rows = new List<List<Control>> { new() };
+        _visibleChildren.Clear();
+        _rowCounts.Clear();
+
         var rowWidth = 0.0;
+        var countInRow = 0;
 
         foreach (var child in Children)
         {
@@ -113,15 +137,18 @@ public class SpaceBetweenPanel : Panel
             var needed = rowWidth == 0 ? childWidth : rowWidth + ColumnSpacing + childWidth;
             if (rowWidth > 0 && needed > availableWidth)
             {
-                rows.Add(new List<Control>());
+                _rowCounts.Add(countInRow);
+                countInRow = 0;
                 rowWidth = 0;
                 needed = childWidth;
             }
 
-            rows[^1].Add(child);
+            _visibleChildren.Add(child);
+            countInRow++;
             rowWidth = needed;
         }
 
-        return rows;
+        if (countInRow > 0)
+            _rowCounts.Add(countInRow);
     }
 }
