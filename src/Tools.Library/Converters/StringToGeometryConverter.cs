@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
+using Tools.Library.Media;
 
 namespace Tools.Library.Converters;
 
@@ -44,7 +45,7 @@ public class StringToGeometryConverter : IValueConverter
                 // Verify the geometry is non-empty
                 if (geometry.Bounds.Width > 0 || geometry.Bounds.Height > 0)
                 {
-                    return geometry;
+                    return IconGeometry.CenterOnDesignGrid(geometry);
                 }
             }
             catch

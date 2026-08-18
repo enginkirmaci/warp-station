@@ -1,5 +1,6 @@
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Tools.Library.Media;
 using Tools.Library.Services;
 
 namespace Tools.Library.MarkupExtensions;
@@ -47,7 +48,7 @@ public class SvgPathExtension : MarkupExtension
         try
         {
             var normalized = pathData.Replace(",", " ");
-            return Geometry.Parse(normalized);
+            return IconGeometry.CenterOnDesignGrid(Geometry.Parse(normalized));
         }
         catch
         {
