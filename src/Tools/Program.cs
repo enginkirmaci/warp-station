@@ -10,7 +10,8 @@ internal class Program
     public static void Main(string[] args)
     {
         // Must precede Avalonia startup: the Wayland platform loads its cursor
-        // theme during initialization and ignores XCURSOR_THEME unless aliased.
+        // theme during initialization and ignores XCURSOR_THEME (the alias is
+        // installed on disk — env vars don't reach native getenv).
         WaylandCursorTheme.Apply();
 
         try

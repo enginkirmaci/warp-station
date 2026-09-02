@@ -10,18 +10,23 @@ namespace Tools.Helpers;
 /// libwayland-cursor never reads <c>XCURSOR_THEME</c> — a null theme name resolves
 /// to the hardcoded theme <c>"default"</c>, which on most distros inherits Adwaita,
 /// so the app shows the wrong cursor shape. The package exposes no way to pass the
-/// theme name (and ignores <c>XCURSOR_SIZE</c>), so <see cref="Apply"/> aliases
-/// <c>"default"</c> to the session theme through a symlink inside an app-private
-/// directory and puts that directory first on <c>XCURSOR_PATH</c>, which
-/// libwayland-cursor reads at theme-load time. Must run before Avalonia
-/// initializes its platform (i.e. before the first window is created).
+/// theme name, and the alias cannot be carried in an environment variable:
+/// <see cref="Environment.SetEnvironmentVariable"/> is not visible to native
+/// <c>getenv</c> (verified — the managed value never reaches libwayland-cursor).
+/// Instead <see cref="Apply"/> aliases <c>"default"</c> on disk, in the XDG icons
+/// root (<c>$XDG_DATA_HOME/icons/default</c>, falling back to
+/// <c>~/.local/share/icons/default</c>) — the first entry of the library's
+/// compiled-in search path — pointing it at the session theme's directory. Must run
+/// before Avalonia initializes its platform; no-op on non-Linux platforms and
+/// outside Wayland sessions.
 /// </para>
 /// </summary>
 public static class WaylandCursorTheme
 {
     /// <summary>
-    /// Installs the cursor-theme alias for the current session. No-op on non-Linux
-    /// platforms and outside Wayland sessions; never throws.
+    /// Installs the cursor-theme alias for the current session. No-op when the
+    /// session theme is unset, already <c>"default"</c>, or unresolvable — and
+    /// never overrides an existing on-disk <c>default</c> entry; never throws.
     /// </summary>
     public static void Apply()
     {
@@ -48,15 +53,9 @@ public static class WaylandCursorTheme
 
         try
         {
-            var shimRoot = Path.Combine(UserPaths.UserDataRoot, "cursor-shim");
-            var shimLink = Path.Combine(shimRoot, "default");
-            Directory.CreateDirectory(shimRoot);
-            ReplaceSymbolicLink(shimLink, themeDir);
-
-            var existing = Environment.GetEnvironmentVariable("XCURSOR_PATH");
-            var searchPath = string.IsNullOrWhiteSpace(existing) ? DefaultSearchPath() : existing;
-            Environment.SetEnvironmentVariable("XCURSOR_PATH", shimRoot + Path.PathSeparator + searchPath);
-            Log.Debug("Wayland cursor theme {Theme} aliased via {ShimLink}", theme, shimLink);
+            TryCleanupOldShim();
+            var aliasLink = Path.Combine(XdgIconsRoot(), "default");
+            AliasDefaultTheme(aliasLink, themeDir);
         }
         catch (Exception ex)
         {
@@ -66,13 +65,52 @@ public static class WaylandCursorTheme
     }
 
     /// <summary>
+    /// Points <paramref name="aliasLink"/> at <paramref name="themeDir"/> unless it
+    /// already resolves to a theme on its own: an existing real directory or a
+    /// symlink aimed at a live directory is the user's own configuration and wins;
+    /// only a missing or dangling entry gets (re)created.
+    /// </summary>
+    private static void AliasDefaultTheme(string aliasLink, string themeDir)
+    {
+        var info = new FileInfo(aliasLink);
+        if (info.LinkTarget is { } target)
+        {
+            if (string.Equals(target, themeDir, StringComparison.Ordinal))
+                return;
+            if (Directory.Exists(target) || File.Exists(target))
+            {
+                Log.Debug("Wayland cursor theme: on-disk default already points at {Target}, leaving it", target);
+                return;
+            }
+            info.Delete(); // dangling link — deletes the link itself, never a theme directory
+        }
+        else if (info.Exists || Directory.Exists(aliasLink))
+        {
+            Log.Debug("Wayland cursor theme: on-disk default at {AliasLink} already exists, leaving it", aliasLink);
+            return;
+        }
+        File.CreateSymbolicLink(aliasLink, themeDir);
+        Log.Debug("Wayland cursor theme {Theme} aliased as default via {AliasLink}", themeDir, aliasLink);
+    }
+
+    /// <summary>Removes the superseded XCURSOR_PATH-era shim directory, if present.</summary>
+    private static void TryCleanupOldShim()
+    {
+        try
+        {
+            Directory.Delete(Path.Combine(UserPaths.UserDataRoot, "cursor-shim"), recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>
     /// Finds the xcursor directory of <paramref name="theme"/>, following
     /// <c>Inherits=</c> chains the same way xcursor theme resolution does.
     /// </summary>
     private static string? LocateThemeDir(string theme)
     {
-        var roots = ThemeRoots();
-
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Queue<string>();
         pending.Enqueue(theme);
@@ -81,7 +119,7 @@ public static class WaylandCursorTheme
             var name = pending.Dequeue();
             if (!visited.Add(name))
                 continue;
-            foreach (var root in roots)
+            foreach (var root in ThemeRoots())
             {
                 var dir = Path.Combine(root, name);
                 if (Directory.Exists(Path.Combine(dir, "cursors")))
@@ -95,16 +133,10 @@ public static class WaylandCursorTheme
     }
 
     /// <summary>
-    /// Absolute-path superset of libwayland-cursor's compiled-in search path
-    /// (whose first entry is <c>$XDG_DATA_HOME/icons</c> or
-    /// <c>~/.local/share/icons</c>). Only used when <c>XCURSOR_PATH</c> is not
-    /// already set; the loader skips entries that don't exist.
+    /// The directories libwayland-cursor searches, in its own precedence order:
+    /// <c>$XDG_DATA_HOME/icons</c> (else <c>~/.local/share/icons</c>), then
+    /// <c>~/.icons</c> and the system roots. The loader skips missing entries.
     /// </summary>
-    private static string DefaultSearchPath()
-        => string.Join(Path.PathSeparator, ThemeRoots()
-            .Append(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursors"))
-            .Append("/usr/share/cursors/xorg-x11"));
-
     private static string[] ThemeRoots()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -120,6 +152,8 @@ public static class WaylandCursorTheme
             "/usr/share/pixmaps",
         ];
     }
+
+    private static string XdgIconsRoot() => ThemeRoots()[0];
 
     /// <summary>First <c>Inherits=</c> entry of an index.theme, if any.</summary>
     private static string? ReadInheritedTheme(string indexTheme)
@@ -138,18 +172,5 @@ public static class WaylandCursorTheme
         {
         }
         return null;
-    }
-
-    /// <summary>Points <paramref name="link"/> at <paramref name="target"/>, no-op when already correct.</summary>
-    private static void ReplaceSymbolicLink(string link, string target)
-    {
-        var info = new FileInfo(link);
-        if (string.Equals(info.LinkTarget, target, StringComparison.Ordinal))
-            return;
-        if (info.LinkTarget is not null || info.Exists)
-            info.Delete(); // deletes the link itself, never the theme directory it points at
-        else if (Directory.Exists(link))
-            Directory.Delete(link, true); // not expected under app-private data
-        File.CreateSymbolicLink(link, target);
     }
 }
