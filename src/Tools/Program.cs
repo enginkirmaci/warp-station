@@ -26,6 +26,11 @@ internal class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // Must follow UsePlatformDetect: it captures the registered backend
+            // initializer as its fallback. Prefers native Wayland (no XWayland) when the
+            // session provides it; on TryInitialize failure it logs a warning and boots
+            // the captured backend (X11 on Linux). No-op on non-Linux platforms.
+            .UseWaylandWithFallback()
             .WithInterFont()
             .LogToTrace();
 }

@@ -49,7 +49,7 @@ public class ClipboardPasswordService : IClipboardPasswordService
     private nint _hwnd;
     private bool _isRegistered;
 #else
-    private X11GlobalHotkey? _x11Hotkey;
+    private GlobalHotkeyManager? _globalHotkey;
 #endif
 
     private readonly ISettingsService _settingsService;
@@ -78,14 +78,12 @@ public class ClipboardPasswordService : IClipboardPasswordService
             Log.Logger.Warning("Failed to register global hotkey Ctrl+Shift+V");
         }
 #else
-        // On X11 the listener owns its own display connection and grabs the key on the
-        // root window, so the window handle is not needed.
-        _x11Hotkey = new X11GlobalHotkey();
-        _x11Hotkey.HotkeyPressed += OnX11HotkeyPressed;
-        if (!_x11Hotkey.TryRegister())
-        {
-            Log.Logger.Warning("Failed to register global hotkey Ctrl+Shift+V");
-        }
+        // The manager picks the best backend for the session: the GlobalShortcuts portal
+        // on Wayland (works over Wayland-native windows), X11 root-window grabs
+        // otherwise/as fallback. Both own their platform connection; no handle needed.
+        _globalHotkey = new GlobalHotkeyManager();
+        _globalHotkey.HotkeyPressed += OnGlobalHotkeyPressed;
+        _globalHotkey.TryRegister();
 #endif
     }
 
@@ -98,11 +96,11 @@ public class ClipboardPasswordService : IClipboardPasswordService
             _isRegistered = false;
         }
 #else
-        if (_x11Hotkey != null)
+        if (_globalHotkey != null)
         {
-            _x11Hotkey.HotkeyPressed -= OnX11HotkeyPressed;
-            _x11Hotkey.Dispose();
-            _x11Hotkey = null;
+            _globalHotkey.HotkeyPressed -= OnGlobalHotkeyPressed;
+            _globalHotkey.Dispose();
+            _globalHotkey = null;
         }
 #endif
     }
@@ -121,9 +119,9 @@ public class ClipboardPasswordService : IClipboardPasswordService
     }
 
 #if !WINDOWS
-    // The X11 event thread raises the hotkey; clipboard access is marshalled to the UI
-    // thread where the Avalonia clipboard backend lives.
-    private void OnX11HotkeyPressed()
+    // The hotkey backend raises the press on its own thread; clipboard access is
+    // marshalled to the UI thread where the Avalonia clipboard backend lives.
+    private void OnGlobalHotkeyPressed()
     {
         Dispatcher.UIThread.Post(() => _ = HandleHotkeyAsync());
     }

@@ -98,6 +98,16 @@ internal sealed class X11GlobalHotkey : IDisposable
             _registered = true;
             _eventThread = new Thread(EventLoop) { IsBackground = true, Name = "X11GlobalHotkey" };
             _eventThread.Start();
+
+            // Native Wayland apps (this one included) never route keys through the X
+            // server, so the grab only sees presses typed into XWayland clients. Keep
+            // the grab (best effort) but say so.
+            if (LinuxSessionInfo.IsWaylandSession)
+            {
+                Log.Logger.Warning(
+                    "X11 global hotkey: Wayland session detected — Ctrl+Shift+V only fires while an XWayland client has focus; bind it in the compositor config for true global behavior");
+            }
+
             return true;
         }
         catch (Exception ex) // DllNotFoundException when libX11 is absent, etc.
