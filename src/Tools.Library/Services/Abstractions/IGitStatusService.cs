@@ -3,12 +3,12 @@ using Tools.Library.Entities;
 namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
-/// Singleton that computes local git status (branch, modified count, ahead/behind) for
-/// every discovered repo and pushes the results onto the <see cref="Repo"/> entities'
-/// runtime-only properties, which the repo cards bind directly. All work happens on
-/// background threads via the <c>git</c> CLI with redirected output — calling it never
-/// blocks the UI. Refreshes are also triggered automatically whenever
-/// <see cref="IRepoService"/> reports new scan data.
+/// Singleton that computes local git status (branch, modified count, ahead/behind) and
+/// the last commit date for every discovered repo and pushes the results onto the
+/// <see cref="Repo"/> entities' runtime-only properties, which the repo cards bind
+/// directly. All work happens on background threads via the <c>git</c> CLI with
+/// redirected output — calling it never blocks the UI. Refreshes are also triggered
+/// automatically whenever <see cref="IRepoService"/> reports new scan data.
 /// </summary>
 public interface IGitStatusService
 {

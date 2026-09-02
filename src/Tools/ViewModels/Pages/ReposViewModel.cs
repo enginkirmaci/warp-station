@@ -174,6 +174,14 @@ public partial class ReposViewModel : PageViewModelBase
     private bool _openCodeArrangeIntoGrid;
 
     /// <summary>
+    /// Whether the OpenCode panel offers the "Arrange into grid" checkbox. The grid launcher
+    /// positions windows through SnapIt's Win32 <see cref="IWinApiService"/>, so the option
+    /// only exists on Windows; the panel hides it elsewhere. Constant per process, so no
+    /// change notification is needed.
+    /// </summary>
+    public bool CanArrangeIntoGrid => OperatingSystem.IsWindows();
+
+    /// <summary>
     /// The models available in the OpenCode model selector, fetched by running
     /// <c>opencode models</c> as a one-shot process (see <see cref="IOpenCodeModelService"/>).
     /// (Re)populated each time the panel opens; empty when the CLI fails or is missing.
@@ -464,15 +472,23 @@ public partial class ReposViewModel : PageViewModelBase
         var filter = OpenCodeModelFilter ?? string.Empty;
         bool isFullSelection = string.IsNullOrEmpty(filter)
             || string.Equals(filter, OpenCodeSelectedModel, StringComparison.Ordinal);
-        IEnumerable<string> source = isFullSelection
+        var source = (isFullSelection
             ? OpenCodeModels
-            : OpenCodeModels.Where(m => m.Contains(filter, StringComparison.OrdinalIgnoreCase));
+            : OpenCodeModels.Where(m => m.Contains(filter, StringComparison.OrdinalIgnoreCase))).ToList();
 
         // Rebuild the existing collection in place rather than swapping in a new instance: the
         // ComboBox's Text binding raises the filter change from inside the control's own
         // selection update, and re-sourcing ItemsSource there throws "Cannot change source
         // while update is in progress". In-place collection-change notifications are safe —
         // the selection model batches them — and avoid a full ItemsSource reset per keystroke.
+        //
+        // Skip the rebuild entirely when the projection already matches: Clear() raises a
+        // Reset on the picker's ItemsSource, which drops the ComboBox's control-side selection
+        // even when the content is identical — the default the panel just preselected would
+        // visibly deselect again on the follow-up deferred pass.
+        if (source.Count == OpenCodeFilteredModels.Count && source.SequenceEqual(OpenCodeFilteredModels))
+            return;
+
         OpenCodeFilteredModels.Clear();
         foreach (var model in source)
             OpenCodeFilteredModels.Add(model);
@@ -516,7 +532,22 @@ public partial class ReposViewModel : PageViewModelBase
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             _filteredModelsRefreshScheduled = false;
+
+            // Capture whether the box is supposed to be showing the committed selection (the
+            // load/preselect paths mirror the filter onto it) before rebuilding — while a user
+            // search is in flight the filter differs from the selection.
+            bool boxShowsSelection = string.Equals(OpenCodeModelFilter, OpenCodeSelectedModel, StringComparison.Ordinal);
             RefreshOpenCodeFilteredModels();
+
+            // A rebuild that actually runs drops the ComboBox's control-side selection (the
+            // Clear() Reset clears it, and re-adding the items does not restore it). When the
+            // box was showing the committed selection, re-push it: re-raising makes the OneWay
+            // SelectedItem binding re-resolve and reselect the entry (and restore the box
+            // text). During user typing the capture was false, so the search text is never
+            // clobbered. The push changes no VM state that schedules another pass, so it
+            // cannot loop.
+            if (boxShowsSelection && !string.IsNullOrEmpty(OpenCodeSelectedModel))
+                OnPropertyChanged(nameof(OpenCodeSelectedModel));
         });
     }
 

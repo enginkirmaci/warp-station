@@ -120,4 +120,46 @@ public partial class Repo : ObservableObject
     /// </summary>
     [ObservableProperty]
     private bool _gitStatusLoaded;
+
+    /// <summary>
+    /// Committer date of the most recent commit (<c>git log -1</c>), pushed by
+    /// <c>IGitStatusService</c> alongside the status counts.
+    /// <c>null</c> until the first check completes, or for repos with no commits (or when
+    /// the check fails). Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private DateTimeOffset? _gitLastCommitAt;
+
+    /// <summary>
+    /// The relative-age label shown in the Last Activity column ("2h ago", "3w ago"),
+    /// derived from <see cref="GitLastCommitAt"/>. <c>null</c> when no commit date is
+    /// known. Refreshed only when a new value arrives, not on a timer — ages drift stale
+    /// until the next refresh pass.
+    /// </summary>
+    public string? GitLastActivity => GitLastCommitAt is { } at ? FormatRelative(at) : null;
+
+    partial void OnGitLastCommitAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastActivity));
+
+    /// <summary>
+    /// Formats an age as a compact relative label matching the Repos table's style:
+    /// the most significant unit only, no rounding up across unit boundaries
+    /// (<c>just now</c>, <c>5m ago</c>, <c>2h ago</c>, <c>1d ago</c>, <c>3w ago</c>,
+    /// <c>1mo ago</c>, <c>1y ago</c>). Uses wall-clock difference, so the label is
+    /// unaffected by the commit's UTC offset.
+    /// </summary>
+    private static string FormatRelative(DateTimeOffset at)
+    {
+        var span = DateTimeOffset.Now - at;
+        var minutes = (int)(span.Ticks < 0 ? 0 : span.TotalMinutes);
+        return minutes switch
+        {
+            < 1 => "just now",
+            < 60 => $"{minutes}m ago",
+            _ when minutes < 60 * 24 => $"{minutes / 60}h ago",
+            _ when minutes < 60 * 24 * 7 => $"{minutes / (60 * 24)}d ago",
+            _ when minutes < 60 * 24 * 30 => $"{minutes / (60 * 24 * 7)}w ago",
+            _ when minutes < 60 * 24 * 365 => $"{minutes / (60 * 24 * 30)}mo ago",
+            _ => $"{minutes / (60 * 24 * 365)}y ago",
+        };
+    }
 }

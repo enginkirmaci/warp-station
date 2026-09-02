@@ -13,9 +13,10 @@ namespace Tools.Library.Services;
 /// lines carry the branch name and ahead/behind counts, every non-header line is one
 /// working-tree change. <c>--untracked-files=all</c> counts every untracked file
 /// individually — by default git collapses an untracked directory into a single entry.
-/// Results are pushed onto the <see cref="Repo"/> entities from background threads —
-/// CommunityToolkit raises <c>PropertyChanged</c> and the bound cards update without the
-/// page VM being involved.
+/// A follow-up <c>git log -1 --format=%cI</c> picks up the last commit date for the
+/// Last Activity column. Results are pushed onto the <see cref="Repo"/> entities from
+/// background threads — CommunityToolkit raises <c>PropertyChanged</c> and the bound
+/// cards update without the page VM being involved.
 /// <para>
 /// A refresh is kicked automatically when <see cref="IRepoService"/> raises
 /// <c>Changed</c> outside of a scan, so statuses re-check after every rescan without the
@@ -149,6 +150,16 @@ public sealed class GitStatusService : IGitStatusService
             repo.GitModifiedCount = status.ModifiedCount;
             repo.GitToPushCount = status.AheadCount;
             repo.GitToPullCount = status.BehindCount;
+
+            // Second, cheap local probe for the Last Activity column. Kept separate from
+            // the status call so a malformed date can never blank the status fields.
+            // An empty output (repo with no commits) parses to null.
+            var commitDate = await RunGitAsync(
+                repo.FolderPath!,
+                "--no-optional-locks log -1 --format=%cI",
+                cancellationToken);
+            repo.GitLastCommitAt = DateTimeOffset.TryParse(
+                commitDate?.TrimEnd('\r', '\n'), out var at) ? at : null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -157,6 +168,7 @@ public sealed class GitStatusService : IGitStatusService
             repo.GitModifiedCount = 0;
             repo.GitToPushCount = 0;
             repo.GitToPullCount = 0;
+            repo.GitLastCommitAt = null;
         }
         finally
         {

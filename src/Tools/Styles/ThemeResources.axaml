@@ -93,6 +93,12 @@
     <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource SukiBorderBrush}" />
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{DynamicResource SukiPrimaryColor25}" />
     <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{DynamicResource SukiControlTouchBackground}" />
+    <!-- Repos table row hover — the touch color at low opacity so a full-width row
+         highlight stays subtle against the card surface underneath it. -->
+    <SolidColorBrush
+        x:Key="RowHoverBackgroundBrush"
+        Color="{DynamicResource SukiControlTouchBackground}"
+        Opacity="0.18" />
 
     <!-- Text -->
     <SolidColorBrush x:Key="TitleForegroundBrush" Color="{DynamicResource SukiText}" />
