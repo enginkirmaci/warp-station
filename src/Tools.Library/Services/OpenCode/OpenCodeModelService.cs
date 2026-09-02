@@ -16,25 +16,26 @@ public class OpenCodeModelService : IOpenCodeModelService
     private static readonly string CacheFilePath = UserPaths.GetUserDataFile("opencode", "models.cache.json");
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GetCachedModels()
+    public IReadOnlyList<string> GetCachedModels(string? defaultModel)
     {
         try
         {
             if (!File.Exists(CacheFilePath))
-                return Array.Empty<string>();
+                return MergeDefaultModel(Array.Empty<string>(), defaultModel);
 
-            return JsonSerializer.Deserialize<List<string>>(File.ReadAllText(CacheFilePath))
+            var cached = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(CacheFilePath))
                 ?? (IReadOnlyList<string>)Array.Empty<string>();
+            return MergeDefaultModel(cached, defaultModel);
         }
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenCodeModelService: failed to read the model cache");
-            return Array.Empty<string>();
+            return MergeDefaultModel(Array.Empty<string>(), defaultModel);
         }
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<string>> GetModelsAsync(string? executable, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> GetModelsAsync(string? executable, string? defaultModel, CancellationToken cancellationToken = default)
     {
         var exe = string.IsNullOrWhiteSpace(executable) ? "opencode" : executable;
 
@@ -47,7 +48,7 @@ public class OpenCodeModelService : IOpenCodeModelService
             Log.Logger.Warning(
                 "OpenCodeModelService: '{Exe}' was not found on PATH or in the common user install folders (~/.local/bin, ~/.opencode/bin, …)",
                 exe);
-            return Array.Empty<string>();
+            return MergeDefaultModel(Array.Empty<string>(), defaultModel);
         }
 
         try
@@ -76,7 +77,7 @@ public class OpenCodeModelService : IOpenCodeModelService
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
                 Log.Logger.Warning("OpenCodeModelService: '{Exe} models' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
-                return Array.Empty<string>();
+                return MergeDefaultModel(Array.Empty<string>(), defaultModel);
             }
 
             // Model ids are printed one per line as provider/model-id; the '/' guard drops any
@@ -87,11 +88,12 @@ public class OpenCodeModelService : IOpenCodeModelService
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
-            // Persist only a non-empty result so a transient CLI failure never clobbers a good cache.
+            // Persist only a non-empty result so a transient CLI failure never clobbers a good
+            // cache; the persisted list already carries the default at the top (see below).
             if (models.Count > 0)
-                SaveCache(models);
+                SaveCache(MergeDefaultModel(models, defaultModel));
 
-            return models;
+            return MergeDefaultModel(models, defaultModel);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -100,8 +102,29 @@ public class OpenCodeModelService : IOpenCodeModelService
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenCodeModelService: failed to list models via '{Exe} models'", exe);
-            return Array.Empty<string>();
+            return MergeDefaultModel(Array.Empty<string>(), defaultModel);
         }
+    }
+
+    /// <summary>
+    /// Ensures the configured default model is present in <paramref name="models"/>,
+    /// prepending it when missing (case-insensitive compare against the CLI's own casing)
+    /// so the default is the first entry — the preselection and every FirstOrDefault
+    /// fallback resolve to it. Returns <paramref name="models"/> unchanged when no default
+    /// is configured or it is already listed.
+    /// </summary>
+    private static IReadOnlyList<string> MergeDefaultModel(IReadOnlyList<string> models, string? defaultModel)
+    {
+        var model = defaultModel?.Trim();
+        if (string.IsNullOrEmpty(model))
+            return models;
+
+        if (models.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase)))
+            return models;
+
+        var merged = new List<string>(models.Count + 1) { model };
+        merged.AddRange(models);
+        return merged;
     }
 
     /// <summary>Best-effort write of the model cache; never throws.</summary>

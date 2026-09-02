@@ -89,6 +89,54 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _isOpenCodeEnabled;
 
+    // --- Launch shortcut availability (per PC) ---
+
+    /// <summary>
+    /// The launch buttons are only shown when their executable actually resolves on this
+    /// machine (see <see cref="ExecutableDefaults"/>): a button whose target is missing
+    /// would spawn a terminal "command not found" or nothing at all, so it is hidden
+    /// instead. Recomputed whenever settings load or are saved —
+    /// <see cref="RefreshShortcutAvailability"/>. Windows keeps the configured name
+    /// verbatim (CreateProcess resolves it), so there a configured executable is always
+    /// considered available and the buttons keep the pre-availability behavior.
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasTerminal;
+
+    /// <summary>Whether the open-solution action can run: on Windows the .sln shell
+    /// association always can; elsewhere only when a .NET IDE is detected/configured.</summary>
+    [ObservableProperty]
+    private bool _hasIde;
+
+    [ObservableProperty]
+    private bool _hasVSCode;
+
+    [ObservableProperty]
+    private bool _hasZCode;
+
+    /// <summary>
+    /// Whether the per-repo OpenCode buttons show: the integration must be enabled in
+    /// settings <em>and</em> the configured opencode CLI must resolve on this machine.
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasOpenCode;
+
+    /// <summary>
+    /// Re-evaluates the per-PC launch-shortcut availability flags from the current
+    /// settings. Called after settings load and after the settings dialog saves, so
+    /// installing/uninstalling a tool (or editing its executable setting) is reflected
+    /// on the next page visit or save respectively.
+    /// </summary>
+    private void RefreshShortcutAvailability()
+    {
+        HasTerminal = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable) is not null;
+        HasIde = OperatingSystem.IsWindows()
+                 || ExecutableDefaults.ResolveIde(_reposSettings.IdeExecutable) is not null;
+        HasVSCode = ExecutableDefaults.Locate(_reposSettings.VSCodeExecutable) is not null;
+        HasZCode = ExecutableDefaults.Locate(_reposSettings.ZCodeExecutable) is not null;
+        HasOpenCode = IsOpenCodeEnabled && ExecutableDefaults.Locate(_reposSettings.OpenCodeExecutable) is not null;
+    }
+
     [ObservableProperty]
     private bool _isOpenCodePanelOpen;
 
@@ -268,6 +316,7 @@ public partial class ReposViewModel : PageViewModelBase
         _reposSettings = settings.Repos ?? new ReposSettings();
         _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
         IsOpenCodeEnabled = _openCodeSettings.Enabled;
+        RefreshShortcutAvailability();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
@@ -295,33 +344,34 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private async Task LoadOpenCodeModelsAsync()
     {
-        var cached = _openCodeModelService.GetCachedModels();
+        var cached = _openCodeModelService.GetCachedModels(_openCodeSettings.DefaultModel);
         if (cached.Count > 0)
             ApplyOpenCodeModels(cached);
 
-        var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
+        var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, _openCodeSettings.DefaultModel);
         ApplyOpenCodeModels(models);
     }
 
     /// <summary>
-    /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the first
-    /// entry (or clears the selection when empty), and refreshes the filter projection and the
-    /// computed has/empty flags. A model the user already picked survives the refresh when it
-    /// is still present: this runs again when the background CLI call finishes after the panel
-    /// is already open, and resetting then would silently swap the user's pick for the first
-    /// entry before launch.
+    /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the
+    /// configured default or first entry (or clears the selection when empty), and refreshes
+    /// the filter projection and the computed has/empty flags. A model the user already
+    /// picked survives the refresh when it is still present: this runs again when the
+    /// background CLI call finishes after the panel is already open, and resetting then
+    /// would silently swap the user's pick for the default before launch.
     /// </summary>
     private void ApplyOpenCodeModels(IReadOnlyList<string> models)
     {
         OpenCodeModels = new ObservableCollection<string>(models);
 
         // Keep the committed selection when the refreshed list still contains it; otherwise
-        // select the first model on load, or clear the selection when nothing is available.
+        // select the configured default (or the first model) on load, or clear the selection
+        // when nothing is available.
         var previous = OpenCodeSelectedModel;
         var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
         OpenCodeSelectedModel = previousStillListed
             ? previous
-            : OpenCodeModels.Count > 0 ? OpenCodeModels[0] : string.Empty;
+            : SelectConfiguredOrDefaultModel(OpenCodeModels);
 
         // The editable ComboBox binds its text to the filter and its dropdown to the filtered
         // list; mirror the committed selection into both so the box shows the active model.
@@ -334,9 +384,30 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
+    /// The model to preselect (and launch) when the user has not picked one: the configured
+    /// default (<see cref="OpenCodeSettings.DefaultModel"/>) when set and listed — matched
+    /// case-insensitively and resolved to the list's own casing — otherwise the first model.
+    /// The model service guarantees a configured default is present in the list, so this
+    /// returns the default whenever one is configured.
+    /// </summary>
+    private string SelectConfiguredOrDefaultModel(IReadOnlyList<string> models)
+    {
+        var configured = _openCodeSettings.DefaultModel?.Trim();
+        if (!string.IsNullOrEmpty(configured))
+        {
+            var match = models.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return match;
+        }
+
+        return models.FirstOrDefault() ?? string.Empty;
+    }
+
+    /// <summary>
     /// The model to launch with, in priority order: an exact match for what the box shows
     /// (the user typed the full model id without committing a dropdown pick), the committed
-    /// dropdown selection, and finally the first model.
+    /// dropdown selection, and finally the configured default or the first model
+    /// (see <see cref="SelectConfiguredOrDefaultModel"/>).
     /// </summary>
     private string ResolveOpenCodeLaunchModel()
     {
@@ -351,7 +422,7 @@ public partial class ReposViewModel : PageViewModelBase
         }
 
         return string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
-            ? OpenCodeModels.FirstOrDefault() ?? string.Empty
+            ? SelectConfiguredOrDefaultModel(OpenCodeModels)
             : OpenCodeSelectedModel;
     }
 
@@ -747,24 +818,25 @@ public partial class ReposViewModel : PageViewModelBase
     // --- OpenCode panel ---
 
     /// <summary>
-    /// Quick open: launches a single opencode instance in the repo folder with the first
-    /// model from the model list — no panel, no template/prompt/instance options. The cached
-    /// list answers instantly; on a cold start the CLI runs once and fills the cache.
+    /// Quick open: launches a single opencode instance in the repo folder with the configured
+    /// default model (or the first model from the list when none is configured) — no panel,
+    /// no template/prompt/instance options. The cached list answers instantly; on a cold start
+    /// the CLI runs once and fills the cache.
     /// </summary>
     [RelayCommand]
     private async Task QuickOpenOpenCodeAsync(Repo? repo)
     {
         if (repo?.FolderPath is null || !IsOpenCodeEnabled) return;
 
-        var models = _openCodeModelService.GetCachedModels();
+        var models = _openCodeModelService.GetCachedModels(_openCodeSettings.DefaultModel);
         if (models.Count == 0)
-            models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
+            models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, _openCodeSettings.DefaultModel);
 
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null) return;
 
         var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
-        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, models.FirstOrDefault() ?? string.Empty, string.Empty);
+        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, SelectConfiguredOrDefaultModel(models), string.Empty);
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
         _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
     }
@@ -1000,6 +1072,7 @@ public partial class ReposViewModel : PageViewModelBase
             await _settingsService.SaveSettingsAsync(settings);
 
             _reposSettings = edited;
+            RefreshShortcutAvailability();
             await _repoService.RefreshAsync(_reposSettings);
             _notificationService.Show("Settings saved", NotificationKind.Success);
         }

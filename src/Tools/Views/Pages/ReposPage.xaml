@@ -410,7 +410,7 @@
                                                                                 launch buttons by a hairline divider.
                                                                         -->
                                                                         <StackPanel
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.IsOpenCodeEnabled}"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasOpenCode}"
                                                                                 Orientation="Horizontal"
                                                                                 Spacing="8">
                                                                                 <Button
@@ -446,6 +446,7 @@
                                                                                 Classes="tool-button"
                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
                                                                                 CommandParameter="{Binding}"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasZCode}"
                                                                                 ToolTip.Tip="Open zcode on this repo — the AppImage opens the desktop app directly; a standalone CLI runs in the terminal">
                                                                                 <Path
                                                                                         Width="22"
@@ -454,23 +455,34 @@
                                                                                         Fill="{DynamicResource MutedForegroundBrush}"
                                                                                         Stretch="Uniform" />
                                                                         </Button>
-                                                                        <Button
-                                                                                Classes="tool-button"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                                                ToolTip.Tip="Open in Visual Studio">
-                                                                                <Path
-                                                                                        Width="22"
-                                                                                        Height="22"
-                                                                                        Data="{tools:SvgPath icon-sln-box}"
-                                                                                        Fill="{DynamicResource PurpleAccentBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
+                                                                        <!--
+                                                                                The open-solution button also requires an IDE:
+                                                                                on Windows the .sln shell association always
+                                                                                exists, elsewhere HasIde reflects the detected
+                                                                                or configured .NET IDE.
+                                                                        -->
+                                                                        <StackPanel
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasIde}"
+                                                                                Orientation="Horizontal">
+                                                                                <Button
+                                                                                        Classes="tool-button"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                        ToolTip.Tip="Open in Visual Studio">
+                                                                                        <Path
+                                                                                                Width="22"
+                                                                                                Height="22"
+                                                                                                Data="{tools:SvgPath icon-sln-box}"
+                                                                                                Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                        </StackPanel>
                                                                         <Button
                                                                                 Classes="tool-button"
                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenWithVSCodeCommand}"
                                                                                 CommandParameter="{Binding FolderPath}"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasVSCode}"
                                                                                 ToolTip.Tip="Open in VS Code">
                                                                                 <Path
                                                                                         Width="22"
@@ -495,6 +507,7 @@
                                                                                 Classes="tool-button"
                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenWithTerminalCommand}"
                                                                                 CommandParameter="{Binding FolderPath}"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasTerminal}"
                                                                                 ToolTip.Tip="Open in Terminal">
                                                                                 <Path
                                                                                         Width="22"

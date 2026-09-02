@@ -150,6 +150,16 @@ public class OpenCodeSettings
     /// manually via settings.json.
     /// </summary>
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets the model id (<c>provider/model-id</c>, as printed by
+    /// <c>opencode models</c>) preselected when the OpenCode panel opens and launched by
+    /// Quick Open. The model catalog keeps this entry present (top of the list) even when
+    /// the CLI does not print it, so the preselection always resolves. When empty, the
+    /// first model from the CLI list is used, as before. Configured manually via
+    /// settings.json.
+    /// </summary>
+    public string? DefaultModel { get; set; } = string.Empty;
 }
 
 /// <summary>
