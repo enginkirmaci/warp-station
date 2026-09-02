@@ -1,5 +1,6 @@
 using Avalonia;
 using Serilog;
+using Tools.Helpers;
 
 namespace Tools;
 
@@ -8,6 +9,10 @@ internal class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // Must precede Avalonia startup: the Wayland platform loads its cursor
+        // theme during initialization and ignores XCURSOR_THEME unless aliased.
+        WaylandCursorTheme.Apply();
+
         try
         {
             BuildAvaloniaApp()
