@@ -96,9 +96,13 @@ public static class WaylandCursorTheme
     /// <summary>Removes the superseded XCURSOR_PATH-era shim directory, if present.</summary>
     private static void TryCleanupOldShim()
     {
+        var shimDir = Path.Combine(UserPaths.UserDataRoot, "cursor-shim");
+        if (!Directory.Exists(shimDir))
+            return;
+
         try
         {
-            Directory.Delete(Path.Combine(UserPaths.UserDataRoot, "cursor-shim"), recursive: true);
+            Directory.Delete(shimDir, recursive: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -158,6 +162,11 @@ public static class WaylandCursorTheme
     /// <summary>First <c>Inherits=</c> entry of an index.theme, if any.</summary>
     private static string? ReadInheritedTheme(string indexTheme)
     {
+        // Most theme roots don't carry every theme name; probe instead of reading
+        // into a DirectoryNotFoundException on every miss.
+        if (!File.Exists(indexTheme))
+            return null;
+
         try
         {
             foreach (var line in File.ReadLines(indexTheme))
