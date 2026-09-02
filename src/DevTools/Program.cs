@@ -27,7 +27,8 @@ var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder()
 
 var devToolsService = host.Services.GetRequiredService<DevToolsService>();
 
-// Reconcile the launch-at-sign-in registration (Windows only)
+// Reconcile the launch-at-sign-in registration (registry Run key on Windows, XDG
+// autostart entry on Linux)
 await SyncStartAtBootAsync(host.Services);
 
 // Handle Ctrl+C and graceful shutdown
@@ -50,8 +51,9 @@ await Task.Delay(Timeout.Infinite, lifetime.ApplicationStopping);
 
 Log.Information("DevTools stopped");
 
-// Reconciles the Windows registry Run key with the configured StartAtBoot flag,
-// so settings.json remains the single source of truth for launch-at-sign-in.
+// Reconciles the OS autostart registration (registry Run key on Windows, XDG autostart
+// entry elsewhere) with the configured StartAtBoot flag, so settings.json remains the
+// single source of truth for launch-at-sign-in.
 async Task SyncStartAtBootAsync(IServiceProvider services)
 {
     try
@@ -59,9 +61,7 @@ async Task SyncStartAtBootAsync(IServiceProvider services)
         var settingsService = services.GetRequiredService<ISettingsService>();
         var appSettings = await settingsService.GetSettingsAsync();
         var startAtBoot = appSettings.General?.StartAtBoot == true;
-#if WINDOWS
         DevTools.Helpers.AutoStartHelper.Sync(startAtBoot);
-#endif
     }
     catch (Exception ex)
     {

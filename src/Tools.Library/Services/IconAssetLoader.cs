@@ -57,6 +57,7 @@ public static class IconAssetLoader
         "icon-terminal-alt",
         "icon-text-format",
         "icon-vscode",
+        "icon-zcode",
     };
 
     /// <summary>

@@ -12,6 +12,7 @@
 	Height="900"
 	MinWidth="800"
 	MinHeight="600"
+	WindowStartupLocation="CenterScreen"
 	BackgroundStyle="Flat">
 
 	<!--  Sidebar collapse: shrink the rail to icon-only width and hide labels/headers  -->

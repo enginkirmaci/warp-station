@@ -6,6 +6,7 @@ using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Formatters;
 using Tools.Library.Mvvm;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services;
 using Tools.Services.Abstractions;
@@ -305,14 +306,22 @@ public partial class ReposViewModel : PageViewModelBase
     /// <summary>
     /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the first
     /// entry (or clears the selection when empty), and refreshes the filter projection and the
-    /// computed has/empty flags.
+    /// computed has/empty flags. A model the user already picked survives the refresh when it
+    /// is still present: this runs again when the background CLI call finishes after the panel
+    /// is already open, and resetting then would silently swap the user's pick for the first
+    /// entry before launch.
     /// </summary>
     private void ApplyOpenCodeModels(IReadOnlyList<string> models)
     {
         OpenCodeModels = new ObservableCollection<string>(models);
 
-        // Select the first model on load; clear the selection when nothing is available.
-        OpenCodeSelectedModel = OpenCodeModels.Count > 0 ? OpenCodeModels[0] : string.Empty;
+        // Keep the committed selection when the refreshed list still contains it; otherwise
+        // select the first model on load, or clear the selection when nothing is available.
+        var previous = OpenCodeSelectedModel;
+        var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
+        OpenCodeSelectedModel = previousStillListed
+            ? previous
+            : OpenCodeModels.Count > 0 ? OpenCodeModels[0] : string.Empty;
 
         // The editable ComboBox binds its text to the filter and its dropdown to the filtered
         // list; mirror the committed selection into both so the box shows the active model.
@@ -322,6 +331,28 @@ public partial class ReposViewModel : PageViewModelBase
         // The computed has/empty flags feed the ComboBox IsEnabled and the hint visibility.
         OnPropertyChanged(nameof(OpenCodeHasModels));
         OnPropertyChanged(nameof(OpenCodeModelsEmpty));
+    }
+
+    /// <summary>
+    /// The model to launch with, in priority order: an exact match for what the box shows
+    /// (the user typed the full model id without committing a dropdown pick), the committed
+    /// dropdown selection, and finally the first model.
+    /// </summary>
+    private string ResolveOpenCodeLaunchModel()
+    {
+        var typed = OpenCodeModelFilter?.Trim();
+        var typedMatch = string.IsNullOrWhiteSpace(typed)
+            ? null
+            : OpenCodeModels.FirstOrDefault(m => string.Equals(m, typed, StringComparison.OrdinalIgnoreCase));
+
+        if (typedMatch is not null)
+        {
+            return typedMatch;
+        }
+
+        return string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
+            ? OpenCodeModels.FirstOrDefault() ?? string.Empty
+            : OpenCodeSelectedModel;
     }
 
     /// <summary>
@@ -340,7 +371,14 @@ public partial class ReposViewModel : PageViewModelBase
             ? OpenCodeModels
             : OpenCodeModels.Where(m => m.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
-        OpenCodeFilteredModels = new ObservableCollection<string>(source);
+        // Rebuild the existing collection in place rather than swapping in a new instance: the
+        // ComboBox's Text binding raises the filter change from inside the control's own
+        // selection update, and re-sourcing ItemsSource there throws "Cannot change source
+        // while update is in progress". In-place collection-change notifications are safe —
+        // the selection model batches them — and avoid a full ItemsSource reset per keystroke.
+        OpenCodeFilteredModels.Clear();
+        foreach (var model in source)
+            OpenCodeFilteredModels.Add(model);
     }
 
     /// <summary>
@@ -600,7 +638,24 @@ public partial class ReposViewModel : PageViewModelBase
     private void OpenVisualStudio(Repo? repo)
     {
         if (repo?.SolutionPath is null) return;
-        _processLauncher.StartProcess(repo.SolutionPath);
+
+        // Windows keeps the .sln shell association unless an IDE is configured; other
+        // platforms open the solution in an auto-detected .NET IDE (e.g. Rider).
+        var ide = ExecutableDefaults.ResolveIde(_reposSettings.IdeExecutable);
+        if (ide is null)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                _processLauncher.StartProcess(repo.SolutionPath);
+            }
+            else
+            {
+                Log.Logger.Warning("OpenVisualStudio: no .NET IDE found; configure one in Repos settings");
+            }
+            return;
+        }
+
+        _processLauncher.StartProcess(ide, $"\"{repo.SolutionPath}\"", stripElectronEnvironment: true);
     }
 
     [RelayCommand]
@@ -611,7 +666,11 @@ public partial class ReposViewModel : PageViewModelBase
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        var exe = _reposSettings.VSCodeExecutable ?? "code";
+        // Resolve early: on Linux the GUI PATH can miss user-level installs, so the
+        // fallback launch below needs the absolute path, not the bare name.
+        var exe = ExecutableDefaults.Locate(_reposSettings.VSCodeExecutable)
+                  ?? _reposSettings.VSCodeExecutable
+                  ?? "code";
 
         // When a profile is configured, launch VS Code with it (--profile <name>);
         // otherwise open with the default profile (no extra arguments).
@@ -628,7 +687,7 @@ public partial class ReposViewModel : PageViewModelBase
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenWithVSCode: pipe launch failed, falling back to direct launch");
-            _processLauncher.StartProcess(exe, args, hidden: true);
+            _processLauncher.StartProcess(exe, args, hidden: true, stripElectronEnvironment: true);
         }
     }
 
@@ -637,9 +696,52 @@ public partial class ReposViewModel : PageViewModelBase
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
 
-        var exe = _reposSettings.TerminalExecutable ?? "wt";
+        var exe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
+        if (exe is null) return;
+
         var args = TerminalArgumentFormatter.BuildArguments(exe, folderPath);
-        _processLauncher.StartProcess(exe, args);
+        _processLauncher.StartProcess(exe, args, stripElectronEnvironment: true);
+    }
+
+    /// <summary>
+    /// Opens zcode on the repo folder. The zcode AppImage is the Electron desktop package
+    /// (it contains no interactive CLI runtime), so it is launched directly on the folder
+    /// like VS Code — no terminal wrapper. A standalone zcode CLI binary has no UI of its
+    /// own, so that variant still runs inside the configured terminal.
+    /// </summary>
+    [RelayCommand]
+    private void OpenWithZCode(Repo? repo)
+    {
+        if (repo?.FolderPath is null) return;
+
+        var resolved = ExecutableDefaults.Locate(_reposSettings.ZCodeExecutable)
+                       ?? _reposSettings.ZCodeExecutable
+                       ?? "zcode";
+
+        if (!OperatingSystem.IsWindows() && resolved.EndsWith(".appimage", StringComparison.OrdinalIgnoreCase))
+        {
+            _processLauncher.StartProcess(resolved, $"\"{repo.FolderPath}\"", stripElectronEnvironment: true);
+            return;
+        }
+
+        var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
+        if (terminalExe is null) return;
+
+        var zcodeExe = resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
+        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, zcodeExe);
+        _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
+    }
+
+    /// <summary>
+    /// Resolves a CLI name for embedding in a terminal command line. The spawned
+    /// terminal inherits the app's often-minimal GUI PATH, so a bare name is expanded
+    /// to its absolute path; when unresolvable the bare name is kept so the terminal
+    /// shows the familiar "command not found" feedback.
+    /// </summary>
+    private string ResolveCliForTerminal(string? configured, string fallback)
+    {
+        var resolved = ExecutableDefaults.Locate(configured) ?? configured ?? fallback;
+        return resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
     }
 
     // --- OpenCode panel ---
@@ -658,11 +760,13 @@ public partial class ReposViewModel : PageViewModelBase
         if (models.Count == 0)
             models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable);
 
-        var terminalExe = _reposSettings.TerminalExecutable ?? "wt";
-        var openCodeExe = _reposSettings.OpenCodeExecutable ?? "opencode";
+        var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
+        if (terminalExe is null) return;
+
+        var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
         var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, models.FirstOrDefault() ?? string.Empty, string.Empty);
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-        _processLauncher.StartProcess(terminalExe, args);
+        _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
     }
 
     [RelayCommand]
@@ -699,13 +803,17 @@ public partial class ReposViewModel : PageViewModelBase
         // opencode picks it up. Replaces an existing .opencode wholesale. No-op for None.
         await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
 
-        var terminalExe = _reposSettings.TerminalExecutable ?? "wt";
-        var openCodeExe = _reposSettings.OpenCodeExecutable ?? "opencode";
+        var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
+        if (terminalExe is null)
+        {
+            IsOpenCodePanelOpen = false;
+            return;
+        }
+
+        var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
-        var model = string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
-            ? OpenCodeModels.FirstOrDefault() ?? string.Empty
-            : OpenCodeSelectedModel;
+        var model = ResolveOpenCodeLaunchModel();
 
         if (OpenCodeArrangeIntoGrid)
         {
@@ -723,7 +831,7 @@ public partial class ReposViewModel : PageViewModelBase
             var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
             for (var i = 0; i < count; i++)
             {
-                _processLauncher.StartProcess(terminalExe, args);
+                _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
             }
         }
 

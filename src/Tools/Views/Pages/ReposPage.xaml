@@ -394,12 +394,12 @@
                                                         </StackPanel>
 
                                                         <!--  Workspace zone: icon-only launch buttons (tooltips name the actions)  -->
-                                                        <Border
-                                                                Width="320"
-                                                                Padding="16,0"
-                                                                VerticalAlignment="Stretch"
-                                                                BorderBrush="{DynamicResource HairlineBrush}"
-                                                                BorderThickness="1,0,0,0">
+                                                                <Border
+                                                                        Width="368"
+                                                                        Padding="16,0"
+                                                                        VerticalAlignment="Stretch"
+                                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                                        BorderThickness="1,0,0,0">
                                                                 <StackPanel
                                                                         VerticalAlignment="Center"
                                                                         Orientation="Horizontal"
@@ -442,6 +442,18 @@
                                                                                 </Button>
                                                                                 <Border Classes="vertical-divider" />
                                                                         </StackPanel>
+                                                                        <Button
+                                                                                Classes="tool-button"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                ToolTip.Tip="Open zcode on this repo — the AppImage opens the desktop app directly; a standalone CLI runs in the terminal">
+                                                                                <Path
+                                                                                        Width="22"
+                                                                                        Height="22"
+                                                                                        Data="{tools:SvgPath icon-zcode}"
+                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                        Stretch="Uniform" />
+                                                                        </Button>
                                                                         <Button
                                                                                 Classes="tool-button"
                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"

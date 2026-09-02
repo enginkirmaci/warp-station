@@ -37,11 +37,24 @@ public class OpenCodeModelService : IOpenCodeModelService
     public async Task<IReadOnlyList<string>> GetModelsAsync(string? executable, CancellationToken cancellationToken = default)
     {
         var exe = string.IsNullOrWhiteSpace(executable) ? "opencode" : executable;
+
+        // The GUI process often runs with a minimal PATH (no shell rc files), so a bare
+        // name must also be looked up in the user-level install dirs; spawning needs
+        // the resolved absolute path either way.
+        var resolved = ExecutableDefaults.Locate(exe);
+        if (resolved is null)
+        {
+            Log.Logger.Warning(
+                "OpenCodeModelService: '{Exe}' was not found on PATH or in the common user install folders (~/.local/bin, ~/.opencode/bin, …)",
+                exe);
+            return Array.Empty<string>();
+        }
+
         try
         {
             var psi = new ProcessStartInfo
             {
-                FileName = exe,
+                FileName = resolved,
                 Arguments = "models",
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -49,6 +62,10 @@ public class OpenCodeModelService : IOpenCodeModelService
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
+
+            // An Electron-hosted Tools (launched from VS Code & forks) leaks this variable
+            // into children; it would degrade an Electron-packaged opencode to plain Node.
+            psi.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");
 
             using var process = new Process { StartInfo = psi };
             process.Start();

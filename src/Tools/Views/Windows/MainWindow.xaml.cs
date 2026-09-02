@@ -90,6 +90,10 @@ public partial class MainWindow : SukiWindow
             _clipboardPasswordService.RegisterHotKeys(handle);
             _messageHandler.Install(handle);
         }
+#else
+        // Non-Windows: the hotkey listener owns its platform connection (X11 display)
+        // and needs no window handle; the message-handler hook is Windows-only.
+        _clipboardPasswordService.RegisterHotKeys(nint.Zero);
 #endif
         Closed += OnWindowClosed;
     }

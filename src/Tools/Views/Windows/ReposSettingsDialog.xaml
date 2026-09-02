@@ -113,8 +113,20 @@
                         <TextBlock
                             Classes="field-label"
                             Text="Terminal Executable"
-                            ToolTip.Tip="Path or command for terminal" />
+                            ToolTip.Tip="Path or command for terminal. 'wt' (the default) auto-detects a native terminal on Linux" />
                         <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
+                    </StackPanel>
+
+                    <!--  IDE Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="IDE Executable"
+                            ToolTip.Tip="IDE used to open solutions. On Windows the .sln file association is used when empty; elsewhere a well-known IDE (e.g. Rider) is auto-detected" />
+                        <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Auto-detect" />
                     </StackPanel>
 
                     <!--  OpenCode Executable  -->
@@ -127,6 +139,18 @@
                             Text="OpenCode Executable"
                             ToolTip.Tip="Path or command for OpenCode" />
                         <TextBox Text="{Binding OpenCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="opencode" />
+                    </StackPanel>
+
+                    <!--  ZCode Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="ZCode Executable"
+                            ToolTip.Tip="Path or command for zcode. An AppImage (desktop package) opens directly on the repo; a standalone CLI runs in the terminal" />
+                        <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
                     </StackPanel>
 
                     <!--  Max Scan Depth  -->

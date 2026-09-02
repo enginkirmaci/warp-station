@@ -136,7 +136,9 @@ public class DevToolsClient : IDevToolsClient, IDisposable
 }
 #else
 /// <summary>
-/// Stub implementation for non-Windows platforms where named pipes are not available.
+/// Stub implementation for non-Windows platforms where the DevTools supervisor pipe
+/// does not exist. Requests throw so callers fall back to direct process launches —
+/// on these platforms there is no elevation boundary the pipe would smooth over.
 /// </summary>
 public class DevToolsClient : IDevToolsClient, IDisposable
 {
@@ -152,14 +154,12 @@ public class DevToolsClient : IDevToolsClient, IDisposable
 
     public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null)
     {
-        Log.Logger.Warning("Process launch not supported on this platform");
-        return Task.CompletedTask;
+        throw new NotSupportedException("The DevTools supervisor pipe is not available on this platform");
     }
 
     public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null, bool hidden = false)
     {
-        Log.Logger.Warning("Process launch not supported on this platform");
-        return Task.CompletedTask;
+        throw new NotSupportedException("The DevTools supervisor pipe is not available on this platform");
     }
 
     public void Dispose() { }

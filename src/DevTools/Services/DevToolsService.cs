@@ -20,17 +20,19 @@ public class DevToolsService : IDisposable
         _processLauncher = processLauncher;
         _lifetime = lifetime;
 
-        // Resolve Tools.exe relative to DevTools.exe. Candidates, in priority order:
-        //   1. ./bin/Tools.exe       — production split layout (Tools ships in a bin/ subfolder)
-        //   2. ../Tools.exe          — parent dir (development when both exes share bin/)
-        //   3. ./Tools.exe           — same dir (development when co-located)
+        // Resolve the Tools binary relative to DevTools. Candidates, in priority order:
+        //   1. ./bin/Tools[.exe]  — production split layout (Tools ships in a bin/ subfolder)
+        //   2. ../Tools[.exe]     — parent dir (development when both exes share bin/)
+        //   3. ./Tools[.exe]      — same dir (development when co-located)
+        var toolsFileName = OperatingSystem.IsWindows() ? "Tools.exe" : "Tools";
         var currentDir = AppContext.BaseDirectory;
-        _toolsExePath = new[]
+        var candidates = new[]
         {
-            Path.Combine(currentDir, "bin", "Tools.exe"),
-            Path.Combine(currentDir, "..", "Tools.exe"),
-            Path.Combine(currentDir, "Tools.exe"),
-        }.First(File.Exists);
+            Path.Combine(currentDir, "bin", toolsFileName),
+            Path.Combine(currentDir, "..", toolsFileName),
+            Path.Combine(currentDir, toolsFileName),
+        };
+        _toolsExePath = candidates.FirstOrDefault(File.Exists) ?? candidates[^1];
     }
 
     public async Task StartAsync()
@@ -41,11 +43,16 @@ public class DevToolsService : IDisposable
         _isRunning = true;
         Log.Information("[DevToolsService] Starting DevTools service");
 
-        // Start Tools.exe
+        // Start Tools (the GUI) directly — the launcher behaviour on every platform.
         await StartToolsAsync();
 
-        // Start Named Pipe Server
-        await _pipeServer.StartAsync();
+        // The pipe only has a client on Windows: there Tools runs elevated and routes
+        // process launches through it so children start non-elevated. The Tools client
+        // is a stub on other platforms, so opening the pipe would serve nobody.
+        if (OperatingSystem.IsWindows())
+        {
+            await _pipeServer.StartAsync();
+        }
 
         Log.Information("[DevToolsService] DevTools service started successfully");
     }
@@ -90,7 +97,9 @@ public class DevToolsService : IDisposable
             {
                 FileName = _toolsExePath,
                 UseShellExecute = true,
-                Verb = "runas" // Request admin elevation
+                // Windows: Tools runs elevated and launches children non-elevated through
+                // the pipe. Other platforms just run Tools as the current user.
+                Verb = OperatingSystem.IsWindows() ? "runas" : null
             });
 
             if (_toolsProcess != null)

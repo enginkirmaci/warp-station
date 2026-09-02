@@ -107,9 +107,22 @@ public class ReposSettings
     public string? TerminalExecutable { get; set; } = "wt";
 
     /// <summary>
+    /// Gets or sets the IDE executable used to open solutions. On Windows the .sln shell
+    /// association is used when this is empty; on other platforms a well-known .NET IDE
+    /// (e.g. Rider) is auto-detected from PATH when empty.
+    /// </summary>
+    public string? IdeExecutable { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the OpenCode executable path or command.
     /// </summary>
     public string? OpenCodeExecutable { get; set; } = "opencode";
+
+    /// <summary>
+    /// Gets or sets the ZCode CLI executable path or command, launched in a repo folder
+    /// via the configured terminal.
+    /// </summary>
+    public string? ZCodeExecutable { get; set; } = "zcode";
 
     /// <summary>
     /// Gets or sets the folders to exclude during scanning.

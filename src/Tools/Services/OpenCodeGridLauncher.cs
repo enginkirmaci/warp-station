@@ -77,7 +77,7 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         // Open all instances at once, one process each.
         for (var i = 0; i < count; i++)
         {
-            _processLauncher.StartProcess(terminalExe, args);
+            _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
         }
 
         // Now collect the newly-appeared windows and tile the whole set (existing first,

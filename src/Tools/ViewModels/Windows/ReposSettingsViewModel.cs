@@ -16,6 +16,7 @@ public partial class ReposSettingsViewModel : ObservableObject
     private const string DefaultVSCode = "code";
     private const string DefaultTerminal = "wt";
     private const string DefaultOpenCode = "opencode";
+    private const string DefaultZCode = "zcode";
     private const int DefaultMaxScanDepth = 3;
 
     [ObservableProperty]
@@ -43,7 +44,13 @@ public partial class ReposSettingsViewModel : ObservableObject
     private string _terminalExecutable = DefaultTerminal;
 
     [ObservableProperty]
+    private string _ideExecutable = string.Empty;
+
+    [ObservableProperty]
     private string _openCodeExecutable = DefaultOpenCode;
+
+    [ObservableProperty]
+    private string _zCodeExecutable = DefaultZCode;
 
     [ObservableProperty]
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
@@ -75,7 +82,10 @@ public partial class ReposSettingsViewModel : ObservableObject
             // No default: empty means "open VS Code with the default profile".
             VSCodeProfile = VsCodeProfile?.Trim() ?? string.Empty,
             TerminalExecutable = WithDefault(TerminalExecutable, DefaultTerminal),
+            // No default: empty means "auto-detect the IDE" (or use the .sln association on Windows).
+            IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
+            ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
         };
     }
@@ -96,7 +106,9 @@ public partial class ReposSettingsViewModel : ObservableObject
         VsCodeExecutable = settings.VSCodeExecutable ?? DefaultVSCode;
         VsCodeProfile = settings.VSCodeProfile ?? string.Empty;
         TerminalExecutable = settings.TerminalExecutable ?? DefaultTerminal;
+        IdeExecutable = settings.IdeExecutable ?? string.Empty;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
+        ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
     }
 

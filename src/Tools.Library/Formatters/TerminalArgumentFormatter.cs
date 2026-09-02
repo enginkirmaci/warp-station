@@ -2,9 +2,9 @@ namespace Tools.Library.Formatters;
 
 /// <summary>
 /// Builds command-line arguments for launching a terminal at a given folder path,
-/// dispatching on the terminal executable (Windows Terminal, PowerShell, or a generic
-/// fallback). Encapsulates terminal-specific argument knowledge so it is not duplicated
-/// inside ViewModels.
+/// dispatching on the terminal executable (Windows Terminal, PowerShell, Linux
+/// terminal emulators, or a generic fallback). Encapsulates terminal-specific
+/// argument knowledge so it is not duplicated inside ViewModels.
 /// </summary>
 public static class TerminalArgumentFormatter
 {
@@ -24,6 +24,28 @@ public static class TerminalArgumentFormatter
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'\"";
+
+        if (exeLower.Contains("gnome-terminal") || exeLower == "kgx")
+            return $"--working-directory=\"{folderPath}\"";
+
+        if (exeLower.Contains("konsole"))
+            return $"--workdir \"{folderPath}\"";
+
+        if (exeLower.Contains("xfce4-terminal"))
+            return $"--working-directory=\"{folderPath}\"";
+
+        if (exeLower.Contains("alacritty"))
+            return $"--working-directory \"{folderPath}\"";
+
+        if (exeLower.Contains("kitty"))
+            return $"--directory \"{folderPath}\"";
+
+        if (exeLower.Contains("wezterm"))
+            return $"start --cwd \"{folderPath}\"";
+
+        // xterm/uxterm have no working-directory flag; cd inside a spawned shell instead.
+        if (exeLower is "xterm" or "uxterm")
+            return $"-e {BuildShellCommand(folderPath, commandLine: null)}";
 
         return $"\"{folderPath}\"";
     }
@@ -66,8 +88,48 @@ public static class TerminalArgumentFormatter
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
             return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'; {commandLine}\"";
 
+        var shellCommand = BuildShellCommand(folderPath, commandLine);
+
+        if (exeLower.Contains("gnome-terminal") || exeLower == "kgx")
+            return $"--working-directory=\"{folderPath}\" -- {shellCommand}";
+
+        if (exeLower.Contains("konsole"))
+            return $"--workdir \"{folderPath}\" -e {shellCommand}";
+
+        if (exeLower.Contains("xfce4-terminal"))
+            return $"--working-directory=\"{folderPath}\" -x {shellCommand}";
+
+        if (exeLower.Contains("alacritty"))
+            return $"--working-directory \"{folderPath}\" -e {shellCommand}";
+
+        if (exeLower.Contains("kitty"))
+            return $"--directory \"{folderPath}\" {shellCommand}";
+
+        if (exeLower.Contains("wezterm"))
+            return $"start --cwd \"{folderPath}\" -- {shellCommand}";
+
+        if (exeLower is "xterm" or "uxterm")
+            return $"-e {shellCommand}";
+
         // Generic fallback: just open the terminal at the folder. We cannot reliably
         // run an arbitrary command for an unknown terminal, so the command is dropped.
         return $"\"{folderPath}\"";
+    }
+
+    /// <summary>
+    /// Builds a `sh -c` invocation that cds into <paramref name="folderPath"/>, runs
+    /// <paramref name="commandLine"/> when given, and then drops into the user's shell —
+    /// the Linux counterpart of `cmd /k`, keeping the terminal window open afterwards.
+    /// The payload travels as a single double-quoted argv element (embedded quotes are
+    /// backslash-escaped for the Unix argument parser).
+    /// </summary>
+    private static string BuildShellCommand(string folderPath, string? commandLine)
+    {
+        var payload = commandLine is null
+            ? $"cd '{folderPath}'; exec ${{SHELL:-/bin/sh}}"
+            : $"cd '{folderPath}' && {commandLine}; exec ${{SHELL:-/bin/sh}}";
+
+        var quotedPayload = "\"" + payload.Replace("\"", "\\\"") + "\"";
+        return $"sh -c {quotedPayload}";
     }
 }
