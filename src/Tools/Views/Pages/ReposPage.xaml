@@ -335,77 +335,69 @@
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
                                                                         ClipToBounds="True">
-                                                                        <Grid>
-                                                                                <StackPanel
-                                                                                        IsVisible="{Binding GitStatusLoaded}"
-                                                                                        Orientation="Horizontal"
-                                                                                        Spacing="8">
-                                                                                        <StackPanel Orientation="Horizontal" Spacing="3">
-                                                                                                <Path
-                                                                                                        Width="11"
-                                                                                                        Height="11"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Data="{tools:SvgPath icon-source-branch}"
-                                                                                                        Fill="{DynamicResource WarningAccentBrush}"
-                                                                                                        Stretch="Uniform" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        FontSize="12"
-                                                                                                        FontWeight="SemiBold"
-                                                                                                        Foreground="{DynamicResource WarningAccentBrush}"
-                                                                                                        Text="{Binding GitModifiedCount}" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Classes="subtle"
-                                                                                                        FontSize="11"
-                                                                                                        Text="changes" />
-                                                                                        </StackPanel>
-                                                                                        <StackPanel Orientation="Horizontal" Spacing="3">
-                                                                                                <Path
-                                                                                                        Width="11"
-                                                                                                        Height="11"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Data="{tools:SvgPath icon-arrow-up}"
-                                                                                                        Fill="{DynamicResource StatusActiveBrush}"
-                                                                                                        Stretch="Uniform" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        FontSize="12"
-                                                                                                        FontWeight="SemiBold"
-                                                                                                        Foreground="{DynamicResource StatusActiveBrush}"
-                                                                                                        Text="{Binding GitToPushCount}" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Classes="subtle"
-                                                                                                        FontSize="11"
-                                                                                                        Text="push" />
-                                                                                        </StackPanel>
-                                                                                        <StackPanel Orientation="Horizontal" Spacing="3">
-                                                                                                <Path
-                                                                                                        Width="11"
-                                                                                                        Height="11"
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Data="{tools:SvgPath icon-arrow-down}"
-                                                                                                        Fill="{DynamicResource InfoAccentBrush}"
-                                                                                                        Stretch="Uniform" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        FontSize="12"
-                                                                                                        FontWeight="SemiBold"
-                                                                                                        Foreground="{DynamicResource InfoAccentBrush}"
-                                                                                                        Text="{Binding GitToPullCount}" />
-                                                                                                <TextBlock
-                                                                                                        VerticalAlignment="Center"
-                                                                                                        Classes="subtle"
-                                                                                                        FontSize="11"
-                                                                                                        Text="pull" />
-                                                                                        </StackPanel>
-                                                                                </StackPanel>
+                                                                        <StackPanel
+                                                                                IsVisible="{Binding GitStatusLoaded}"
+                                                                                Orientation="Horizontal">
                                                                                 <TextBlock
+                                                                                        VerticalAlignment="Center"
+                                                                                        FontSize="12"
+                                                                                        FontWeight="SemiBold"
+                                                                                        Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                        Text="{Binding GitModifiedCount}" />
+                                                                                <TextBlock
+                                                                                        Margin="4,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        FontSize="12"
+                                                                                        Text="Changes" />
+                                                                                <TextBlock
+                                                                                        Margin="5,0,0,0"
+                                                                                        VerticalAlignment="Center"
                                                                                         Classes="subtle"
-                                                                                        IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
-                                                                                        Text="checking…" />
-                                                                        </Grid>
+                                                                                        Text="(" />
+                                                                                <TextBlock
+                                                                                        VerticalAlignment="Center"
+                                                                                        FontSize="12"
+                                                                                        FontWeight="SemiBold"
+                                                                                        Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                        Text="{Binding GitToPushCount}" />
+                                                                                <Path
+                                                                                        Width="10"
+                                                                                        Height="10"
+                                                                                        Margin="1,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Data="{tools:SvgPath icon-arrow-up}"
+                                                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                                                        Stretch="Uniform" />
+                                                                                <TextBlock
+                                                                                        Margin="2,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Classes="subtle"
+                                                                                        Text="," />
+                                                                                <TextBlock
+                                                                                        Margin="4,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        FontSize="12"
+                                                                                        FontWeight="SemiBold"
+                                                                                        Foreground="{DynamicResource InfoAccentBrush}"
+                                                                                        Text="{Binding GitToPullCount}" />
+                                                                                <Path
+                                                                                        Width="10"
+                                                                                        Height="10"
+                                                                                        Margin="1,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Data="{tools:SvgPath icon-arrow-down}"
+                                                                                        Fill="{DynamicResource InfoAccentBrush}"
+                                                                                        Stretch="Uniform" />
+                                                                                <TextBlock
+                                                                                        Margin="2,0,0,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Classes="subtle"
+                                                                                        Text=")" />
+                                                                        </StackPanel>
+                                                                        <TextBlock
+                                                                                Classes="subtle"
+                                                                                IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
+                                                                                Text="checking…" />
                                                                 </StackPanel>
 
                                                                 <!--
