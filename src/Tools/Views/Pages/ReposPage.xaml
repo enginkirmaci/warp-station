@@ -417,7 +417,7 @@
                                                                                         Classes="tool-button accent-outline"
                                                                                         Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
                                                                                         CommandParameter="{Binding}"
-                                                                                        ToolTip.Tip="Launch one opencode instance with the first model">
+                                                                                        ToolTip.Tip="Launch one opencode instance with the default model">
                                                                                         <Path
                                                                                                 Width="22"
                                                                                                 Height="22"
@@ -456,10 +456,9 @@
                                                                                         Stretch="Uniform" />
                                                                         </Button>
                                                                         <!--
-                                                                                The open-solution button also requires an IDE:
-                                                                                on Windows the .sln shell association always
-                                                                                exists, elsewhere HasIde reflects the detected
-                                                                                or configured .NET IDE.
+                                                                                The open-solution button is a Visual Studio
+                                                                                shortcut: HasIde requires VS to be installed,
+                                                                                or an IDE explicitly configured in settings.
                                                                         -->
                                                                         <StackPanel
                                                                                 IsVisible="{ReflectionBinding #Root.DataContext.HasIde}"
@@ -670,6 +669,7 @@
                                                 IsEnabled="{Binding OpenCodeHasModels}"
                                                 ItemsSource="{Binding OpenCodeFilteredModels}"
                                                 PlaceholderText="Search or select a model…"
+                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=OneWay}"
                                                 SelectionChanged="OnOpenCodeModelSelectionChanged"
                                                 Text="{Binding OpenCodeModelFilter, Mode=TwoWay}" />
                                         <TextBlock

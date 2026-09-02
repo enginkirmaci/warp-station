@@ -103,8 +103,11 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _hasTerminal;
 
-    /// <summary>Whether the open-solution action can run: on Windows the .sln shell
-    /// association always can; elsewhere only when a .NET IDE is detected/configured.</summary>
+    /// <summary>Whether the open-solution action can run. It is a Visual Studio action, so
+    /// it needs Visual Studio installed; a non-empty <see cref="ReposSettings.IdeExecutable"/>
+    /// overrides the check (Locate-verified on Linux) so e.g. Rider can be wired up
+    /// deliberately. Windows without VS and the .sln association re-pointed elsewhere
+    /// hides the button until an IDE is configured.</summary>
     [ObservableProperty]
     private bool _hasIde;
 
@@ -123,15 +126,23 @@ public partial class ReposViewModel : PageViewModelBase
 
     /// <summary>
     /// Re-evaluates the per-PC launch-shortcut availability flags from the current
-    /// settings. Called after settings load and after the settings dialog saves, so
-    /// installing/uninstalling a tool (or editing its executable setting) is reflected
-    /// on the next page visit or save respectively.
+    /// settings. Called after settings load and after the settings dialog saves. The
+    /// underlying probes are memoized per process (see <see cref="ExecutableDefaults"/>),
+    /// so the filesystem/vswhere work happens once per executable — repeat calls only
+    /// re-run when a configured value actually changed.
     /// </summary>
     private void RefreshShortcutAvailability()
     {
         HasTerminal = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable) is not null;
-        HasIde = OperatingSystem.IsWindows()
-                 || ExecutableDefaults.ResolveIde(_reposSettings.IdeExecutable) is not null;
+
+        // The open-solution button is a Visual Studio shortcut: only VS itself (or an
+        // explicitly configured stand-in IDE) makes it available — a detected editor like
+        // VS Code must not light it up, it has its own button.
+        var configuredIde = _reposSettings.IdeExecutable?.Trim();
+        HasIde = !string.IsNullOrEmpty(configuredIde)
+            ? ExecutableDefaults.Locate(configuredIde) is not null
+            : ExecutableDefaults.HasVisualStudio();
+
         HasVSCode = ExecutableDefaults.Locate(_reposSettings.VSCodeExecutable) is not null;
         HasZCode = ExecutableDefaults.Locate(_reposSettings.ZCodeExecutable) is not null;
         HasOpenCode = IsOpenCodeEnabled && ExecutableDefaults.Locate(_reposSettings.OpenCodeExecutable) is not null;
@@ -172,8 +183,12 @@ public partial class ReposViewModel : PageViewModelBase
 
     /// <summary>
     /// The currently selected model in the OpenCode panel. Passed to opencode via
-    /// <c>opencode model "&lt;model&gt;"</c>. Driven by the editable model ComboBox's selection,
-    /// not its text — see <see cref="OpenCodeModelFilter"/>.
+    /// <c>opencode model "&lt;model&gt;"</c>. Bound OneWay to the sidebar's model picker so the
+    /// box genuinely selects (highlights) the configured default model; user picks are
+    /// committed by the page code-behind's SelectionChanged handler, not by a TwoWay
+    /// binding — a TwoWay writeback would null the selection during the in-place list
+    /// rebuilds (see <see cref="RefreshOpenCodeFilteredModels"/>) and break the
+    /// pick-survives-refresh behavior.
     /// </summary>
     [ObservableProperty]
     private string _openCodeSelectedModel = string.Empty;
@@ -378,6 +393,15 @@ public partial class ReposViewModel : PageViewModelBase
         OpenCodeModelFilter = OpenCodeSelectedModel;
         RefreshOpenCodeFilteredModels();
 
+        // The picker's SelectedItem is bound OneWay to the committed selection so the
+        // dropdown genuinely highlights the selected (default) model. Re-raise it here so
+        // the binding re-resolves after the in-place list rebuild above — including when
+        // the value did not change and ObservableProperty raised nothing. Safe from text
+        // clobbering: the filter was just mirrored to the same value, so the selection's
+        // text equals what the box already shows, and the code-behind's SelectionChanged
+        // handler re-commits equal values (no property-change, no loop).
+        OnPropertyChanged(nameof(OpenCodeSelectedModel));
+
         // The computed has/empty flags feed the ComboBox IsEnabled and the hint visibility.
         OnPropertyChanged(nameof(OpenCodeHasModels));
         OnPropertyChanged(nameof(OpenCodeModelsEmpty));
@@ -432,6 +456,8 @@ public partial class ReposViewModel : PageViewModelBase
     /// is shown when the filter is empty or when it just mirrors the committed selection (so the
     /// box can display the active model without narrowing the dropdown to a single entry); the
     /// list only narrows when the user is actively typing a partial query.
+    /// Must not run synchronously from a filter writeback that originates inside the ComboBox's
+    /// own selection update — see <see cref="ScheduleFilteredModelsRefresh"/>.
     /// </summary>
     private void RefreshOpenCodeFilteredModels()
     {
@@ -453,17 +479,54 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// When the filter text changes (the user is typing in the editable ComboBox), refresh the
-    /// filtered dropdown so the list narrows live as they type.
+    /// Whether a deferred <see cref="RefreshOpenCodeFilteredModels"/> pass is already queued
+    /// (see <see cref="ScheduleFilteredModelsRefresh"/>).
     /// </summary>
-    partial void OnOpenCodeModelFilterChanged(string value) => RefreshOpenCodeFilteredModels();
+    private bool _filteredModelsRefreshScheduled;
+
+    /// <summary>
+    /// When the filter text changes (the user is typing in the editable ComboBox), refresh the
+    /// filtered dropdown so the list narrows live as they type — deferred to the dispatcher,
+    /// never synchronous.
+    /// </summary>
+    partial void OnOpenCodeModelFilterChanged(string value) => ScheduleFilteredModelsRefresh();
+
+    /// <summary>
+    /// Schedules <see cref="RefreshOpenCodeFilteredModels"/> on the next dispatcher pass,
+    /// coalescing bursts into one rebuild.
+    /// <para>
+    /// The deferral is load-bearing: the picker's Text binding writes back into
+    /// <see cref="OpenCodeModelFilter"/> from inside the ComboBox's own selection update —
+    /// setting <c>SelectedItem</c> (the OneWay binding that selects the configured default)
+    /// updates the editable Text, and that Text change re-enters the VM synchronously.
+    /// Mutating <see cref="OpenCodeFilteredModels"/> in that window raises CollectionChanged
+    /// re-entrantly and the selection model throws "Source collection was modified during
+    /// selection update". Deferring lets the selection update finish; the rebuild reads the
+    /// current filter when it runs, so intermediate invocations coalesce safely.
+    /// </para>
+    /// </summary>
+    private void ScheduleFilteredModelsRefresh()
+    {
+        if (_filteredModelsRefreshScheduled)
+        {
+            return;
+        }
+
+        _filteredModelsRefreshScheduled = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _filteredModelsRefreshScheduled = false;
+            RefreshOpenCodeFilteredModels();
+        });
+    }
 
     /// <summary>
     /// When the full model list changes (panel reopened), refresh the filtered
-    /// projection so the dropdown reflects the latest available models.
+    /// projection so the dropdown reflects the latest available models. Deferred like the
+    /// filter path so a list swap can never mutate the source mid-selection-update.
     /// </summary>
     partial void OnOpenCodeModelsChanged(ObservableCollection<string> value)
-        => RefreshOpenCodeFilteredModels();
+        => ScheduleFilteredModelsRefresh();
 
     /// <summary>True when at least one model is available (drives the ComboBox IsEnabled).</summary>
     public bool OpenCodeHasModels => OpenCodeModels.Count > 0;

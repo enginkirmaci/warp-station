@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Tools.Library.Services;
 
 /// <summary>
@@ -9,6 +11,14 @@ namespace Tools.Library.Services;
 /// Also provides <see cref="Locate"/> for spawning CLIs (e.g. opencode) that a GUI
 /// process cannot otherwise find: Linux GUI sessions inherit a minimal PATH that does
 /// not include the user-level bin directories shell rc files add.
+/// <para>
+/// Probe results are memoized per process: executables don't move while the app runs,
+/// and the lookups behind <see cref="Locate"/> (PATH/user-bin walks, desktop-entry and
+/// AppImage folder scans) and <see cref="HasVisualStudio"/> (a vswhere process) are not
+/// free — availability is checked once per name, not on every page visit or launch.
+/// A changed configured value probes afresh; uninstalled-mid-session tools are picked
+/// up on the next app start.
+/// </para>
 /// </summary>
 public static class ExecutableDefaults
 {
@@ -52,6 +62,24 @@ public static class ExecutableDefaults
         ".config/yarn/global/node_modules/.bin",
     ];
 
+    // --- Per-process probe memos (see the class doc) ---
+
+    /// <summary>Bare-name <see cref="Locate"/> resolutions, negative results included;
+    /// AppImage/desktop-entry probes land here too.</summary>
+    private static readonly ConcurrentDictionary<string, string?> LocatedByName = new(StringComparer.Ordinal);
+
+    /// <summary>Memoized <see cref="HasVisualStudio"/> probe (null = not probed yet).</summary>
+    private static bool? _hasVisualStudio;
+
+    /// <summary>Memoized Linux terminal auto-detect; the Done flag distinguishes "not probed"
+    /// from "probed and found nothing".</summary>
+    private static string? _detectedTerminal;
+    private static bool _terminalDetectionDone;
+
+    /// <summary>Memoized Linux .NET IDE auto-detect (same pattern as the terminal).</summary>
+    private static string? _detectedIde;
+    private static bool _ideDetectionDone;
+
     /// <summary>
     /// Resolves the terminal emulator to use. On Windows this is the configured value
     /// (defaulting to Windows Terminal); on Linux the persisted Windows default
@@ -76,7 +104,7 @@ public static class ExecutableDefaults
             return trimmed;
         }
 
-        var detected = DetectOnPath(KnownLinuxTerminals);
+        var detected = DetectTerminalOnce();
         if (detected is null)
         {
             Serilog.Log.Logger.Warning(
@@ -111,7 +139,7 @@ public static class ExecutableDefaults
             return null;
         }
 
-        var detected = DetectOnPath(KnownLinuxIdes);
+        var detected = DetectIdeOnce();
         if (detected is null)
         {
             Serilog.Log.Logger.Warning(
@@ -150,7 +178,96 @@ public static class ExecutableDefaults
             return trimmed;
         }
 
-        return FindExecutableFile(trimmed) ?? FindAppImage(trimmed);
+        return LocatedByName.GetOrAdd(trimmed, static name => FindExecutableFile(name) ?? FindAppImage(name));
+    }
+
+    /// <summary>First-run probe of the well-known terminals, memoized for the process.</summary>
+    private static string? DetectTerminalOnce()
+    {
+        if (!_terminalDetectionDone)
+        {
+            _detectedTerminal = DetectOnPath(KnownLinuxTerminals);
+            _terminalDetectionDone = true;
+        }
+
+        return _detectedTerminal;
+    }
+
+    /// <summary>First-run probe of the well-known .NET IDEs, memoized for the process.</summary>
+    private static string? DetectIdeOnce()
+    {
+        if (!_ideDetectionDone)
+        {
+            _detectedIde = DetectOnPath(KnownLinuxIdes);
+            _ideDetectionDone = true;
+        }
+
+        return _detectedIde;
+    }
+
+    /// <summary>
+    /// Whether Visual Studio — a product edition that can open solutions — is installed.
+    /// Probes the <c>vswhere.exe</c> that ships with the Visual Studio installer for the
+    /// latest instance (default products: Community/Professional/Enterprise, previews
+    /// included; Build Tools excluded). On non-Windows platforms Visual Studio does not
+    /// exist, so this returns <see langword="false"/> without probing.
+    /// </summary>
+    public static bool HasVisualStudio()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        if (_hasVisualStudio is { } cached)
+        {
+            return cached;
+        }
+
+        _hasVisualStudio = ProbeVisualStudio();
+        return _hasVisualStudio.Value;
+    }
+
+    /// <summary>Runs the vswhere probe once; callers memoize the outcome.</summary>
+    private static bool ProbeVisualStudio()
+    {
+        var vswhere = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Microsoft Visual Studio",
+            "Installer",
+            "vswhere.exe");
+        if (!File.Exists(vswhere))
+        {
+            return false;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = vswhere,
+                Arguments = "-latest -prerelease -property installationPath -format value",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            using var process = Process.Start(psi)!;
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(3000);
+
+            // A reported installation path is the presence proof; verify it still exists
+            // so a stale installer cache (uninstalled VS) does not count.
+            var installPath = output.Trim();
+            return !string.IsNullOrWhiteSpace(installPath) && Directory.Exists(installPath);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Warning(ex, "ExecutableDefaults: vswhere probe failed; treating Visual Studio as not installed");
+            return false;
+        }
     }
 
     private static string? DetectOnPath(string[] candidates)
