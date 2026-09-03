@@ -31,6 +31,7 @@ public static class IconAssetLoader
         "icon-arrow-down",
         "icon-arrow-left",
         "icon-arrow-up",
+        "icon-azure-devops",
         "icon-chart-bar",
         "icon-chevron-right",
         "icon-chevron-down",

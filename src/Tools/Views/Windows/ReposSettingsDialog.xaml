@@ -51,6 +51,18 @@
                         ToolTip.Tip="Show the GitHub column (repo link, open pull requests and issues) on the Repos page. When off, the column is hidden and the gh CLI is not queried" />
                 </StackPanel>
 
+                <!--  Azure DevOps column  -->
+                <StackPanel Spacing="8">
+                    <CheckBox
+                        Content="Show Azure DevOps column"
+                        IsChecked="{Binding ShowAzureDevOpsColumn, Mode=TwoWay}"
+                        ToolTip.Tip="Show the Azure DevOps column (repo link, active pull requests, open work items and the latest pipeline run) on the Repos page. When off, the column is hidden and no REST calls are sent" />
+                    <TextBlock
+                        Classes="subtle"
+                        Text="Repos are matched to Azure DevOps by their git remote; query the REST API with a personal access token (Build/Code/Work Items read scopes). Falls back to the AZURE_DEVOPS_PAT environment variable when empty."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+
                 <!--  Pattern and executable fields  -->
                 <WrapPanel HorizontalAlignment="Stretch">
                     <!--  Git Folder Pattern  -->
@@ -174,6 +186,22 @@
                             IsEnabled="{Binding ShowGitHubColumn}"
                             Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
                             Watermark="gh" />
+                    </StackPanel>
+
+                    <!--  Azure DevOps Personal Access Token  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Azure DevOps Token"
+                            ToolTip.Tip="Personal access token used to query pull requests, work items and pipeline runs for the Azure DevOps column. Stored in settings.json; leave empty to use the AZURE_DEVOPS_PAT environment variable instead" />
+                        <TextBox
+                            IsEnabled="{Binding ShowAzureDevOpsColumn}"
+                            PasswordChar="•"
+                            Text="{Binding AzureDevOpsPat, UpdateSourceTrigger=PropertyChanged}"
+                            Watermark="personal access token" />
                     </StackPanel>
 
                     <!--  Max Scan Depth  -->

@@ -35,6 +35,10 @@ public static class ServiceRegistrationExtensions
         // settings' Show GitHub column flag)
         services.AddSingleton<IGitHubService, GitHubService>();
 
+        // Azure DevOps column: pull requests / work items / pipeline runs via the REST
+        // API with a PAT (gated on the settings' Show Azure DevOps column flag + token)
+        services.AddSingleton<IAzureDevOpsService, AzureDevOpsService>();
+
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();

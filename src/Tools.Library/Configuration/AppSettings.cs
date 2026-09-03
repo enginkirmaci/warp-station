@@ -139,9 +139,34 @@ public class ReposSettings
     public string? GitHubExecutable { get; set; } = "gh";
 
     /// <summary>
+    /// Gets or sets a value indicating whether the Azure DevOps column is shown on the
+    /// Repos page. When <see langword="false"/> the column is hidden <em>and</em> the
+    /// Azure DevOps REST API is never called, so disabling it costs nothing at runtime.
+    /// Defaults to <see langword="true"/> (a column without a configured token stays
+    /// empty rather than probing).
+    /// </summary>
+    public bool ShowAzureDevOpsColumn { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the Azure DevOps personal access token (PAT) used to query open pull
+    /// requests, work items and pipeline runs for the Azure DevOps column. The token only
+    /// needs <c>Build (read)</c>, <c>Code (read)</c> and <c>Work Items (read)</c> scopes.
+    /// When empty, the <c>AZURE_DEVOPS_PAT</c> (then <c>AZURE_DEVOPS_EXT_PAT</c>)
+    /// environment variables are consulted instead.
+    /// </summary>
+    public string? AzureDevOpsPat { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the folders to exclude during scanning.
     /// </summary>
     public string[]? ExcludedFolders { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Repos page list sort order. Favorites always float to the top in
+    /// every mode; this orders the rest. Persisted so the choice survives restarts.
+    /// Defaults to <see cref="RepoSortMode.Name"/> (the historical ordering).
+    /// </summary>
+    public RepoSortMode SortMode { get; set; } = RepoSortMode.Name;
 
     /// <summary>
     /// Gets or sets the maximum folder depth to scan recursively.

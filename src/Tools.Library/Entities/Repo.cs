@@ -210,6 +210,121 @@ public partial class Repo : ObservableObject
 
     partial void OnGitHubAvailableChanged(bool value) => OnPropertyChanged(nameof(IsGitHubAllClear));
 
+    // --- Azure DevOps column (runtime-only, pushed by IAzureDevOpsService) ---
+
+    /// <summary>
+    /// The HTML URL of the repo on Azure DevOps, pushed by <c>IAzureDevOpsService</c>.
+    /// <c>null</c> when the repo has no Azure DevOps remote or the probe failed — the
+    /// column then shows nothing for this repo. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private string? _azureDevOpsRepoUrl;
+
+    /// <summary>
+    /// Number of active pull requests reported by the Azure DevOps REST API (capped at
+    /// the fetch limit). Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _azureDevOpsPrCount;
+
+    /// <summary>
+    /// Number of open work items in the repo's hosting Azure DevOps project (capped at
+    /// the fetch limit). Work items are not repo-scoped in Azure DevOps, so the count is
+    /// project-wide. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _azureDevOpsWorkItemCount;
+
+    /// <summary>
+    /// The latest pipeline run's state for this repo: its <c>result</c> when completed
+    /// (<c>succeeded</c>, <c>failed</c>, …) or its <c>status</c> while still running
+    /// (<c>inProgress</c>, …). <c>null</c> when the repo has no pipeline runs (or is not
+    /// on Azure DevOps). Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private string? _azureDevOpsPipelineState;
+
+    /// <summary>
+    /// One-line summary of the latest pipeline run for the column chip's tooltip
+    /// ("Build #472 'CI' — succeeded, 12m ago"). <c>null</c> with
+    /// <see cref="AzureDevOpsPipelineState"/>. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private string? _azureDevOpsPipelineInfo;
+
+    /// <summary>
+    /// Whether the Azure DevOps probe has completed for this repo — gates the column's
+    /// placeholder-free empty state the same way <see cref="GitStatusLoaded"/> does for
+    /// the git cells. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _azureDevOpsLoaded;
+
+    /// <summary>
+    /// Whether the repo resolved to an Azure DevOps repository at all (remote parsed and
+    /// the API recognized it). Other hosts keep the cell empty instead of showing a
+    /// misleading all-clear. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _azureDevOpsAvailable;
+
+    /// <summary>Whether the active pull-requests chip shows in the Azure DevOps column.</summary>
+    public bool HasAzureDevOpsPullRequests => AzureDevOpsPrCount > 0;
+
+    /// <summary>Whether the open work-items chip shows in the Azure DevOps column.</summary>
+    public bool HasAzureDevOpsWorkItems => AzureDevOpsWorkItemCount > 0;
+
+    /// <summary>Whether the latest-pipeline-run chip shows in the Azure DevOps column.</summary>
+    public bool HasAzureDevOpsPipeline => !string.IsNullOrWhiteSpace(AzureDevOpsPipelineState);
+
+    /// <summary>Whether the latest pipeline run finished unsuccessfully (drives the chip's failure color).</summary>
+    public bool IsAzureDevOpsPipelineFailed
+        => string.Equals(AzureDevOpsPipelineState, "failed", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(AzureDevOpsPipelineState, "canceled", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether the latest pipeline run finished successfully (drives the chip's success color).</summary>
+    public bool IsAzureDevOpsPipelineOk
+        => HasAzureDevOpsPipeline && !IsAzureDevOpsPipelineFailed && !IsAzureDevOpsPipelineRunning;
+
+    /// <summary>Whether the latest pipeline run is still in flight (drives the chip's running color).</summary>
+    public bool IsAzureDevOpsPipelineRunning
+        => !IsAzureDevOpsPipelineFailed && !string.Equals(AzureDevOpsPipelineState, "succeeded", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(AzureDevOpsPipelineState, "partiallySucceeded", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the Azure DevOps column shows the all-clear "OK" state for this repo:
+    /// probed, hosted on Azure DevOps, nothing open and no failing pipeline. A repo
+    /// without any pipeline runs still qualifies (no CI is not a problem).
+    /// </summary>
+    public bool IsAzureDevOpsAllClear
+        => AzureDevOpsLoaded && AzureDevOpsAvailable && AzureDevOpsPrCount == 0 && AzureDevOpsWorkItemCount == 0
+        && (!HasAzureDevOpsPipeline || !IsAzureDevOpsPipelineFailed);
+
+    partial void OnAzureDevOpsPrCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasAzureDevOpsPullRequests));
+        OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
+    }
+
+    partial void OnAzureDevOpsWorkItemCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasAzureDevOpsWorkItems));
+        OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
+    }
+
+    partial void OnAzureDevOpsPipelineStateChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasAzureDevOpsPipeline));
+        OnPropertyChanged(nameof(IsAzureDevOpsPipelineFailed));
+        OnPropertyChanged(nameof(IsAzureDevOpsPipelineRunning));
+        OnPropertyChanged(nameof(IsAzureDevOpsPipelineOk));
+        OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
+    }
+
+    partial void OnAzureDevOpsLoadedChanged(bool value) => OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
+
+    partial void OnAzureDevOpsAvailableChanged(bool value) => OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
+
     /// <summary>
     /// Formats an age as a compact relative label matching the Repos table's style:
     /// the most significant unit only, no rounding up across unit boundaries

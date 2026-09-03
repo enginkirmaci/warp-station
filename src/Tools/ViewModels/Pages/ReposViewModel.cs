@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -14,11 +15,18 @@ using Tools.Services.Abstractions;
 namespace Tools.ViewModels.Pages;
 
 /// <summary>
+/// One entry of the Repos page sort selector: the sort mode plus its display label.
+/// A labeled wrapper (rather than binding the raw enum) keeps the dropdown text in
+/// one place and works with compiled bindings without a value converter.
+/// </summary>
+public sealed record RepoSortOption(RepoSortMode Mode, string Label);
+
+/// <summary>
 /// Binding adapter for the Repos page. Delegates scanning, caching, and the shared
 /// repo state to <see cref="IRepoService"/> (singleton), process launching to
 /// <see cref="IProcessLauncher"/>, and tag persistence back through the service.
-/// Holds only view-specific state: the text + tag filters, the filtered projection,
-/// and the transient OpenCode panel options.
+/// Holds only view-specific state: the text + tag filters, the sort selection, the
+/// filtered projection, and the transient OpenCode panel options.
 /// </summary>
 public partial class ReposViewModel : PageViewModelBase
 {
@@ -28,6 +36,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IRepoService _repoService;
     private readonly IGitStatusService _gitStatusService;
     private readonly IGitHubService _gitHubService;
+    private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
@@ -55,8 +64,35 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private const int ChangedDebounceMs = 100;
 
+    /// <summary>
+    /// The repos currently wired to <see cref="OnRepoPropertyChanged"/> for live re-sorting
+    /// and the GitHub header totals. The service raises <c>Changed</c> only around scans,
+    /// but the background git status / GitHub passes push their results straight onto the
+    /// entities afterwards — without listening to the entities, a Last-activity/Changes
+    /// sort would keep its pre-probe order and the header totals would lag until the next
+    /// unrelated rebuild. Rebuilt after every scan because a rescan can replace the repo
+    /// instances.
+    /// </summary>
+    private readonly HashSet<Repo> _sortObservedRepos = new();
+
     [ObservableProperty]
     private string _filterText = string.Empty;
+
+    /// <summary>The sort orders offered in the toolbar selector, in dropdown order.</summary>
+    public static IReadOnlyList<RepoSortOption> SortOptions { get; } = new[]
+    {
+        new RepoSortOption(RepoSortMode.Name, "Name"),
+        new RepoSortOption(RepoSortMode.LastActivity, "Last activity"),
+        new RepoSortOption(RepoSortMode.Changes, "Changes"),
+    };
+
+    /// <summary>
+    /// The currently selected entry of the toolbar sort selector. Seeded from the
+    /// persisted <see cref="ReposSettings.SortMode"/> on page load; a user pick
+    /// re-orders the list immediately and persists the mode back to settings.
+    /// </summary>
+    [ObservableProperty]
+    private RepoSortOption _selectedSortOption = SortOptions[0];
 
     [ObservableProperty]
     private ObservableCollection<Repo> _filteredRepos = new();
@@ -99,6 +135,51 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     [ObservableProperty]
     private bool _isGitHubColumnVisible;
+
+    // --- GitHub totals (page-header summary) ---
+
+    /// <summary>
+    /// Total open pull requests across all known repos — the at-a-glance summary beside
+    /// the page title. Unloaded and non-GitHub repos contribute zero. Refreshed when a
+    /// repo's GitHub counts change (see <see cref="OnRepoPropertyChanged"/>) and after a
+    /// scan replaces the repo set (see <see cref="RefreshGitHubTotals"/>).
+    /// </summary>
+    public int GitHubTotalPrCount => _repoService.Repos.Sum(r => r.GitHubPrCount);
+
+    /// <summary>Total open issues across all known repos. See <see cref="GitHubTotalPrCount"/>.</summary>
+    public int GitHubTotalIssueCount => _repoService.Repos.Sum(r => r.GitHubIssueCount);
+
+    /// <summary>
+    /// Whether the header summary shows at all: the GitHub column must be enabled and at
+    /// least one item open across the repos — an all-zero summary is noise, matching the
+    /// per-row chips that hide when their count is zero.
+    /// </summary>
+    public bool HasGitHubTotals => IsGitHubColumnVisible
+        && (GitHubTotalPrCount > 0 || GitHubTotalIssueCount > 0);
+
+    partial void OnIsGitHubColumnVisibleChanged(bool value) => OnPropertyChanged(nameof(HasGitHubTotals));
+
+    /// <summary>
+    /// Re-raises the GitHub totals after the repo set may have been replaced wholesale
+    /// (initial load, rescan): the fresh entities start at zero, so a previously non-zero
+    /// summary must drop without any single entity carrying a change notification.
+    /// </summary>
+    private void RefreshGitHubTotals()
+    {
+        OnPropertyChanged(nameof(GitHubTotalPrCount));
+        OnPropertyChanged(nameof(GitHubTotalIssueCount));
+        OnPropertyChanged(nameof(HasGitHubTotals));
+    }
+
+    // --- Azure DevOps column visibility ---
+
+    /// <summary>
+    /// Whether the Azure DevOps column shows (mirrors <see cref="ReposSettings.ShowAzureDevOpsColumn"/>).
+    /// When false the whole column cell collapses — and the Azure DevOps service is
+    /// configured off too, so no REST calls are sent for a column that is not visible.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isAzureDevOpsColumnVisible;
 
     // --- Launch shortcut availability (per PC) ---
 
@@ -299,6 +380,7 @@ public partial class ReposViewModel : PageViewModelBase
         IRepoService repoService,
         IGitStatusService gitStatusService,
         IGitHubService gitHubService,
+        IAzureDevOpsService azureDevOpsService,
         IProcessLauncher processLauncher,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
@@ -312,6 +394,7 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService = repoService;
         _gitStatusService = gitStatusService;
         _gitHubService = gitHubService;
+        _azureDevOpsService = azureDevOpsService;
         _processLauncher = processLauncher;
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
@@ -334,6 +417,10 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService.Changed -= OnRepoChanged;
         _repoService.TagsChanged -= OnRepoChanged;
 
+        // Detach the live-re-sort listeners: the repos are singleton-cached and would
+        // otherwise keep this Transient VM alive across navigations.
+        DetachSortListeners();
+
         // Cancel any deferred filter/changed callbacks so a pending debounce does not fire
         // its UI-thread update after this VM is no longer the active page.
         _filterDebounce?.Cancel();
@@ -351,17 +438,30 @@ public partial class ReposViewModel : PageViewModelBase
         var settings = await _settingsService.GetSettingsAsync();
         _reposSettings = settings.Repos ?? new ReposSettings();
         _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
+        // Seed the sort selector from the persisted mode. Matching the exact option
+        // instance keeps the no-change path silent (no re-apply, no save round-trip);
+        // a non-default mode raises the change here and re-orders the initial list.
+        SelectedSortOption = SortOptions.FirstOrDefault(o => o.Mode == _reposSettings.SortMode) ?? SortOptions[0];
         IsOpenCodeEnabled = _openCodeSettings.Enabled;
         IsGitHubColumnVisible = _reposSettings.ShowGitHubColumn;
+        IsAzureDevOpsColumnVisible = _reposSettings.ShowAzureDevOpsColumn;
         // Configure the GitHub service before loading repos: both the explicit kick below
         // and the service's own scan-triggered refresh gate on this flag, so a disabled
         // column never spawns gh even during the initial scan burst.
         _gitHubService.Configure(_reposSettings);
+        // Same for the Azure DevOps service: the flag plus the configured token gate
+        // every REST call, so a disabled column sends no requests at all.
+        _azureDevOpsService.Configure(_reposSettings);
         RefreshShortcutAvailability();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeTemplatesAsync();
         await LoadOpenCodePromptsAsync();
         RebuildTagFilters();
+        RefreshSortListeners();
+        // The repos are singleton-cached and may still carry GitHub counts from an earlier
+        // page visit — seed the header totals from them (fresh loads start at zero, where
+        // this raise is a harmless no-op for the UI).
+        RefreshGitHubTotals();
         ApplyFilter();
 
         // Kick the local git status checks in the background — the cards render instantly
@@ -381,6 +481,15 @@ public partial class ReposViewModel : PageViewModelBase
         if (IsGitHubColumnVisible && _repoService.Repos.Any(r => !r.GitHubLoaded))
         {
             _ = _gitHubService.RefreshAllAsync();
+        }
+
+        // Same lazy pattern for the Azure DevOps column: only probe when the column is
+        // visible, a token is configured and some repo has no Azure DevOps data yet
+        // (first navigation or after new repos); later navigations reuse the counts
+        // already pushed onto the entities.
+        if (IsAzureDevOpsColumnVisible && _repoService.Repos.Any(r => !r.AzureDevOpsLoaded))
+        {
+            _ = _azureDevOpsService.RefreshAllAsync();
         }
     }
 
@@ -667,6 +776,11 @@ public partial class ReposViewModel : PageViewModelBase
                 {
                     if (token.IsCancellationRequested) return;
                     RebuildTagFilters();
+                    // A rescan can replace repo instances — re-wire the live-re-sort
+                    // listeners to the fresh set before re-ordering, and drop the GitHub
+                    // totals the orphaned entities were carrying.
+                    RefreshSortListeners();
+                    RefreshGitHubTotals();
                     ApplyFilter();
                 });
             }
@@ -765,6 +879,116 @@ public partial class ReposViewModel : PageViewModelBase
                 .OrderBy(t => t, StringComparer.OrdinalIgnoreCase));
     }
 
+    partial void OnSelectedSortOptionChanged(RepoSortOption? value)
+    {
+        if (value is null) return;
+        ApplyFilter();
+        PersistSortMode(value.Mode);
+    }
+
+    /// <summary>
+    /// Writes the picked sort mode into the persisted settings. The in-memory
+    /// <see cref="ReposSettings"/> instance is shared with the settings service, so the
+    /// next full settings save (e.g. from the settings dialog) keeps the choice too —
+    /// the immediate save here just makes it survive an app crash/restart as well.
+    /// </summary>
+    private void PersistSortMode(RepoSortMode mode)
+    {
+        if (_reposSettings.SortMode == mode) return;
+        _reposSettings.SortMode = mode;
+        _ = PersistReposSettingsAsync();
+    }
+
+    private async Task PersistReposSettingsAsync()
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            settings.Repos = _reposSettings;
+            await _settingsService.SaveSettingsAsync(settings);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Failed to persist the Repos page sort mode");
+        }
+    }
+
+    /// <summary>
+    /// Re-wires the live-re-sort listeners to the repos the service currently knows.
+    /// Idempotent per pass; called on page load and after every scan so replaced repo
+    /// instances don't leave the set holding (and keeping alive) stale ones.
+    /// </summary>
+    private void RefreshSortListeners()
+    {
+        foreach (var repo in _sortObservedRepos)
+            repo.PropertyChanged -= OnRepoPropertyChanged;
+        _sortObservedRepos.Clear();
+
+        foreach (var repo in _repoService.Repos)
+            _sortObservedRepos.Add(repo);
+
+        foreach (var repo in _sortObservedRepos)
+            repo.PropertyChanged += OnRepoPropertyChanged;
+    }
+
+    private void DetachSortListeners()
+    {
+        foreach (var repo in _sortObservedRepos)
+            repo.PropertyChanged -= OnRepoPropertyChanged;
+        _sortObservedRepos.Clear();
+    }
+
+    private void OnRepoPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Only the properties the sort keys read can change the ordering; ignoring the
+        // rest (branch name, Azure counts, …) keeps a full probe pass from re-sorting for
+        // nothing. Reuses the filter debounce so a burst of probe completions collapses
+        // into one re-order.
+        if (e.PropertyName is nameof(Repo.GitLastCommitAt)
+            or nameof(Repo.GitModifiedCount)
+            or nameof(Repo.GitToPushCount)
+            or nameof(Repo.GitToPullCount))
+        {
+            ScheduleFilterDebounce();
+        }
+
+        // The GitHub probes push their counts from background gh continuations; the header
+        // totals re-read the whole repo set per change, so raise per count kind. (Avalonia
+        // marshals the binding updates onto the UI thread, same as the per-row chips.)
+        if (e.PropertyName is nameof(Repo.GitHubPrCount))
+        {
+            OnPropertyChanged(nameof(GitHubTotalPrCount));
+            OnPropertyChanged(nameof(HasGitHubTotals));
+        }
+        else if (e.PropertyName is nameof(Repo.GitHubIssueCount))
+        {
+            OnPropertyChanged(nameof(GitHubTotalIssueCount));
+            OnPropertyChanged(nameof(HasGitHubTotals));
+        }
+    }
+
+    /// <summary>
+    /// Orders the filtered repos: favorites always float to the top (the star is a pin,
+    /// in every mode), then the selected sort mode orders the rest, with the name as the
+    /// stable tiebreaker. <see cref="Repo.GitLastCommitAt"/> nulls (not yet probed or no
+    /// commits) sort last because DateTimeOffset? ascending puts null smallest and the
+    /// ordering is descending.
+    /// </summary>
+    private IOrderedEnumerable<Repo> SortRepos(IEnumerable<Repo> repos)
+    {
+        var favoritesFirst = repos.OrderByDescending(r => r.IsFavorite);
+        return SelectedSortOption.Mode switch
+        {
+            RepoSortMode.LastActivity => favoritesFirst
+                .ThenByDescending(r => r.GitLastCommitAt)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            RepoSortMode.Changes => favoritesFirst
+                .ThenByDescending(r => r.GitModifiedCount + r.GitToPushCount + r.GitToPullCount)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            _ => favoritesFirst.ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+        };
+    }
+
     private void ApplyFilter()
     {
         var filter = FilterText?.Trim();
@@ -789,11 +1013,8 @@ public partial class ReposViewModel : PageViewModelBase
                 || r.SolutionPath?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true);
         }
 
-        // Favorites always float to the top, then alphabetical by name.
-        var ordered = result
-            .OrderByDescending(r => r.IsFavorite)
-            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        // Favorites always float to the top, then the selected sort mode (see SortRepos).
+        var ordered = SortRepos(result).ToList();
 
         // Skip the sync when the projection is unchanged (e.g. adding a tag while no tag
         // filter is checked, or a search term that matches the same set): Clear/Add would
@@ -918,6 +1139,32 @@ public partial class ReposViewModel : PageViewModelBase
     {
         if (repo is null) return;
         await _dialogService.ShowGitHubDetailsDialogAsync(repo);
+    }
+
+    // --- Azure DevOps column ---
+
+    /// <summary>
+    /// Opens the repo's Azure DevOps page in the browser. A no-op for repos without an
+    /// Azure DevOps remote (their column cell shows nothing anyway).
+    /// </summary>
+    [RelayCommand]
+    private void OpenAzureDevOpsRepo(Repo? repo)
+    {
+        if (string.IsNullOrWhiteSpace(repo?.AzureDevOpsRepoUrl)) return;
+        _processLauncher.StartProcess(repo.AzureDevOpsRepoUrl);
+    }
+
+    /// <summary>
+    /// Opens the Azure DevOps details dialog for the repo: active pull requests, open
+    /// work items and recent pipeline runs as clickable links with a Refresh button.
+    /// The dialog fetches fresh data from <see cref="IAzureDevOpsService"/> on open
+    /// (seeding from its cache), independent of the column's visibility setting.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenAzureDevOpsDetailsAsync(Repo? repo)
+    {
+        if (repo is null) return;
+        await _dialogService.ShowAzureDevOpsDetailsDialogAsync(repo);
     }
 
     /// <summary>
@@ -1215,11 +1462,16 @@ public partial class ReposViewModel : PageViewModelBase
             }
 
             settings.Repos = edited;
+            // The settings dialog doesn't touch the sort mode, but it may hand back a
+            // fresh instance — carry the live selection so the save doesn't revert it.
+            edited.SortMode = SelectedSortOption.Mode;
             await _settingsService.SaveSettingsAsync(settings);
 
             _reposSettings = edited;
             IsGitHubColumnVisible = edited.ShowGitHubColumn;
             _gitHubService.Configure(edited);
+            IsAzureDevOpsColumnVisible = edited.ShowAzureDevOpsColumn;
+            _azureDevOpsService.Configure(edited);
             RefreshShortcutAvailability();
             await _repoService.RefreshAsync(_reposSettings);
             _notificationService.Show("Settings saved", NotificationKind.Success);

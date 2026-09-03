@@ -124,6 +124,12 @@
     <!-- Translucent tints behind the GitHub column's PR / issue count chips -->
     <SolidColorBrush x:Key="GitHubPrChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
     <SolidColorBrush x:Key="GitHubIssueChipBrush" Color="{DynamicResource SukiWarningColor}" Opacity="0.16" />
+    <!-- Translucent tints behind the Azure DevOps column's chips (PR, work item, pipeline states) -->
+    <SolidColorBrush x:Key="AzureDevOpsPrChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AzureDevOpsWorkItemChipBrush" Color="{DynamicResource SukiWarningColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineOkChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineFailedChipBrush" Color="{DynamicResource SukiDangerColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineRunningChipBrush" Color="{DynamicResource SukiInformationColor}" Opacity="0.16" />
     <!-- No SukiUI equivalent — kept as a custom brand color -->
     <SolidColorBrush x:Key="PurpleAccentBrush" Color="#8B5CF6" />
 

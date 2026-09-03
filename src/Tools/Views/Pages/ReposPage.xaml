@@ -44,6 +44,52 @@
                                                 Foreground="{DynamicResource MutedForegroundBrush}"
                                                 Text=")" />
                                 </TextBlock>
+                                <!--
+                                        GitHub totals: open pull requests and issues summed across
+                                        every GitHub repo, beside the page title. Shows only when the
+                                        GitHub column is enabled and at least one item is open — an
+                                        all-zero summary is noise, like the per-row chips.
+                                -->
+                                <StackPanel
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Spacing="6"
+                                        IsVisible="{Binding HasGitHubTotals}"
+                                        ToolTip.Tip="Open pull requests and issues across all GitHub repositories">
+                                        <Path
+                                                Width="15"
+                                                Height="15"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-github}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        <Path
+                                                Width="13"
+                                                Height="13"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-git-pull-request}"
+                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                Stretch="Uniform" />
+                                        <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="13"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                Text="{Binding GitHubTotalPrCount}" />
+                                        <Path
+                                                Width="13"
+                                                Height="13"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-issue}"
+                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                Stretch="Uniform" />
+                                        <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="13"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                Text="{Binding GitHubTotalIssueCount}" />
+                                </StackPanel>
                         </StackPanel>
                         <StackPanel
                                 Grid.Column="1"
@@ -72,7 +118,7 @@
                         Padding="12"
                         HorizontalAlignment="Stretch"
                         Classes="card">
-                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
                                 <TextBox
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
@@ -120,8 +166,30 @@
                                                 </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <Button
+                                <!--
+                                        Sort selector: the whole list re-orders on pick
+                                        (favorites still pin to the top). The choice is
+                                        persisted in ReposSettings.SortMode.
+                                -->
+                                <Border
                                         Grid.Column="3"
+                                        Margin="0,4"
+                                        Classes="vertical-divider" />
+                                <ComboBox
+                                        Grid.Column="4"
+                                        MinWidth="140"
+                                        VerticalAlignment="Center"
+                                        ItemsSource="{Binding SortOptions}"
+                                        SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
+                                        ToolTip.Tip="Sort the repositories (favorites always stay on top)">
+                                        <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:RepoSortOption">
+                                                        <TextBlock Text="{Binding Label}" />
+                                                </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button
+                                        Grid.Column="5"
                                         Width="44"
                                         Padding="8,2"
                                         VerticalAlignment="Center"
@@ -252,6 +320,7 @@
                                                                         <ColumnDefinition Width="1.9*" MinWidth="170" />
                                                                         <ColumnDefinition Width="0.9*" MinWidth="80" />
                                                                         <ColumnDefinition Width="2.2*" MinWidth="195" />
+                                                                        <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="1.2*" MinWidth="105" />
@@ -508,13 +577,175 @@
                                                                 </Border>
 
                                                                 <!--
+                                                                        Azure DevOps: the repo link plus one chip per
+                                                                        activity kind — active pull-request count, open
+                                                                        work-item count (the hosting project's items) and
+                                                                        the latest pipeline run's state. Clicking a chip
+                                                                        opens the details dialog. Only kinds with data show
+                                                                        a chip, an Azure DevOps repo with nothing open and
+                                                                        no failing pipeline shows "OK", and anything without
+                                                                        an Azure DevOps remote stays empty. The whole cell
+                                                                        hides when the settings disable the column — the
+                                                                        REST probing stops with it. Like the GitHub cell it
+                                                                        is a FIXED-width border so the Auto column resolves
+                                                                        identically in every row.
+                                                                -->
+                                                                <Border
+                                                                        Grid.Column="5"
+                                                                        Width="200"
+                                                                        Margin="0,0,16,0"
+                                                                        HorizontalAlignment="Left"
+                                                                        ClipToBounds="True"
+                                                                        IsVisible="{ReflectionBinding #Root.DataContext.IsAzureDevOpsColumnVisible}">
+                                                                        <StackPanel
+                                                                                VerticalAlignment="Center"
+                                                                                Orientation="Horizontal"
+                                                                                Spacing="8">
+                                                                        <Button
+                                                                                Width="32"
+                                                                                Height="32"
+                                                                                Padding="7"
+                                                                                VerticalAlignment="Center"
+                                                                                Classes="icon"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsRepoCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding AzureDevOpsRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                ToolTip.Tip="Open in Azure DevOps">
+                                                                                <Path
+                                                                                        Width="17"
+                                                                                        Height="17"
+                                                                                        Data="{tools:SvgPath icon-azure-devops}"
+                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                        Stretch="Uniform" />
+                                                                        </Button>
+                                                                        <Button
+                                                                                Padding="9,4"
+                                                                                VerticalAlignment="Center"
+                                                                                Background="{DynamicResource AzureDevOpsPrChipBrush}"
+                                                                                BorderThickness="0"
+                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding HasAzureDevOpsPullRequests}"
+                                                                                ToolTip.Tip="Active pull requests — click for details">
+                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                        <Path
+                                                                                                Width="13"
+                                                                                                Height="13"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
+                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                Text="{Binding AzureDevOpsPrCount}" />
+                                                                                </StackPanel>
+                                                                        </Button>
+                                                                        <Button
+                                                                                Padding="9,4"
+                                                                                VerticalAlignment="Center"
+                                                                                Background="{DynamicResource AzureDevOpsWorkItemChipBrush}"
+                                                                                BorderThickness="0"
+                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding HasAzureDevOpsWorkItems}"
+                                                                                ToolTip.Tip="Open work items — click for details">
+                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                        <Path
+                                                                                                Width="13"
+                                                                                                Height="13"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-issue}"
+                                                                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                Text="{Binding AzureDevOpsWorkItemCount}" />
+                                                                                </StackPanel>
+                                                                        </Button>
+                                                                        <!--  Latest pipeline run: one button per state so each
+                                                                                carries its own tinted background and glyph.  -->
+                                                                        <Panel VerticalAlignment="Center">
+                                                                                <Button
+                                                                                        Padding="9,4"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Background="{DynamicResource AzureDevOpsPipelineOkChipBrush}"
+                                                                                        BorderThickness="0"
+                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineOk}"
+                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                        <Path
+                                                                                                Width="13"
+                                                                                                Height="13"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="M9,16.17 L4.83,12 L3.41,13.41 L9,19 L21,7 L19.59,5.59 Z"
+                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                        Padding="9,4"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Background="{DynamicResource AzureDevOpsPipelineFailedChipBrush}"
+                                                                                        BorderThickness="0"
+                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineFailed}"
+                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                        <Path
+                                                                                                Width="12"
+                                                                                                Height="12"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
+                                                                                                Fill="{DynamicResource DangerAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                        Padding="9,4"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Background="{DynamicResource AzureDevOpsPipelineRunningChipBrush}"
+                                                                                        BorderThickness="0"
+                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineRunning}"
+                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                        <Path
+                                                                                                Width="11"
+                                                                                                Height="11"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-play}"
+                                                                                                Fill="{DynamicResource InfoAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                        </Panel>
+                                                                        <TextBlock
+                                                                                VerticalAlignment="Center"
+                                                                                Classes="subtle"
+                                                                                FontSize="12"
+                                                                                IsVisible="{Binding IsAzureDevOpsAllClear}"
+                                                                                Text="OK"
+                                                                                ToolTip.Tip="No open pull requests, work items or failing pipelines" />
+                                                                        </StackPanel>
+                                                                </Border>
+
+                                                                <!--
                                                                         Launch actions (icon-only; tooltips name the actions).
                                                                         OpenCode leads the row: quick open plus a minimal options
                                                                         button, set apart from the other launch buttons by a
                                                                         hairline divider.
                                                                 -->
                                                                 <StackPanel
-                                                                        Grid.Column="5"
+                                                                        Grid.Column="6"
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
                                                                         Orientation="Horizontal"
@@ -629,7 +860,7 @@
 
                                                                 <!--  Tags: chips wrap inside the column, add-tag pinned right  -->
                                                                 <Grid
-                                                                        Grid.Column="6"
+                                                                        Grid.Column="7"
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
                                                                         ColumnDefinitions="*,Auto">
@@ -747,7 +978,7 @@
 
                                                                 <!--  Last Activity: relative age of the newest commit  -->
                                                                 <TextBlock
-                                                                        Grid.Column="7"
+                                                                        Grid.Column="8"
                                                                         Margin="0,0,4,0"
                                                                         HorizontalAlignment="Right"
                                                                         VerticalAlignment="Center"

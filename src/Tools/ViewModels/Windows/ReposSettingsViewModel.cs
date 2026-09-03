@@ -60,6 +60,12 @@ public partial class ReposSettingsViewModel : ObservableObject
     private string _gitHubExecutable = DefaultGitHub;
 
     [ObservableProperty]
+    private bool _showAzureDevOpsColumn = true;
+
+    [ObservableProperty]
+    private string _azureDevOpsPat = string.Empty;
+
+    [ObservableProperty]
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
 
     /// <summary>
@@ -95,6 +101,8 @@ public partial class ReposSettingsViewModel : ObservableObject
             ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
             ShowGitHubColumn = ShowGitHubColumn,
             GitHubExecutable = WithDefault(GitHubExecutable, DefaultGitHub),
+            ShowAzureDevOpsColumn = ShowAzureDevOpsColumn,
+            AzureDevOpsPat = AzureDevOpsPat?.Trim() ?? string.Empty,
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
         };
     }
@@ -120,6 +128,8 @@ public partial class ReposSettingsViewModel : ObservableObject
         ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
         ShowGitHubColumn = settings.ShowGitHubColumn;
         GitHubExecutable = settings.GitHubExecutable ?? DefaultGitHub;
+        ShowAzureDevOpsColumn = settings.ShowAzureDevOpsColumn;
+        AzureDevOpsPat = settings.AzureDevOpsPat ?? string.Empty;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
     }
 

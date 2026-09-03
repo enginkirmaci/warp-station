@@ -34,4 +34,12 @@ public interface IDialogService
     /// </summary>
     /// <param name="repo">The repo whose GitHub activity is shown.</param>
     Task ShowGitHubDetailsDialogAsync(Entities.Repo repo);
+
+    /// <summary>
+    /// Shows the modal Azure DevOps details dialog for a repo: its active pull requests,
+    /// the hosting project's open work items and the repo's recent pipeline runs as
+    /// clickable links, with a Refresh button re-running the REST fetch.
+    /// </summary>
+    /// <param name="repo">The repo whose Azure DevOps activity is shown.</param>
+    Task ShowAzureDevOpsDetailsDialogAsync(Entities.Repo repo);
 }
