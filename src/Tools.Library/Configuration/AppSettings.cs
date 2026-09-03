@@ -125,6 +125,20 @@ public class ReposSettings
     public string? ZCodeExecutable { get; set; } = "zcode";
 
     /// <summary>
+    /// Gets or sets a value indicating whether the GitHub column is shown on the Repos
+    /// page. When <see langword="false"/> the column is hidden <em>and</em> the <c>gh</c>
+    /// CLI is never queried, so disabling it costs nothing at runtime. Defaults to
+    /// <see langword="true"/>.
+    /// </summary>
+    public bool ShowGitHubColumn { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the GitHub CLI (<c>gh</c>) executable path or command used to query
+    /// open pull requests and issues for the GitHub column.
+    /// </summary>
+    public string? GitHubExecutable { get; set; } = "gh";
+
+    /// <summary>
     /// Gets or sets the folders to exclude during scanning.
     /// </summary>
     public string[]? ExcludedFolders { get; set; }

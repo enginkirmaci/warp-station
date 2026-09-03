@@ -140,6 +140,76 @@ public partial class Repo : ObservableObject
 
     partial void OnGitLastCommitAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastActivity));
 
+    // --- GitHub column (runtime-only, pushed by IGitHubService) ---
+
+    /// <summary>
+    /// The HTML URL of the repo on GitHub (e.g. <c>https://github.com/owner/repo</c>),
+    /// pushed by <c>IGitHubService</c>. <c>null</c> when the repo has no GitHub remote
+    /// or the probe failed — the GitHub column then shows nothing for this repo.
+    /// Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private string? _gitHubRepoUrl;
+
+    /// <summary>
+    /// Number of open pull requests reported by <c>gh pr list</c> (capped at the fetch
+    /// limit). Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _gitHubPrCount;
+
+    /// <summary>
+    /// Number of open issues reported by <c>gh issue list</c> (capped at the fetch
+    /// limit). Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private int _gitHubIssueCount;
+
+    /// <summary>
+    /// Whether the GitHub probe has completed for this repo — gates the column's
+    /// placeholder-free empty state the same way <see cref="GitStatusLoaded"/> does for
+    /// the git cells. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _gitHubLoaded;
+
+    /// <summary>
+    /// Whether the repo resolved to a GitHub repository at all (a successful
+    /// <c>gh repo view</c>). Non-GitHub repos keep the cell empty instead of showing a
+    /// misleading "OK". Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _gitHubAvailable;
+
+    /// <summary>Whether the open pull-requests chip shows in the GitHub column.</summary>
+    public bool HasGitHubPullRequests => GitHubPrCount > 0;
+
+    /// <summary>Whether the open issues chip shows in the GitHub column.</summary>
+    public bool HasGitHubIssues => GitHubIssueCount > 0;
+
+    /// <summary>
+    /// Whether the GitHub column shows the all-clear "OK" state for this repo: probed,
+    /// a GitHub repo, and nothing open at all.
+    /// </summary>
+    public bool IsGitHubAllClear
+        => GitHubLoaded && GitHubAvailable && GitHubPrCount == 0 && GitHubIssueCount == 0;
+
+    partial void OnGitHubPrCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasGitHubPullRequests));
+        OnPropertyChanged(nameof(IsGitHubAllClear));
+    }
+
+    partial void OnGitHubIssueCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasGitHubIssues));
+        OnPropertyChanged(nameof(IsGitHubAllClear));
+    }
+
+    partial void OnGitHubLoadedChanged(bool value) => OnPropertyChanged(nameof(IsGitHubAllClear));
+
+    partial void OnGitHubAvailableChanged(bool value) => OnPropertyChanged(nameof(IsGitHubAllClear));
+
     /// <summary>
     /// Formats an age as a compact relative label matching the Repos table's style:
     /// the most significant unit only, no rounding up across unit boundaries

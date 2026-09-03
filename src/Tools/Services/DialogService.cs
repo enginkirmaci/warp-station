@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Tools.Library.Configuration;
+using Tools.Library.Entities;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Views.Windows;
 
@@ -14,10 +16,14 @@ namespace Tools.Services;
 public class DialogService : IDialogService
 {
     private readonly MainWindow _mainWindow;
+    private readonly IGitHubService _gitHubService;
+    private readonly IProcessLauncher _processLauncher;
 
-    public DialogService(MainWindow mainWindow)
+    public DialogService(MainWindow mainWindow, IGitHubService gitHubService, IProcessLauncher processLauncher)
     {
         _mainWindow = mainWindow;
+        _gitHubService = gitHubService;
+        _processLauncher = processLauncher;
     }
 
     /// <inheritdoc/>
@@ -42,5 +48,12 @@ public class DialogService : IDialogService
         var dialog = new ReposSettingsDialog(current);
         var confirmed = await dialog.ShowDialog<bool>(_mainWindow);
         return confirmed ? dialog.Settings : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task ShowGitHubDetailsDialogAsync(Repo repo)
+    {
+        var dialog = new GitHubDetailsDialog(repo, _gitHubService, _processLauncher);
+        await dialog.ShowDialog(_mainWindow);
     }
 }

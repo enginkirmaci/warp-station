@@ -17,6 +17,7 @@ public partial class ReposSettingsViewModel : ObservableObject
     private const string DefaultTerminal = "wt";
     private const string DefaultOpenCode = "opencode";
     private const string DefaultZCode = "zcode";
+    private const string DefaultGitHub = "gh";
     private const int DefaultMaxScanDepth = 3;
 
     [ObservableProperty]
@@ -53,6 +54,12 @@ public partial class ReposSettingsViewModel : ObservableObject
     private string _zCodeExecutable = DefaultZCode;
 
     [ObservableProperty]
+    private bool _showGitHubColumn = true;
+
+    [ObservableProperty]
+    private string _gitHubExecutable = DefaultGitHub;
+
+    [ObservableProperty]
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
 
     /// <summary>
@@ -86,6 +93,8 @@ public partial class ReposSettingsViewModel : ObservableObject
             IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
             ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
+            ShowGitHubColumn = ShowGitHubColumn,
+            GitHubExecutable = WithDefault(GitHubExecutable, DefaultGitHub),
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
         };
     }
@@ -109,6 +118,8 @@ public partial class ReposSettingsViewModel : ObservableObject
         IdeExecutable = settings.IdeExecutable ?? string.Empty;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
         ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
+        ShowGitHubColumn = settings.ShowGitHubColumn;
+        GitHubExecutable = settings.GitHubExecutable ?? DefaultGitHub;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
     }
 

@@ -31,6 +31,10 @@ public static class ServiceRegistrationExtensions
         // Local git status checker: pushes branch/modified/ahead/behind onto repos
         services.AddSingleton<IGitStatusService, GitStatusService>();
 
+        // GitHub column: open pull requests/issues via the gh CLI (gated on the
+        // settings' Show GitHub column flag)
+        services.AddSingleton<IGitHubService, GitHubService>();
+
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();

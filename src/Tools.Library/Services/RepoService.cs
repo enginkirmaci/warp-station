@@ -178,6 +178,13 @@ public class RepoService : IRepoService
                     repo.GitToPushCount = prev.GitToPushCount;
                     repo.GitToPullCount = prev.GitToPullCount;
                     repo.GitStatusLoaded = prev.GitStatusLoaded;
+
+                    // Same carry-over for the GitHub column cells.
+                    repo.GitHubRepoUrl = prev.GitHubRepoUrl;
+                    repo.GitHubPrCount = prev.GitHubPrCount;
+                    repo.GitHubIssueCount = prev.GitHubIssueCount;
+                    repo.GitHubLoaded = prev.GitHubLoaded;
+                    repo.GitHubAvailable = prev.GitHubAvailable;
                 }
             }
 

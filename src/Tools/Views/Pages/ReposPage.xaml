@@ -253,6 +253,7 @@
                                                                         <ColumnDefinition Width="0.9*" MinWidth="80" />
                                                                         <ColumnDefinition Width="2.2*" MinWidth="195" />
                                                                         <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="1.2*" MinWidth="105" />
                                                                         <ColumnDefinition Width="0.8*" MinWidth="60" />
                                                                 </Grid.ColumnDefinitions>
@@ -329,10 +330,12 @@
                                                                 <!--  Git stats: modified / ahead / behind. Sized so all
                                                                         three groups fit the column at the default window
                                                                         width; ClipToBounds keeps a pathological count
-                                                                        from painting into the actions cell.  -->
+                                                                        from painting into the actions cell. Right-aligned
+                                                                        so the counts hug the GitHub column next door.  -->
                                                                 <StackPanel
                                                                         Grid.Column="3"
                                                                         Margin="0,0,16,0"
+                                                                        HorizontalAlignment="Right"
                                                                         VerticalAlignment="Center"
                                                                         ClipToBounds="True">
                                                                         <StackPanel
@@ -401,13 +404,117 @@
                                                                 </StackPanel>
 
                                                                 <!--
+                                                                        GitHub: the repo link plus one chip per item
+                                                                        kind with open counts; clicking a chip opens the
+                                                                        details dialog. Only kinds with open items show a
+                                                                        chip, a GitHub repo with nothing open shows "OK",
+                                                                        and anything without a GitHub remote stays empty.
+                                                                        The whole cell hides when the settings disable the
+                                                                        column — the gh probing stops with it. The cell is
+                                                                        a FIXED-width border so the Auto column resolves
+                                                                        identically in every row (rows are independent
+                                                                        grids; Auto sized to varying chip sets would let
+                                                                        the columns to the right drift per row), and it
+                                                                        collapses to zero width when the column is off.
+                                                                -->
+                                                                <Border
+                                                                        Grid.Column="4"
+                                                                        Width="180"
+                                                                        Margin="0,0,16,0"
+                                                                        HorizontalAlignment="Left"
+                                                                        ClipToBounds="True"
+                                                                        IsVisible="{ReflectionBinding #Root.DataContext.IsGitHubColumnVisible}">
+                                                                        <StackPanel
+                                                                                VerticalAlignment="Center"
+                                                                                Orientation="Horizontal"
+                                                                                Spacing="8">
+                                                                        <Button
+                                                                                Width="32"
+                                                                                Height="32"
+                                                                                Padding="7"
+                                                                                VerticalAlignment="Center"
+                                                                                Classes="icon"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubRepoCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding GitHubRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                ToolTip.Tip="Open on GitHub">
+                                                                                <Path
+                                                                                        Width="17"
+                                                                                        Height="17"
+                                                                                        Data="{tools:SvgPath icon-github}"
+                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                        Stretch="Uniform" />
+                                                                        </Button>
+                                                                        <Button
+                                                                                Padding="9,4"
+                                                                                VerticalAlignment="Center"
+                                                                                Background="{DynamicResource GitHubPrChipBrush}"
+                                                                                BorderThickness="0"
+                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubDetailsCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding HasGitHubPullRequests}"
+                                                                                ToolTip.Tip="Open pull requests — click for details">
+                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                        <Path
+                                                                                                Width="13"
+                                                                                                Height="13"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
+                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                Text="{Binding GitHubPrCount}" />
+                                                                                </StackPanel>
+                                                                        </Button>
+                                                                        <Button
+                                                                                Padding="9,4"
+                                                                                VerticalAlignment="Center"
+                                                                                Background="{DynamicResource GitHubIssueChipBrush}"
+                                                                                BorderThickness="0"
+                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubDetailsCommand}"
+                                                                                CommandParameter="{Binding}"
+                                                                                IsVisible="{Binding HasGitHubIssues}"
+                                                                                ToolTip.Tip="Open issues — click for details">
+                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                        <Path
+                                                                                                Width="13"
+                                                                                                Height="13"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-issue}"
+                                                                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                Text="{Binding GitHubIssueCount}" />
+                                                                                </StackPanel>
+                                                                        </Button>
+                                                                        <TextBlock
+                                                                                VerticalAlignment="Center"
+                                                                                Classes="subtle"
+                                                                                FontSize="12"
+                                                                                IsVisible="{Binding IsGitHubAllClear}"
+                                                                                Text="OK"
+                                                                                ToolTip.Tip="No open pull requests or issues" />
+                                                                        </StackPanel>
+                                                                </Border>
+
+                                                                <!--
                                                                         Launch actions (icon-only; tooltips name the actions).
                                                                         OpenCode leads the row: quick open plus a minimal options
                                                                         button, set apart from the other launch buttons by a
                                                                         hairline divider.
                                                                 -->
                                                                 <StackPanel
-                                                                        Grid.Column="4"
+                                                                        Grid.Column="5"
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
                                                                         Orientation="Horizontal"
@@ -522,7 +629,7 @@
 
                                                                 <!--  Tags: chips wrap inside the column, add-tag pinned right  -->
                                                                 <Grid
-                                                                        Grid.Column="5"
+                                                                        Grid.Column="6"
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
                                                                         ColumnDefinitions="*,Auto">
@@ -640,7 +747,7 @@
 
                                                                 <!--  Last Activity: relative age of the newest commit  -->
                                                                 <TextBlock
-                                                                        Grid.Column="6"
+                                                                        Grid.Column="7"
                                                                         Margin="0,0,4,0"
                                                                         HorizontalAlignment="Right"
                                                                         VerticalAlignment="Center"

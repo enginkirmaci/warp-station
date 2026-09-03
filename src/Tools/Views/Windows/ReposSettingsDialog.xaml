@@ -43,6 +43,14 @@
                         Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />
                 </StackPanel>
 
+                <!--  GitHub column  -->
+                <StackPanel Spacing="8">
+                    <CheckBox
+                        Content="Show GitHub column"
+                        IsChecked="{Binding ShowGitHubColumn, Mode=TwoWay}"
+                        ToolTip.Tip="Show the GitHub column (repo link, open pull requests and issues) on the Repos page. When off, the column is hidden and the gh CLI is not queried" />
+                </StackPanel>
+
                 <!--  Pattern and executable fields  -->
                 <WrapPanel HorizontalAlignment="Stretch">
                     <!--  Git Folder Pattern  -->
@@ -151,6 +159,21 @@
                             Text="ZCode Executable"
                             ToolTip.Tip="Path or command for zcode. An AppImage (desktop package) opens directly on the repo; a standalone CLI runs in the terminal" />
                         <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
+                    </StackPanel>
+
+                    <!--  GitHub CLI Executable  -->
+                    <StackPanel
+                        Width="240"
+                        Margin="0,0,12,12"
+                        Spacing="8">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="GitHub CLI Executable"
+                            ToolTip.Tip="Path or command for the gh CLI, used to query open pull requests and issues for the GitHub column" />
+                        <TextBox
+                            IsEnabled="{Binding ShowGitHubColumn}"
+                            Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
+                            Watermark="gh" />
                     </StackPanel>
 
                     <!--  Max Scan Depth  -->

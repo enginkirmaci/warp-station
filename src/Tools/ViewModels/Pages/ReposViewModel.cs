@@ -27,6 +27,7 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IDialogService _dialogService;
     private readonly IRepoService _repoService;
     private readonly IGitStatusService _gitStatusService;
+    private readonly IGitHubService _gitHubService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
@@ -88,6 +89,16 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     [ObservableProperty]
     private bool _isOpenCodeEnabled;
+
+    // --- GitHub column visibility ---
+
+    /// <summary>
+    /// Whether the GitHub column shows (mirrors <see cref="ReposSettings.ShowGitHubColumn"/>).
+    /// When false the whole column cell collapses — and the GitHub service is configured
+    /// off too, so no <c>gh</c> processes are spawned for a column that is not visible.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGitHubColumnVisible;
 
     // --- Launch shortcut availability (per PC) ---
 
@@ -287,6 +298,7 @@ public partial class ReposViewModel : PageViewModelBase
         IDialogService dialogService,
         IRepoService repoService,
         IGitStatusService gitStatusService,
+        IGitHubService gitHubService,
         IProcessLauncher processLauncher,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
@@ -299,6 +311,7 @@ public partial class ReposViewModel : PageViewModelBase
         _dialogService = dialogService;
         _repoService = repoService;
         _gitStatusService = gitStatusService;
+        _gitHubService = gitHubService;
         _processLauncher = processLauncher;
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
@@ -339,6 +352,11 @@ public partial class ReposViewModel : PageViewModelBase
         _reposSettings = settings.Repos ?? new ReposSettings();
         _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
         IsOpenCodeEnabled = _openCodeSettings.Enabled;
+        IsGitHubColumnVisible = _reposSettings.ShowGitHubColumn;
+        // Configure the GitHub service before loading repos: both the explicit kick below
+        // and the service's own scan-triggered refresh gate on this flag, so a disabled
+        // column never spawns gh even during the initial scan burst.
+        _gitHubService.Configure(_reposSettings);
         RefreshShortcutAvailability();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         await LoadOpenCodeTemplatesAsync();
@@ -355,6 +373,14 @@ public partial class ReposViewModel : PageViewModelBase
         if (_repoService.Repos.Any(r => !r.GitStatusLoaded))
         {
             _ = _gitStatusService.RefreshAllAsync();
+        }
+
+        // Same lazy pattern for the GitHub column: only probe when the column is visible
+        // and some repo has no GitHub data yet (first navigation or after new repos);
+        // later navigations reuse the counts already pushed onto the entities.
+        if (IsGitHubColumnVisible && _repoService.Repos.Any(r => !r.GitHubLoaded))
+        {
+            _ = _gitHubService.RefreshAllAsync();
         }
     }
 
@@ -868,6 +894,32 @@ public partial class ReposViewModel : PageViewModelBase
         _processLauncher.StartProcess(exe, args, stripElectronEnvironment: true);
     }
 
+    // --- GitHub column ---
+
+    /// <summary>
+    /// Opens the repo's GitHub page in the browser. A no-op for repos without a GitHub
+    /// remote (their column cell shows nothing anyway).
+    /// </summary>
+    [RelayCommand]
+    private void OpenGitHubRepo(Repo? repo)
+    {
+        if (string.IsNullOrWhiteSpace(repo?.GitHubRepoUrl)) return;
+        _processLauncher.StartProcess(repo.GitHubRepoUrl);
+    }
+
+    /// <summary>
+    /// Opens the GitHub details dialog for the repo: open pull requests first, then
+    /// issues, as clickable links with a Refresh button. The dialog fetches fresh data
+    /// from <see cref="IGitHubService"/> on open (seeding from its cache), independent
+    /// of the column's visibility setting.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenGitHubDetailsAsync(Repo? repo)
+    {
+        if (repo is null) return;
+        await _dialogService.ShowGitHubDetailsDialogAsync(repo);
+    }
+
     /// <summary>
     /// Opens zcode on the repo folder. The zcode AppImage is the Electron desktop package
     /// (it contains no interactive CLI runtime), so it is launched directly on the folder
@@ -1166,6 +1218,8 @@ public partial class ReposViewModel : PageViewModelBase
             await _settingsService.SaveSettingsAsync(settings);
 
             _reposSettings = edited;
+            IsGitHubColumnVisible = edited.ShowGitHubColumn;
+            _gitHubService.Configure(edited);
             RefreshShortcutAvailability();
             await _repoService.RefreshAsync(_reposSettings);
             _notificationService.Show("Settings saved", NotificationKind.Success);

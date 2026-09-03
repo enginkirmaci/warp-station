@@ -26,4 +26,12 @@ public interface IDialogService
     /// The edited settings if the user confirmed, or <c>null</c> if the user cancelled.
     /// </returns>
     Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current);
+
+    /// <summary>
+    /// Shows the modal GitHub details dialog for a repo: its open pull requests (first)
+    /// and issues (second) as clickable links, with a Refresh button re-running the
+    /// <c>gh</c> fetch.
+    /// </summary>
+    /// <param name="repo">The repo whose GitHub activity is shown.</param>
+    Task ShowGitHubDetailsDialogAsync(Entities.Repo repo);
 }
