@@ -286,9 +286,11 @@ public partial class Repo : ObservableObject
     public bool IsAzureDevOpsPipelineOk
         => HasAzureDevOpsPipeline && !IsAzureDevOpsPipelineFailed && !IsAzureDevOpsPipelineRunning;
 
-    /// <summary>Whether the latest pipeline run is still in flight (drives the chip's running color).</summary>
+    /// <summary>Whether the latest pipeline run is still in flight (drives the chip's running color).
+    /// False when there is no pipeline data at all — "unknown" must not read as "running".</summary>
     public bool IsAzureDevOpsPipelineRunning
-        => !IsAzureDevOpsPipelineFailed && !string.Equals(AzureDevOpsPipelineState, "succeeded", StringComparison.OrdinalIgnoreCase)
+        => HasAzureDevOpsPipeline && !IsAzureDevOpsPipelineFailed
+        && !string.Equals(AzureDevOpsPipelineState, "succeeded", StringComparison.OrdinalIgnoreCase)
         && !string.Equals(AzureDevOpsPipelineState, "partiallySucceeded", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
