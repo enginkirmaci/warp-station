@@ -37,6 +37,32 @@
 		<Style Selector="Border#SidebarBorder.collapsed TextBlock.nav-label">
 			<Setter Property="IsVisible" Value="False" />
 		</Style>
+		<!--  Collapsed rail: center the footer icons (settings gear, status icons);
+				with the labels hidden the panels shrink to the icon and center.
+				Status buttons must get their Left alignment from a style, not a local
+				value — a local HorizontalContentAlignment would beat the collapsed
+				setter and keep the dots left-aligned.  -->
+		<Style Selector="Border#SidebarBorder.collapsed StackPanel.nav-footer">
+			<Setter Property="HorizontalAlignment" Value="Center" />
+		</Style>
+		<Style Selector="Button.nav-status">
+			<Setter Property="HorizontalContentAlignment" Value="Left" />
+		</Style>
+		<Style Selector="Border#SidebarBorder.collapsed Button.nav-status">
+			<Setter Property="HorizontalContentAlignment" Value="Center" />
+		</Style>
+		<!--  Status icon traffic lights: running = green, SnapIt stopped = red,
+				NuGet idle = yellow. The running class is bound to each tool's
+				running state; define order matters — .running must come last.  -->
+		<Style Selector="Path.status-icon">
+			<Setter Property="Fill" Value="{DynamicResource DangerAccentBrush}" />
+		</Style>
+		<Style Selector="Path.status-icon.status-idle">
+			<Setter Property="Fill" Value="{DynamicResource WarningAccentBrush}" />
+		</Style>
+		<Style Selector="Path.status-icon.running">
+			<Setter Property="Fill" Value="{DynamicResource StatusActiveBrush}" />
+		</Style>
 		<!--
 			Header: the window uses the CustomSukiWindowTheme (see Styles/), whose title
 			bar replaces the app-title text with the centered global search field. The
@@ -148,7 +174,7 @@
 								Padding="12,8"
 								Classes="nav-surface"
 								CornerRadius="{DynamicResource ControlRadius}">
-								<StackPanel Orientation="Horizontal" Spacing="12">
+								<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="12">
 									<Path
 										Width="18"
 										Height="18"
@@ -176,20 +202,22 @@
 					<Button
 						Margin="8,0"
 						Padding="12,6"
-						HorizontalContentAlignment="Left"
+						Classes="nav-status"
 						Background="Transparent"
 						BorderThickness="0"
 						Command="{Binding ToggleSnapItCommand}"
 						CornerRadius="{DynamicResource ChipRadius}"
 						Cursor="Hand"
 						ToolTip.Tip="{Binding SnapItStatusText, StringFormat='SnapIt: {0}'}">
-						<StackPanel Orientation="Horizontal" Spacing="6">
-							<Border
-								Width="8"
-								Height="8"
+						<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="6">
+							<Path
+								Width="18"
+								Height="18"
+								Classes="status-icon"
+								Classes.running="{Binding SnapItRunning}"
 								VerticalAlignment="Center"
-								Background="{Binding SnapItRunning, Converter={StaticResource BoolToBrushConverter}}"
-								CornerRadius="4" />
+								Data="{tools:SvgPath icon-grid}"
+								Stretch="Uniform" />
 							<TextBlock
 								VerticalAlignment="Center"
 								Classes="nav-label"
@@ -214,20 +242,22 @@
 					<Button
 						Margin="8,0"
 						Padding="12,6"
-						HorizontalContentAlignment="Left"
+						Classes="nav-status"
 						Background="Transparent"
 						BorderThickness="0"
 						Command="{Binding ToggleNugetWatchCommand}"
 						CornerRadius="{DynamicResource ChipRadius}"
 						Cursor="Hand"
 						ToolTip.Tip="{Binding NugetWatchStatusText, StringFormat='NuGet watch: {0}'}">
-						<StackPanel Orientation="Horizontal" Spacing="6">
-							<Border
-								Width="8"
-								Height="8"
+						<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="6">
+							<Path
+								Width="18"
+								Height="18"
+								Classes="status-icon status-idle"
+								Classes.running="{Binding NugetWatchRunning}"
 								VerticalAlignment="Center"
-								Background="{Binding NugetWatchRunning, Converter={StaticResource BoolToBrushConverter}}"
-								CornerRadius="4" />
+								Data="{tools:SvgPath icon-package}"
+								Stretch="Uniform" />
 							<TextBlock
 								VerticalAlignment="Center"
 								Classes="nav-label"
