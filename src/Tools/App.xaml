@@ -12,9 +12,11 @@
 	<!--  would replace that dictionary and wipe them.                     -->
 	<Application.Resources>
 		<ResourceDictionary>
-			<ResourceDictionary.MergedDictionaries>
-				<ResourceInclude Source="/Styles/ThemeResources.axaml" />
-			</ResourceDictionary.MergedDictionaries>
+		<ResourceDictionary.MergedDictionaries>
+			<ResourceInclude Source="/Styles/ThemeResources.axaml" />
+			<!--  Custom SukiWindow title bar (search field in the bar), applied explicitly on MainWindow  -->
+			<ResourceInclude Source="/Styles/CustomSukiWindowTheme.axaml" />
+		</ResourceDictionary.MergedDictionaries>
 
 			<!--  Accent comes from SukiTheme (ThemeColor="Blue")  -->
 

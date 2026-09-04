@@ -1,11 +1,15 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using SukiUI.Controls;
 using Tools.Helpers;
 using Tools.Library.Services.Abstractions;
+using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
+using Tools.Views.Pages;
 
 namespace Tools.Views.Windows;
 
@@ -22,6 +26,32 @@ public partial class MainWindow : SukiWindow
 
     private bool _isNavigatingFromCode;
 
+    /// <summary>
+    /// Idle window for the header search field before its text is pushed to the Repos
+    /// page. The page applies its own debounce on top, so this only coalesces keystrokes
+    /// into a single navigation/property push per burst.
+    /// </summary>
+    private const int HeaderSearchDebounceMs = 150;
+
+    private CancellationTokenSource? _searchDebounce;
+
+    /// <summary>
+    /// True while the code-behind is mirroring state INTO the search field (navigation
+    /// sync); the TextChanged handler must not echo those writes back into the page.
+    /// </summary>
+    private bool _syncingSearchText;
+
+    /// <summary>
+    /// The header search field lives in the CUSTOM WINDOW TEMPLATE (CustomSukiWindowTheme):
+    /// it is a named part of the title bar, so it (and its hint/clear chrome) is resolved
+    /// in <see cref="OnApplyTemplate"/> and its event handlers are attached there too — a
+    /// ControlTheme has no code-behind to wire them in XAML. Nullable: nothing is set
+    /// until the template is applied.
+    /// </summary>
+    private TextBox? HeaderSearchBox;
+    private Border? SearchKbdHint;
+    private Button? SearchClearButton;
+
     // Named XAML elements
     private ContentControl ContentArea = null!;
     private ListBox NavigationListBox = null!;
@@ -35,6 +65,27 @@ public partial class MainWindow : SukiWindow
         NavigationListBox = this.FindControl<ListBox>("NavigationListBox")!;
         BackButton = this.FindControl<Button>("BackButton")!;
         ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
+    }
+
+    /// <inheritdoc/>
+    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+    {
+        base.OnApplyTemplate(e);
+
+        HeaderSearchBox = e.NameScope.Find<TextBox>("HeaderSearchBox");
+        SearchKbdHint = e.NameScope.Find<Border>("SearchKbdHint");
+        SearchClearButton = e.NameScope.Find<Button>("SearchClearButton");
+
+        if (HeaderSearchBox is not null)
+        {
+            HeaderSearchBox.TextChanged += OnHeaderSearchTextChanged;
+            HeaderSearchBox.KeyDown += OnHeaderSearchKeyDown;
+        }
+        if (SearchClearButton is not null)
+        {
+            SearchClearButton.Click += OnSearchClearClick;
+        }
+        UpdateHeaderSearchChrome();
     }
 
     /// <summary>
@@ -151,6 +202,7 @@ public partial class MainWindow : SukiWindow
     {
         UpdateBackButtonVisibility();
         SyncSidebarSelection(pageType);
+        SyncHeaderSearch(pageType);
     }
 
     private void SyncSidebarSelection(Type? pageType)
@@ -194,8 +246,138 @@ public partial class MainWindow : SukiWindow
 
         _navigationService.Navigated -= OnNavigated;
         _navigationService.BackStackChanged -= OnBackStackChanged;
+        _searchDebounce?.Cancel();
+        _searchDebounce?.Dispose();
         // Background services (SnapIt, NuGet watch) are stopped during application
         // shutdown, not here, so the window does not own their lifecycle.
+    }
+
+    #endregion
+
+    #region Header search
+
+    /// <summary>
+    /// Ctrl+K focuses the header search field from anywhere in the app. Handled on the
+    /// window so it works regardless of which control holds keyboard focus (a TextBox
+    /// lets the unhandled gesture bubble).
+    /// </summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Control) && HeaderSearchBox is not null)
+        {
+            HeaderSearchBox.Focus();
+            HeaderSearchBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+        base.OnKeyDown(e);
+    }
+
+    /// <summary>
+    /// Header search typed text: debounce-push the term to the Repos page, navigating
+    /// there first when the user is on another page. An empty field clears the Repos
+    /// filter when the page is open; leaving a non-Repos page just clears the field.
+    /// </summary>
+    private void OnHeaderSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        UpdateHeaderSearchChrome();
+        if (_syncingSearchText) return;
+
+        var text = HeaderSearchBox.Text ?? string.Empty;
+        if (text.Length == 0 && ContentArea.Content is not ReposPage) return;
+
+        _searchDebounce?.Cancel();
+        _searchDebounce?.Dispose();
+        _searchDebounce = new CancellationTokenSource();
+        var token = _searchDebounce.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(HeaderSearchDebounceMs, token);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty);
+                });
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    /// <summary>Enter applies the term immediately; Escape clears it.</summary>
+    private void OnHeaderSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            _searchDebounce?.Cancel();
+            ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            HeaderSearchBox.Text = string.Empty;
+            e.Handled = true;
+        }
+    }
+
+    private void OnSearchClearClick(object? sender, RoutedEventArgs e)
+    {
+        if (HeaderSearchBox is not null) HeaderSearchBox.Text = string.Empty;
+    }
+
+    /// <summary>
+    /// Navigates to the Repos page when needed and writes the term into the page's
+    /// filter. The page ViewModel is transient (rebuilt per navigation), so the push is
+    /// safe whether the page was just created (initialization picks the term up) or is
+    /// already showing (its own debounce re-filters).
+    /// </summary>
+    private void ApplyHeaderSearch(string text)
+    {
+        if (ContentArea.Content is not ReposPage reposPage)
+        {
+            if (text.Length == 0) return;
+            _navigationService.Navigate(typeof(ReposPage));
+            reposPage = ContentArea.Content as ReposPage;
+            if (reposPage is null) return;
+        }
+
+        if (reposPage.DataContext is ReposViewModel viewModel)
+        {
+            viewModel.FilterText = text;
+        }
+    }
+
+    /// <summary>
+    /// Mirrors state INTO the search field on navigation: on Repos it shows that page's
+    /// filter, elsewhere it clears. Skipped while the field holds focus — a
+    /// search-triggered navigation lands here mid-typing, and the user's text (not the
+    /// fresh page's empty filter) is the authority while they type.
+    /// </summary>
+    private void SyncHeaderSearch(Type? pageType)
+    {
+        if (HeaderSearchBox is null || HeaderSearchBox.IsFocused) return;
+
+        var text = pageType == typeof(ReposPage)
+            && ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel }
+                ? viewModel.FilterText ?? string.Empty
+                : string.Empty;
+
+        if (HeaderSearchBox.Text == text) return;
+        _syncingSearchText = true;
+        HeaderSearchBox.Text = text;
+        _syncingSearchText = false;
+        UpdateHeaderSearchChrome();
+    }
+
+    /// <summary>The shortcut hint yields to the clear button once there is text.</summary>
+    private void UpdateHeaderSearchChrome()
+    {
+        if (HeaderSearchBox is null || SearchKbdHint is null || SearchClearButton is null) return;
+
+        var hasText = !string.IsNullOrEmpty(HeaderSearchBox.Text);
+        SearchKbdHint.IsVisible = !hasText;
+        SearchClearButton.IsVisible = hasText;
     }
 
     #endregion

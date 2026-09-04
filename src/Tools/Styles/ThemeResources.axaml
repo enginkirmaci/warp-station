@@ -89,6 +89,9 @@
     <SolidColorBrush x:Key="CardBackgroundBrush" Color="{DynamicResource SukiCardBackground}" />
     <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
     <SolidColorBrush x:Key="IconChipBackgroundBrush" Color="{DynamicResource SukiGlassCardOpaqueBackground}" />
+    <!-- Header (title bar) search field surface: a step lighter than the app background
+         so the floating field reads as its own control, with the hairline border. -->
+    <SolidColorBrush x:Key="HeaderSearchBackgroundBrush" Color="{DynamicResource SukiPopupBackground}" />
     <SolidColorBrush x:Key="DividerBrush" Color="{DynamicResource SukiLightBorderBrush}" />
     <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource SukiBorderBrush}" />
     <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{DynamicResource SukiPrimaryColor25}" />

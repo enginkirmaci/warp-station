@@ -1,0 +1,284 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
+                    xmlns:icons="clr-namespace:SukiUI.Content;assembly=SukiUI"
+                    xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+                    xmlns:tools="using:Tools.Library.MarkupExtensions">
+    <!--
+        DevTools custom SukiWindow title bar, based on SukiUI 7.0.1's SukiWindowTheme
+        (Controls/SukiWindow.axaml). Applied EXPLICITLY via Theme="{StaticResource CustomSukiWindowTheme}"
+        on MainWindow, so it overrides SukiUI's implicit window theme on every platform:
+        Windows and Linux share this exact template, and SukiUI's own platform handling
+        (WindowDecorations per OS, window buttons, drag area, Linux resize grips, Windows
+        snap layout) is preserved because the template and all its PARTs are kept.
+
+        The one change vs upstream: the in-titlebar title TextBlock (PART_TitleTextBlock,
+        referenced by no code-behind lookup) is REPLACED by the global repository search
+        field, centered in the bar. The field carries ElementRole="User" so it stays
+        interactive while the bar around it remains a drag area. MainWindow code-behind
+        attaches the field's event handlers in OnApplyTemplate (a ControlTheme has no
+        code-behind to wire them).
+    -->
+    <ControlTheme x:Key="CustomSukiWindowTheme" TargetType="suki:SukiWindow">
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="TransparencyLevelHint" Value="Transparent" />
+        <Setter Property="WindowDecorations" Value="{OnPlatform BorderOnly, Windows=Full, Linux=None, x:TypeArguments=WindowDecorations}" />
+        <Setter Property="ExtendClientAreaToDecorationsHint" Value="True" />
+        <Setter Property="ExtendClientAreaTitleBarHeightHint" Value="-1" />
+        <Setter Property="Foreground" Value="{DynamicResource SukiText}" />
+        <Setter Property="FlowDirection" Value="{DynamicResource FlowDirectionPrimary}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Panel Name="PART_Root" Margin="{TemplateBinding Margin}">
+                    <Panel Background="Transparent"
+                           IsHitTestVisible="False"
+                           Margin="{TemplateBinding WindowDecorationMargin}" />
+                    <suki:SukiMainHost BackgroundAnimationEnabled="{TemplateBinding BackgroundAnimationEnabled}"
+                                       BackgroundForceSoftwareRendering="{TemplateBinding BackgroundForceSoftwareRendering}"
+                                       BackgroundShaderCode="{TemplateBinding BackgroundShaderCode}"
+                                       BackgroundShaderFile="{TemplateBinding BackgroundShaderFile}"
+                                       BackgroundStyle="{TemplateBinding BackgroundStyle}"
+                                       BackgroundTransitionTime="{TemplateBinding BackgroundTransitionTime}"
+                                       BackgroundTransitionsEnabled="{TemplateBinding BackgroundTransitionsEnabled}"
+                                       CornerRadius="{TemplateBinding RootCornerRadius}"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       Hosts="{Binding Hosts, RelativeSource={RelativeSource AncestorType={x:Type suki:SukiWindow}}}">
+                        <DockPanel LastChildFill="True">
+                            <Panel DockPanel.Dock="Top">
+                                <StackPanel>
+                                    <LayoutTransformControl Name="PART_TitleBar"
+                                                            RenderTransformOrigin="0%,0%">
+                                        <Panel Background="Transparent"
+                                               chrome:WindowDecorationProperties.ElementRole="TitleBar">
+                                            <Border Background="Transparent"
+                                                    BorderThickness="0"
+                                                    CornerRadius="0"
+                                                    Name="DragArea"
+                                                    chrome:WindowDecorationProperties.ElementRole="TitleBar" />
+
+                                            <suki:GlassCard Name="PART_TitleBarBackground"
+                                                            chrome:WindowDecorationProperties.ElementRole="TitleBar"
+                                                            BorderThickness="0"
+                                                            CornerRadius="0"
+                                                            IsAnimated="False"
+                                                            IsVisible="{TemplateBinding ShowTitlebarBackground}" />
+
+                                            <DockPanel Background="Transparent"
+                                                       Margin="12,9"
+                                                       LastChildFill="True"
+                                                       chrome:WindowDecorationProperties.ElementRole="TitleBar">
+                                                <StackPanel VerticalAlignment="Center"
+                                                            DockPanel.Dock="Right"
+                                                            Orientation="Horizontal"
+                                                            Spacing="7">
+                                                    <StackPanel.Styles>
+                                                        <Style Selector="PathIcon">
+                                                            <Setter Property="Height" Value="{TemplateBinding TitleBarControlSize}" />
+                                                            <Setter Property="Width" Value="{TemplateBinding TitleBarControlSize}" />
+                                                        </Style>
+                                                    </StackPanel.Styles>
+                                                    <ItemsControl chrome:WindowDecorationProperties.ElementRole="User"
+                                                                  ItemsSource="{TemplateBinding RightWindowTitleBarControls}">
+                                                        <ItemsControl.Styles>
+                                                            <Style Selector="Control">
+                                                                <Setter Property="chrome:WindowDecorationProperties.ElementRole" Value="User" />
+                                                            </Style>
+                                                        </ItemsControl.Styles>
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <StackPanel FlowDirection="{DynamicResource FlowDirectionOpposite}" Orientation="Horizontal" />
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                    </ItemsControl>
+                                                    <Button Name="PART_FullScreenButton"
+                                                            Classes="WindowControlsButton"
+                                                            chrome:WindowDecorationProperties.ElementRole="User"
+                                                            IsEnabled="{TemplateBinding CanFullScreen}"
+                                                            IsVisible="{TemplateBinding CanFullScreen}">
+                                                        <PathIcon x:Name="FullScreenIcon" Data="{x:Static icons:Icons.WindowFullScreen}" />
+                                                    </Button>
+                                                    <Button Name="PART_PinButton"
+                                                            Classes="WindowControlsButton"
+                                                            chrome:WindowDecorationProperties.ElementRole="User"
+                                                            IsEnabled="{TemplateBinding CanPin}"
+                                                            IsVisible="{TemplateBinding CanPin}">
+                                                        <PathIcon x:Name="PinIcon" Data="{x:Static icons:Icons.WindowPin}" />
+                                                    </Button>
+                                                    <Button Name="PART_MinimizeButton"
+                                                            VerticalContentAlignment="Bottom"
+                                                            Classes="WindowControlsButton"
+                                                            chrome:WindowDecorationProperties.ElementRole="User"
+                                                            IsVisible="{TemplateBinding CanMinimize}">
+                                                        <PathIcon Margin="0,0,0,6.5"
+                                                                  VerticalAlignment="Bottom"
+                                                                  Data="{x:Static icons:Icons.WindowMinimize}" />
+                                                    </Button>
+                                                    <Button Name="PART_MaximizeButton"
+                                                            Classes="WindowControlsButton"
+                                                            chrome:WindowDecorationProperties.ElementRole="User"
+                                                            IsVisible="{TemplateBinding CanMaximize}">
+                                                        <PathIcon x:Name="MaximizeIcon" Data="{x:Static icons:Icons.WindowMaximize}" />
+                                                    </Button>
+                                                    <Button Name="PART_CloseButton"
+                                                            Classes="WindowControlsButton Close"
+                                                            chrome:WindowDecorationProperties.ElementRole="User">
+                                                        <PathIcon Data="{x:Static icons:Icons.WindowClose}" />
+                                                    </Button>
+                                                </StackPanel>
+
+                                                <Grid ColumnDefinitions="Auto,*"
+                                                      Background="Transparent"
+                                                      ColumnSpacing="10"
+                                                      VerticalAlignment="Center"
+                                                      chrome:WindowDecorationProperties.ElementRole="TitleBar">
+                                                    <ContentPresenter Grid.Column="0"
+                                                                      Name="PART_Logo"
+                                                                      HorizontalAlignment="Left"
+                                                                      Background="Transparent"
+                                                                      chrome:WindowDecorationProperties.ElementRole="User"
+                                                                      Content="{TemplateBinding LogoContent}" />
+                                                    <!--
+                                                        Custom title bar content: the global search field
+                                                        sits where the window title text used to, centered in
+                                                        the bar. ElementRole="User" keeps it interactive (and
+                                                        non-dragging); the bar around it keeps dragging.
+                                                        Handlers are attached by MainWindow.OnApplyTemplate.
+                                                    -->
+                                                    <Border
+                                                        Grid.Column="1"
+                                                        Name="HeaderSearchBorder"
+                                                        Width="440"
+                                                        Height="{TemplateBinding TitleBarControlSize}"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Background="{DynamicResource HeaderSearchBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                        BorderThickness="1"
+                                                        ClipToBounds="True"
+                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                        <TextBox
+                                                            Name="HeaderSearchBox"
+                                                            MinHeight="0"
+                                                            Padding="0,0,4,0"
+                                                            VerticalContentAlignment="Center"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            FontSize="13"
+                                                            Watermark="Search repositories...">
+                                                            <TextBox.InnerLeftContent>
+                                                                <Path
+                                                                    Width="14"
+                                                                    Height="14"
+                                                                    Margin="10,0,0,0"
+                                                                    Data="{tools:SvgPath icon-search}"
+                                                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                                                    Stretch="Uniform" />
+                                                            </TextBox.InnerLeftContent>
+                                                            <TextBox.InnerRightContent>
+                                                                <Panel Margin="0,0,6,0">
+                                                                    <!--  Shortcut hint: shown while the field is empty  -->
+                                                                    <Border
+                                                                        Name="SearchKbdHint"
+                                                                        Padding="6,2"
+                                                                        VerticalAlignment="Center"
+                                                                        Background="{DynamicResource HoverBackgroundBrush}"
+                                                                        CornerRadius="4">
+                                                                        <TextBlock
+                                                                            FontSize="11"
+                                                                            Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                            Text="Ctrl + K" />
+                                                                    </Border>
+                                                                    <!--  Clear button: shown once the field has text  -->
+                                                                    <Button
+                                                                        Name="SearchClearButton"
+                                                                        Width="20"
+                                                                        Height="20"
+                                                                        Padding="2"
+                                                                        HorizontalAlignment="Right"
+                                                                        VerticalAlignment="Center"
+                                                                        Classes="icon"
+                                                                        IsVisible="False"
+                                                                        ToolTip.Tip="Clear">
+                                                                        <Path
+                                                                            Width="12"
+                                                                            Height="12"
+                                                                            Data="{tools:SvgPath icon-close}"
+                                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                                            Stretch="Uniform" />
+                                                                    </Button>
+                                                                </Panel>
+                                                            </TextBox.InnerRightContent>
+                                                        </TextBox>
+                                                    </Border>
+                                                </Grid>
+                                            </DockPanel>
+                                        </Panel>
+                                    </LayoutTransformControl>
+                                    <Panel IsVisible="{TemplateBinding IsMenuVisible}">
+                                        <suki:GlassCard Margin="0,0,0,0"
+                                                        BorderThickness="0"
+                                                        CornerRadius="0"
+                                                        IsAnimated="False"
+                                                        IsVisible="{TemplateBinding ShowTitlebarBackground}" />
+                                        <suki:GlassCard Name="AlternativeGlassMenuBackground"
+                                                        Margin="10,2,10,10"
+                                                        CornerRadius="13" />
+                                        <Menu Name="PART_Menu"
+                                              IsEnabled="{TemplateBinding IsMenuVisible}"
+                                              ItemsSource="{TemplateBinding MenuItems}" />
+                                    </Panel>
+                                    <Border Name="PART_BottomBorder" BorderBrush="{DynamicResource SukiBorderBrush}" />
+                                </StackPanel>
+                            </Panel>
+                            <ContentPresenter x:Name="PART_ContentPresenter"
+                                              Padding="{TemplateBinding Padding}"
+                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              CornerRadius="10"
+                                              IsHitTestVisible="True" />
+                        </DockPanel>
+                    </suki:SukiMainHost>
+                </Panel>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^[ShowTitlebarBackground=False] /template/ Menu#PART_Menu">
+            <Setter Property="Margin" Value="10,0,0,7" />
+        </Style>
+        <Style Selector="^[ShowTitlebarBackground=True] /template/ suki|GlassCard#AlternativeGlassMenuBackground">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+
+        <Style Selector="^[Topmost=False] /template/ PathIcon#PinIcon">
+            <Setter Property="Data" Value="{x:Static icons:Icons.WindowPin}" />
+        </Style>
+        <Style Selector="^[Topmost=True] /template/ PathIcon#PinIcon">
+            <Setter Property="Data" Value="{x:Static icons:Icons.WindowPinOff}" />
+        </Style>
+
+        <Style Selector="^[WindowState=Maximized] /template/ PathIcon#MaximizeIcon">
+            <Setter Property="Data" Value="{x:Static icons:Icons.WindowRestore}" />
+        </Style>
+        <Style Selector="^[WindowState=Normal] /template/ PathIcon#MaximizeIcon">
+            <Setter Property="Data" Value="{x:Static icons:Icons.WindowMaximize}" />
+        </Style>
+
+        <Style Selector="^[WindowState=FullScreen] /template/ Button#PART_MaximizeButton">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="^[WindowState=FullScreen] /template/ PathIcon#FullScreenIcon">
+            <Setter Property="Data" Value="{x:Static icons:Icons.WindowFullScreenOff}" />
+        </Style>
+
+        <Style Selector="^[ShowBottomBorder=True] /template/ Border#PART_BottomBorder">
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
+        <Style Selector="^[ShowBottomBorder=False] /template/ Border#PART_BottomBorder">
+            <Setter Property="BorderThickness" Value="0,0,0,0" />
+        </Style>
+
+    </ControlTheme>
+</ResourceDictionary>

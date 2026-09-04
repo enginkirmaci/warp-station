@@ -41,7 +41,7 @@ public static class NavigationProvider
         var items = new List<NavigationItem>
         {
             CreateNavigationItem(
-                "Repos",
+                "Repositories",
                 "Browse and open repositories",
                 Icon(FolderIcon),
                 "#FFFFFF",
@@ -112,12 +112,6 @@ public static class NavigationProvider
                 IconPath = Icon(HomeIcon),
                 AccentColor = "#5B8DEF",
                 PageKey = "DashboardPage"
-            },
-            // Separator marker
-            new NavigationItem
-            {
-                Title = "---",
-                PageKey = "__separator__"
             }
         };
 
