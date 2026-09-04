@@ -360,19 +360,6 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private string _newPromptName = string.Empty;
 
-    /// <summary>
-    /// Bound to the add-tag flyout TextBox; cleared after a tag is added.
-    /// </summary>
-    [ObservableProperty]
-    private string _newTagText = string.Empty;
-
-    /// <summary>
-    /// Existing tags the user can quickly add from the add-tag flyout (everything
-    /// currently in use, minus the auto-tag <c>platform</c> since it is auto-assigned).
-    /// </summary>
-    [ObservableProperty]
-    private ObservableCollection<string> _availableTags = new();
-
     public ReposViewModel(
         ISettingsService settingsService,
         IDevToolsClient devToolsClient,
@@ -873,10 +860,6 @@ public partial class ReposViewModel : PageViewModelBase
         }
 
         TagFilters = rebuilt;
-        AvailableTags = new ObservableCollection<string>(
-            _repoService.AllTags
-                .Where(t => !string.Equals(t, Repo.PlatformTag, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase));
     }
 
     partial void OnSelectedSortOptionChanged(RepoSortOption? value)
@@ -1377,36 +1360,6 @@ public partial class ReposViewModel : PageViewModelBase
     {
         ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(OpenCodeRepoName));
-    }
-
-    // --- Tag management ---
-
-    [RelayCommand]
-    private async Task AddTagAsync(Repo? repo)
-    {
-        if (repo is null) return;
-        var tag = (NewTagText ?? string.Empty).Trim();
-        NewTagText = string.Empty;
-        if (string.IsNullOrEmpty(tag)) return;
-        await _repoService.AddTagAsync(repo, tag);
-    }
-
-    /// <summary>
-    /// Adds a specific tag name (e.g. from a quick-add chip in the flyout) to a repo.
-    /// Parameter is a <see cref="Tuple{T1, T2}"/> of (Repo, tag-name).
-    /// </summary>
-    [RelayCommand]
-    private async Task AddTagByNameAsync(Tuple<Repo, string>? repoAndTag)
-    {
-        if (repoAndTag is null) return;
-        await _repoService.AddTagAsync(repoAndTag.Item1, repoAndTag.Item2);
-    }
-
-    [RelayCommand]
-    private async Task RemoveTagAsync(RepoTag? repoTag)
-    {
-        if (repoTag is null) return;
-        await _repoService.RemoveTagAsync(repoTag.Repo, repoTag.Name);
     }
 
     [RelayCommand]

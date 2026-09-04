@@ -314,17 +314,16 @@
                                                         Padding="12,0"
                                                         Classes="repo-row"
                                                         PointerPressed="OnCardPointerPressed">
-                                                        <Grid VerticalAlignment="Center">
+                                                                <Grid VerticalAlignment="Center">
                                                                 <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="1.9*" MinWidth="170" />
-                                                                        <ColumnDefinition Width="0.9*" MinWidth="80" />
-                                                                        <ColumnDefinition Width="2.2*" MinWidth="195" />
+                                                                        <ColumnDefinition Width="1.2*" MinWidth="130" />
+                                                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
+                                                                        <ColumnDefinition Width="1.8*" MinWidth="165" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="1.2*" MinWidth="105" />
-                                                                        <ColumnDefinition Width="0.8*" MinWidth="60" />
+                                                                        <ColumnDefinition Width="0.7*" MinWidth="55" />
                                                                 </Grid.ColumnDefinitions>
 
                                                                 <!--  Favorite star  -->
@@ -343,53 +342,54 @@
                                                                                 Stretch="Uniform" />
                                                                 </Button>
 
-                                                                <!--  Repository: name over folder path  -->
-                                                                <StackPanel
+                                                                <!--  Repository name; the folder path lives on the tooltip  -->
+                                                                <TextBlock
                                                                         Grid.Column="1"
                                                                         Margin="0,0,16,0"
                                                                         VerticalAlignment="Center"
-                                                                        Orientation="Vertical"
-                                                                        Spacing="2">
-                                                                        <TextBlock
-                                                                                FontSize="15"
-                                                                                FontWeight="SemiBold"
-                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                                Text="{Binding Name}"
-                                                                                TextTrimming="CharacterEllipsis" />
-                                                                        <TextBlock
-                                                                                Classes="subtle"
-                                                                                Text="{Binding FolderPath}"
-                                                                                TextTrimming="CharacterEllipsis"
-                                                                                ToolTip.Tip="{Binding FolderPath}" />
-                                                                </StackPanel>
+                                                                        FontSize="15"
+                                                                        FontWeight="SemiBold"
+                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                        Text="{Binding Name}"
+                                                                        TextTrimming="CharacterEllipsis"
+                                                                        ToolTip.Tip="{Binding FolderPath}" />
 
-                                                                <!--  Branch: icon + name, or the checking placeholder. The
-                                                                        name sits in its own star-sized column so long
-                                                                        branch names trim instead of bleeding into the
-                                                                        stats cell next door.  -->
-                                                                <Grid Grid.Column="2" Margin="0,0,16,0" ColumnDefinitions="Auto,*">
-                                                                        <Path
-                                                                                Grid.Column="0"
-                                                                                Width="14"
-                                                                                Height="14"
+                                                                <!--  Branch: colorized pill (main/develop/release/master
+                                                                        pick up their own tint, everything else goes muted
+                                                                        gray), or the checking placeholder. The pill sits in
+                                                                        its own star-sized column so long branch names trim
+                                                                        instead of bleeding into the stats cell next door.  -->
+                                                                <Grid Grid.Column="2" Margin="0,0,16,0">
+                                                                        <Border
+                                                                                Padding="9,4"
+                                                                                HorizontalAlignment="Left"
                                                                                 VerticalAlignment="Center"
-                                                                                Data="{tools:SvgPath icon-source-branch}"
-                                                                                Fill="{DynamicResource WarningAccentBrush}"
-                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                                                Stretch="Uniform" />
+                                                                                Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
+                                                                                ClipToBounds="True"
+                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                                                                        <Path
+                                                                                                Grid.Column="0"
+                                                                                                Width="12"
+                                                                                                Height="12"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-source-branch}"
+                                                                                                Fill="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                Grid.Column="1"
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                                                                                Text="{Binding GitBranchName}"
+                                                                                                TextTrimming="CharacterEllipsis"
+                                                                                                ToolTip.Tip="{Binding GitBranchName}" />
+                                                                                </Grid>
+                                                                        </Border>
                                                                         <TextBlock
-                                                                                Grid.Column="1"
-                                                                                Margin="6,0,0,0"
-                                                                                VerticalAlignment="Center"
-                                                                                FontSize="13"
-                                                                                Foreground="{DynamicResource SubtitleForegroundBrush}"
-                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                                                Text="{Binding GitBranchName}"
-                                                                                TextTrimming="CharacterEllipsis"
-                                                                                ToolTip.Tip="{Binding GitBranchName}" />
-                                                                        <TextBlock
-                                                                                Grid.Column="0"
-                                                                                Grid.ColumnSpan="2"
+                                                                                HorizontalAlignment="Left"
                                                                                 VerticalAlignment="Center"
                                                                                 Classes="subtle"
                                                                                 IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
@@ -858,127 +858,9 @@
                                                                         </Button>
                                                                 </StackPanel>
 
-                                                                <!--  Tags: chips wrap inside the column, add-tag pinned right  -->
-                                                                <Grid
-                                                                        Grid.Column="7"
-                                                                        Margin="0,0,16,0"
-                                                                        VerticalAlignment="Center"
-                                                                        ColumnDefinitions="*,Auto">
-                                                                        <ItemsControl
-                                                                                Grid.Column="0"
-                                                                                Margin="0,3"
-                                                                                ItemsSource="{Binding Tags}">
-                                                                                <ItemsControl.ItemsPanel>
-                                                                                        <ItemsPanelTemplate>
-                                                                                                <WrapPanel Orientation="Horizontal" />
-                                                                                        </ItemsPanelTemplate>
-                                                                                </ItemsControl.ItemsPanel>
-                                                                                <ItemsControl.ItemTemplate>
-                                                                                        <DataTemplate x:DataType="entities:RepoTag">
-                                                                                                <Border
-                                                                                                        Margin="0,2,6,2"
-                                                                                                        Padding="8,2"
-                                                                                                        Classes="chip">
-                                                                                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                                                                                                <TextBlock
-                                                                                                                        VerticalAlignment="Center"
-                                                                                                                        Classes="subtle"
-                                                                                                                        Text="{Binding Name}" />
-                                                                                                                <Button
-                                                                                                                        Width="14"
-                                                                                                                        Height="14"
-                                                                                                                        Padding="0"
-                                                                                                                        Background="Transparent"
-                                                                                                                        BorderThickness="0"
-                                                                                                                        Command="{ReflectionBinding #Root.DataContext.RemoveTagCommand}"
-                                                                                                                        CommandParameter="{Binding}"
-                                                                                                                        Cursor="Hand"
-                                                                                                                        ToolTip.Tip="Remove tag">
-                                                                                                                        <Path
-                                                                                                                                Width="9"
-                                                                                                                                Height="9"
-                                                                                                                                Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
-                                                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
-                                                                                                                                Stretch="Uniform" />
-                                                                                                                </Button>
-                                                                                                        </StackPanel>
-                                                                                                </Border>
-                                                                                        </DataTemplate>
-                                                                                </ItemsControl.ItemTemplate>
-                                                                        </ItemsControl>
-                                                                        <Button
-                                                                                Grid.Column="1"
-                                                                                Margin="0,3,0,0"
-                                                                                Padding="8,2"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="Transparent"
-                                                                                BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                BorderThickness="1"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Cursor="Hand"
-                                                                                ToolTip.Tip="Add tag">
-                                                                                <TextBlock
-                                                                                        FontSize="12"
-                                                                                        Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                                        Text="+" />
-                                                                                <Button.Flyout>
-                                                                                        <Flyout Placement="BottomEdgeAlignedLeft">
-                                                                                                <StackPanel Width="220" Spacing="10">
-                                                                                                        <TextBlock Classes="field-label" Text="Quick add" />
-                                                                                                        <ItemsControl ItemsSource="{ReflectionBinding #Root.DataContext.AvailableTags}">
-                                                                                                                <ItemsControl.ItemsPanel>
-                                                                                                                        <ItemsPanelTemplate>
-                                                                                                                                <WrapPanel Orientation="Horizontal" />
-                                                                                                                        </ItemsPanelTemplate>
-                                                                                                                </ItemsControl.ItemsPanel>
-                                                                                                                <ItemsControl.ItemTemplate>
-                                                                                                                        <DataTemplate x:DataType="x:String">
-                                                                                                                                <Button
-                                                                                                                                        Margin="0,0,6,4"
-                                                                                                                                        Padding="8,2"
-                                                                                                                                        Background="Transparent"
-                                                                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                                                                        BorderThickness="1"
-                                                                                                                                        Command="{ReflectionBinding #Root.DataContext.AddTagByNameCommand}"
-                                                                                                                                        Content="{Binding}"
-                                                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
-                                                                                                                                        Cursor="Hand"
-                                                                                                                                        FontSize="12">
-                                                                                                                                        <Button.CommandParameter>
-                                                                                                                                                <MultiBinding Converter="{StaticResource PairConverter}">
-                                                                                                                                                        <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=Border}" />
-                                                                                                                                                        <Binding Path="." />
-                                                                                                                                                </MultiBinding>
-                                                                                                                                        </Button.CommandParameter>
-                                                                                                                                </Button>
-                                                                                                                        </DataTemplate>
-                                                                                                                </ItemsControl.ItemTemplate>
-                                                                                                        </ItemsControl>
-                                                                                                        <Border Margin="0,4" Classes="horizontal-divider" />
-                                                                                                        <TextBlock Classes="field-label" Text="New tag" />
-                                                                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                                                                                <TextBox
-                                                                                                                        Grid.Column="0"
-                                                                                                                        Text="{ReflectionBinding #Root.DataContext.NewTagText,
-                                                                                                                                                                                 Mode=TwoWay}"
-                                                                                                                        Watermark="Tag name" />
-                                                                                                                <Button
-                                                                                                                        Grid.Column="1"
-                                                                                                                        Classes="accent"
-                                                                                                                        Command="{ReflectionBinding #Root.DataContext.AddTagCommand}"
-                                                                                                                        CommandParameter="{ReflectionBinding DataContext,
-                                                                                                                                                                         RelativeSource={RelativeSource AncestorType=Border}}"
-                                                                                                                        Content="Add" />
-                                                                                                        </Grid>
-                                                                                                </StackPanel>
-                                                                                        </Flyout>
-                                                                                </Button.Flyout>
-                                                                        </Button>
-                                                                </Grid>
-
                                                                 <!--  Last Activity: relative age of the newest commit  -->
                                                                 <TextBlock
-                                                                        Grid.Column="8"
+                                                                        Grid.Column="7"
                                                                         Margin="0,0,4,0"
                                                                         HorizontalAlignment="Right"
                                                                         VerticalAlignment="Center"

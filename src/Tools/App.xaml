@@ -31,6 +31,7 @@
 			<conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
 			<conv:PairConverter x:Key="PairConverter" />
 			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
+			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
 			<conv:NotificationKindToBrushConverter x:Key="NotificationKindToBrushConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
