@@ -19,17 +19,20 @@ public class DialogService : IDialogService
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IProcessLauncher _processLauncher;
+    private readonly IRepoScanner _repoScanner;
 
     public DialogService(
         MainWindow mainWindow,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
-        IProcessLauncher processLauncher)
+        IProcessLauncher processLauncher,
+        IRepoScanner repoScanner)
     {
         _mainWindow = mainWindow;
         _gitHubService = gitHubService;
         _azureDevOpsService = azureDevOpsService;
         _processLauncher = processLauncher;
+        _repoScanner = repoScanner;
     }
 
     /// <inheritdoc/>
@@ -54,6 +57,14 @@ public class DialogService : IDialogService
         var dialog = new ReposSettingsDialog(current);
         var confirmed = await dialog.ShowDialog<bool>(_mainWindow);
         return confirmed ? dialog.Settings : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>?> ShowAddRepositoryDialogAsync(ReposSettings settings, IReadOnlyList<Repo> trackedRepos)
+    {
+        var dialog = new AddRepositoryDialog(settings, trackedRepos, _repoScanner);
+        var confirmed = await dialog.ShowDialog<bool>(_mainWindow);
+        return confirmed ? dialog.GetSelectedPaths() : null;
     }
 
     /// <inheritdoc/>

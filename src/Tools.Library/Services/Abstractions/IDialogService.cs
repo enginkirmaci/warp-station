@@ -28,6 +28,22 @@ public interface IDialogService
     Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current);
 
     /// <summary>
+    /// Shows the modal Add Repositories dialog: the user picks or types a folder, the
+    /// folder is scanned for git repositories, and the checked findings are returned.
+    /// </summary>
+    /// <param name="settings">
+    /// The repo scan settings, read by the dialog for their exclusions, folder pattern
+    /// and scan depth.
+    /// </param>
+    /// <param name="trackedRepos">The currently tracked repos; their findings show as
+    /// "Already added" and cannot be re-added.</param>
+    /// <returns>
+    /// The selected repo folder paths if the user confirmed, or <c>null</c> if the user
+    /// cancelled (an empty list means confirmed with nothing to add).
+    /// </returns>
+    Task<IReadOnlyList<string>?> ShowAddRepositoryDialogAsync(ReposSettings settings, IReadOnlyList<Entities.Repo> trackedRepos);
+
+    /// <summary>
     /// Shows the modal GitHub details dialog for a repo: its open pull requests (first)
     /// and issues (second) as clickable links, with a Refresh button re-running the
     /// <c>gh</c> fetch.

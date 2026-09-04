@@ -57,8 +57,8 @@
                                         IsVisible="{Binding HasGitHubTotals}"
                                         ToolTip.Tip="Open pull requests and issues across all GitHub repositories">
                                         <Path
-                                                Width="15"
-                                                Height="15"
+                                                Width="13"
+                                                Height="13"
                                                 VerticalAlignment="Center"
                                                 Data="{tools:SvgPath icon-github}"
                                                 Fill="{DynamicResource MutedForegroundBrush}"
@@ -93,9 +93,26 @@
                         </StackPanel>
                         <StackPanel
                                 Grid.Column="1"
-                                Margin="0,0,0,12"
                                 HorizontalAlignment="Right"
                                 Classes="actions">
+                                <!--  Add repository: picks a folder, scans it for git repos and
+                                        tracks the ones the user selects (dialog via DialogService)  -->
+                                <Button
+                                        Command="{Binding AddRepositoryCommand}"
+                                        ToolTip.Tip="Scan a folder for git repositories and add them to the list">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Path
+                                                        Width="14"
+                                                        Height="14"
+                                                        VerticalAlignment="Center"
+                                                        Data="{tools:SvgPath icon-plus}"
+                                                        Fill="{DynamicResource BodyForegroundBrush}"
+                                                        Stretch="Uniform" />
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Text="Add repository" />
+                                        </StackPanel>
+                                </Button>
                                 <Button
                                         Classes="icon"
                                         Command="{Binding RefreshCommand}"
@@ -114,41 +131,14 @@
 
                 <Border
                         Grid.Row="1"
-                        Margin="0,-16,0,0"
                         Padding="12"
                         HorizontalAlignment="Stretch"
                         Classes="card">
-                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
-                                <TextBox
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        Text="{Binding FilterText, Mode=TwoWay}"
-                                        Watermark="Search repositories...">
-                                        <TextBox.InnerRightContent>
-                                                <Button
-                                                        Width="20"
-                                                        Height="20"
-                                                        Padding="2"
-                                                        Classes="icon"
-                                                        Command="{Binding ClearFilterCommand}"
-                                                        IsVisible="{Binding FilterText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                        <Path
-                                                                Width="12"
-                                                                Height="12"
-                                                                Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
-                                                                Fill="{DynamicResource MutedForegroundBrush}"
-                                                                Stretch="Uniform" />
-                                                </Button>
-                                        </TextBox.InnerRightContent>
-                                </TextBox>
-                                <Border
-                                        Grid.Column="1"
-                                        Margin="0,4"
-                                        Classes="vertical-divider" />
-
-
+                        <!--  Search lives in the window's title bar now (it opens this page and
+                                drives FilterText); the toolbar keeps the tag filters and sorting.  -->
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
                                 <ItemsControl
-                                        Grid.Column="2"
+                                        Grid.Column="0"
                                         VerticalAlignment="Center"
                                         ItemsSource="{Binding TagFilters}">
                                         <ItemsControl.ItemsPanel>
@@ -172,11 +162,11 @@
                                         persisted in ReposSettings.SortMode.
                                 -->
                                 <Border
-                                        Grid.Column="3"
+                                        Grid.Column="1"
                                         Margin="0,4"
                                         Classes="vertical-divider" />
                                 <ComboBox
-                                        Grid.Column="4"
+                                        Grid.Column="2"
                                         MinWidth="140"
                                         VerticalAlignment="Center"
                                         ItemsSource="{Binding SortOptions}"
@@ -189,13 +179,13 @@
                                         </ComboBox.ItemTemplate>
                                 </ComboBox>
                                 <Button
-                                        Grid.Column="5"
+                                        Grid.Column="3"
                                         Width="44"
                                         Padding="8,2"
                                         VerticalAlignment="Center"
                                         Classes="icon"
                                         Command="{Binding ClearTagFiltersCommand}"
-                                        ToolTip.Tip="Clear search and selected tags">
+                                        ToolTip.Tip="Clear selected tags">
                                         <TextBlock
                                                 VerticalAlignment="Center"
                                                 Classes="subtle"

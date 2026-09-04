@@ -822,9 +822,6 @@ public partial class ReposViewModel : PageViewModelBase
         }
     }
 
-    [RelayCommand]
-    private void ClearFilter() => FilterText = string.Empty;
-
     /// <summary>
     /// Clears the search box and every tag checkbox (does not touch the tags on the
     /// repos themselves).
@@ -1398,6 +1395,54 @@ public partial class ReposViewModel : PageViewModelBase
 
     /// <summary>A refresh can start only when one isn't already running.</summary>
     private bool CanRefresh() => !IsRefreshing;
+
+    // --- Add repository ---
+
+    /// <summary>
+    /// Opens the Add Repositories dialog: the user picks (or types) a folder, the dialog
+    /// scans it for git repositories, and the checked findings come back as folder
+    /// paths. Each path is appended to the persisted scan-folder roots (so the repos
+    /// survive every future scan) and a rescan pulls them into the list. New repos show
+    /// up with the scan's Changed raise; the git status pass fills their counts in the
+    /// background.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddRepositoryAsync()
+    {
+        try
+        {
+            var added = await _dialogService.ShowAddRepositoryDialogAsync(_reposSettings, _repoService.Repos);
+            if (added is null || added.Count == 0)
+            {
+                return;
+            }
+
+            var roots = new List<string>(_reposSettings.RepoScanFolders ?? Array.Empty<string>());
+            var addedCount = 0;
+            foreach (var path in added)
+            {
+                if (roots.Any(existing => RepoPath.SamePath(existing, path))) continue;
+                roots.Add(path);
+                addedCount++;
+            }
+
+            if (addedCount == 0)
+            {
+                _notificationService.Show("Repositories are already tracked", NotificationKind.Info);
+                return;
+            }
+
+            _reposSettings.RepoScanFolders = roots.ToArray();
+            await PersistReposSettingsAsync();
+            await _repoService.RefreshAsync(_reposSettings);
+            _notificationService.Show($"Added {addedCount} {(addedCount == 1 ? "repository" : "repositories")}", NotificationKind.Success);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Error adding repositories");
+            _notificationService.Show("Failed to add repositories", NotificationKind.Error);
+        }
+    }
 
     [RelayCommand]
     private async Task OpenSettingsAsync()

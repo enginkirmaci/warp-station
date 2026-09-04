@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Tools.Views.Windows.AddRepositoryDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Tools.ViewModels.Windows"
+    Title="Add Repositories"
+    Width="600"
+    Height="520"
+    Background="{DynamicResource CardBackgroundBrush}"
+    CanResize="False"
+    RequestedThemeVariant="Dark"
+    WindowStartupLocation="CenterOwner"
+    x:CompileBindings="True"
+    x:DataType="vm:AddRepositoryViewModel">
+
+    <Grid RowDefinitions="*,Auto">
+        <!--  Scan input + results. A Grid, not a StackPanel: the StackPanel measured the
+              card at infinite height, so the inner ScrollViewer never scrolled and rows
+              overflowed under the footer.  -->
+        <Grid Grid.Row="0" Margin="16" RowDefinitions="Auto,Auto,*">
+            <StackPanel Grid.Row="0" Spacing="8">
+                <TextBlock
+                    Classes="field-label"
+                    Text="Folder to scan"
+                    ToolTip.Tip="The folder is searched recursively for git repositories" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBox
+                        Watermark="Pick or type a folder path…"
+                        Text="{Binding FolderPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        KeyDown="OnPathKeyDown" />
+                    <Button
+                        Grid.Column="1"
+                        MinWidth="84"
+                        Content="Browse…"
+                        IsEnabled="{Binding !IsScanning}"
+                        Click="OnBrowseClick"
+                        ToolTip.Tip="Choose the folder with a file dialog" />
+                </Grid>
+                <StackPanel
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="10">
+                    <Button
+                        MinWidth="84"
+                        Classes="accent"
+                        Command="{Binding ScanCommand}"
+                        Content="Scan"
+                        ToolTip.Tip="Search the folder for git repositories" />
+                    <ProgressBar
+                        Width="90"
+                        Height="4"
+                        VerticalAlignment="Center"
+                        IsIndeterminate="True"
+                        IsVisible="{Binding IsScanning}" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Classes="subtle"
+                        Text="{Binding StatusText}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!--  Found repositories. Plain ItemsControl in a ScrollViewer: a scan of one
+                  folder yields a handful of rows, so list virtualization is not needed
+                  and the CheckBox rows keep their selection state without container
+                  recycling.  -->
+            <Border
+                Grid.Row="2"
+                MinHeight="240"
+                Margin="0,12,0,0"
+                Padding="0"
+                Classes="card">
+                <Grid RowDefinitions="Auto,*">
+                    <!--  Select-all header: touches only the not-yet-added rows; shows
+                          indeterminate while the selection is mixed.  -->
+                    <Border
+                        Grid.Row="0"
+                        Padding="12,8"
+                        BorderBrush="{DynamicResource DividerBrush}"
+                        BorderThickness="0,0,0,1"
+                        IsVisible="{Binding HasScanned}">
+                        <CheckBox
+                            Content="Select all available"
+                            IsChecked="{Binding IsAllSelected, Mode=TwoWay}"
+                            IsEnabled="{Binding HasSelectable}"
+                            ToolTip.Tip="Checks every repository that is not already added" />
+                    </Border>
+                    <Panel Grid.Row="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl Margin="8" ItemsSource="{Binding FoundRepos}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:FoundRepository">
+                                    <Border
+                                        MinHeight="44"
+                                        Padding="8,4"
+                                        BorderBrush="{DynamicResource DividerBrush}"
+                                        BorderThickness="0,0,0,1">
+                                        <CheckBox
+                                            VerticalAlignment="Center"
+                                            HorizontalContentAlignment="Stretch"
+                                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                            IsEnabled="{Binding CanSelect}">
+                                            <Grid
+                                                Margin="4,0,0,0"
+                                                ColumnDefinitions="*,Auto"
+                                                ColumnSpacing="8">
+                                                <StackPanel
+                                                    Grid.Column="0"
+                                                    VerticalAlignment="Center"
+                                                    Spacing="1">
+                                                    <TextBlock
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                        Text="{Binding Name}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        ToolTip.Tip="{Binding FolderPath}" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text="{Binding FolderPath}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        ToolTip.Tip="{Binding FolderPath}" />
+                                                </StackPanel>
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource FaintForegroundBrush}"
+                                                    IsVisible="{Binding IsAlreadyTracked}"
+                                                    Text="Already added" />
+                                            </Grid>
+                                        </CheckBox>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <!--  Empty state: nothing scanned yet  -->
+                    <TextBlock
+                        Margin="12"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Classes="subtle"
+                        IsVisible="{Binding HasScanned, Converter={StaticResource InverseBoolConverter}}"
+                        Text="Scan a folder to find git repositories." />
+                    </Panel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  Footer with action buttons (outside the content area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Classes="actions">
+                <Button Click="OnCancelClick" Content="Cancel" />
+                <Button
+                    Classes="accent"
+                    Click="OnAddClick"
+                    Content="{Binding AddButtonText}"
+                    IsDefault="True"
+                    IsEnabled="{Binding HasSelection}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
