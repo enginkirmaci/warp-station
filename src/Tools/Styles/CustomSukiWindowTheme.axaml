@@ -126,9 +126,8 @@
                                                     </Button>
                                                 </StackPanel>
 
-                                                <Grid ColumnDefinitions="Auto,*"
+                                                <Grid ColumnDefinitions="Auto"
                                                       Background="Transparent"
-                                                      ColumnSpacing="10"
                                                       VerticalAlignment="Center"
                                                       chrome:WindowDecorationProperties.ElementRole="TitleBar">
                                                     <ContentPresenter Grid.Column="0"
@@ -137,82 +136,82 @@
                                                                       Background="Transparent"
                                                                       chrome:WindowDecorationProperties.ElementRole="User"
                                                                       Content="{TemplateBinding LogoContent}" />
-                                                    <!--
-                                                        Custom title bar content: the global search field
-                                                        sits where the window title text used to, centered in
-                                                        the bar. ElementRole="User" keeps it interactive (and
-                                                        non-dragging); the bar around it keeps dragging.
-                                                        Handlers are attached by MainWindow.OnApplyTemplate.
-                                                    -->
-                                                    <Border
-                                                        Grid.Column="1"
-                                                        Name="HeaderSearchBorder"
-                                                        Width="440"
-                                                        Height="{TemplateBinding TitleBarControlSize}"
-                                                        HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center"
-                                                        chrome:WindowDecorationProperties.ElementRole="User"
-                                                        Background="{DynamicResource HeaderSearchBackgroundBrush}"
-                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                        BorderThickness="1"
-                                                        ClipToBounds="True"
-                                                        CornerRadius="{DynamicResource ControlRadius}">
-                                                        <TextBox
-                                                            Name="HeaderSearchBox"
-                                                            MinHeight="0"
-                                                            Padding="0,0,4,0"
-                                                            VerticalContentAlignment="Center"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            FontSize="13"
-                                                            Watermark="Search repositories...">
-                                                            <TextBox.InnerLeftContent>
-                                                                <Path
-                                                                    Width="14"
-                                                                    Height="14"
-                                                                    Margin="10,0,0,0"
-                                                                    Data="{tools:SvgPath icon-search}"
-                                                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                                                    Stretch="Uniform" />
-                                                            </TextBox.InnerLeftContent>
-                                                            <TextBox.InnerRightContent>
-                                                                <Panel Margin="0,0,6,0">
-                                                                    <!--  Shortcut hint: shown while the field is empty  -->
-                                                                    <Border
-                                                                        Name="SearchKbdHint"
-                                                                        Padding="6,2"
-                                                                        VerticalAlignment="Center"
-                                                                        Background="{DynamicResource HoverBackgroundBrush}"
-                                                                        CornerRadius="4">
-                                                                        <TextBlock
-                                                                            FontSize="11"
-                                                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                            Text="Ctrl + K" />
-                                                                    </Border>
-                                                                    <!--  Clear button: shown once the field has text  -->
-                                                                    <Button
-                                                                        Name="SearchClearButton"
-                                                                        Width="20"
-                                                                        Height="20"
-                                                                        Padding="2"
-                                                                        HorizontalAlignment="Right"
-                                                                        VerticalAlignment="Center"
-                                                                        Classes="icon"
-                                                                        IsVisible="False"
-                                                                        ToolTip.Tip="Clear">
-                                                                        <Path
-                                                                            Width="12"
-                                                                            Height="12"
-                                                                            Data="{tools:SvgPath icon-close}"
-                                                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                                                            Stretch="Uniform" />
-                                                                    </Button>
-                                                                </Panel>
-                                                            </TextBox.InnerRightContent>
-                                                        </TextBox>
-                                                    </Border>
                                                 </Grid>
                                             </DockPanel>
+                                            <!--
+                                                Custom title bar content: the global search field
+                                                overlays the WHOLE title bar (sibling of the DockPanel,
+                                                not inside its fill column) so it centers on the bar.
+                                                ElementRole="User" keeps it interactive (and
+                                                non-dragging); the bar around it keeps dragging.
+                                                Handlers are attached by MainWindow.OnApplyTemplate.
+                                            -->
+                                            <Border
+                                                Name="HeaderSearchBorder"
+                                                Width="440"
+                                                Height="38"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                chrome:WindowDecorationProperties.ElementRole="User"
+                                                Background="{DynamicResource HeaderSearchBackgroundBrush}"
+                                                BorderBrush="{DynamicResource HairlineBrush}"
+                                                BorderThickness="1"
+                                                ClipToBounds="True"
+                                                CornerRadius="{DynamicResource ControlRadius}">
+                                                <TextBox
+                                                    Name="HeaderSearchBox"
+                                                    MinHeight="0"
+                                                    Padding="0,0,4,0"
+                                                    VerticalContentAlignment="Center"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    FontSize="14"
+                                                    Watermark="Search repositories...">
+                                                    <TextBox.InnerLeftContent>
+                                                        <Path
+                                                            Width="15"
+                                                            Height="15"
+                                                            Margin="10,0,0,0"
+                                                            Data="{tools:SvgPath icon-search}"
+                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                            Stretch="Uniform" />
+                                                    </TextBox.InnerLeftContent>
+                                                    <TextBox.InnerRightContent>
+                                                        <Panel Margin="0,0,6,0">
+                                                            <!--  Shortcut hint: shown while the field is empty  -->
+                                                            <Border
+                                                                Name="SearchKbdHint"
+                                                                Padding="6,3"
+                                                                VerticalAlignment="Center"
+                                                                Background="{DynamicResource HoverBackgroundBrush}"
+                                                                CornerRadius="4">
+                                                                <TextBlock
+                                                                    FontSize="11"
+                                                                    Foreground="{DynamicResource MutedForegroundBrush}"
+                                                                    Text="Ctrl + K" />
+                                                            </Border>
+                                                            <!--  Clear button: shown once the field has text  -->
+                                                            <Button
+                                                                Name="SearchClearButton"
+                                                                Width="20"
+                                                                Height="20"
+                                                                Padding="2"
+                                                                HorizontalAlignment="Right"
+                                                                VerticalAlignment="Center"
+                                                                Classes="icon"
+                                                                IsVisible="False"
+                                                                ToolTip.Tip="Clear">
+                                                                <Path
+                                                                    Width="12"
+                                                                    Height="12"
+                                                                    Data="{tools:SvgPath icon-close}"
+                                                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                                                    Stretch="Uniform" />
+                                                            </Button>
+                                                        </Panel>
+                                                    </TextBox.InnerRightContent>
+                                                </TextBox>
+                                            </Border>
                                         </Panel>
                                     </LayoutTransformControl>
                                     <Panel IsVisible="{TemplateBinding IsMenuVisible}">
