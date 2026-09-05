@@ -113,13 +113,10 @@
                                                         <ItemsControl ItemsSource="{Binding History}">
                                                                 <ItemsControl.ItemTemplate>
                                                                         <DataTemplate>
-                                                                                <Border
-                                                                                        Margin="0,0,0,6"
-                                                                                        Padding="8"
-                                                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
-                                                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                                                        BorderThickness="1"
-                                                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                                                <!--  History rows in the repos table's row language:
+                                                                                        contiguous, bottom hairline separator, hover
+                                                                                        tint, copy action at the right.  -->
+                                                                                <Border Classes="list-row">
                                                                                         <Grid ColumnDefinitions="*,Auto">
                                                                                                 <TextBlock
                                                                                                         Grid.Column="0"

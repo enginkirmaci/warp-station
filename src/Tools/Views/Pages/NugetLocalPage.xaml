@@ -139,24 +139,28 @@
 				ColumnDefinitions="Auto,*"
 				ColumnSpacing="12">
 				<Border Grid.Column="0" Classes="card">
-					<StackPanel Spacing="8">
-						<TextBlock Classes="card-title" Text="Session Activity" />
-						<StackPanel
-							VerticalAlignment="Center"
-							Orientation="Horizontal"
-							Spacing="8">
+					<!--  Stat card in the repos panel's vocabulary: tinted icon badge
+					        with the full-strength glyph on top, big number + label beside.  -->
+					<StackPanel Orientation="Horizontal" Spacing="12">
+						<Grid Width="36" Height="36" VerticalAlignment="Top">
+							<Border Background="{DynamicResource InfoAccentBrush}" Classes="stat-badge" />
 							<Path
-								Width="24"
-								Height="24"
-								Data="{tools:SvgPath icon-chart-bar}"
-								Fill="{DynamicResource InfoAccentBrush}" />
-							<TextBlock
+								Width="18"
+								Height="18"
+								HorizontalAlignment="Center"
 								VerticalAlignment="Center"
-								FontSize="24"
+								Data="{tools:SvgPath icon-chart-bar}"
+								Fill="{DynamicResource InfoAccentBrush}"
+								Stretch="Uniform" />
+						</Grid>
+						<StackPanel VerticalAlignment="Center" Spacing="2">
+							<TextBlock
+								FontSize="22"
 								FontWeight="Bold"
+								Foreground="{DynamicResource TitleForegroundBrush}"
 								Text="{Binding Count}" />
+							<TextBlock Classes="subtle" Text="Packages Refreshed" />
 						</StackPanel>
-						<TextBlock Classes="subtle" Text="Packages Refreshed" />
 					</StackPanel>
 				</Border>
 
@@ -181,11 +185,14 @@
 						<ItemsControl ItemsSource="{Binding FileList}">
 							<ItemsControl.ItemTemplate>
 								<DataTemplate>
-									<Border
-										Margin="0,1"
-										Padding="4,2"
-										CornerRadius="2">
-										<TextBlock Classes="subtle" Text="{Binding}" />
+									<!--  Activity rows in the repos table's row language:
+									        contiguous, bottom hairline separator, hover tint.  -->
+									<Border Classes="list-row">
+										<TextBlock
+											Classes="subtle"
+											Text="{Binding}"
+											TextTrimming="CharacterEllipsis"
+											ToolTip.Tip="{Binding}" />
 									</Border>
 								</DataTemplate>
 							</ItemsControl.ItemTemplate>

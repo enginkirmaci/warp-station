@@ -1,17 +1,29 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<Window
+<!--
+    Modal dialog on the app's own chrome: a SukiWindow (like the main window) so the
+    title bar, dragging and close button come from the same dark SukiUI template instead
+    of a bare OS window. The stock SukiUI window theme applies (the custom theme is
+    MainWindow-only — it carries the header search field); caption buttons besides Close
+    are disabled for a modal.
+-->
+<suki:SukiWindow
     x:Class="Tools.Views.Windows.ReposSettingsDialog"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:suki="https://github.com/kikipoulet/SukiUI"
     Title="Repo Settings"
     Width="650"
     Height="620"
-    Background="{DynamicResource CardBackgroundBrush}"
     CanResize="False"
     RequestedThemeVariant="Dark"
-    WindowStartupLocation="CenterOwner">
+    WindowStartupLocation="CenterOwner"
+    BackgroundStyle="Flat"
+    CanMinimize="False"
+    CanMaximize="False"
+    CanPin="False"
+    CanFullScreen="False">
 
-    <Grid RowDefinitions="*,Auto">
+    <Grid RowDefinitions="*,Auto" Background="{DynamicResource ContentBackgroundBrush}">
         <!--  Scrollable content area  -->
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Classes="page-root" Spacing="16">
@@ -239,4 +251,4 @@
             </StackPanel>
         </Border>
     </Grid>
-</Window>
+</suki:SukiWindow>

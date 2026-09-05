@@ -1,6 +1,6 @@
-using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using SukiUI.Controls;
 using Tools.Library.Configuration;
 using Tools.ViewModels.Windows;
 
@@ -9,8 +9,9 @@ namespace Tools.Views.Windows;
 /// <summary>
 /// Modal dialog for editing repo scan settings. A thin view: all editing state
 /// and the array/string translation live in <see cref="ReposSettingsViewModel"/>.
+/// SukiWindow supplies the app's own title bar and close button.
 /// </summary>
-public partial class ReposSettingsDialog : Window
+public partial class ReposSettingsDialog : SukiWindow
 {
     /// <summary>
     /// Gets the ViewModel backing this dialog.

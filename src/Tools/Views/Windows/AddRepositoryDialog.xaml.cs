@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using SukiUI.Controls;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
@@ -14,9 +15,10 @@ namespace Tools.Views.Windows;
 /// Modal dialog for adding repositories by scanning a folder: the user picks (Browse)
 /// or types a path, the scan lists the git repositories found underneath it, and the
 /// checked ones are returned to the caller to be tracked. A thin view: scan and
-/// selection state live in <see cref="AddRepositoryViewModel"/>.
+/// selection state live in <see cref="AddRepositoryViewModel"/>. SukiWindow supplies
+/// the app's own title bar and close button.
 /// </summary>
-public partial class AddRepositoryDialog : Window
+public partial class AddRepositoryDialog : SukiWindow
 {
     /// <summary>
     /// Gets the ViewModel backing this dialog.

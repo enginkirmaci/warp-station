@@ -70,13 +70,6 @@
     -->
 
     <!--  Page-level hero title (used in Dashboard header).  -->
-    <Style Selector="TextBlock.page-title">
-        <Setter Property="FontSize" Value="28" />
-        <Setter Property="FontWeight" Value="Bold" />
-        <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
-        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-    </Style>
-
     <Style Selector="TextBlock.page-subtitle">
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
@@ -206,6 +199,31 @@
         <Setter Property="Height" Value="18" />
         <Setter Property="Stretch" Value="Uniform" />
         <Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+    </Style>
+
+    <!--
+        Stat-card icon badge — the overview card's tinted rounded square: give the
+        Border the stat's accent color as its Background and draw the full-strength
+        icon on top of it (sibling inside a 36px Grid).
+    -->
+    <Style Selector="Border.stat-badge">
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Opacity" Value="0.16" />
+    </Style>
+
+    <!--
+        List row — the repositories table's row language for static lists (history,
+        activity logs): transparent surface, bottom hairline as the row separator and
+        the table's hover tint. Rows sit contiguously inside a card.
+    -->
+    <Style Selector="Border.list-row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="Border.list-row:pointerover">
+        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
     </Style>
 
     <!--

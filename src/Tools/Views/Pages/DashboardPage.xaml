@@ -11,26 +11,21 @@
 
         <Grid Classes="page-root" RowDefinitions="Auto,*">
 
-                <!--  Header Banner  -->
-                <Border
+                <!--  Header: the standard page title row (same rhythm as Repositories)  -->
+                <StackPanel
                         Grid.Row="0"
-                        Padding="28,24,28,16"
-                        Background="{DynamicResource ContentBackgroundBrush}">
-                        <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        Spacing="6">
-                                        <TextBlock Classes="page-title" Text="Development Tools" />
-                                        <TextBlock Classes="page-subtitle" Text="Quick access to your development utilities" />
-                                </StackPanel>
-                        </Grid>
-                </Border>
+                        Margin="0,0,0,16"
+                        Spacing="4">
+                        <TextBlock
+                                Margin="0"
+                                Classes="section-title"
+                                Text="Development Tools" />
+                        <TextBlock Classes="page-subtitle" Text="Quick access to your development utilities" />
+                </StackPanel>
 
                 <!--  Dashboard Cards Grid  -->
                 <ScrollViewer
                         Grid.Row="1"
-                        Padding="28,16,28,20"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding DashboardCards}">

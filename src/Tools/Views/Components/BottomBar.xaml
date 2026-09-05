@@ -65,13 +65,9 @@
             <Setter Property="Placement" Value="Top" />
         </Style>
         <!--
-            Overview stat-card icon badge: rounded square tinted with the card's accent
-            (the icon sits on top of the tint, full strength) — per the mockup.
+            Overview stat-card icon badge (Border.stat-badge) lives app-wide in
+            AppStyles.axaml so pages share the same vocabulary.
         -->
-        <Style Selector="Border.stat-badge">
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Opacity" Value="0.16" />
-        </Style>
         <!--  Pull-request state pill (Draft / Approved / Review): fully-rounded tinted
               pill — the Border's Background comes from GitHubStateChipBrushConverter
               ("bg" param) on each row.  -->
