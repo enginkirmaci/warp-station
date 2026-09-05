@@ -2,12 +2,13 @@
         x:Class="Tools.Views.Pages.ReposPage"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:components="using:Tools.Views.Components"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:entities="using:Tools.Library.Entities"
+        xmlns:lib="using:Tools.Library.Controls"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:suki="https://github.com/kikipoulet/SukiUI"
         xmlns:tools="using:Tools.Library.MarkupExtensions"
-        xmlns:components="using:Tools.Views.Components"
         xmlns:vm="using:Tools.ViewModels.Pages"
         x:Name="Root"
         d:DesignHeight="600"
@@ -15,6 +16,20 @@
         x:CompileBindings="True"
         x:DataType="vm:ReposViewModel"
         mc:Ignorable="d">
+
+        <UserControl.Resources>
+                <!--
+                        Branch pill geometry: the branch column width and the pill text's
+                        max width are coupled by the pill chrome —
+                        BranchTextBudget = BranchColumnWidth − 16 cell margin − 18 pill
+                        padding − 12 icon − 6 icon/text spacing. The budget is the only
+                        finite width the pill text is ever measured with (the pill hugs its
+                        content), so it is also the threshold where "..tail" trimming kicks
+                        in. Change the two together.
+                -->
+                <GridLength x:Key="BranchColumnWidth">240</GridLength>
+                <x:Double x:Key="BranchTextBudget">188</x:Double>
+        </UserControl.Resources>
 
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
                 <Grid
@@ -24,890 +39,935 @@
                         RowDefinitions="Auto,*"
                         RowSpacing="16">
 
-                <Grid
-                        Grid.Row="0"
-                        ColumnDefinitions="*,Auto"
-                        ColumnSpacing="8">
-                        <StackPanel
-                                Grid.Column="0"
-                                VerticalAlignment="Center"
-                                Orientation="Horizontal"
-                                Spacing="8">
-                                <TextBlock
-                                        VerticalAlignment="Center"
-                                        Classes="section-title"
-                                        Margin="0">
-                                        <Run Text="Repositories" />
-                                        <Run
-                                                FontSize="13"
-                                                Foreground="{DynamicResource MutedForegroundBrush}"
-                                                Text=" (" />
-                                        <Run
-                                                FontSize="13"
-                                                Foreground="{DynamicResource MutedForegroundBrush}"
-                                                Text="{Binding FilteredRepos.Count}" />
-                                        <Run
-                                                FontSize="13"
-                                                Foreground="{DynamicResource MutedForegroundBrush}"
-                                                Text=")" />
-                                </TextBlock>
-                                <!--
-                                        GitHub totals: open pull requests and issues summed across
-                                        every GitHub repo, beside the page title. Shows only when the
-                                        GitHub column is enabled and at least one item is open — an
-                                        all-zero summary is noise, like the per-row chips.
-                                -->
+                        <Grid
+                                Grid.Row="0"
+                                ColumnDefinitions="*,Auto"
+                                ColumnSpacing="8">
                                 <StackPanel
+                                        Grid.Column="0"
                                         VerticalAlignment="Center"
                                         Orientation="Horizontal"
-                                        Spacing="6"
-                                        IsVisible="{Binding HasGitHubTotals}"
-                                        ToolTip.Tip="Open pull requests and issues across all GitHub repositories">
-                                        <Path
-                                                Width="13"
-                                                Height="13"
-                                                VerticalAlignment="Center"
-                                                Data="{tools:SvgPath icon-github}"
-                                                Fill="{DynamicResource MutedForegroundBrush}"
-                                                Stretch="Uniform" />
-                                        <Path
-                                                Width="13"
-                                                Height="13"
-                                                VerticalAlignment="Center"
-                                                Data="{tools:SvgPath icon-git-pull-request}"
-                                                Fill="{DynamicResource StatusActiveBrush}"
-                                                Stretch="Uniform" />
+                                        Spacing="8">
                                         <TextBlock
+                                                Margin="0"
                                                 VerticalAlignment="Center"
-                                                FontSize="13"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource StatusActiveBrush}"
-                                                Text="{Binding GitHubTotalPrCount}" />
-                                        <Path
-                                                Width="13"
-                                                Height="13"
-                                                VerticalAlignment="Center"
-                                                Data="{tools:SvgPath icon-issue}"
-                                                Fill="{DynamicResource WarningAccentBrush}"
-                                                Stretch="Uniform" />
-                                        <TextBlock
-                                                VerticalAlignment="Center"
-                                                FontSize="13"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource WarningAccentBrush}"
-                                                Text="{Binding GitHubTotalIssueCount}" />
-                                </StackPanel>
-                        </StackPanel>
-                        <!--
-                                Toolbar strip: tag filters, sort and page actions grouped in
-                                one rounded card hugging the right edge. Hairline dividers
-                                split the groups (filters / sort / actions).
-                        -->
-                        <Border
-                                Grid.Column="1"
-                                Padding="14,10"
-                                VerticalAlignment="Center"
-                                Classes="card">
-                                <StackPanel
-                                        VerticalAlignment="Center"
-                                        Orientation="Horizontal"
-                                        Spacing="14">
-                                        <ItemsControl
-                                                VerticalAlignment="Center"
-                                                ItemsSource="{Binding TagFilters}">
-                                                <ItemsControl.ItemsPanel>
-                                                        <ItemsPanelTemplate>
-                                                                <StackPanel Orientation="Horizontal" Spacing="16" />
-                                                        </ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemTemplate>
-                                                        <DataTemplate x:DataType="entities:TagFilter">
-                                                                <CheckBox
-                                                                        Command="{ReflectionBinding #Root.DataContext.TagFilterChangedCommand}"
-                                                                        Content="{Binding Name}"
-                                                                        IsChecked="{Binding IsChecked, Mode=TwoWay}" />
-                                                        </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <Border Classes="vertical-divider" />
+                                                Classes="section-title">
+                                                <Run Text="Repositories" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text=" (" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text="{Binding FilteredRepos.Count}" />
+                                                <Run
+                                                        FontSize="13"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        Text=")" />
+                                        </TextBlock>
                                         <!--
-                                                Sort selector: the whole list re-orders on pick
-                                                (favorites still pin to the top). The choice is
-                                                persisted in ReposSettings.SortMode.
+                                                GitHub totals: open pull requests and issues summed across
+                                                every GitHub repo, beside the page title. Shows only when the
+                                                GitHub column is enabled and at least one item is open — an
+                                                all-zero summary is noise, like the per-row chips.
                                         -->
-                                        <ComboBox
-                                                MinWidth="140"
+                                        <StackPanel
                                                 VerticalAlignment="Center"
-                                                ItemsSource="{Binding SortOptions}"
-                                                SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
-                                                ToolTip.Tip="Sort the repositories (favorites always stay on top)">
-                                                <ComboBox.ItemTemplate>
-                                                        <DataTemplate x:DataType="vm:RepoSortOption">
-                                                                <TextBlock Text="{Binding Label}" />
-                                                        </DataTemplate>
-                                                </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <Button
-                                                VerticalAlignment="Center"
-                                                Classes="icon"
-                                                Command="{Binding ClearTagFiltersCommand}"
-                                                ToolTip.Tip="Clear selected tags">
+                                                IsVisible="{Binding HasGitHubTotals}"
+                                                Orientation="Horizontal"
+                                                Spacing="6"
+                                                ToolTip.Tip="Open pull requests and issues across all GitHub repositories">
+                                                <Path
+                                                        Width="13"
+                                                        Height="13"
+                                                        VerticalAlignment="Center"
+                                                        Data="{tools:SvgPath icon-github}"
+                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                        Stretch="Uniform" />
+                                                <Path
+                                                        Width="13"
+                                                        Height="13"
+                                                        VerticalAlignment="Center"
+                                                        Data="{tools:SvgPath icon-git-pull-request}"
+                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                        Stretch="Uniform" />
                                                 <TextBlock
                                                         VerticalAlignment="Center"
-                                                        Classes="subtle"
-                                                        Text="Clear" />
-                                        </Button>
-                                        <Border Classes="vertical-divider" />
-                                        <Button
-                                                Classes="icon"
-                                                Command="{Binding RefreshCommand}"
-                                                IsEnabled="{Binding !IsRefreshing}"
-                                                ToolTip.Tip="Refresh">
-                                                <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
-                                        </Button>
-                                        <!--  Add repository: picks a folder, scans it for git repos and
-                                                tracks the ones the user selects (dialog via DialogService)  -->
-                                        <Button
+                                                        FontSize="13"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource StatusActiveBrush}"
+                                                        Text="{Binding GitHubTotalPrCount}" />
+                                                <Path
+                                                        Width="13"
+                                                        Height="13"
+                                                        VerticalAlignment="Center"
+                                                        Data="{tools:SvgPath icon-issue}"
+                                                        Fill="{DynamicResource WarningAccentBrush}"
+                                                        Stretch="Uniform" />
+                                                <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="13"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource WarningAccentBrush}"
+                                                        Text="{Binding GitHubTotalIssueCount}" />
+                                        </StackPanel>
+                                </StackPanel>
+                                <!--
+                                        Toolbar strip: tag filters, sort and page actions grouped in
+                                        one rounded card hugging the right edge. Hairline dividers
+                                        split the groups (filters / sort / actions).
+                                -->
+                                <Border
+                                        Grid.Column="1"
+                                        Padding="14,10"
+                                        VerticalAlignment="Center"
+                                        Classes="card">
+                                        <StackPanel
                                                 VerticalAlignment="Center"
-                                                Classes="Outlined"
-                                                Command="{Binding AddRepositoryCommand}"
-                                                ToolTip.Tip="Scan a folder for git repositories and add them to the list">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <Path
-                                                                Width="14"
-                                                                Height="14"
-                                                                VerticalAlignment="Center"
-                                                                Data="{tools:SvgPath icon-plus}"
-                                                                Fill="{Binding $parent[Button].Foreground}"
-                                                                Stretch="Uniform" />
+                                                Orientation="Horizontal"
+                                                Spacing="14">
+                                                <ItemsControl VerticalAlignment="Center" ItemsSource="{Binding TagFilters}">
+                                                        <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                        <StackPanel Orientation="Horizontal" Spacing="16" />
+                                                                </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="entities:TagFilter">
+                                                                        <CheckBox
+                                                                                Command="{ReflectionBinding #Root.DataContext.TagFilterChangedCommand}"
+                                                                                Content="{Binding Name}"
+                                                                                IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                                                                </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <Border Classes="vertical-divider" />
+                                                <!--
+                                                        Sort selector: the whole list re-orders on pick
+                                                        (favorites still pin to the top). The choice is
+                                                        persisted in ReposSettings.SortMode.
+                                                -->
+                                                <ComboBox
+                                                        MinWidth="140"
+                                                        VerticalAlignment="Center"
+                                                        ItemsSource="{Binding SortOptions}"
+                                                        SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
+                                                        ToolTip.Tip="Sort the repositories (favorites always stay on top)">
+                                                        <ComboBox.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:RepoSortOption">
+                                                                        <TextBlock Text="{Binding Label}" />
+                                                                </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                                <Button
+                                                        VerticalAlignment="Center"
+                                                        Classes="icon"
+                                                        Command="{Binding ClearTagFiltersCommand}"
+                                                        ToolTip.Tip="Clear selected tags">
                                                         <TextBlock
                                                                 VerticalAlignment="Center"
-                                                                Text="Add Repository" />
-                                                </StackPanel>
-                                        </Button>
-                                        <Button
-                                                Classes="icon"
-                                                Command="{Binding OpenSettingsCommand}"
-                                                ToolTip.Tip="Settings">
-                                                <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
-                                        </Button>
-                                </StackPanel>
-                        </Border>
-                </Grid>
-
-                <!--
-                        Table of repo rows inside a single card surface, no header row.
-                        ListBox provides the internal ScrollViewer + VirtualizingStackPanel
-                        viewport needed to actually virtualize: only the rows in (or near)
-                        the viewport are realized, instead of building every row up front.
-                        Selection is neutralized below (the rows are non-interactive
-                        containers; all actions are buttons inside the template), and the
-                        default list chrome (background, border, padding, focus visual,
-                        selected/pressed states) is cleared so only the row hover tint shows.
-                -->
-                <Border
-                        Grid.Row="1"
-                        Grid.Column="0"
-                        Padding="0"
-                        Classes="card">
-                        <ListBox
-                                x:Name="ReposList"
-                                Padding="0"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                ItemsSource="{Binding FilteredRepos}"
-                                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                SelectionChanged="OnRepoSelectionChanged"
-                                SelectionMode="Single">
-                                <ListBox.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                                <VirtualizingStackPanel />
-                                        </ItemsPanelTemplate>
-                                </ListBox.ItemsPanel>
-                                <ListBox.Styles>
-                                        <!--
-                                                Drop the per-item list chrome so each row renders as a plain content
-                                                host. All row actions are explicit buttons (with CommandParameter), so
-                                                ListBox selection is neither needed nor meaningful; neutralize its visual
-                                                states (rest/selected/pressed/focused) and keep a single hover surface:
-                                                the full-bleed repo-row Border tints while every chrome layer behind it
-                                                stays transparent.
-                                        -->
-                                        <Style Selector="ListBoxItem">
-                                                <Setter Property="Padding" Value="0" />
-                                                <Setter Property="Margin" Value="0" />
-                                                <Setter Property="Background" Value="Transparent" />
-                                                <Setter Property="FocusAdorner" Value="{x:Null}" />
-                                        </Style>
-                                        <!--
-                                                The theme's pseudoclass selectors (e.g. ListBoxItem:pointerover) beat the
-                                                plain ListBoxItem style above by specificity, so repeat the neutralization
-                                                at matching specificity to keep hover/press/selection chrome invisible.
-                                        -->
-                                        <Style Selector="ListBoxItem:pointerover">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:pressed">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:selected">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:pressed /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <!--  The table's only hover feedback: a subtle full-width row tint.  -->
-                                        <Style Selector="ListBoxItem:pointerover Border.repo-row">
-                                                <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
-                                        </Style>
-                                        <!--
-                                                The bar's selected repo keeps the same tint after the pointer
-                                                leaves, so the row feeding the bottom bar stays findable in the
-                                                shrunken table (declared after the hover style; brushes are
-                                                identical, so hover/selected interactions are indistinguishable).
-                                        -->
-                                        <Style Selector="Border.repo-row.selected">
-                                                <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
-                                        </Style>
-                                        <!--
-                                                SukiTheme's app-wide ListBoxItem ControlTheme replaces the item
-                                                template with a GlassCard that carries a CircleCheck tick
-                                                (PathIcon#CheckSelected) fading in while :selected, plus a
-                                                SukiPrimaryColor tint on selected/hover. Those template parts
-                                                aren't reachable by the ContentPresenter overrides above, so
-                                                neutralize them at matching specificity as well.
-                                        -->
-                                        <Style Selector="ListBoxItem:selected /template/ PathIcon#CheckSelected">
-                                                <Setter Property="Opacity" Value="0" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
-                                                <Setter Property="Background" Value="Transparent" />
-                                                <Setter Property="BorderThickness" Value="0" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:pointerover /template/ suki|GlassCard#BorderBasicStyle">
-                                                <Setter Property="Background" Value="Transparent" />
-                                        </Style>
-                                        <Style Selector="ListBoxItem:selected /template/ suki|GlassCard#BorderBasicStyle">
-                                                <Setter Property="Background" Value="Transparent" />
-                                                <Setter Property="BorderThickness" Value="0" />
-                                        </Style>
-                                </ListBox.Styles>
-                                <ListBox.ItemTemplate>
-                                        <DataTemplate x:DataType="entities:Repo">
+                                                                Classes="subtle"
+                                                                Text="Clear" />
+                                                </Button>
+                                                <Border Classes="vertical-divider" />
+                                                <Button
+                                                        Classes="icon"
+                                                        Command="{Binding RefreshCommand}"
+                                                        IsEnabled="{Binding !IsRefreshing}"
+                                                        ToolTip.Tip="Refresh">
+                                                        <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                                                </Button>
                                                 <!--
-                                                        One table row: the bottom hairline is the row separator. The
-                                                        grid columns are star-sized against the shared viewport width,
-                                                        so every realized row resolves identical column widths and the
-                                                        table stays aligned without a header or shared-size machinery.
-                                                        The action column is content-sized (Auto) but constant per
-                                                        machine — every button in it is gated by app-wide availability
-                                                        flags, and the open-solution slot reserves its width even when
-                                                        a repo has no .sln, so the columns to its right never shift.
+                                                        Add repository: picks a folder, scans it for git repos and
+                                                        tracks the ones the user selects (dialog via DialogService)
                                                 -->
-                                                <Border
-                                                        MinHeight="56"
-                                                        Padding="12,0"
-                                                        Classes="repo-row"
-                                                        Classes.selected="{Binding IsBarSelected}"
-                                                        PointerPressed="OnCardPointerPressed">
+                                                <Button
+                                                        VerticalAlignment="Center"
+                                                        Classes="Outlined"
+                                                        Command="{Binding AddRepositoryCommand}"
+                                                        ToolTip.Tip="Scan a folder for git repositories and add them to the list">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                <Path
+                                                                        Width="14"
+                                                                        Height="14"
+                                                                        VerticalAlignment="Center"
+                                                                        Data="{tools:SvgPath icon-plus}"
+                                                                        Fill="{Binding $parent[Button].Foreground}"
+                                                                        Stretch="Uniform" />
+                                                                <TextBlock VerticalAlignment="Center" Text="Add Repository" />
+                                                        </StackPanel>
+                                                </Button>
+                                                <Button
+                                                        Classes="icon"
+                                                        Command="{Binding OpenSettingsCommand}"
+                                                        ToolTip.Tip="Settings">
+                                                        <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
+                                                </Button>
+                                        </StackPanel>
+                                </Border>
+                        </Grid>
+
+                        <!--
+                                Table of repo rows inside a single card surface, no header row.
+                                ListBox provides the internal ScrollViewer + VirtualizingStackPanel
+                                viewport needed to actually virtualize: only the rows in (or near)
+                                the viewport are realized, instead of building every row up front.
+                                Selection is neutralized below (the rows are non-interactive
+                                containers; all actions are buttons inside the template), and the
+                                default list chrome (background, border, padding, focus visual,
+                                selected/pressed states) is cleared so only the row hover tint shows.
+                        -->
+                        <Border
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Padding="0"
+                                Classes="card">
+                                <ListBox
+                                        x:Name="ReposList"
+                                        Padding="0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        ItemsSource="{Binding FilteredRepos}"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                        SelectionChanged="OnRepoSelectionChanged"
+                                        SelectionMode="Single">
+                                        <ListBox.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                        <VirtualizingStackPanel />
+                                                </ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
+                                        <ListBox.Styles>
+                                                <!--
+                                                        Drop the per-item list chrome so each row renders as a plain content
+                                                        host. All row actions are explicit buttons (with CommandParameter), so
+                                                        ListBox selection is neither needed nor meaningful; neutralize its visual
+                                                        states (rest/selected/pressed/focused) and keep a single hover surface:
+                                                        the full-bleed repo-row Border tints while every chrome layer behind it
+                                                        stays transparent.
+                                                -->
+                                                <Style Selector="ListBoxItem">
+                                                        <Setter Property="Padding" Value="0" />
+                                                        <Setter Property="Margin" Value="0" />
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="FocusAdorner" Value="{x:Null}" />
+                                                </Style>
+                                                <!--
+                                                        The theme's pseudoclass selectors (e.g. ListBoxItem:pointerover) beat the
+                                                        plain ListBoxItem style above by specificity, so repeat the neutralization
+                                                        at matching specificity to keep hover/press/selection chrome invisible.
+                                                -->
+                                                <Style Selector="ListBoxItem:pointerover">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:pressed">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:selected">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:pressed /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <!--  The table's only hover feedback: a subtle full-width row tint.  -->
+                                                <Style Selector="ListBoxItem:pointerover Border.repo-row">
+                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+                                                </Style>
+                                                <!--
+                                                        The bar's selected repo keeps the same tint after the pointer
+                                                        leaves, so the row feeding the bottom bar stays findable in the
+                                                        shrunken table (declared after the hover style; brushes are
+                                                        identical, so hover/selected interactions are indistinguishable).
+                                                -->
+                                                <Style Selector="Border.repo-row.selected">
+                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+                                                </Style>
+                                                <!--
+                                                        SukiTheme's app-wide ListBoxItem ControlTheme replaces the item
+                                                        template with a GlassCard that carries a CircleCheck tick
+                                                        (PathIcon#CheckSelected) fading in while :selected, plus a
+                                                        SukiPrimaryColor tint on selected/hover. Those template parts
+                                                        aren't reachable by the ContentPresenter overrides above, so
+                                                        neutralize them at matching specificity as well.
+                                                -->
+                                                <Style Selector="ListBoxItem:selected /template/ PathIcon#CheckSelected">
+                                                        <Setter Property="Opacity" Value="0" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderThickness" Value="0" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:pointerover /template/ suki|GlassCard#BorderBasicStyle">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                                <Style Selector="ListBoxItem:selected /template/ suki|GlassCard#BorderBasicStyle">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderThickness" Value="0" />
+                                                </Style>
+                                        </ListBox.Styles>
+                                        <ListBox.ItemTemplate>
+                                                <DataTemplate x:DataType="entities:Repo">
+                                                        <!--
+                                                                One table row: the bottom hairline is the row separator. The
+                                                                name column is the only stretching one — it absorbs all
+                                                                resize slack; branch, changes and datetime are fixed-width
+                                                                and shortcuts/GitHub/Azure content-sized, so every realized
+                                                                row resolves identical column widths and the table stays
+                                                                aligned without a header or shared-size machinery.
+                                                                Column order: star, name, launch shortcuts, branch, changes,
+                                                                GitHub, Azure DevOps, last activity. The shortcut column is
+                                                                content-sized (Auto) but constant per machine — every button in
+                                                                it is gated by app-wide availability flags, and the
+                                                                open-solution slot reserves its width even when a repo has no
+                                                                .sln, so the cell stays the same width in every row.
+                                                        -->
+                                                        <Border
+                                                                MinHeight="56"
+                                                                Padding="12,0"
+                                                                Classes="repo-row"
+                                                                Classes.selected="{Binding IsBarSelected}"
+                                                                PointerPressed="OnCardPointerPressed">
                                                                 <Grid VerticalAlignment="Center">
-                                                                <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="1.2*" MinWidth="130" />
-                                                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
-                                                                        <ColumnDefinition Width="1.8*" MinWidth="165" />
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="Auto" />
-                                                                        <ColumnDefinition Width="0.7*" MinWidth="55" />
-                                                                </Grid.ColumnDefinitions>
+                                                                        <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="*" MinWidth="130" />
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
+                                                                                <ColumnDefinition Width="175" />
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="70" />
+                                                                        </Grid.ColumnDefinitions>
 
-                                                                <!--  Favorite star  -->
-                                                                <Button
-                                                                        Grid.Column="0"
-                                                                        VerticalAlignment="Center"
-                                                                        Classes="icon"
-                                                                        Command="{ReflectionBinding #Root.DataContext.ToggleFavoriteCommand}"
-                                                                        CommandParameter="{Binding}"
-                                                                        ToolTip.Tip="Toggle favorite">
-                                                                        <Path
-                                                                                Width="16"
-                                                                                Height="16"
-                                                                                Data="{tools:SvgPath icon-star}"
-                                                                                Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
-                                                                                Stretch="Uniform" />
-                                                                </Button>
-
-                                                                <!--  Repository name; the folder path lives on the tooltip  -->
-                                                                <TextBlock
-                                                                        Grid.Column="1"
-                                                                        Margin="0,0,16,0"
-                                                                        VerticalAlignment="Center"
-                                                                        FontSize="15"
-                                                                        FontWeight="SemiBold"
-                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                        Text="{Binding Name}"
-                                                                        TextTrimming="CharacterEllipsis"
-                                                                        ToolTip.Tip="{Binding FolderPath}" />
-
-                                                                <!--  Branch: colorized pill
-                                                                        (main/develop/release/master pick up
-                                                                        their own tint, everything else goes
-                                                                        muted gray), or the checking
-                                                                        placeholder. Clicking the pill opens
-                                                                        the bottom bar's Changes tab for this
-                                                                        repo. The pill sits in its own
-                                                                        star-sized column so long branch
-                                                                        names trim instead of bleeding into
-                                                                        the stats cell next door.  -->
-                                                                <Grid Grid.Column="2" Margin="0,0,16,0">
+                                                                        <!--  Favorite star  -->
                                                                         <Button
-                                                                                Padding="9,4"
-                                                                                HorizontalAlignment="Left"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
-                                                                                BorderThickness="0"
-                                                                                ClipToBounds="True"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Cursor="Hand"
-                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                                                ToolTip.Tip="Open the changes panel">
-                                                                                <Button.Styles>
-                                                                                        <Style Selector="Button:pointerover">
-                                                                                                <Setter Property="Opacity" Value="0.85" />
-                                                                                        </Style>
-                                                                                </Button.Styles>
-                                                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                                                                        <Path
-                                                                                                Grid.Column="0"
-                                                                                                Width="12"
-                                                                                                Height="12"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-source-branch}"
-                                                                                                Fill="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
-                                                                                                Stretch="Uniform" />
-                                                                                        <TextBlock
-                                                                                                Grid.Column="1"
-                                                                                                VerticalAlignment="Center"
-                                                                                                FontSize="12"
-                                                                                                FontWeight="SemiBold"
-                                                                                                Foreground="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
-                                                                                                Text="{Binding GitBranchName}"
-                                                                                                TextTrimming="CharacterEllipsis"
-                                                                                                ToolTip.Tip="{Binding GitBranchName}" />
-                                                                                </Grid>
-                                                                        </Button>
-                                                                        <TextBlock
-                                                                                HorizontalAlignment="Left"
-                                                                                VerticalAlignment="Center"
-                                                                                Classes="subtle"
-                                                                                IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
-                                                                                Text="checking…" />
-                                                                </Grid>
-
-                                                                <!--  Git stats: modified / ahead / behind. Sized so all
-                                                                        three groups fit the column at the default window
-                                                                        width; ClipToBounds keeps a pathological count
-                                                                        from painting into the actions cell. Right-aligned
-                                                                        so the counts hug the GitHub column next door.  -->
-                                                                <StackPanel
-                                                                        Grid.Column="3"
-                                                                        Margin="0,0,16,0"
-                                                                        HorizontalAlignment="Right"
-                                                                        VerticalAlignment="Center"
-                                                                        ClipToBounds="True">
-                                                                        <StackPanel
-                                                                                IsVisible="{Binding GitStatusLoaded}"
-                                                                                Orientation="Horizontal">
-                                                                                <TextBlock
-                                                                                        VerticalAlignment="Center"
-                                                                                        FontSize="12"
-                                                                                        FontWeight="SemiBold"
-                                                                                        Foreground="{DynamicResource WarningAccentBrush}"
-                                                                                        Text="{Binding GitModifiedCount}" />
-                                                                                <TextBlock
-                                                                                        Margin="4,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        FontSize="12"
-                                                                                        Text="Changes" />
-                                                                                <TextBlock
-                                                                                        Margin="5,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Classes="subtle"
-                                                                                        Text="(" />
-                                                                                <TextBlock
-                                                                                        VerticalAlignment="Center"
-                                                                                        FontSize="12"
-                                                                                        FontWeight="SemiBold"
-                                                                                        Foreground="{DynamicResource StatusActiveBrush}"
-                                                                                        Text="{Binding GitToPushCount}" />
-                                                                                <Path
-                                                                                        Width="10"
-                                                                                        Height="10"
-                                                                                        Margin="1,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Data="{tools:SvgPath icon-arrow-up}"
-                                                                                        Fill="{DynamicResource StatusActiveBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                                <TextBlock
-                                                                                        Margin="2,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Classes="subtle"
-                                                                                        Text="," />
-                                                                                <TextBlock
-                                                                                        Margin="4,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        FontSize="12"
-                                                                                        FontWeight="SemiBold"
-                                                                                        Foreground="{DynamicResource InfoAccentBrush}"
-                                                                                        Text="{Binding GitToPullCount}" />
-                                                                                <Path
-                                                                                        Width="10"
-                                                                                        Height="10"
-                                                                                        Margin="1,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Data="{tools:SvgPath icon-arrow-down}"
-                                                                                        Fill="{DynamicResource InfoAccentBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                                <TextBlock
-                                                                                        Margin="2,0,0,0"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Classes="subtle"
-                                                                                        Text=")" />
-                                                                        </StackPanel>
-                                                                        <TextBlock
-                                                                                Classes="subtle"
-                                                                                IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
-                                                                                Text="checking…" />
-                                                                </StackPanel>
-
-                                                                <!--
-                                                                        GitHub: one chip per item kind with
-                                                                        open counts; clicking a chip opens
-                                                                        the bottom bar's matching tab (pull
-                                                                        requests / issues). Only kinds with
-                                                                        open items show a chip, a GitHub
-                                                                        repo with nothing open shows a
-                                                                        quiet tick, and anything without a
-                                                                        GitHub remote stays empty. The
-                                                                        whole cell hides when the settings
-                                                                        disable the column — the gh probing
-                                                                        stops with it. The cell is a
-                                                                        FIXED-width border so the Auto
-                                                                        column resolves identically in
-                                                                        every row (rows are independent
-                                                                        grids; Auto sized to varying chip
-                                                                        sets would let the columns to the
-                                                                        right drift per row), and it
-                                                                        collapses to zero width when the
-                                                                        column is off.
-                                                                -->
-                                                                <Border
-                                                                        Grid.Column="4"
-                                                                        Width="140"
-                                                                        Margin="0,0,16,0"
-                                                                        HorizontalAlignment="Left"
-                                                                        ClipToBounds="True"
-                                                                        IsVisible="{ReflectionBinding #Root.DataContext.IsGitHubColumnVisible}">
-                                                                        <StackPanel
-                                                                                VerticalAlignment="Center"
-                                                                                Orientation="Horizontal"
-                                                                                Spacing="8">
-                                                                        <Button
-                                                                                Padding="9,4"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="{DynamicResource GitHubPrChipBrush}"
-                                                                                BorderThickness="0"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenPullRequestsCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding HasGitHubPullRequests}"
-                                                                                ToolTip.Tip="Open pull requests — click for details">
-                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                        <Path
-                                                                                                Width="13"
-                                                                                                Height="13"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
-                                                                                                Fill="{DynamicResource StatusActiveBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                        <TextBlock
-                                                                                                VerticalAlignment="Center"
-                                                                                                FontSize="12"
-                                                                                                FontWeight="SemiBold"
-                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
-                                                                                                Text="{Binding GitHubPrCount}" />
-                                                                                </StackPanel>
-                                                                        </Button>
-                                                                        <Button
-                                                                                Padding="9,4"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="{DynamicResource GitHubIssueChipBrush}"
-                                                                                BorderThickness="0"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenIssuesCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding HasGitHubIssues}"
-                                                                                ToolTip.Tip="Open issues — click for details">
-                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                        <Path
-                                                                                                Width="13"
-                                                                                                Height="13"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-issue}"
-                                                                                                Fill="{DynamicResource WarningAccentBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                        <TextBlock
-                                                                                                VerticalAlignment="Center"
-                                                                                                FontSize="12"
-                                                                                                FontWeight="SemiBold"
-                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
-                                                                                                Text="{Binding GitHubIssueCount}" />
-                                                                                </StackPanel>
-                                                                        </Button>
-                                                                        <!--
-                                                                                All-clear tick in the disabled
-                                                                                tone (FaintForegroundBrush =
-                                                                                SukiDisabledText): present without
-                                                                                inviting a click — there is
-                                                                                nothing to open here.
-                                                                        -->
-                                                                        <Path
-                                                                                Width="14"
-                                                                                Height="14"
-                                                                                VerticalAlignment="Center"
-                                                                                Data="{tools:SvgPath icon-check, Center=False}"
-                                                                                Fill="{DynamicResource FaintForegroundBrush}"
-                                                                                IsVisible="{Binding IsGitHubAllClear}"
-                                                                                Stretch="Uniform"
-                                                                                ToolTip.Tip="No open pull requests or issues" />
-                                                                        </StackPanel>
-                                                                </Border>
-
-                                                                <!--
-                                                                        Azure DevOps: the repo link plus one chip per
-                                                                        activity kind — active pull-request count, open
-                                                                        work-item count (the hosting project's items) and
-                                                                        the latest pipeline run's state. Clicking a chip
-                                                                        opens the details dialog. Only kinds with data show
-                                                                        a chip, an Azure DevOps repo with nothing open and
-                                                                        no failing pipeline shows "OK", and anything without
-                                                                        an Azure DevOps remote stays empty. The whole cell
-                                                                        hides when the settings disable the column — the
-                                                                        REST probing stops with it. Like the GitHub cell it
-                                                                        is a FIXED-width border so the Auto column resolves
-                                                                        identically in every row.
-                                                                -->
-                                                                <Border
-                                                                        Grid.Column="5"
-                                                                        Width="200"
-                                                                        Margin="0,0,16,0"
-                                                                        HorizontalAlignment="Left"
-                                                                        ClipToBounds="True"
-                                                                        IsVisible="{ReflectionBinding #Root.DataContext.IsAzureDevOpsColumnVisible}">
-                                                                        <StackPanel
-                                                                                VerticalAlignment="Center"
-                                                                                Orientation="Horizontal"
-                                                                                Spacing="8">
-                                                                        <Button
-                                                                                Width="32"
-                                                                                Height="32"
-                                                                                Padding="7"
+                                                                                Grid.Column="0"
                                                                                 VerticalAlignment="Center"
                                                                                 Classes="icon"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsRepoCommand}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.ToggleFavoriteCommand}"
                                                                                 CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding AzureDevOpsRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                                                ToolTip.Tip="Open in Azure DevOps">
+                                                                                ToolTip.Tip="Toggle favorite">
                                                                                 <Path
-                                                                                        Width="17"
-                                                                                        Height="17"
-                                                                                        Data="{tools:SvgPath icon-azure-devops}"
-                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                        Width="16"
+                                                                                        Height="16"
+                                                                                        Data="{tools:SvgPath icon-star}"
+                                                                                        Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
                                                                                         Stretch="Uniform" />
                                                                         </Button>
-                                                                        <Button
-                                                                                Padding="9,4"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="{DynamicResource AzureDevOpsPrChipBrush}"
-                                                                                BorderThickness="0"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding HasAzureDevOpsPullRequests}"
-                                                                                ToolTip.Tip="Active pull requests — click for details">
-                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                        <Path
-                                                                                                Width="13"
-                                                                                                Height="13"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
-                                                                                                Fill="{DynamicResource StatusActiveBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                        <TextBlock
-                                                                                                VerticalAlignment="Center"
-                                                                                                FontSize="12"
-                                                                                                FontWeight="SemiBold"
-                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
-                                                                                                Text="{Binding AzureDevOpsPrCount}" />
-                                                                                </StackPanel>
-                                                                        </Button>
-                                                                        <Button
-                                                                                Padding="9,4"
-                                                                                VerticalAlignment="Center"
-                                                                                Background="{DynamicResource AzureDevOpsWorkItemChipBrush}"
-                                                                                BorderThickness="0"
-                                                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding HasAzureDevOpsWorkItems}"
-                                                                                ToolTip.Tip="Open work items — click for details">
-                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                                        <Path
-                                                                                                Width="13"
-                                                                                                Height="13"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-issue}"
-                                                                                                Fill="{DynamicResource WarningAccentBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                        <TextBlock
-                                                                                                VerticalAlignment="Center"
-                                                                                                FontSize="12"
-                                                                                                FontWeight="SemiBold"
-                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
-                                                                                                Text="{Binding AzureDevOpsWorkItemCount}" />
-                                                                                </StackPanel>
-                                                                        </Button>
-                                                                        <!--  Latest pipeline run: one button per state so each
-                                                                                carries its own tinted background and glyph.  -->
-                                                                        <Panel VerticalAlignment="Center">
-                                                                                <Button
-                                                                                        Padding="9,4"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Background="{DynamicResource AzureDevOpsPipelineOkChipBrush}"
-                                                                                        BorderThickness="0"
-                                                                                        CornerRadius="{DynamicResource ChipRadius}"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
-                                                                                        CommandParameter="{Binding}"
-                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineOk}"
-                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
-                                                                                        <Path
-                                                                                                Width="13"
-                                                                                                Height="13"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-check, Center=False}"
-                                                                                                Fill="{DynamicResource StatusActiveBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                </Button>
-                                                                                <Button
-                                                                                        Padding="9,4"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Background="{DynamicResource AzureDevOpsPipelineFailedChipBrush}"
-                                                                                        BorderThickness="0"
-                                                                                        CornerRadius="{DynamicResource ChipRadius}"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
-                                                                                        CommandParameter="{Binding}"
-                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineFailed}"
-                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
-                                                                                        <Path
-                                                                                                Width="12"
-                                                                                                Height="12"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-close, Center=False}"
-                                                                                                Fill="{DynamicResource DangerAccentBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                </Button>
-                                                                                <Button
-                                                                                        Padding="9,4"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Background="{DynamicResource AzureDevOpsPipelineRunningChipBrush}"
-                                                                                        BorderThickness="0"
-                                                                                        CornerRadius="{DynamicResource ChipRadius}"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
-                                                                                        CommandParameter="{Binding}"
-                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineRunning}"
-                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
-                                                                                        <Path
-                                                                                                Width="11"
-                                                                                                Height="11"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Data="{tools:SvgPath icon-play}"
-                                                                                                Fill="{DynamicResource InfoAccentBrush}"
-                                                                                                Stretch="Uniform" />
-                                                                                </Button>
-                                                                        </Panel>
-                                                                        <TextBlock
-                                                                                VerticalAlignment="Center"
-                                                                                Classes="subtle"
-                                                                                FontSize="12"
-                                                                                IsVisible="{Binding IsAzureDevOpsAllClear}"
-                                                                                Text="OK"
-                                                                                ToolTip.Tip="No open pull requests, work items or failing pipelines" />
-                                                                        </StackPanel>
-                                                                </Border>
 
-                                                                <!--
-                                                                        Launch actions (icon-only; tooltips name the actions).
-                                                                        OpenCode leads the row: quick open plus a minimal options
-                                                                        button, set apart from the other launch buttons by a
-                                                                        hairline divider.
-                                                                -->
-                                                                <StackPanel
-                                                                        Grid.Column="6"
-                                                                        Margin="0,0,16,0"
-                                                                        VerticalAlignment="Center"
-                                                                        Orientation="Horizontal"
-                                                                        Spacing="8">
+                                                                        <!--  Repository name; the folder path lives on the tooltip  -->
+                                                                        <TextBlock
+                                                                                Grid.Column="1"
+                                                                                Margin="0,0,16,0"
+                                                                                VerticalAlignment="Center"
+                                                                                FontSize="15"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                Text="{Binding Name}"
+                                                                                TextTrimming="CharacterEllipsis"
+                                                                                ToolTip.Tip="{Binding FolderPath}" />
+
+                                                                        <!--
+                                                                                Launch actions (icon-only; tooltips name the actions).
+                                                                                OpenCode leads the row: quick open plus a minimal options
+                                                                                button, set apart from the other launch buttons by a
+                                                                                hairline divider.
+                                                                        -->
                                                                         <StackPanel
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasOpenCode}"
+                                                                                Grid.Column="2"
+                                                                                Margin="0,0,16,0"
+                                                                                VerticalAlignment="Center"
                                                                                 Orientation="Horizontal"
                                                                                 Spacing="8">
+                                                                                <StackPanel
+                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasOpenCode}"
+                                                                                        Orientation="Horizontal"
+                                                                                        Spacing="8">
+                                                                                        <Button
+                                                                                                Width="40"
+                                                                                                Height="40"
+                                                                                                Padding="0"
+                                                                                                Classes="Outlined"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                ToolTip.Tip="Launch one opencode instance with the default model">
+                                                                                                <Path
+                                                                                                        Width="22"
+                                                                                                        Height="22"
+                                                                                                        Data="{tools:SvgPath icon-opencode}"
+                                                                                                        Fill="{Binding $parent[Button].Foreground}"
+                                                                                                        Stretch="Uniform" />
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                                Width="40"
+                                                                                                Height="40"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="icon"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenOpenCodeCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                ToolTip.Tip="Open the OpenCode panel in the bottom bar (model, instances, template, prompt)">
+                                                                                                <Path
+                                                                                                        Width="18"
+                                                                                                        Height="18"
+                                                                                                        Data="{tools:SvgPath icon-options}"
+                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                        Stretch="Uniform" />
+                                                                                        </Button>
+                                                                                        <Border Classes="vertical-divider" />
+                                                                                </StackPanel>
                                                                                 <Button
-                                                                                        Width="40"
-                                                                                        Height="40"
-                                                                                        Padding="0"
-                                                                                        Classes="Outlined"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
+                                                                                        Classes="tool-button"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
                                                                                         CommandParameter="{Binding}"
-                                                                                        ToolTip.Tip="Launch one opencode instance with the default model">
+                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasZCode}"
+                                                                                        ToolTip.Tip="Open zcode on this repo — the AppImage opens the desktop app directly; a standalone CLI runs in the terminal">
                                                                                         <Path
                                                                                                 Width="22"
                                                                                                 Height="22"
-                                                                                                Data="{tools:SvgPath icon-opencode}"
-                                                                                                Fill="{Binding $parent[Button].Foreground}"
-                                                                                                Stretch="Uniform" />
-                                                                                </Button>
-                                                                                <Button
-                                                                                        Width="40"
-                                                                                        Height="40"
-                                                                                        VerticalAlignment="Center"
-                                                                                        Classes="icon"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenOpenCodeCommand}"
-                                                                                        CommandParameter="{Binding}"
-                                                                                        ToolTip.Tip="Open the OpenCode panel in the bottom bar (model, instances, template, prompt)">
-                                                                                        <Path
-                                                                                                Width="18"
-                                                                                                Height="18"
-                                                                                                Data="{tools:SvgPath icon-options}"
+                                                                                                Data="{tools:SvgPath icon-zcode}"
                                                                                                 Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                 Stretch="Uniform" />
                                                                                 </Button>
-                                                                                <Border Classes="vertical-divider" />
-                                                                        </StackPanel>
-                                                                        <Button
-                                                                                Classes="tool-button"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasZCode}"
-                                                                                ToolTip.Tip="Open zcode on this repo — the AppImage opens the desktop app directly; a standalone CLI runs in the terminal">
-                                                                                <Path
-                                                                                        Width="22"
-                                                                                        Height="22"
-                                                                                        Data="{tools:SvgPath icon-zcode}"
-                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
-                                                                        <!--
-                                                                                The open-solution button is a Visual Studio
-                                                                                shortcut: HasIde requires VS to be installed,
-                                                                                or an IDE explicitly configured in settings.
-                                                                                The 40px slot stays reserved for repos without
-                                                                                a solution so the table columns stay aligned.
-                                                                        -->
-                                                                        <Border Width="40" IsVisible="{ReflectionBinding #Root.DataContext.HasIde}">
+                                                                                <!--
+                                                                                        The open-solution button is a Visual Studio
+                                                                                        shortcut: HasIde requires VS to be installed,
+                                                                                        or an IDE explicitly configured in settings.
+                                                                                        The 40px slot stays reserved for repos without
+                                                                                        a solution so the table columns stay aligned.
+                                                                                -->
+                                                                                <Border Width="40" IsVisible="{ReflectionBinding #Root.DataContext.HasIde}">
+                                                                                        <Button
+                                                                                                Classes="tool-button"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                                ToolTip.Tip="Open in Visual Studio">
+                                                                                                <Path
+                                                                                                        Width="22"
+                                                                                                        Height="22"
+                                                                                                        Data="{tools:SvgPath icon-sln-box}"
+                                                                                                        Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                        Stretch="Uniform" />
+                                                                                        </Button>
+                                                                                </Border>
                                                                                 <Button
                                                                                         Classes="tool-button"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"
-                                                                                        CommandParameter="{Binding}"
-                                                                                        IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                                                        ToolTip.Tip="Open in Visual Studio">
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithVSCodeCommand}"
+                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasVSCode}"
+                                                                                        ToolTip.Tip="Open in VS Code">
                                                                                         <Path
                                                                                                 Width="22"
                                                                                                 Height="22"
-                                                                                                Data="{tools:SvgPath icon-sln-box}"
-                                                                                                Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                Data="{tools:SvgPath icon-vscode}"
+                                                                                                Fill="{DynamicResource InfoAccentBrush}"
                                                                                                 Stretch="Uniform" />
                                                                                 </Button>
+                                                                                <Button
+                                                                                        Classes="tool-button"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenFolderCommand}"
+                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                        ToolTip.Tip="Open folder">
+                                                                                        <Path
+                                                                                                Width="22"
+                                                                                                Height="22"
+                                                                                                Data="{tools:SvgPath icon-folder}"
+                                                                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                        Classes="tool-button"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithTerminalCommand}"
+                                                                                        CommandParameter="{Binding FolderPath}"
+                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasTerminal}"
+                                                                                        ToolTip.Tip="Open in Terminal">
+                                                                                        <Path
+                                                                                                Width="22"
+                                                                                                Height="22"
+                                                                                                Data="{tools:SvgPath icon-terminal}"
+                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                        </StackPanel>
+
+
+                                                                        <!--
+                                                                                Branch: colorized pill
+                                                                                (main/develop/release/master pick up
+                                                                                their own tint, everything else goes
+                                                                                muted gray), or the checking
+                                                                                placeholder. Clicking the pill opens
+                                                                                the bottom bar's Changes tab for this
+                                                                                repo. The pill sits in its own
+                                                                                fixed-width column; an over-long
+                                                                                name is tail-trimmed by the pill's
+                                                                                text ("..name") instead of bleeding
+                                                                                into the stats cell next door.
+                                                                        -->
+                                                                        <Grid Grid.Column="3" Margin="0,0,16,0">
+                                                                                <Button
+                                                                                        Padding="9,4"
+                                                                                        HorizontalAlignment="Left"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
+                                                                                        BorderThickness="0"
+                                                                                        ClipToBounds="True"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                        Cursor="Hand"
+                                                                                        IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                                        ToolTip.Tip="Open the changes panel">
+                                                                                        <Button.Styles>
+                                                                                                <Style Selector="Button:pointerover">
+                                                                                                        <Setter Property="Opacity" Value="0.85" />
+                                                                                                </Style>
+                                                                                        </Button.Styles>
+                                                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                                                                                <Path
+                                                                                                        Grid.Column="0"
+                                                                                                        Width="12"
+                                                                                                        Height="12"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Data="{tools:SvgPath icon-source-branch}"
+                                                                                                        Fill="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                                                                                        Stretch="Uniform" />
+                                                                                                <!--
+                                                                                                        Budget from the BranchColumnWidth resource — see the
+                                                                                                        paired resources at the page top. No name tooltip
+                                                                                                        here — the pill button's own "Open the changes
+                                                                                                        panel" tooltip covers the cell.
+                                                                                                -->
+                                                                                                <lib:TailTrimmingTextBlock
+                                                                                                        Grid.Column="1"
+                                                                                                        MaxWidth="{StaticResource BranchTextBudget}"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        FontSize="12"
+                                                                                                        FontWeight="SemiBold"
+                                                                                                        Foreground="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                                                                                        FullText="{Binding GitBranchName}" />
+                                                                                        </Grid>
+                                                                                </Button>
+                                                                                <TextBlock
+                                                                                        HorizontalAlignment="Left"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Classes="subtle"
+                                                                                        IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
+                                                                                        Text="checking…" />
+                                                                        </Grid>
+
+                                                                        <!--
+                                                                                Git stats: modified count in a tinted pill,
+                                                                                push/pull numbers plain beside it, left-aligned
+                                                                                in its column; ONLY the count pill is clickable
+                                                                                and opens the bottom bar's Changes tab (same
+                                                                                command as the branch pill) — the "Changes (↑↓)"
+                                                                                text next to it is inert. Sized so all three
+                                                                                groups fit the column at the default window width.
+                                                                        -->
+                                                                        <StackPanel
+                                                                                Grid.Column="4"
+                                                                                Margin="0,0,16,0"
+                                                                                VerticalAlignment="Center">
+                                                                                <StackPanel
+                                                                                        Orientation="Horizontal"
+                                                                                        IsVisible="{Binding GitStatusLoaded}">
+                                                                                        <Button
+                                                                                                Padding="0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="Transparent"
+                                                                                                BorderThickness="0"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                Cursor="Hand"
+                                                                                                ToolTip.Tip="Open the changes panel">
+                                                                                                <Button.Styles>
+                                                                                                        <Style Selector="Button:pointerover">
+                                                                                                                <Setter Property="Opacity" Value="0.85" />
+                                                                                                        </Style>
+                                                                                                </Button.Styles>
+                                                                                                <Border
+                                                                                                        Padding="9,4"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="{DynamicResource ChangesChipBrush}"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                                                                        <TextBlock
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                FontSize="12"
+                                                                                                                FontWeight="SemiBold"
+                                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                                Text="{Binding GitModifiedCount}" />
+                                                                                                </Border>
+                                                                                        </Button>
+                                                                                        <TextBlock
+                                                                                                Margin="6,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                Text="Changes" />
+                                                                                        <TextBlock
+                                                                                                Margin="5,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="subtle"
+                                                                                                Text="(" />
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                Text="{Binding GitToPushCount}" />
+                                                                                        <Path
+                                                                                                Width="10"
+                                                                                                Height="10"
+                                                                                                Margin="1,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-arrow-up}"
+                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                Margin="2,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="subtle"
+                                                                                                Text="," />
+                                                                                        <TextBlock
+                                                                                                Margin="4,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                FontSize="12"
+                                                                                                FontWeight="SemiBold"
+                                                                                                Foreground="{DynamicResource InfoAccentBrush}"
+                                                                                                Text="{Binding GitToPullCount}" />
+                                                                                        <Path
+                                                                                                Width="10"
+                                                                                                Height="10"
+                                                                                                Margin="1,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-arrow-down}"
+                                                                                                Fill="{DynamicResource InfoAccentBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                        <TextBlock
+                                                                                                Margin="2,0,0,0"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="subtle"
+                                                                                                Text=")" />
+                                                                                </StackPanel>
+                                                                                <TextBlock
+                                                                                        HorizontalAlignment="Left"
+                                                                                        Classes="subtle"
+                                                                                        IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
+                                                                                        Text="checking…" />
+                                                                        </StackPanel>
+
+                                                                        <!--
+                                                                                GitHub: one chip per item kind with
+                                                                                open counts; clicking a chip opens
+                                                                                the bottom bar's matching tab (pull
+                                                                                requests / issues). Only kinds with
+                                                                                open items show a chip, a GitHub
+                                                                                repo with nothing open shows a
+                                                                                quiet tick, and anything without a
+                                                                                GitHub remote stays empty. The
+                                                                                whole cell hides when the settings
+                                                                                disable the column — the gh probing
+                                                                                stops with it. The cell is a
+                                                                                FIXED-width border so the Auto
+                                                                                column resolves identically in
+                                                                                every row (rows are independent
+                                                                                grids; Auto sized to varying chip
+                                                                                sets would let the columns to the
+                                                                                right drift per row), and it
+                                                                                collapses to zero width when the
+                                                                                column is off.
+                                                                        -->
+                                                                        <Border
+                                                                                Grid.Column="5"
+                                                                                Width="140"
+                                                                                Margin="0,0,16,0"
+                                                                                HorizontalAlignment="Left"
+                                                                                ClipToBounds="True"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.IsGitHubColumnVisible}">
+                                                                                <StackPanel
+                                                                                        VerticalAlignment="Center"
+                                                                                        Orientation="Horizontal"
+                                                                                        Spacing="8">
+                                                                                        <Button
+                                                                                                Padding="9,4"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="{DynamicResource GitHubPrChipBrush}"
+                                                                                                BorderThickness="0"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenPullRequestsCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                IsVisible="{Binding HasGitHubPullRequests}"
+                                                                                                ToolTip.Tip="Open pull requests — click for details">
+                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                        <Path
+                                                                                                                Width="13"
+                                                                                                                Height="13"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
+                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                        <TextBlock
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                FontSize="12"
+                                                                                                                FontWeight="SemiBold"
+                                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                                Text="{Binding GitHubPrCount}" />
+                                                                                                </StackPanel>
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                                Padding="9,4"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="{DynamicResource GitHubIssueChipBrush}"
+                                                                                                BorderThickness="0"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenIssuesCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                IsVisible="{Binding HasGitHubIssues}"
+                                                                                                ToolTip.Tip="Open issues — click for details">
+                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                        <Path
+                                                                                                                Width="13"
+                                                                                                                Height="13"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-issue}"
+                                                                                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                        <TextBlock
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                FontSize="12"
+                                                                                                                FontWeight="SemiBold"
+                                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                                Text="{Binding GitHubIssueCount}" />
+                                                                                                </StackPanel>
+                                                                                        </Button>
+                                                                                        <!--
+                                                                                                All-clear tick in the disabled
+                                                                                                tone (FaintForegroundBrush =
+                                                                                                SukiDisabledText): present without
+                                                                                                inviting a click — there is
+                                                                                                nothing to open here.
+                                                                                        -->
+                                                                                        <Path
+                                                                                                Width="14"
+                                                                                                Height="14"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Data="{tools:SvgPath icon-check,
+                                                                                                                     Center=False}"
+                                                                                                Fill="{DynamicResource FaintForegroundBrush}"
+                                                                                                IsVisible="{Binding IsGitHubAllClear}"
+                                                                                                Stretch="Uniform"
+                                                                                                ToolTip.Tip="No open pull requests or issues" />
+                                                                                </StackPanel>
                                                                         </Border>
-                                                                        <Button
-                                                                                Classes="tool-button"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenWithVSCodeCommand}"
-                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasVSCode}"
-                                                                                ToolTip.Tip="Open in VS Code">
-                                                                                <Path
-                                                                                        Width="22"
-                                                                                        Height="22"
-                                                                                        Data="{tools:SvgPath icon-vscode}"
-                                                                                        Fill="{DynamicResource InfoAccentBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
-                                                                        <Button
-                                                                                Classes="tool-button"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenFolderCommand}"
-                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                ToolTip.Tip="Open folder">
-                                                                                <Path
-                                                                                        Width="22"
-                                                                                        Height="22"
-                                                                                        Data="{tools:SvgPath icon-folder}"
-                                                                                        Fill="{DynamicResource WarningAccentBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
-                                                                        <Button
-                                                                                Classes="tool-button"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenWithTerminalCommand}"
-                                                                                CommandParameter="{Binding FolderPath}"
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.HasTerminal}"
-                                                                                ToolTip.Tip="Open in Terminal">
-                                                                                <Path
-                                                                                        Width="22"
-                                                                                        Height="22"
-                                                                                        Data="{tools:SvgPath icon-terminal}"
-                                                                                        Fill="{DynamicResource StatusActiveBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
-                                                                </StackPanel>
 
-                                                                <!--  Last Activity: relative age of the newest commit  -->
-                                                                <TextBlock
-                                                                        Grid.Column="7"
-                                                                        Margin="0,0,4,0"
-                                                                        HorizontalAlignment="Right"
-                                                                        VerticalAlignment="Center"
-                                                                        Classes="subtle"
-                                                                        Text="{Binding GitLastActivity}" />
+                                                                        <!--
+                                                                                Azure DevOps: the repo link plus one chip per
+                                                                                activity kind — active pull-request count, open
+                                                                                work-item count (the hosting project's items) and
+                                                                                the latest pipeline run's state. Clicking a chip
+                                                                                opens the details dialog. Only kinds with data show
+                                                                                a chip, an Azure DevOps repo with nothing open and
+                                                                                no failing pipeline shows "OK", and anything without
+                                                                                an Azure DevOps remote stays empty. The whole cell
+                                                                                hides when the settings disable the column — the
+                                                                                REST probing stops with it. Like the GitHub cell it
+                                                                                is a FIXED-width border so the Auto column resolves
+                                                                                identically in every row.
+                                                                        -->
+                                                                        <Border
+                                                                                Grid.Column="6"
+                                                                                Width="200"
+                                                                                Margin="0,0,16,0"
+                                                                                HorizontalAlignment="Left"
+                                                                                ClipToBounds="True"
+                                                                                IsVisible="{ReflectionBinding #Root.DataContext.IsAzureDevOpsColumnVisible}">
+                                                                                <StackPanel
+                                                                                        VerticalAlignment="Center"
+                                                                                        Orientation="Horizontal"
+                                                                                        Spacing="8">
+                                                                                        <Button
+                                                                                                Width="32"
+                                                                                                Height="32"
+                                                                                                Padding="7"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="icon"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsRepoCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                IsVisible="{Binding AzureDevOpsRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
+                                                                                                ToolTip.Tip="Open in Azure DevOps">
+                                                                                                <Path
+                                                                                                        Width="17"
+                                                                                                        Height="17"
+                                                                                                        Data="{tools:SvgPath icon-azure-devops}"
+                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                        Stretch="Uniform" />
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                                Padding="9,4"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="{DynamicResource AzureDevOpsPrChipBrush}"
+                                                                                                BorderThickness="0"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                IsVisible="{Binding HasAzureDevOpsPullRequests}"
+                                                                                                ToolTip.Tip="Active pull requests — click for details">
+                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                        <Path
+                                                                                                                Width="13"
+                                                                                                                Height="13"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-git-pull-request}"
+                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                        <TextBlock
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                FontSize="12"
+                                                                                                                FontWeight="SemiBold"
+                                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                                Text="{Binding AzureDevOpsPrCount}" />
+                                                                                                </StackPanel>
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                                Padding="9,4"
+                                                                                                VerticalAlignment="Center"
+                                                                                                Background="{DynamicResource AzureDevOpsWorkItemChipBrush}"
+                                                                                                BorderThickness="0"
+                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                CommandParameter="{Binding}"
+                                                                                                CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                IsVisible="{Binding HasAzureDevOpsWorkItems}"
+                                                                                                ToolTip.Tip="Open work items — click for details">
+                                                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                                                        <Path
+                                                                                                                Width="13"
+                                                                                                                Height="13"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-issue}"
+                                                                                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                        <TextBlock
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                FontSize="12"
+                                                                                                                FontWeight="SemiBold"
+                                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                                Text="{Binding AzureDevOpsWorkItemCount}" />
+                                                                                                </StackPanel>
+                                                                                        </Button>
+                                                                                        <!--
+                                                                                                Latest pipeline run: one button per state so each
+                                                                                                carries its own tinted background and glyph.
+                                                                                        -->
+                                                                                        <Panel VerticalAlignment="Center">
+                                                                                                <Button
+                                                                                                        Padding="9,4"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="{DynamicResource AzureDevOpsPipelineOkChipBrush}"
+                                                                                                        BorderThickness="0"
+                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineOk}"
+                                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                                        <Path
+                                                                                                                Width="13"
+                                                                                                                Height="13"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-check,
+                                                                                                                                     Center=False}"
+                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Padding="9,4"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="{DynamicResource AzureDevOpsPipelineFailedChipBrush}"
+                                                                                                        BorderThickness="0"
+                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineFailed}"
+                                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                                        <Path
+                                                                                                                Width="12"
+                                                                                                                Height="12"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-close,
+                                                                                                                                     Center=False}"
+                                                                                                                Fill="{DynamicResource DangerAccentBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                                <Button
+                                                                                                        Padding="9,4"
+                                                                                                        VerticalAlignment="Center"
+                                                                                                        Background="{DynamicResource AzureDevOpsPipelineRunningChipBrush}"
+                                                                                                        BorderThickness="0"
+                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        CommandParameter="{Binding}"
+                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
+                                                                                                        IsVisible="{Binding IsAzureDevOpsPipelineRunning}"
+                                                                                                        ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
+                                                                                                        <Path
+                                                                                                                Width="11"
+                                                                                                                Height="11"
+                                                                                                                VerticalAlignment="Center"
+                                                                                                                Data="{tools:SvgPath icon-play}"
+                                                                                                                Fill="{DynamicResource InfoAccentBrush}"
+                                                                                                                Stretch="Uniform" />
+                                                                                                </Button>
+                                                                                        </Panel>
+                                                                                        <TextBlock
+                                                                                                VerticalAlignment="Center"
+                                                                                                Classes="subtle"
+                                                                                                FontSize="12"
+                                                                                                IsVisible="{Binding IsAzureDevOpsAllClear}"
+                                                                                                Text="OK"
+                                                                                                ToolTip.Tip="No open pull requests, work items or failing pipelines" />
+                                                                                </StackPanel>
+                                                                        </Border>
 
-                                                        </Grid>
-                                                </Border>
-                                        </DataTemplate>
-                                </ListBox.ItemTemplate>
-                        </ListBox>
-                </Border>
+
+                                                                        <!--  Last Activity: relative age of the newest commit  -->
+                                                                        <TextBlock
+                                                                                Grid.Column="7"
+                                                                                Margin="0,0,4,0"
+                                                                                HorizontalAlignment="Right"
+                                                                                VerticalAlignment="Center"
+                                                                                Classes="subtle"
+                                                                                Text="{Binding GitLastActivity}" />
+
+                                                                </Grid>
+                                                        </Border>
+                                                </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                </ListBox>
+                        </Border>
 
                 </Grid>
 
-                <!--  Bottom bar: this page's footer (repo context, tabs, expandable
-                      panel), flush with the window bottom like the mockup. Hidden until
-                      a repo is selected from the table (the bar binds IsBarVisible and
-                      paints its own hairlines); the singleton ViewModel is attached in
-                      code-behind.  -->
+                <!--
+                        Bottom bar: this page's footer (repo context, tabs, expandable
+                        panel), flush with the window bottom like the mockup. Hidden until
+                        a repo is selected from the table (the bar binds IsBarVisible and
+                        paints its own hairlines); the singleton ViewModel is attached in
+                        code-behind.
+                -->
                 <Border Grid.Row="1">
                         <components:BottomBar x:Name="BottomBarControl" />
                 </Border>
 
-                <!--  OpenCode panel: the repo row's options icon opens OpenCode as its
+                <!--
+                        OpenCode panel: the repo row's options icon opens OpenCode as its
                         own full bottom panel (same docked card as the bar's panel). It
                         hides the bar while open; the same singleton ViewModel is
-                        attached in code-behind.  -->
+                        attached in code-behind.
+                -->
                 <Border Grid.Row="1">
                         <components:OpenCodePanel x:Name="OpenCodePanelControl" />
                 </Border>

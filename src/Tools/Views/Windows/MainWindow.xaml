@@ -12,14 +12,16 @@
 	Height="900"
 	MinWidth="800"
 	MinHeight="600"
-	WindowStartupLocation="CenterScreen"
 	BackgroundStyle="Flat"
-	Theme="{StaticResource CustomSukiWindowTheme}">
+	Theme="{StaticResource CustomSukiWindowTheme}"
+	WindowStartupLocation="CenterScreen">
 
 	<suki:SukiWindow.Styles>
-		<!--  Title-bar status dots: running = green, SnapIt stopped = red,
-				NuGet idle = yellow. The running class is bound to each tool's
-				running state; define order matters — .running must come last.  -->
+		<!--
+			Title-bar status dots: running = green, SnapIt stopped = red,
+			NuGet idle = yellow. The running class is bound to each tool's
+			running state; define order matters — .running must come last.
+		-->
 		<Style Selector="Ellipse.status-dot">
 			<Setter Property="Fill" Value="{DynamicResource DangerAccentBrush}" />
 		</Style>
@@ -56,12 +58,18 @@
 			VerticalAlignment="Center"
 			Orientation="Horizontal"
 			Spacing="8">
-			<!--  Logo mark: code brackets around a slash  -->
+			<!--
+				Logo mark: code brackets around a slash. Box is sized to the ink's
+				aspect (16.4x13.2 on the 24 grid): Stretch.Uniform then fills the
+				box edge-to-edge, so VerticalAlignment=Center centers the drawn
+				mark instead of leaving Avalonia's top-left fit riding it high.
+			-->
 			<Path
 				Width="20"
-				Height="20"
+				Height="16"
 				VerticalAlignment="Center"
-				Data="{tools:SvgPath icon-logo-mark, Center=False}"
+				Data="{tools:SvgPath icon-logo-mark,
+				                     Center=False}"
 				Stretch="Uniform"
 				Stroke="{DynamicResource AccentPrimaryBrush}"
 				StrokeJoin="Round"
@@ -92,26 +100,40 @@
 			Padding="0"
 			Classes="icon"
 			ToolTip.Tip="Tools">
-			<StackPanel Orientation="Horizontal" Spacing="3">
+			<StackPanel
+				VerticalAlignment="Center"
+				Orientation="Horizontal"
+				Spacing="3">
 				<Path
 					Width="14"
 					Height="14"
+					VerticalAlignment="Center"
 					Data="{tools:SvgPath icon-tools}"
 					Fill="{DynamicResource BodyForegroundBrush}"
 					Stretch="Uniform" />
+				<!--
+					Center=False: the flat chevron's ink would be shrunk onto the square
+					design grid; raw bounds let it fill the box at its real aspect.
+				-->
 				<Path
-					Width="10"
-					Height="7"
-					Data="{tools:SvgPath icon-chevron-down}"
+					Width="8"
+					Height="6"
+					VerticalAlignment="Center"
+					Data="{tools:SvgPath icon-chevron-down,
+					                     Center=False}"
 					Fill="{DynamicResource MutedForegroundBrush}"
 					Stretch="Uniform" />
 			</StackPanel>
 			<Button.Flyout>
-				<!--  Right-aligned: the button sits at the window's right edge, so a
-						left-aligned flyout would overflow off the window.  -->
+				<!--
+					Right-aligned: the button sits at the window's right edge, so a
+					left-aligned flyout would overflow off the window.
+				-->
 				<MenuFlyout Placement="BottomEdgeAlignedRight">
-					<!--  Icon rows ride in an explicit Header element: the XAML compiler
-							crashes resolving MenuFlyoutItem's implicit content property.  -->
+					<!--
+						Icon rows ride in an explicit Header element: the XAML compiler
+						crashes resolving MenuFlyoutItem's implicit content property.
+					-->
 					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="NugetLocalPage">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
@@ -200,6 +222,7 @@
 			<Path
 				Width="15"
 				Height="15"
+				VerticalAlignment="Center"
 				Data="{tools:SvgPath icon-cog}"
 				Fill="{DynamicResource BodyForegroundBrush}"
 				Stretch="Uniform" />
@@ -218,6 +241,7 @@
 				<Ellipse
 					Width="8"
 					Height="8"
+					VerticalAlignment="Center"
 					Classes="status-dot status-idle"
 					Classes.running="{Binding NugetWatchRunning}" />
 				<TextBlock
@@ -226,8 +250,10 @@
 					Text="NuGet" />
 			</StackPanel>
 		</Button>
-		<!--  SnapIt status chip: dot red while stopped, green while running; click toggles.
-				Windows-only functionality — hidden entirely on other platforms.  -->
+		<!--
+			SnapIt status chip: dot red while stopped, green while running; click toggles.
+			Windows-only functionality — hidden entirely on other platforms.
+		-->
 		<Button
 			Height="26"
 			Margin="4,0"
@@ -242,6 +268,7 @@
 				<Ellipse
 					Width="8"
 					Height="8"
+					VerticalAlignment="Center"
 					Classes="status-dot"
 					Classes.running="{Binding SnapItRunning}" />
 				<TextBlock
@@ -256,9 +283,7 @@
 	<Grid ColumnDefinitions="*">
 		<!--  Content Area  -->
 		<Grid Background="{DynamicResource ContentBackgroundBrush}">
-			<ContentControl
-				x:Name="ContentArea"
-				Padding="0" />
+			<ContentControl x:Name="ContentArea" Padding="0" />
 		</Grid>
 
 		<!--
@@ -321,9 +346,7 @@
 						</Button>
 					</Grid>
 					<!--  The open tool's component view; the window swaps it per selection  -->
-					<ContentControl
-						Grid.Row="1"
-						x:Name="ToolDrawerHost" />
+					<ContentControl x:Name="ToolDrawerHost" Grid.Row="1" />
 				</Grid>
 			</Border>
 		</Panel>

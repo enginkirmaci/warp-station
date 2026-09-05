@@ -14,4 +14,10 @@ public enum RepoSortMode
 
     /// <summary>Most pending work first: working-tree changes, then to-push, then to-pull counts.</summary>
     Changes = 2,
+
+    /// <summary>Most open GitHub pull requests first (the count shown in the GitHub column).</summary>
+    PullRequests = 3,
+
+    /// <summary>Most open GitHub issues first (the count shown in the GitHub column).</summary>
+    Issues = 4,
 }

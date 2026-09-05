@@ -1,8 +1,9 @@
-<ResourceDictionary xmlns="https://github.com/avaloniaui"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
-                    xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
-                    xmlns:tools="using:Tools.Library.MarkupExtensions">
+<ResourceDictionary
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
+    xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+    xmlns:tools="using:Tools.Library.MarkupExtensions">
     <!--
         DevTools custom SukiWindow title bar, based on SukiUI 7.0.1's SukiWindowTheme
         (Controls/SukiWindow.axaml). Applied EXPLICITLY via Theme="{StaticResource CustomSukiWindowTheme}"
@@ -10,7 +11,7 @@
         Windows and Linux share this exact template, and SukiUI's own platform handling
         (WindowDecorations per OS, window buttons, drag area, Linux resize grips, Windows
         snap layout) is preserved because the template and all its PARTs are kept.
-
+        
         The one change vs upstream: the in-titlebar title TextBlock (PART_TitleTextBlock,
         referenced by no code-behind lookup) is REPLACED by the global repository search
         field, centered in the bar. The field carries ElementRole="User" so it stays
@@ -29,55 +30,59 @@
         <Setter Property="Template">
             <ControlTemplate>
                 <Panel Name="PART_Root" Margin="{TemplateBinding Margin}">
-                    <Panel Background="Transparent"
-                           IsHitTestVisible="False"
-                           Margin="{TemplateBinding WindowDecorationMargin}" />
-                    <suki:SukiMainHost BackgroundAnimationEnabled="{TemplateBinding BackgroundAnimationEnabled}"
-                                       BackgroundForceSoftwareRendering="{TemplateBinding BackgroundForceSoftwareRendering}"
-                                       BackgroundShaderCode="{TemplateBinding BackgroundShaderCode}"
-                                       BackgroundShaderFile="{TemplateBinding BackgroundShaderFile}"
-                                       BackgroundStyle="{TemplateBinding BackgroundStyle}"
-                                       BackgroundTransitionTime="{TemplateBinding BackgroundTransitionTime}"
-                                       BackgroundTransitionsEnabled="{TemplateBinding BackgroundTransitionsEnabled}"
-                                       CornerRadius="{TemplateBinding RootCornerRadius}"
-                                       Foreground="{TemplateBinding Foreground}"
-                                       Hosts="{Binding Hosts, RelativeSource={RelativeSource AncestorType={x:Type suki:SukiWindow}}}">
+                    <Panel
+                        Margin="{TemplateBinding WindowDecorationMargin}"
+                        Background="Transparent"
+                        IsHitTestVisible="False" />
+                    <suki:SukiMainHost
+                        BackgroundAnimationEnabled="{TemplateBinding BackgroundAnimationEnabled}"
+                        BackgroundForceSoftwareRendering="{TemplateBinding BackgroundForceSoftwareRendering}"
+                        BackgroundShaderCode="{TemplateBinding BackgroundShaderCode}"
+                        BackgroundShaderFile="{TemplateBinding BackgroundShaderFile}"
+                        BackgroundStyle="{TemplateBinding BackgroundStyle}"
+                        BackgroundTransitionTime="{TemplateBinding BackgroundTransitionTime}"
+                        BackgroundTransitionsEnabled="{TemplateBinding BackgroundTransitionsEnabled}"
+                        CornerRadius="{TemplateBinding RootCornerRadius}"
+                        Foreground="{TemplateBinding Foreground}"
+                        Hosts="{Binding Hosts, RelativeSource={RelativeSource AncestorType={x:Type suki:SukiWindow}}}">
                         <DockPanel LastChildFill="True">
                             <Panel DockPanel.Dock="Top">
                                 <StackPanel>
-                                    <LayoutTransformControl Name="PART_TitleBar"
-                                                            RenderTransformOrigin="0%,0%">
-                                        <Panel Background="Transparent"
-                                               chrome:WindowDecorationProperties.ElementRole="TitleBar">
-                                            <Border Background="Transparent"
-                                                    BorderThickness="0"
-                                                    CornerRadius="0"
-                                                    Name="DragArea"
-                                                    chrome:WindowDecorationProperties.ElementRole="TitleBar" />
+                                    <LayoutTransformControl Name="PART_TitleBar" RenderTransformOrigin="0%,0%">
+                                        <Panel chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="Transparent">
+                                            <Border
+                                                Name="DragArea"
+                                                chrome:WindowDecorationProperties.ElementRole="TitleBar"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                CornerRadius="0" />
 
-                                            <suki:GlassCard Name="PART_TitleBarBackground"
-                                                            chrome:WindowDecorationProperties.ElementRole="TitleBar"
-                                                            BorderThickness="0"
-                                                            CornerRadius="0"
-                                                            IsAnimated="False"
-                                                            IsVisible="{TemplateBinding ShowTitlebarBackground}" />
+                                            <suki:GlassCard
+                                                Name="PART_TitleBarBackground"
+                                                chrome:WindowDecorationProperties.ElementRole="TitleBar"
+                                                BorderThickness="0"
+                                                CornerRadius="0"
+                                                IsAnimated="False"
+                                                IsVisible="{TemplateBinding ShowTitlebarBackground}" />
 
-                                            <DockPanel Background="Transparent"
-                                                       Margin="12,9"
-                                                       LastChildFill="True"
-                                                       chrome:WindowDecorationProperties.ElementRole="TitleBar">
-                                                <StackPanel VerticalAlignment="Center"
-                                                            DockPanel.Dock="Right"
-                                                            Orientation="Horizontal"
-                                                            Spacing="7">
+                                            <DockPanel
+                                                Margin="16,12,12,8"
+                                                chrome:WindowDecorationProperties.ElementRole="TitleBar"
+                                                Background="Transparent"
+                                                LastChildFill="True">
+                                                <StackPanel
+                                                    VerticalAlignment="Center"
+                                                    DockPanel.Dock="Right"
+                                                    Orientation="Horizontal"
+                                                    Spacing="8">
                                                     <StackPanel.Styles>
                                                         <Style Selector="PathIcon">
                                                             <Setter Property="Height" Value="{TemplateBinding TitleBarControlSize}" />
                                                             <Setter Property="Width" Value="{TemplateBinding TitleBarControlSize}" />
+                                                            <Setter Property="VerticalAlignment" Value="Center" />
                                                         </Style>
                                                     </StackPanel.Styles>
-                                                    <ItemsControl chrome:WindowDecorationProperties.ElementRole="User"
-                                                                  ItemsSource="{TemplateBinding RightWindowTitleBarControls}">
+                                                    <ItemsControl chrome:WindowDecorationProperties.ElementRole="User" ItemsSource="{TemplateBinding RightWindowTitleBarControls}">
                                                         <ItemsControl.Styles>
                                                             <Style Selector="Control">
                                                                 <Setter Property="chrome:WindowDecorationProperties.ElementRole" Value="User" />
@@ -89,52 +94,57 @@
                                                             </ItemsPanelTemplate>
                                                         </ItemsControl.ItemsPanel>
                                                     </ItemsControl>
-                                                    <Button Name="PART_FullScreenButton"
-                                                            Classes="WindowControlsButton"
-                                                            chrome:WindowDecorationProperties.ElementRole="User"
-                                                            IsEnabled="{TemplateBinding CanFullScreen}"
-                                                            IsVisible="{TemplateBinding CanFullScreen}">
+                                                    <Button
+                                                        Name="PART_FullScreenButton"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Classes="WindowControlsButton"
+                                                        IsEnabled="{TemplateBinding CanFullScreen}"
+                                                        IsVisible="{TemplateBinding CanFullScreen}">
                                                         <PathIcon x:Name="FullScreenIcon" Data="{tools:SvgPath icon-window-full-screen, Center=False}" />
                                                     </Button>
-                                                    <Button Name="PART_PinButton"
-                                                            Classes="WindowControlsButton"
-                                                            chrome:WindowDecorationProperties.ElementRole="User"
-                                                            IsEnabled="{TemplateBinding CanPin}"
-                                                            IsVisible="{TemplateBinding CanPin}">
+                                                    <Button
+                                                        Name="PART_PinButton"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Classes="WindowControlsButton"
+                                                        IsEnabled="{TemplateBinding CanPin}"
+                                                        IsVisible="{TemplateBinding CanPin}">
                                                         <PathIcon x:Name="PinIcon" Data="{tools:SvgPath icon-window-pin, Center=False}" />
                                                     </Button>
-                                                    <Button Name="PART_MinimizeButton"
-                                                            VerticalContentAlignment="Bottom"
-                                                            Classes="WindowControlsButton"
-                                                            chrome:WindowDecorationProperties.ElementRole="User"
-                                                            IsVisible="{TemplateBinding CanMinimize}">
-                                                        <PathIcon Margin="0,0,0,6.5"
-                                                                  VerticalAlignment="Bottom"
-                                                                  Data="{tools:SvgPath icon-window-minimize, Center=False}" />
+                                                    <Button
+                                                        Name="PART_MinimizeButton"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Classes="WindowControlsButton"
+                                                        IsVisible="{TemplateBinding CanMinimize}">
+                                                        <PathIcon Data="{tools:SvgPath icon-window-minimize, Center=False}" />
                                                     </Button>
-                                                    <Button Name="PART_MaximizeButton"
-                                                            Classes="WindowControlsButton"
-                                                            chrome:WindowDecorationProperties.ElementRole="User"
-                                                            IsVisible="{TemplateBinding CanMaximize}">
+                                                    <Button
+                                                        Name="PART_MaximizeButton"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Classes="WindowControlsButton"
+                                                        IsVisible="{TemplateBinding CanMaximize}">
                                                         <PathIcon x:Name="MaximizeIcon" Data="{tools:SvgPath icon-window-maximize, Center=False}" />
                                                     </Button>
-                                                    <Button Name="PART_CloseButton"
-                                                            Classes="WindowControlsButton Close"
-                                                            chrome:WindowDecorationProperties.ElementRole="User">
+                                                    <Button
+                                                        Name="PART_CloseButton"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Classes="WindowControlsButton Close">
                                                         <PathIcon Data="{tools:SvgPath icon-window-close, Center=False}" />
                                                     </Button>
                                                 </StackPanel>
 
-                                                <Grid ColumnDefinitions="Auto"
-                                                      Background="Transparent"
-                                                      VerticalAlignment="Center"
-                                                      chrome:WindowDecorationProperties.ElementRole="TitleBar">
-                                                    <ContentPresenter Grid.Column="0"
-                                                                      Name="PART_Logo"
-                                                                      HorizontalAlignment="Left"
-                                                                      Background="Transparent"
-                                                                      chrome:WindowDecorationProperties.ElementRole="User"
-                                                                      Content="{TemplateBinding LogoContent}" />
+                                                <Grid
+                                                    VerticalAlignment="Center"
+                                                    chrome:WindowDecorationProperties.ElementRole="TitleBar"
+                                                    Background="Transparent"
+                                                    ColumnDefinitions="Auto">
+                                                    <ContentPresenter
+                                                        Name="PART_Logo"
+                                                        Grid.Column="0"
+                                                        Margin="2,0,0,0"
+                                                        HorizontalAlignment="Left"
+                                                        chrome:WindowDecorationProperties.ElementRole="User"
+                                                        Background="Transparent"
+                                                        Content="{TemplateBinding LogoContent}" />
                                                 </Grid>
                                             </DockPanel>
                                             <!--
@@ -149,6 +159,7 @@
                                                 Name="HeaderSearchBorder"
                                                 Width="440"
                                                 Height="38"
+                                                Margin="0,2,0,0"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Center"
                                                 chrome:WindowDecorationProperties.ElementRole="User"
@@ -165,7 +176,7 @@
                                                     Background="Transparent"
                                                     BorderThickness="0"
                                                     FontSize="14"
-                                                    Watermark="Search repositories...">
+                                                    PlaceholderText="Search repositories...">
                                                     <TextBox.InnerLeftContent>
                                                         <Path
                                                             Width="15"
@@ -214,29 +225,33 @@
                                         </Panel>
                                     </LayoutTransformControl>
                                     <Panel IsVisible="{TemplateBinding IsMenuVisible}">
-                                        <suki:GlassCard Margin="0,0,0,0"
-                                                        BorderThickness="0"
-                                                        CornerRadius="0"
-                                                        IsAnimated="False"
-                                                        IsVisible="{TemplateBinding ShowTitlebarBackground}" />
-                                        <suki:GlassCard Name="AlternativeGlassMenuBackground"
-                                                        Margin="10,2,10,10"
-                                                        CornerRadius="13" />
-                                        <Menu Name="PART_Menu"
-                                              IsEnabled="{TemplateBinding IsMenuVisible}"
-                                              ItemsSource="{TemplateBinding MenuItems}" />
+                                        <suki:GlassCard
+                                            Margin="0,0,0,0"
+                                            BorderThickness="0"
+                                            CornerRadius="0"
+                                            IsAnimated="False"
+                                            IsVisible="{TemplateBinding ShowTitlebarBackground}" />
+                                        <suki:GlassCard
+                                            Name="AlternativeGlassMenuBackground"
+                                            Margin="10,2,10,10"
+                                            CornerRadius="13" />
+                                        <Menu
+                                            Name="PART_Menu"
+                                            IsEnabled="{TemplateBinding IsMenuVisible}"
+                                            ItemsSource="{TemplateBinding MenuItems}" />
                                     </Panel>
                                     <Border Name="PART_BottomBorder" BorderBrush="{DynamicResource SukiBorderBrush}" />
                                 </StackPanel>
                             </Panel>
-                            <ContentPresenter x:Name="PART_ContentPresenter"
-                                              Padding="{TemplateBinding Padding}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              CornerRadius="10"
-                                              IsHitTestVisible="True" />
+                            <ContentPresenter
+                                x:Name="PART_ContentPresenter"
+                                Padding="{TemplateBinding Padding}"
+                                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                CornerRadius="10"
+                                IsHitTestVisible="True" />
                         </DockPanel>
                     </suki:SukiMainHost>
                 </Panel>

@@ -85,6 +85,8 @@ public partial class ReposViewModel : PageViewModelBase
         new RepoSortOption(RepoSortMode.Name, "Name"),
         new RepoSortOption(RepoSortMode.LastActivity, "Last activity"),
         new RepoSortOption(RepoSortMode.Changes, "Changes"),
+        new RepoSortOption(RepoSortMode.PullRequests, "Pull requests"),
+        new RepoSortOption(RepoSortMode.Issues, "Issues"),
     };
 
     /// <summary>
@@ -588,6 +590,12 @@ public partial class ReposViewModel : PageViewModelBase
                 .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
             RepoSortMode.Changes => favoritesFirst
                 .ThenByDescending(r => r.GitModifiedCount + r.GitToPushCount + r.GitToPullCount)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            RepoSortMode.PullRequests => favoritesFirst
+                .ThenByDescending(r => r.GitHubPrCount)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            RepoSortMode.Issues => favoritesFirst
+                .ThenByDescending(r => r.GitHubIssueCount)
                 .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
             _ => favoritesFirst.ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
         };
