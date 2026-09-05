@@ -2,6 +2,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Serilog;
+using SukiUI;
 using Tools.Library.Extensions;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
@@ -27,6 +28,14 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        // SukiTheme (ThemeColor="Blue") writes its SukiPrimaryColor* palette into
+        // Application.Resources while App.xaml loads, so the override must land
+        // after AvaloniaXamlLoader.Load to win.
+        ApplyAccentColorOverride();
+        // Re-apply whenever SukiTheme rewrites the palette (theme color / light-dark change),
+        // so the custom accent survives runtime theme switches.
+        if (Styles.OfType<SukiTheme>().FirstOrDefault() is { } sukiTheme)
+            sukiTheme.OnColorThemeChanged += _ => ApplyAccentColorOverride();
         // Configure Serilog: Error-level to the daily rolling file.
         var logFilePath = Path.Combine(AppContext.BaseDirectory, "logs", "log.txt");
         Log.Logger = new LoggerConfiguration()
@@ -44,6 +53,40 @@ public partial class App : Application
             .Build();
         Log.Logger.Information("Dev Tools Started");
     }
+
+    /// <summary>
+    /// Overrides SukiTheme's primary palette with the app accent: the soft periwinkle
+    /// #B5CDFC the Outlined buttons previously rendered in dark mode (SukiUI Lightens its
+    /// Blue primary #0A59F7 by 0.7 for SukiPrimaryColor120). The vivid raw primary becomes
+    /// that periwinkle, and SukiPrimaryColor120 is pinned to it so Outlined buttons keep
+    /// rendering exactly as before; the remaining variants mirror SukiTheme's
+    /// SetColorWithOpacities / PrimaryDark derivation off the same base color.
+    /// </summary>
+    private void ApplyAccentColorOverride()
+    {
+        var accent = Color.Parse("#7090cf");
+        SetAccentResource("SukiPrimaryColor", accent);
+        SetAccentResource("SukiPrimaryColor75", accent, 0.75);
+        SetAccentResource("SukiPrimaryColor50", accent, 0.50);
+        SetAccentResource("SukiPrimaryColor25", accent, 0.25);
+        SetAccentResource("SukiPrimaryColor20", accent, 0.2);
+        SetAccentResource("SukiPrimaryColor15", accent, 0.15);
+        SetAccentResource("SukiPrimaryColor10", accent, 0.10);
+        SetAccentResource("SukiPrimaryColor7", accent, 0.07);
+        SetAccentResource("SukiPrimaryColor5", accent, 0.05);
+        SetAccentResource("SukiPrimaryColor3", accent, 0.03);
+        SetAccentResource("SukiPrimaryColor1", accent, 0.005);
+        SetAccentResource("SukiPrimaryColor0", accent, 0.00);
+        Resources["SukiPrimaryColor120"] = accent;
+        // Lighten(accent, 1) = white in dark mode, same as SukiTheme's dark branch
+        Resources["SukiPrimaryColor150"] = SukiTheme.Lighten(accent, 1);
+        // PrimaryDark halves each channel, as SukiColorTheme does
+        Resources["SukiPrimaryDarkColor"] = new Color(255, (byte)(accent.R / 2), (byte)(accent.G / 2), (byte)(accent.B / 2));
+    }
+
+    // Same derivation as SukiTheme.SetColorWithOpacities (ColorExtensions.WithAlpha truncates)
+    private void SetAccentResource(string key, Color accent, double alpha = 1.0) =>
+        Resources[key] = new Color((byte)(255 * alpha), accent.R, accent.G, accent.B);
 
     private void ConfigureServices(IServiceCollection services)
     {

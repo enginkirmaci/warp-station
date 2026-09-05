@@ -18,7 +18,8 @@
 			<ResourceInclude Source="/Styles/CustomSukiWindowTheme.axaml" />
 		</ResourceDictionary.MergedDictionaries>
 
-			<!--  Accent comes from SukiTheme (ThemeColor="Blue")  -->
+			<!--  Accent: SukiTheme ThemeColor="Blue", with its SukiPrimaryColor* palette  -->
+			<!--  overridden to the periwinkle app accent in App.ApplyAccentColorOverride  -->
 
 			<!--  Converters  -->
 			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />

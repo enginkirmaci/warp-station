@@ -110,7 +110,8 @@
     <SolidColorBrush x:Key="MutedForegroundBrush" Color="{DynamicResource SukiMuteText}" />
     <SolidColorBrush x:Key="FaintForegroundBrush" Color="{DynamicResource SukiDisabledText}" />
 
-    <!-- Accent (SukiPrimaryColor follows SukiTheme.ThemeColor) -->
+    <!-- Accent (SukiTheme writes the SukiPrimaryColor* palette, then
+         App.ApplyAccentColorOverride overrides it to the periwinkle accent) -->
     <SolidColorBrush x:Key="AccentPrimaryBrush" Color="{DynamicResource SukiPrimaryColor}" />
     <SolidColorBrush x:Key="AccentPrimaryHoverBrush" Color="{DynamicResource SukiPrimaryColor120}" />
     <SolidColorBrush x:Key="AccentPrimaryPressedBrush" Color="{DynamicResource SukiPrimaryColor75}" />
