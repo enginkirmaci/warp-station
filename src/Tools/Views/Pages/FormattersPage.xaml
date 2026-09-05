@@ -67,7 +67,7 @@
                                                         Grid.Column="1"
                                                         Height="36"
                                                         VerticalAlignment="Center"
-                                                        Classes="accent"
+                                                        Classes="Outlined"
                                                         Command="{Binding ConvertCommand}">
 							<StackPanel Orientation="Horizontal" Spacing="8">
 								<Path
@@ -75,7 +75,7 @@
 									Height="12"
 									VerticalAlignment="Center"
 									Data="{tools:SvgPath icon-play}"
-									Fill="{DynamicResource AccentForegroundBrush}"
+									Fill="{Binding $parent[Button].Foreground}"
 									Stretch="Uniform" />
 								<TextBlock VerticalAlignment="Center" Text="Convert" />
 							</StackPanel>

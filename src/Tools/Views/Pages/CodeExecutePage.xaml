@@ -28,7 +28,7 @@
 					Text="Write and execute C# code snippets instantly" />
 				<Button
 					Grid.Column="1"
-					Classes="accent"
+					Classes="Outlined"
 					Command="{Binding ExecuteCommand}">
 					<StackPanel Orientation="Horizontal" Spacing="8">
 						<Path
@@ -36,7 +36,7 @@
 							Height="12"
 							VerticalAlignment="Center"
 							Data="{tools:SvgPath icon-play}"
-							Fill="{DynamicResource AccentForegroundBrush}"
+							Fill="{Binding $parent[Button].Foreground}"
 							Stretch="Uniform" />
 						<TextBlock Text="Execute Code" />
 					</StackPanel>

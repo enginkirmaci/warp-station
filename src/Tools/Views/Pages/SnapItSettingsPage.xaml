@@ -38,7 +38,7 @@
 
 				<Button
 					HorizontalAlignment="Left"
-					Classes="accent"
+					Classes="Outlined"
 					Command="{Binding ToggleSnapItCommand}"
 					Content="{Binding ToggleButtonText}" />
 			</StackPanel>

@@ -169,7 +169,7 @@
                                                 tracks the ones the user selects (dialog via DialogService)  -->
                                         <Button
                                                 VerticalAlignment="Center"
-                                                Classes="accent"
+                                                Classes="Outlined"
                                                 Command="{Binding AddRepositoryCommand}"
                                                 ToolTip.Tip="Scan a folder for git repositories and add them to the list">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -178,7 +178,7 @@
                                                                 Height="14"
                                                                 VerticalAlignment="Center"
                                                                 Data="{tools:SvgPath icon-plus}"
-                                                                Fill="{DynamicResource AccentForegroundBrush}"
+                                                                Fill="{Binding $parent[Button].Foreground}"
                                                                 Stretch="Uniform" />
                                                         <TextBlock
                                                                 VerticalAlignment="Center"

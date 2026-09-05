@@ -69,14 +69,14 @@
 						<Button
 							Grid.RowSpan="2"
 							Grid.Column="2"
-							Classes="accent"
+							Classes="Outlined"
 							Command="{Binding RegisterSourceCommand}">
 							<StackPanel Orientation="Horizontal" Spacing="4">
 								<Path
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-account}"
-									Fill="{DynamicResource AccentForegroundBrush}"
+									Fill="{Binding $parent[Button].Foreground}"
 									Stretch="Uniform" />
 								<TextBlock Text="Register" />
 							</StackPanel>
@@ -95,7 +95,7 @@
 						Text="Operations" />
 					<Button
 						HorizontalAlignment="Center"
-						Classes="accent"
+						Classes="Outlined"
 						Command="{Binding WatchChangesCommand}"
 						CommandParameter="{Binding !WatchStarted}">
 						<Panel>
@@ -107,7 +107,7 @@
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-play}"
-									Fill="{DynamicResource AccentForegroundBrush}"
+									Fill="{Binding $parent[Button].Foreground}"
 									Stretch="Uniform" />
 								<TextBlock Text="Start" />
 							</StackPanel>
@@ -119,7 +119,7 @@
 									Width="16"
 									Height="16"
 									Data="{tools:SvgPath icon-stop}"
-									Fill="{DynamicResource AccentForegroundBrush}"
+									Fill="{Binding $parent[Button].Foreground}"
 									Stretch="Uniform" />
 								<TextBlock Text="Stop" />
 							</StackPanel>

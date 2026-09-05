@@ -233,7 +233,7 @@
                     Content="Cancel" />
                 <Button
                     Click="OnSaveClick"
-                    Classes="accent"
+                    Classes="Outlined"
                     Content="Save"
                     IsDefault="True" />
             </StackPanel>

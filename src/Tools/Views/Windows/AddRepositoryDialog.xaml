@@ -43,7 +43,7 @@
                     Spacing="10">
                     <Button
                         MinWidth="84"
-                        Classes="accent"
+                        Classes="Outlined"
                         Command="{Binding ScanCommand}"
                         Content="Scan"
                         ToolTip.Tip="Search the folder for git repositories" />
@@ -157,7 +157,7 @@
             <StackPanel HorizontalAlignment="Right" Classes="actions">
                 <Button Click="OnCancelClick" Content="Cancel" />
                 <Button
-                    Classes="accent"
+                    Classes="Outlined"
                     Click="OnAddClick"
                     Content="{Binding AddButtonText}"
                     IsDefault="True"

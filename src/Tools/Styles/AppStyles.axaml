@@ -236,31 +236,6 @@
     </Style>
 
     <!--
-        Accent button — primary action. Indigo fill, white text, rounded,
-        smooth hover/press transitions.
-    -->
-    <Style Selector="Button.accent">
-        <Setter Property="Background" Value="{DynamicResource AccentPrimaryBrush}" />
-        <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Transitions">
-            <Setter.Value>
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.15" />
-                </Transitions>
-            </Setter.Value>
-        </Setter>
-    </Style>
-    <Style Selector="Button.accent:pointerover">
-        <Setter Property="Background" Value="{DynamicResource AccentPrimaryHoverBrush}" />
-    </Style>
-    <Style Selector="Button.accent:pressed">
-        <Setter Property="Background" Value="{DynamicResource AccentPrimaryPressedBrush}" />
-    </Style>
-
-    <!--
         Card button — used for dashboard / interactive cards.
     -->
     <Style Selector="Button.card-button">
