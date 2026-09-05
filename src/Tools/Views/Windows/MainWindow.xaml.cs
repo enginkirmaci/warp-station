@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using SukiUI.Controls;
 using Tools.Helpers;
 using Tools.Library.Mvvm;
@@ -36,7 +37,28 @@ public partial class MainWindow : SukiWindow
     /// </summary>
     private const int HeaderSearchDebounceMs = 150;
 
+    /// <summary>
+    /// Hover delay before the title-bar tools flyout opens on pointer-over; keeps a
+    /// sweep across the title bar from flashing the menu open.
+    /// </summary>
+    private const int ToolsFlyoutHoverDelayMs = 250;
+
+    /// <summary>
+    /// Grace period the pointer may spend outside both the tools button and the open
+    /// flyout (e.g. crossing the gap between them) before the flyout closes.
+    /// </summary>
+    private const int ToolsFlyoutCloseDelayMs = 350;
+
     private CancellationTokenSource? _searchDebounce;
+
+    /// <summary>
+    /// Open timer: fires while the pointer rests on the tools button. Close timer:
+    /// fires after the pointer has left both the button and the flyout. The flyout's
+    /// own move-away dismiss (TransientWithDismissOnPointerMoveAway) is NOT used — it
+    /// closes mid-travel while the pointer crosses from the button into the menu.
+    /// </summary>
+    private DispatcherTimer? _toolsFlyoutOpenTimer;
+    private DispatcherTimer? _toolsFlyoutCloseTimer;
 
     /// <summary>
     /// True while the code-behind is mirroring state INTO the search field (from the
@@ -60,6 +82,7 @@ public partial class MainWindow : SukiWindow
     private ContentControl ContentArea = null!;
     private ContentControl ToolDrawerHost = null!;
     private ItemsControl ToastHost = null!;
+    private Button ToolsButton = null!;
 
     private void InitializeComponent()
     {
@@ -67,6 +90,7 @@ public partial class MainWindow : SukiWindow
         ContentArea = this.FindControl<ContentControl>("ContentArea")!;
         ToolDrawerHost = this.FindControl<ContentControl>("ToolDrawerHost")!;
         ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
+        ToolsButton = this.FindControl<Button>("ToolsButton")!;
     }
 
     /// <inheritdoc/>
@@ -157,12 +181,33 @@ public partial class MainWindow : SukiWindow
 #endif
         _toolDrawer.Changed += OnToolDrawerChanged;
         Closed += OnWindowClosed;
+
+        // Tools dropdown: opens on hover after the delay below. Closing is owned here
+        // too: the flyout stays up while the pointer is over the button or the menu,
+        // and the close timer fires only after the pointer has left both surfaces.
+        // Click-open keeps the native behavior.
+        if (ToolsButton.Flyout is MenuFlyout toolsMenu)
+        {
+            foreach (var item in toolsMenu.Items.OfType<Control>())
+            {
+                item.PointerEntered += OnToolsFlyoutSurfaceEntered;
+                item.PointerExited += OnToolsFlyoutSurfaceExited;
+            }
+        }
+        ToolsButton.PointerEntered += OnToolsButtonPointerEntered;
+        ToolsButton.PointerExited += OnToolsButtonPointerExited;
+        _toolsFlyoutOpenTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ToolsFlyoutHoverDelayMs) };
+        _toolsFlyoutOpenTimer.Tick += OnToolsFlyoutOpenTimerTick;
+        _toolsFlyoutCloseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ToolsFlyoutCloseDelayMs) };
+        _toolsFlyoutCloseTimer.Tick += OnToolsFlyoutCloseTimerTick;
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         _clipboardPasswordService.UnregisterHotKeys();
         _messageHandler.Uninstall(_windowConfigurator.WindowHandle);
+        _toolsFlyoutOpenTimer?.Stop();
+        _toolsFlyoutCloseTimer?.Stop();
 
         if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel })
         {
@@ -173,6 +218,58 @@ public partial class MainWindow : SukiWindow
         _searchDebounce?.Dispose();
         // Background services (SnapIt, NuGet watch) are stopped during application
         // shutdown, not here, so the window does not own their lifecycle.
+    }
+
+    /// <summary>
+    /// Hover-open for the title-bar tools dropdown: only a pointer that is still
+    /// resting on the button when the delay elapses shows the flyout. Entering the
+    /// button cancels any pending close, so the menu survives button → menu travel.
+    /// </summary>
+    private void OnToolsButtonPointerEntered(object? sender, PointerEventArgs e)
+    {
+        _toolsFlyoutCloseTimer?.Stop();
+        if (ToolsButton.Flyout is { IsOpen: false })
+        {
+            _toolsFlyoutOpenTimer!.Stop();
+            _toolsFlyoutOpenTimer.Start();
+        }
+    }
+
+    private void OnToolsButtonPointerExited(object? sender, PointerEventArgs e)
+    {
+        _toolsFlyoutOpenTimer?.Stop();
+        StartToolsFlyoutCloseTimer();
+    }
+
+    private void OnToolsFlyoutSurfaceEntered(object? sender, PointerEventArgs e) => _toolsFlyoutCloseTimer?.Stop();
+
+    private void OnToolsFlyoutSurfaceExited(object? sender, PointerEventArgs e) => StartToolsFlyoutCloseTimer();
+
+    private void StartToolsFlyoutCloseTimer()
+    {
+        if (ToolsButton.Flyout is { IsOpen: true })
+        {
+            _toolsFlyoutCloseTimer!.Stop();
+            _toolsFlyoutCloseTimer.Start();
+        }
+    }
+
+    private void OnToolsFlyoutOpenTimerTick(object? sender, EventArgs e)
+    {
+        _toolsFlyoutOpenTimer?.Stop();
+        if (ToolsButton.IsPointerOver && ToolsButton.Flyout is { IsOpen: false } flyout)
+        {
+            flyout.ShowAt(ToolsButton);
+        }
+    }
+
+    private void OnToolsFlyoutCloseTimerTick(object? sender, EventArgs e)
+    {
+        _toolsFlyoutCloseTimer?.Stop();
+        if (ToolsButton.Flyout is { IsOpen: true } flyout)
+        {
+            flyout.Hide();
+        }
     }
 
     /// <summary>

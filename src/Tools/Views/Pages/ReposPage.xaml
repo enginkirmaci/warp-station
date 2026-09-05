@@ -294,10 +294,15 @@
                                                         (PathIcon#CheckSelected) fading in while :selected, plus a
                                                         SukiPrimaryColor tint on selected/hover. Those template parts
                                                         aren't reachable by the ContentPresenter overrides above, so
-                                                        neutralize them at matching specificity as well.
+                                                        neutralize them at matching specificity as well. The tick is
+                                                        collapsed outright rather than faded — the theme only hides
+                                                        it with Opacity, which still reserves its 17px width + 8px
+                                                        margin as a dead inset on the right of every row. (The
+                                                        GlassCard's own Padding="8,4" would need a full retemplate to
+                                                        change — template-local values beat style setters.)
                                                 -->
-                                                <Style Selector="ListBoxItem:selected /template/ PathIcon#CheckSelected">
-                                                        <Setter Property="Opacity" Value="0" />
+                                                <Style Selector="ListBoxItem /template/ PathIcon#CheckSelected">
+                                                        <Setter Property="IsVisible" Value="False" />
                                                 </Style>
                                                 <Style Selector="ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
                                                         <Setter Property="Background" Value="Transparent" />

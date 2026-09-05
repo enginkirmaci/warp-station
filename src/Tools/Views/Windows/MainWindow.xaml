@@ -92,8 +92,13 @@
 		bar around them keeps its drag role.
 	-->
 	<suki:SukiWindow.RightWindowTitleBarControls>
-		<!--  Tools dropdown: opens the tool components in the floating right drawer  -->
+		<!--
+			Tools dropdown: opens the tool components in the floating right drawer.
+			Hover-open/close are wired in the code-behind: a short hover delay opens
+			it, and it stays up while the pointer is over the button or the menu.
+		-->
 		<Button
+			x:Name="ToolsButton"
 			Width="38"
 			Height="26"
 			Margin="4,0"
