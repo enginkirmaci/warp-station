@@ -288,11 +288,17 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The header's X button (far right): closes the panel, leaving the strip visible.
-    /// A row press (Overview) or any row chip reopens it.
+    /// The header's X button (far right): closes the whole bar — panel and strip — and
+    /// drops the selection, clearing the table row's highlight. A row press (Overview)
+    /// or any row chip brings it back.
     /// </summary>
     [RelayCommand]
-    private void Close() => ActiveTab = BottomBarTab.None;
+    private void Close()
+    {
+        ActiveTab = BottomBarTab.None;
+        SelectedRepo = null;
+        IsBarVisible = false;
+    }
 
     private void OnRepoServiceChanged(object? sender, EventArgs e)
     {

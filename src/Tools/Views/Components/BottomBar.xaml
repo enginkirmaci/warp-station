@@ -18,10 +18,11 @@
     <!--
         Bottom bar: an expandable panel (the active tab's content — Overview with
         stat cards + activity lists + repository details, Changes, Pull Requests,
-        Issues, Pipelines, Git and OpenCode) plus an always-visible 40px strip.
+        Issues, Pipelines, Git and OpenCode) plus a 40px strip (git context + Fetch).
         The whole control stays hidden until a repo is selected from the table: a
-        row press or a row chip reveals it (IsBarVisible). The tab row that drives
-        the panel lives in the RepoHeader at the top of the page; the strip keeps
+        row press or a row chip reveals it (IsBarVisible); the header's X hides it
+        again, strip included. The tab row lives in the RepoHeader inside the panel;
+        the strip keeps
         only the git context (branch dropdown + bare "N changes" label) and the
         Fetch + last-fetched actions, pinned left/right like the mockup. Chrome
         matches the old window status bar: SidebarBackgroundBrush surface,
@@ -1550,7 +1551,7 @@
             </Grid>
         </Border>
 
-        <!--  ============ Always-visible strip ============  -->
+        <!--  ============ Strip (git context + Fetch; hidden with the whole bar) ====  -->
         <Border
             Grid.Row="1"
             Height="40"

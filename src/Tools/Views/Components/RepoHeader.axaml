@@ -14,11 +14,11 @@
     mc:Ignorable="d">
 
     <!--
-            Repo detail header (per the mockup): back link, repo name + favorite star,
+            Repo detail header (per the mockup): repo name + favorite star,
             branch / GitHub URL line, and the tab row. Lives INSIDE the bottom bar's
             expandable panel, above the active tab's content; the tabs drive that panel.
-            "Back to Repositories" deselects the repo (hides bar and panel) until
-            another row is picked from the table.
+            The X button (top right) closes the whole bar until another row is picked
+            from the table.
     -->
     <UserControl.Styles>
         <!--  Quiet accent links on the branch line (branch view + repo URL): transparent,
