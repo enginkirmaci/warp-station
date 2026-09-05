@@ -1,6 +1,10 @@
+using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 using Tools.ViewModels.Components;
 
 namespace Tools.Views.Components;
@@ -27,11 +31,51 @@ public partial class BottomBar : UserControl
     {
         InitializeComponent();
         WireModelPicker();
+        ConstrainScrollViewersToViewportWidth();
     }
 
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
+    }
+
+    /// <summary>
+    /// The bar's list ScrollViewers (tab lists, Overview preview cards) must measure
+    /// their rows at the VIEWPORT width — otherwise long titles push the right-aligned
+    /// age/pill columns out past the card edge instead of trimming in place. The
+    /// HorizontalScrollBarVisibility=Disabled constraint is supposed to flow to the
+    /// presenter, but the themed template wins that race on this setup, so the
+    /// presenter's horizontal-scroll flag is re-asserted as a local value the moment
+    /// each template applies (local beats template).
+    /// </summary>
+    private void ConstrainScrollViewersToViewportWidth()
+    {
+        foreach (var scrollViewer in this.GetVisualDescendants().OfType<ScrollViewer>())
+        {
+            scrollViewer.TemplateApplied += OnRowScrollViewerTemplateApplied;
+        }
+    }
+
+    private void OnRowScrollViewerTemplateApplied(object? sender, TemplateAppliedEventArgs e)
+    {
+        if (sender is not ScrollViewer scrollViewer)
+        {
+            return;
+        }
+
+        var presenter = e.NameScope.Find<ScrollContentPresenter>("PART_ContentPresenter")
+            ?? scrollViewer.GetVisualDescendants().OfType<ScrollContentPresenter>().FirstOrDefault();
+        if (presenter is not null)
+        {
+            presenter.CanHorizontallyScroll = false;
+        }
+        Serilog.Log.Logger.Debug(
+            "BottomBar ScrollViewer diag: hsb={Hsb} presenter={Found} presenterCanH={CanH} svW={W} presenterW={PW}",
+            scrollViewer.HorizontalScrollBarVisibility,
+            presenter is not null,
+            presenter?.CanHorizontallyScroll,
+            scrollViewer.Bounds.Width,
+            presenter?.Bounds.Width);
     }
 
     /// <summary>

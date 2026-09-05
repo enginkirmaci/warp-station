@@ -72,3 +72,58 @@ public class GitHubStateChipBrushConverter : IValueConverter
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Colorizes a GitHub label pill by keyword: "bug" red, "enhancement" / "feature"
+/// purple, "documentation" blue, "performance" amber, "good first issue" / "help
+/// wanted" green — anything else muted gray (labels are free-form strings, so the
+/// match is a case-insensitive Contains). <see cref="Convert"/> parameter "bg"
+/// returns a low-alpha TINT of the same color for the pill background. Cached
+/// brushes like <see cref="GitHubStateChipBrushConverter"/>.
+/// </summary>
+public class GitHubLabelBrushConverter : IValueConverter
+{
+    private static readonly ImmutableSolidColorBrush Bug = new(Color.Parse("#CCF5222D"));
+    private static readonly ImmutableSolidColorBrush Enhancement = new(Color.Parse("#CC8B5CF6"));
+    private static readonly ImmutableSolidColorBrush Documentation = new(Color.Parse("#CC3B82F6"));
+    private static readonly ImmutableSolidColorBrush Performance = new(Color.Parse("#CCFA8C16"));
+    private static readonly ImmutableSolidColorBrush Community = new(Color.Parse("#CC228B22"));
+    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse("#B4B4B4"));
+    private static readonly ImmutableSolidColorBrush BugBg = new(Color.Parse("#26F5222D"));
+    private static readonly ImmutableSolidColorBrush EnhancementBg = new(Color.Parse("#268B5CF6"));
+    private static readonly ImmutableSolidColorBrush DocumentationBg = new(Color.Parse("#263B82F6"));
+    private static readonly ImmutableSolidColorBrush PerformanceBg = new(Color.Parse("#26FA8C16"));
+    private static readonly ImmutableSolidColorBrush CommunityBg = new(Color.Parse("#26228B22"));
+    private static readonly ImmutableSolidColorBrush OtherBg = new(Color.Parse("#26B4B4B4"));
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var tinted = string.Equals(parameter as string, "bg", StringComparison.OrdinalIgnoreCase);
+        return value as string switch
+        {
+            null => tinted ? OtherBg : Other,
+            { Length: > 0 } label => Contains(label, "bug", "crash", "regression") ? Tint(tinted, Bug, BugBg)
+                : Contains(label, "enhancement", "feature", "improvement") ? Tint(tinted, Enhancement, EnhancementBg)
+                : Contains(label, "doc") ? Tint(tinted, Documentation, DocumentationBg)
+                : Contains(label, "performance", "slow") ? Tint(tinted, Performance, PerformanceBg)
+                : Contains(label, "good first issue", "help wanted") ? Tint(tinted, Community, CommunityBg)
+                : Tint(tinted, Other, OtherBg),
+            _ => tinted ? OtherBg : Other,
+        };
+    }
+
+    private static bool Contains(string label, params string[] keywords)
+    {
+        foreach (var keyword in keywords)
+        {
+            if (label.Contains(keyword, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
+    private static ImmutableSolidColorBrush Tint(bool tinted, ImmutableSolidColorBrush text, ImmutableSolidColorBrush bg) => tinted ? bg : text;
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

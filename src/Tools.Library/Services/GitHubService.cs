@@ -37,7 +37,7 @@ public sealed class GitHubService : IGitHubService
     private const int ItemLimit = 50;
 
     /// <summary>gh JSON field lists, kept minimal for cheap parsing.</summary>
-    private const string PrFields = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision";
+    private const string PrFields = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision,updatedAt";
     private const string IssueFields = "number,title,url,author,labels,updatedAt";
 
     private readonly IRepoService _repoService;

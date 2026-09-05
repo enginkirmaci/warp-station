@@ -36,6 +36,7 @@
 			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
 			<conv:GitStatusBrushConverter x:Key="GitStatusBrushConverter" />
 			<conv:GitHubStateChipBrushConverter x:Key="GitHubStateChipBrushConverter" />
+			<conv:GitHubLabelBrushConverter x:Key="GitHubLabelBrushConverter" />
 			<conv:NotificationKindToBrushConverter x:Key="NotificationKindToBrushConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
