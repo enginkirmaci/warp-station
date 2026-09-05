@@ -154,7 +154,7 @@
                     Width="18"
                     Height="18"
                     Data="{tools:SvgPath icon-star}"
-                    Fill="{Binding SelectedRepo.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                    Fill="{Binding SelectedRepo?.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
                     Stretch="Uniform" />
             </Button>
         </StackPanel>

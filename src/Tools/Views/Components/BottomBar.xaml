@@ -670,60 +670,60 @@
                                             <Grid
                                                 ColumnDefinitions="110,*"
                                                 ColumnSpacing="10"
-                                                IsVisible="{Binding SelectedRepoDetails.Owner, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                IsVisible="{Binding SelectedRepoDetails?.Owner, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
                                                 <TextBlock Classes="detail-key" Text="Owner" />
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     Classes="detail-value"
-                                                    Text="{Binding SelectedRepoDetails.Owner}"
+                                                    Text="{Binding SelectedRepoDetails?.Owner}"
                                                     TextTrimming="CharacterEllipsis" />
                                             </Grid>
                                             <Grid
                                                 ColumnDefinitions="110,*"
                                                 ColumnSpacing="10"
-                                                IsVisible="{Binding SelectedRepoDetails.CreatedAt, Converter={StaticResource NotNullToBoolConverter}}">
+                                                IsVisible="{Binding SelectedRepoDetails?.CreatedAt, Converter={StaticResource NotNullToBoolConverter}}">
                                                 <TextBlock Classes="detail-key" Text="Created" />
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     Classes="detail-value"
-                                                    Text="{Binding SelectedRepoDetails.CreatedAt, StringFormat='d MMM yyyy'}" />
+                                                    Text="{Binding SelectedRepoDetails?.CreatedAt, StringFormat='d MMM yyyy'}" />
                                             </Grid>
                                             <Grid
                                                 ColumnDefinitions="110,*"
                                                 ColumnSpacing="10"
-                                                IsVisible="{Binding SelectedRepoDetails.Language, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                IsVisible="{Binding SelectedRepoDetails?.Language, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
                                                 <TextBlock Classes="detail-key" Text="Language" />
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     Classes="detail-value"
-                                                    Text="{Binding SelectedRepoDetails.Language}" />
+                                                    Text="{Binding SelectedRepoDetails?.Language}" />
                                             </Grid>
                                             <Grid
                                                 ColumnDefinitions="110,*"
                                                 ColumnSpacing="10"
-                                                IsVisible="{Binding SelectedRepoDetails.License, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                IsVisible="{Binding SelectedRepoDetails?.License, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
                                                 <TextBlock Classes="detail-key" Text="License" />
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     Classes="detail-value"
-                                                    Text="{Binding SelectedRepoDetails.License}" />
+                                                    Text="{Binding SelectedRepoDetails?.License}" />
                                             </Grid>
                                             <Grid
                                                 ColumnDefinitions="110,*"
                                                 ColumnSpacing="10"
-                                                IsVisible="{Binding SelectedRepoDetails.DefaultBranch, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                IsVisible="{Binding SelectedRepoDetails?.DefaultBranch, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
                                                 <TextBlock Classes="detail-key" Text="Default Branch" />
                                                 <TextBlock
                                                     Grid.Column="1"
                                                     Classes="detail-value"
-                                                    Text="{Binding SelectedRepoDetails.DefaultBranch}" />
+                                                    Text="{Binding SelectedRepoDetails?.DefaultBranch}" />
                                             </Grid>
                                         </StackPanel>
                                     </Grid>
                                     <!--  Topics chips  -->
-                                    <StackPanel IsVisible="{Binding SelectedRepoDetails.HasTopics}">
+                                    <StackPanel IsVisible="{Binding SelectedRepoDetails?.HasTopics, TargetNullValue=False}">
                                         <TextBlock Classes="detail-key" Text="Topics" />
-                                        <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding SelectedRepoDetails.Topics}">
+                                        <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding SelectedRepoDetails?.Topics}">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <WrapPanel Orientation="Horizontal" />
