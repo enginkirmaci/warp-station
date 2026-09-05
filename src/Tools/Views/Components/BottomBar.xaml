@@ -30,19 +30,72 @@
         layout — the table shrinks around it, nothing floats over the page. The bar
         lives on the Repositories page (it is that page's footer), not on every page.
     -->
-    <UserControl.Styles>
-        <!--  Overview stat card link ("View changes →"): accent text, underline on hover.  -->
-        <Style Selector="Button.ov-link">
+    <!--
+        Stretch button theme: replaces SukiUI's Button template for the bar's clickable
+        surfaces (list rows + Overview cards). SukiUI's own template renders the
+        content presenter content-sized even when the button stretches, so rows hug
+        left and their trailing age/chip columns drift with the text length instead of
+        pinning to the row's right edge, and card hovers only cover the content. This
+        template stretches one Border + ContentPresenter across the whole button; the
+        hover tint rides on Button.Background (TemplateBinding), so no template-part
+        targeting is needed.
+    -->
+    <UserControl.Resources>
+        <ControlTheme x:Key="StretchButtonTheme" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="{TemplateBinding CornerRadius}">
+                        <ContentPresenter
+                            Margin="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!--
+            Panel item row: transparent full-width button with the table's hover tint;
+            the template comes from StretchButtonTheme above.
+        -->
+        <Style Selector="Button.bar-item">
+            <Setter Property="Theme" Value="{DynamicResource StretchButtonTheme}" />
         </Style>
-        <Style Selector="Button.ov-link TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource AccentPrimaryBrush}" />
+        <Style Selector="Button.bar-item:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
-        <Style Selector="Button.ov-link:pointerover TextBlock">
-            <Setter Property="TextDecorations" Value="Underline" />
+        <!--
+            Overview clickable card: the ov-card look on a Button using the same
+            stretch template, so the WHOLE card routes to its tab and the hover tint
+            covers the full card. Rows inside the recent-activity cards keep their own
+            click targets — a press on an inner row button never reaches the card.
+        -->
+        <Style Selector="Button.ov-card-btn">
+            <Setter Property="Theme" Value="{DynamicResource StretchButtonTheme}" />
+            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.ov-card-btn:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
         <!--  Overview / Git list card: panel background inset card.  -->
         <Style Selector="Border.ov-card">
@@ -83,18 +136,6 @@
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,6,0" />
-        </Style>
-        <!--  Panel item row: transparent button with the table's hover tint.  -->
-        <Style Selector="Button.bar-item">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="10,7" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.bar-item:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
         <!--
             Changes label in the strip (opens the Changes tab): bare orange icon + text,
@@ -146,15 +187,17 @@
                         RowDefinitions="Auto,*"
                         RowSpacing="10">
 
-                        <!--  Stat cards  -->
+                        <!--  Stat cards (whole card opens its tab)  -->
                         <UniformGrid
                             Grid.Row="0"
                             Columns="4"
                             IsVisible="{Binding IsAzureDevOpsEnabled}">
-                            <Border
+                            <Button
                                 Grid.Column="0"
                                 Margin="0,0,10,0"
-                                Classes="ov-card">
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleChangesTabCommand}"
+                                ToolTip.Tip="Open the Changes tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -177,17 +220,16 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding ChangesCount}" />
                                         <TextBlock Classes="subtle" Text="Local Changes" />
-                                        <Button Classes="ov-link" Command="{Binding ToggleChangesTabCommand}">
-                                            <TextBlock Text="View changes →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
-                            <Border
+                            </Button>
+                            <Button
                                 Grid.Column="1"
                                 Margin="0,0,10,0"
-                                Classes="ov-card"
-                                IsVisible="{Binding IsGitHubEnabled}">
+                                Classes="ov-card-btn"
+                                Command="{Binding TogglePullRequestsTabCommand}"
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Pull Requests tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -210,17 +252,16 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding PullRequestCount}" />
                                         <TextBlock Classes="subtle" Text="Open Pull Requests" />
-                                        <Button Classes="ov-link" Command="{Binding TogglePullRequestsTabCommand}">
-                                            <TextBlock Text="View PRs →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
-                            <Border
+                            </Button>
+                            <Button
                                 Grid.Column="2"
                                 Margin="0,0,10,0"
-                                Classes="ov-card"
-                                IsVisible="{Binding IsGitHubEnabled}">
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleIssuesTabCommand}"
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Issues tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -243,17 +284,16 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding IssueCount}" />
                                         <TextBlock Classes="subtle" Text="Open Issues" />
-                                        <Button Classes="ov-link" Command="{Binding ToggleIssuesTabCommand}">
-                                            <TextBlock Text="View issues →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
-                            <Border
+                            </Button>
+                            <Button
                                 Grid.Column="3"
                                 Margin="0,0,10,0"
-                                Classes="ov-card"
-                                IsVisible="{Binding IsAzureDevOpsEnabled}">
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleAzureTabCommand}"
+                                IsVisible="{Binding IsAzureDevOpsEnabled}"
+                                ToolTip.Tip="Open the Pipelines tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -278,12 +318,9 @@
                                             TextTrimming="CharacterEllipsis"
                                             ToolTip.Tip="Latest Azure DevOps pipeline results" />
                                         <TextBlock Classes="subtle" Text="Pipelines" />
-                                        <Button Classes="ov-link" Command="{Binding ToggleAzureTabCommand}">
-                                            <TextBlock Text="View pipelines →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
+                            </Button>
                         </UniformGrid>
 
                         <!--
@@ -295,7 +332,11 @@
                             Grid.Row="0"
                             Columns="3"
                             IsVisible="{Binding !IsAzureDevOpsEnabled}">
-                            <Border Margin="0,0,10,0" Classes="ov-card">
+                            <Button
+                                Margin="0,0,10,0"
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleChangesTabCommand}"
+                                ToolTip.Tip="Open the Changes tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -318,16 +359,15 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding ChangesCount}" />
                                         <TextBlock Classes="subtle" Text="Local Changes" />
-                                        <Button Classes="ov-link" Command="{Binding ToggleChangesTabCommand}">
-                                            <TextBlock Text="View changes →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
-                            <Border
+                            </Button>
+                            <Button
                                 Margin="0,0,10,0"
-                                Classes="ov-card"
-                                IsVisible="{Binding IsGitHubEnabled}">
+                                Classes="ov-card-btn"
+                                Command="{Binding TogglePullRequestsTabCommand}"
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Pull Requests tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -350,16 +390,15 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding PullRequestCount}" />
                                         <TextBlock Classes="subtle" Text="Open Pull Requests" />
-                                        <Button Classes="ov-link" Command="{Binding TogglePullRequestsTabCommand}">
-                                            <TextBlock Text="View PRs →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
-                            <Border
+                            </Button>
+                            <Button
                                 Margin="0,0,10,0"
-                                Classes="ov-card"
-                                IsVisible="{Binding IsGitHubEnabled}">
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleIssuesTabCommand}"
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Issues tab">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -382,12 +421,9 @@
                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                             Text="{Binding IssueCount}" />
                                         <TextBlock Classes="subtle" Text="Open Issues" />
-                                        <Button Classes="ov-link" Command="{Binding ToggleIssuesTabCommand}">
-                                            <TextBlock Text="View issues →" />
-                                        </Button>
                                     </StackPanel>
                                 </StackPanel>
-                            </Border>
+                            </Button>
                         </UniformGrid>
 
                         <!--  Activity lists  -->
@@ -397,23 +433,17 @@
                             ColumnSpacing="10">
 
                             <!--  Local Changes  -->
-                            <Border Grid.Column="0" Classes="ov-card">
+                            <Button
+                                Grid.Column="0"
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleChangesTabCommand}"
+                                ToolTip.Tip="Open the Changes tab">
                                 <DockPanel>
-                                    <Grid
+                                    <TextBlock
                                         Margin="0,0,0,4"
-                                        ColumnDefinitions="*,Auto"
-                                        DockPanel.Dock="Top">
-                                        <TextBlock
-                                            Grid.Column="0"
-                                            Classes="ov-card-title"
-                                            Text="Local Changes" />
-                                        <Button
-                                            Grid.Column="1"
-                                            Classes="ov-link"
-                                            Command="{Binding ToggleChangesTabCommand}">
-                                            <TextBlock Text="View all" />
-                                        </Button>
-                                    </Grid>
+                                        Classes="ov-card-title"
+                                        DockPanel.Dock="Top"
+                                        Text="Local Changes" />
                                     <TextBlock
                                         Margin="0,4,0,0"
                                         Classes="subtle"
@@ -468,26 +498,20 @@
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>
-                            </Border>
+                            </Button>
 
                             <!--  Recent Pull Requests  -->
-                            <Border Grid.Column="1" Classes="ov-card">
+                            <Button
+                                Grid.Column="1"
+                                Classes="ov-card-btn"
+                                Command="{Binding TogglePullRequestsTabCommand}"
+                                ToolTip.Tip="Open the Pull Requests tab">
                                 <DockPanel>
-                                    <Grid
+                                    <TextBlock
                                         Margin="0,0,0,4"
-                                        ColumnDefinitions="*,Auto"
-                                        DockPanel.Dock="Top">
-                                        <TextBlock
-                                            Grid.Column="0"
-                                            Classes="ov-card-title"
-                                            Text="Recent Pull Requests" />
-                                        <Button
-                                            Grid.Column="1"
-                                            Classes="ov-link"
-                                            Command="{Binding TogglePullRequestsTabCommand}">
-                                            <TextBlock Text="View all" />
-                                        </Button>
-                                    </Grid>
+                                        Classes="ov-card-title"
+                                        DockPanel.Dock="Top"
+                                        Text="Recent Pull Requests" />
                                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                         <StackPanel Spacing="10">
                                             <TextBlock
@@ -505,18 +529,22 @@
                                                             Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip.Tip="{Binding Url}">
-                                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                                                                 <StackPanel Grid.Column="0" Spacing="1">
-                                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <!--  Star cell constrains the title so it trims
+                                                                          instead of painting over the trailing
+                                                                          author/age columns.  -->
+                                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                                         <TextBlock
                                                                             FontWeight="SemiBold"
                                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                                             Text="{Binding Number, StringFormat='#{0}'}" />
                                                                         <TextBlock
+                                                                            Grid.Column="1"
                                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                                             Text="{Binding Title}"
                                                                             TextTrimming="CharacterEllipsis" />
-                                                                    </StackPanel>
+                                                                    </Grid>
                                                                     <StackPanel
                                                                         Orientation="Horizontal"
                                                                         Spacing="6"
@@ -539,9 +567,15 @@
                                                                     Grid.Column="1"
                                                                     VerticalAlignment="Center"
                                                                     Classes="subtle"
+                                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                    Text="{Binding Author}" />
+                                                                <TextBlock
+                                                                    Grid.Column="2"
+                                                                    VerticalAlignment="Center"
+                                                                    Classes="subtle"
                                                                     Text="{Binding AgeText}" />
                                                                 <Border
-                                                                    Grid.Column="2"
+                                                                    Grid.Column="3"
                                                                     Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
                                                                     Classes="state-chip"
                                                                     ToolTip.Tip="{Binding StateChip}">
@@ -558,26 +592,20 @@
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>
-                            </Border>
+                            </Button>
 
                             <!--  Recent Issues  -->
-                            <Border Grid.Column="2" Classes="ov-card">
+                            <Button
+                                Grid.Column="2"
+                                Classes="ov-card-btn"
+                                Command="{Binding ToggleIssuesTabCommand}"
+                                ToolTip.Tip="Open the Issues tab">
                                 <DockPanel>
-                                    <Grid
+                                    <TextBlock
                                         Margin="0,0,0,4"
-                                        ColumnDefinitions="*,Auto"
-                                        DockPanel.Dock="Top">
-                                        <TextBlock
-                                            Grid.Column="0"
-                                            Classes="ov-card-title"
-                                            Text="Recent Issues" />
-                                        <Button
-                                            Grid.Column="1"
-                                            Classes="ov-link"
-                                            Command="{Binding ToggleIssuesTabCommand}">
-                                            <TextBlock Text="View all" />
-                                        </Button>
-                                    </Grid>
+                                        Classes="ov-card-title"
+                                        DockPanel.Dock="Top"
+                                        Text="Recent Issues" />
                                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                         <StackPanel Spacing="10">
                                             <TextBlock
@@ -595,18 +623,22 @@
                                                             Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip.Tip="{Binding Url}">
-                                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                                                 <StackPanel Grid.Column="0" Spacing="1">
-                                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <!--  Star cell constrains the title so it trims
+                                                                          instead of painting over the trailing
+                                                                          author/age columns.  -->
+                                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                                         <TextBlock
                                                                             FontWeight="SemiBold"
                                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                                             Text="{Binding Number, StringFormat='#{0}'}" />
                                                                         <TextBlock
+                                                                            Grid.Column="1"
                                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                                             Text="{Binding Title}"
                                                                             TextTrimming="CharacterEllipsis" />
-                                                                    </StackPanel>
+                                                                    </Grid>
                                                                     <ItemsControl IsVisible="{Binding HasLabels}" ItemsSource="{Binding Labels}">
                                                                         <ItemsControl.ItemsPanel>
                                                                             <ItemsPanelTemplate>
@@ -631,6 +663,12 @@
                                                                     Grid.Column="1"
                                                                     VerticalAlignment="Center"
                                                                     Classes="subtle"
+                                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                    Text="{Binding Author}" />
+                                                                <TextBlock
+                                                                    Grid.Column="2"
+                                                                    VerticalAlignment="Center"
+                                                                    Classes="subtle"
                                                                     IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                                     Text="{Binding AgeText}" />
                                                             </Grid>
@@ -641,7 +679,7 @@
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>
-                            </Border>
+                            </Button>
                         </Grid>
                     </Grid>
 
@@ -847,8 +885,8 @@
                             Grid.Column="2"
                             VerticalAlignment="Center"
                             Classes="icon"
-                            Command="{Binding OpenGitHubRepoCommand}"
-                            ToolTip.Tip="Open the repository on GitHub">
+                            Command="{Binding OpenGitHubPullsCommand}"
+                            ToolTip.Tip="Open the pull requests page on GitHub">
                             <Path
                                 Width="17"
                                 Height="17"
@@ -885,7 +923,7 @@
                                             Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
                                             CommandParameter="{Binding}"
                                             ToolTip.Tip="{Binding Url}">
-                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
                                                 <Path
                                                     Grid.Column="0"
                                                     Width="15"
@@ -899,7 +937,10 @@
                                                     VerticalAlignment="Center"
                                                     Orientation="Vertical"
                                                     Spacing="2">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <!--  Title line: star cell constrains the title so it
+                                                          trims instead of painting over the trailing
+                                                          author/age/chip columns.  -->
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                         <TextBlock
                                                             VerticalAlignment="Center"
                                                             FontSize="13"
@@ -907,12 +948,13 @@
                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                             Text="{Binding Number, StringFormat='#{0}'}" />
                                                         <TextBlock
+                                                            Grid.Column="1"
                                                             VerticalAlignment="Center"
                                                             FontSize="13"
                                                             Foreground="{DynamicResource TitleForegroundBrush}"
                                                             Text="{Binding Title}"
                                                             TextTrimming="CharacterEllipsis" />
-                                                    </StackPanel>
+                                                    </Grid>
                                                     <StackPanel
                                                         Orientation="Horizontal"
                                                         Spacing="6"
@@ -954,10 +996,16 @@
                                                     Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     Classes="subtle"
+                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                    Text="{Binding Author}" />
+                                                <TextBlock
+                                                    Grid.Column="3"
+                                                    VerticalAlignment="Center"
+                                                    Classes="subtle"
                                                     IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                     Text="{Binding AgeText}" />
                                                 <Border
-                                                    Grid.Column="3"
+                                                    Grid.Column="4"
                                                     Classes="state-chip"
                                                     Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
                                                     ToolTip.Tip="{Binding StateChip}">
@@ -1000,8 +1048,8 @@
                             Grid.Column="2"
                             VerticalAlignment="Center"
                             Classes="icon"
-                            Command="{Binding OpenGitHubRepoCommand}"
-                            ToolTip.Tip="Open the repository on GitHub">
+                            Command="{Binding OpenGitHubIssuesCommand}"
+                            ToolTip.Tip="Open the issues page on GitHub">
                             <Path
                                 Width="17"
                                 Height="17"
@@ -1030,78 +1078,93 @@
                                 Classes="subtle"
                                 IsVisible="{Binding ShowGitHubUnavailable}"
                                 Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
-                            <ItemsControl ItemsSource="{Binding GitHubIssues}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="entities:GitHubItem">
-                                        <Button
-                                            Classes="bar-item"
-                                            Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip.Tip="{Binding Url}">
-                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                                <Path
-                                                    Grid.Column="0"
-                                                    Width="15"
-                                                    Height="15"
-                                                    VerticalAlignment="Center"
-                                                    Data="{tools:SvgPath icon-issue}"
-                                                    Fill="{DynamicResource WarningAccentBrush}"
-                                                    Stretch="Uniform" />
-                                                <StackPanel
-                                                    Grid.Column="1"
-                                                    VerticalAlignment="Center"
-                                                    Orientation="Vertical"
-                                                    Spacing="2">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Title}"
-                                                            TextTrimming="CharacterEllipsis" />
-                                                    </StackPanel>
-                                                    <ItemsControl IsVisible="{Binding HasLabels}" ItemsSource="{Binding Labels}">
-                                                        <ItemsControl.ItemsPanel>
-                                                            <ItemsPanelTemplate>
-                                                                <WrapPanel Orientation="Horizontal" />
-                                                            </ItemsPanelTemplate>
-                                                        </ItemsControl.ItemsPanel>
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate x:DataType="x:String">
-                                                                <Border
-                                                                    Classes="label-pill"
-                                                                    Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
-                                                                    ToolTip.Tip="{Binding}">
+                                            <ItemsControl ItemsSource="{Binding GitHubIssues}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="entities:GitHubItem">
+                                                        <Button
+                                                            Classes="bar-item"
+                                                            Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="{Binding Url}">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                                                                <Path
+                                                                    Grid.Column="0"
+                                                                    Width="15"
+                                                                    Height="15"
+                                                                    VerticalAlignment="Center"
+                                                                    Data="{tools:SvgPath icon-issue}"
+                                                                    Fill="{DynamicResource WarningAccentBrush}"
+                                                                    Stretch="Uniform" />
+                                                                <!--  One line: number + title, then the tag
+                                                                      pills, the author and the relative age.
+                                                                      The title lives in a star grid cell (not a
+                                                                      horizontal StackPanel, which measures at
+                                                                      infinite width and would never trim).  -->
+                                                                <Grid
+                                                                    Grid.Column="1"
+                                                                    ColumnDefinitions="Auto,*"
+                                                                    ColumnSpacing="6">
                                                                     <TextBlock
-                                                                        Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
-                                                                        Text="{Binding}" />
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </StackPanel>
-                                                <TextBlock
-                                                    Grid.Column="2"
-                                                    VerticalAlignment="Center"
-                                                    Classes="subtle"
-                                                    IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                    Text="{Binding AgeText}" />
-                                            </Grid>
-                                        </Button>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </ScrollViewer>
-                </DockPanel>
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="13"
+                                                                        FontWeight="SemiBold"
+                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                        Text="{Binding Number, StringFormat='#{0}'}" />
+                                                                    <TextBlock
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="13"
+                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                        Text="{Binding Title}"
+                                                                        TextTrimming="CharacterEllipsis" />
+                                                                </Grid>
+                                                                <ItemsControl
+                                                                    Grid.Column="2"
+                                                                    VerticalAlignment="Center"
+                                                                    ClipToBounds="True"
+                                                                    IsVisible="{Binding HasLabels}"
+                                                                    ItemsSource="{Binding Labels}"
+                                                                    MaxWidth="260">
+                                                                    <ItemsControl.ItemsPanel>
+                                                                        <ItemsPanelTemplate>
+                                                                            <StackPanel Orientation="Horizontal" />
+                                                                        </ItemsPanelTemplate>
+                                                                    </ItemsControl.ItemsPanel>
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate x:DataType="x:String">
+                                                                            <Border
+                                                                                Classes="label-pill"
+                                                                                Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
+                                                                                ToolTip.Tip="{Binding}">
+                                                                                <TextBlock
+                                                                                    Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
+                                                                                    Text="{Binding}" />
+                                                                            </Border>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                                <TextBlock
+                                                                    Grid.Column="3"
+                                                                    VerticalAlignment="Center"
+                                                                    Classes="subtle"
+                                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                    Text="{Binding Author}" />
+                                                                <TextBlock
+                                                                    Grid.Column="4"
+                                                                    VerticalAlignment="Center"
+                                                                    Classes="subtle"
+                                                                    IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                    Text="{Binding AgeText}" />
+                                                            </Grid>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </DockPanel>
 
-                <!--  Azure DevOps tab: pull requests, work items, pipeline runs  -->
+                                <!--  Azure DevOps tab: pull requests, work items, pipeline runs  -->
                 <DockPanel Grid.Row="1" IsVisible="{Binding IsActiveAzure}">
                     <Grid
                         Margin="0,6,0,4"
@@ -1424,10 +1487,12 @@
 
         <!--  ============ Strip (git context + Fetch; hidden with the whole bar) ====
               Bottom half of the docked card: rounded bottom corners, hairline border
-              on three sides, DividerBrush hairline on top separating it from the panel.  -->
+              on three sides, DividerBrush hairline on top separating it from the panel.
+              The extra height (over the 40px it replaced) gives the branch dropdown,
+              Fetch and last-fetched row vertical breathing room.  -->
         <Border
             Grid.Row="1"
-            Height="40"
+            Height="48"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource DividerBrush}"
             BorderThickness="0,1,1,1"

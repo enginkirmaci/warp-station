@@ -722,17 +722,6 @@ public partial class ReposViewModel : PageViewModelBase
     // --- GitHub column ---
 
     /// <summary>
-    /// Opens the repo's GitHub page in the browser. A no-op for repos without a GitHub
-    /// remote (their column cell shows nothing anyway).
-    /// </summary>
-    [RelayCommand]
-    private void OpenGitHubRepo(Repo? repo)
-    {
-        if (string.IsNullOrWhiteSpace(repo?.GitHubRepoUrl)) return;
-        _processLauncher.StartProcess(repo.GitHubRepoUrl);
-    }
-
-    /// <summary>
     /// Opens the bottom bar's Pull Requests tab on the clicked row's repo: open pull
     /// requests listed as clickable links, seeded from the GitHub service cache and
     /// refreshed in the background. Replaces the old GitHub details modal.

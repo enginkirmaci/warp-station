@@ -489,30 +489,30 @@
                                                                                 Text="checking…" />
                                                                 </StackPanel>
 
-                                                                        <!--
-                                                                                GitHub: the repo link plus one chip
-                                                                                per item kind with open counts;
-                                                                                clicking a chip opens the bottom
-                                                                                bar's matching tab (pull requests /
-                                                                                issues). Only kinds with open items
-                                                                                show a chip, a GitHub repo with
-                                                                                nothing open shows "OK", and
-                                                                                anything without a GitHub remote
-                                                                                stays empty. The whole cell hides
-                                                                                when the settings disable the
-                                                                                column — the gh probing stops with
-                                                                                it. The cell is a FIXED-width
-                                                                                border so the Auto column resolves
-                                                                                identically in every row (rows are
-                                                                                independent grids; Auto sized to
-                                                                                varying chip sets would let the
-                                                                                columns to the right drift per
-                                                                                row), and it collapses to zero width
-                                                                                when the column is off.
-                                                                        -->
+                                                                <!--
+                                                                        GitHub: one chip per item kind with
+                                                                        open counts; clicking a chip opens
+                                                                        the bottom bar's matching tab (pull
+                                                                        requests / issues). Only kinds with
+                                                                        open items show a chip, a GitHub
+                                                                        repo with nothing open shows a
+                                                                        quiet tick, and anything without a
+                                                                        GitHub remote stays empty. The
+                                                                        whole cell hides when the settings
+                                                                        disable the column — the gh probing
+                                                                        stops with it. The cell is a
+                                                                        FIXED-width border so the Auto
+                                                                        column resolves identically in
+                                                                        every row (rows are independent
+                                                                        grids; Auto sized to varying chip
+                                                                        sets would let the columns to the
+                                                                        right drift per row), and it
+                                                                        collapses to zero width when the
+                                                                        column is off.
+                                                                -->
                                                                 <Border
                                                                         Grid.Column="4"
-                                                                        Width="180"
+                                                                        Width="140"
                                                                         Margin="0,0,16,0"
                                                                         HorizontalAlignment="Left"
                                                                         ClipToBounds="True"
@@ -521,23 +521,6 @@
                                                                                 VerticalAlignment="Center"
                                                                                 Orientation="Horizontal"
                                                                                 Spacing="8">
-                                                                        <Button
-                                                                                Width="32"
-                                                                                Height="32"
-                                                                                Padding="7"
-                                                                                VerticalAlignment="Center"
-                                                                                Classes="icon"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubRepoCommand}"
-                                                                                CommandParameter="{Binding}"
-                                                                                IsVisible="{Binding GitHubRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                                                ToolTip.Tip="Open on GitHub">
-                                                                                <Path
-                                                                                        Width="17"
-                                                                                        Height="17"
-                                                                                        Data="{tools:SvgPath icon-github}"
-                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
-                                                                                        Stretch="Uniform" />
-                                                                        </Button>
                                                                         <Button
                                                                                 Padding="9,4"
                                                                                 VerticalAlignment="Center"
@@ -590,12 +573,21 @@
                                                                                                 Text="{Binding GitHubIssueCount}" />
                                                                                 </StackPanel>
                                                                         </Button>
-                                                                        <TextBlock
+                                                                        <!--
+                                                                                All-clear tick in the disabled
+                                                                                tone (FaintForegroundBrush =
+                                                                                SukiDisabledText): present without
+                                                                                inviting a click — there is
+                                                                                nothing to open here.
+                                                                        -->
+                                                                        <Path
+                                                                                Width="14"
+                                                                                Height="14"
                                                                                 VerticalAlignment="Center"
-                                                                                Classes="subtle"
-                                                                                FontSize="12"
+                                                                                Data="M9,16.17 L4.83,12 L3.41,13.41 L9,19 L21,7 L19.59,5.59 Z"
+                                                                                Fill="{DynamicResource FaintForegroundBrush}"
                                                                                 IsVisible="{Binding IsGitHubAllClear}"
-                                                                                Text="OK"
+                                                                                Stretch="Uniform"
                                                                                 ToolTip.Tip="No open pull requests or issues" />
                                                                         </StackPanel>
                                                                 </Border>

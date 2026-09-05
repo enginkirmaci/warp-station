@@ -14,11 +14,12 @@
     mc:Ignorable="d">
 
     <!--
-            Repo detail header (per the mockup): repo name + favorite star,
-            branch / GitHub URL line, and the tab row. Lives INSIDE the bottom bar's
-            expandable panel, above the active tab's content; the tabs drive that panel.
-            The X button (top right) closes the whole bar until another row is picked
-            from the table.
+            Repo detail header (per the mockup): one top row with the repo name +
+            favorite star on the left and the actions (kebab, X) right-aligned on
+            the same line, then the branch / GitHub URL line and the tab row. Lives
+            INSIDE the bottom bar's expandable panel, above the active tab's
+            content; the tabs drive that panel. The X button (far right) closes the
+            whole bar until another row is picked from the table.
     -->
     <UserControl.Styles>
         <!--  Quiet accent links on the branch line (branch view + repo URL): transparent,
@@ -77,28 +78,35 @@
 
     <StackPanel Spacing="2">
 
-        <!--  Actions row: Open in GitHub, kebab menu, panel close at the very end.  -->
+        <!--  Top row: name + favorite star on the left, actions (kebab, panel
+              close) right-aligned on the same line.  -->
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
-                      the native theme hover highlights the whole surface.  -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="22"
+                    FontWeight="Bold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding SelectedRepoName}"
+                    TextTrimming="CharacterEllipsis" />
                 <Button
-                    Command="{Binding OpenGitHubRepoCommand}"
-                    IsVisible="{Binding HasSelectedRepoGitHubUrl}"
-                    ToolTip.Tip="Open the repository on GitHub">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Path
-                            Width="15"
-                            Height="15"
-                            VerticalAlignment="Center"
-                            Data="{tools:SvgPath icon-github}"
-                            Fill="{DynamicResource BodyForegroundBrush}"
-                            Stretch="Uniform" />
-                        <TextBlock
-                            VerticalAlignment="Center"
-                            Text="Open in GitHub" />
-                    </StackPanel>
+                    VerticalAlignment="Center"
+                    Classes="icon"
+                    Command="{Binding ToggleSelectedRepoFavoriteCommand}"
+                    ToolTip.Tip="Toggle favorite">
+                    <Path
+                        Width="18"
+                        Height="18"
+                        Data="{tools:SvgPath icon-star}"
+                        Fill="{Binding SelectedRepo?.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                        Stretch="Uniform" />
                 </Button>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
+                      the native theme hover highlights the whole surface. The repo's
+                      GitHub page stays reachable via the kebab menu and the URL link
+                      on the branch line — no dedicated header button.  -->
                 <Button ToolTip.Tip="More actions">
                     <Path
                         Width="14"
@@ -135,29 +143,6 @@
                 </Button>
             </StackPanel>
         </Grid>
-
-        <!--  Name + favorite star  -->
-        <StackPanel Orientation="Horizontal" Spacing="14">
-            <TextBlock
-                VerticalAlignment="Center"
-                FontSize="22"
-                FontWeight="Bold"
-                Foreground="{DynamicResource TitleForegroundBrush}"
-                Text="{Binding SelectedRepoName}"
-                TextTrimming="CharacterEllipsis" />
-            <Button
-                VerticalAlignment="Center"
-                Classes="icon"
-                Command="{Binding ToggleSelectedRepoFavoriteCommand}"
-                ToolTip.Tip="Toggle favorite">
-                <Path
-                    Width="18"
-                    Height="18"
-                    Data="{tools:SvgPath icon-star}"
-                    Fill="{Binding SelectedRepo?.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
-                    Stretch="Uniform" />
-            </Button>
-        </StackPanel>
 
         <!--  Branch • GitHub URL  -->
         <StackPanel Margin="0,2,0,4" Orientation="Horizontal" Spacing="10">

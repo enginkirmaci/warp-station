@@ -924,6 +924,27 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
+    /// <summary>Opens the selected repo's GitHub pull-requests page (…/pulls).</summary>
+    [RelayCommand]
+    private void OpenGitHubPulls()
+    {
+        OpenGitHubSection("pulls");
+    }
+
+    /// <summary>Opens the selected repo's GitHub issues page (…/issues).</summary>
+    [RelayCommand]
+    private void OpenGitHubIssues()
+    {
+        OpenGitHubSection("issues");
+    }
+
+    /// <summary>Opens a section page (pulls, issues) of the selected repo's GitHub repo.</summary>
+    private void OpenGitHubSection(string section)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedRepo?.GitHubRepoUrl)) return;
+        _processLauncher.StartProcess(SelectedRepo.GitHubRepoUrl.TrimEnd('/') + "/" + section);
+    }
+
     // --- Azure tab ---
 
     /// <summary>Whether the Azure tab shows at all (mirrors the Azure column setting).</summary>
