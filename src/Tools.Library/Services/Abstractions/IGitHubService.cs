@@ -49,4 +49,13 @@ public interface IGitHubService
     /// instantly from cache before its background refresh completes.
     /// </summary>
     GitHubActivity? GetCachedActivity(Repo repo);
+
+    /// <summary>
+    /// Fetches the repository's static metadata (owner, creation date, language,
+    /// license, default branch, topics) via <c>gh repo view</c> and caches it per
+    /// folder. Returns <c>null</c> when GitHub querying is disabled, the folder is
+    /// unknown, or the probe fails / the repo is not on GitHub — the Overview sidebar
+    /// hides in that case. Cached: repeated opens cost no process spawn.
+    /// </summary>
+    Task<GitHubRepoDetails?> GetRepoDetailsAsync(Repo repo, CancellationToken cancellationToken = default);
 }

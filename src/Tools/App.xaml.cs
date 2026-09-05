@@ -61,6 +61,9 @@ public partial class App : Application
         // Register windows and view models
         services.AddSingleton<MainWindow>();
         services.AddSingleton<MainWindowViewModel>();
+        // Singleton: the bottom bar outlives page navigation and keeps its state (repo
+        // selection, open tab) for the whole window lifetime.
+        services.AddSingleton<ViewModels.Components.BottomBarViewModel>();
         // Register pages and view models
         RegisterPageWithViewModel<DashboardPage, DashboardViewModel>(services);
         RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);

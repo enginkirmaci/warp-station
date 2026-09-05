@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Tools.Views.Components.RepoHeader"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Components"
+    d:DesignHeight="150"
+    d:DesignWidth="1200"
+    x:CompileBindings="True"
+    x:DataType="vm:BottomBarViewModel"
+    mc:Ignorable="d">
+
+    <!--
+            Repo detail header (per the mockup): back link, repo name + favorite star,
+            branch / GitHub URL line, and the tab row. Lives INSIDE the bottom bar's
+            expandable panel, above the active tab's content; the tabs drive that panel.
+            "Back to Repositories" deselects the repo (hides bar and panel) until
+            another row is picked from the table.
+    -->
+    <UserControl.Styles>
+        <!--  Quiet accent links on the branch line (branch view + repo URL): transparent,
+              no box — the accent text IS the affordance.  -->
+        <Style Selector="Button.header-link">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.header-link:pointerover /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
+        <!--  Action buttons are plain default SukiUI buttons (like the Add-Repository
+              dialog's Browse…) — the native theme hover highlights the whole surface,
+              so no custom hover styles here.  -->
+        <!--  Tab button: quiet label + count chip, accent underline when active.  -->
+        <Style Selector="Button.bar-tab">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0,9" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.bar-tab TextBlock.tab-label">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.bar-tab:pointerover TextBlock.tab-label">
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.bar-tab.active">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimaryBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,2" />
+            <Setter Property="Padding" Value="0,9" />
+        </Style>
+        <Style Selector="Button.bar-tab.active TextBlock.tab-label">
+            <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <!--  Tab badge: the count carried over from the row chips, in a small rounded chip.  -->
+        <Style Selector="Border.tab-badge-chip">
+            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.tab-badge">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Spacing="2">
+
+        <!--  Actions row: Open in GitHub, kebab menu, panel close at the very end.  -->
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
+                      the native theme hover highlights the whole surface.  -->
+                <Button
+                    Command="{Binding OpenGitHubRepoCommand}"
+                    IsVisible="{Binding HasSelectedRepoGitHubUrl}"
+                    ToolTip.Tip="Open the repository on GitHub">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Path
+                            Width="15"
+                            Height="15"
+                            VerticalAlignment="Center"
+                            Data="{tools:SvgPath icon-github}"
+                            Fill="{DynamicResource BodyForegroundBrush}"
+                            Stretch="Uniform" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Text="Open in GitHub" />
+                    </StackPanel>
+                </Button>
+                <Button ToolTip.Tip="More actions">
+                    <Path
+                        Width="14"
+                        Height="14"
+                        Data="{tools:SvgPath icon-ellipsis-vertical}"
+                        Fill="{DynamicResource BodyForegroundBrush}"
+                        Stretch="Uniform" />
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem
+                                Command="{Binding OpenGitHubRepoCommand}"
+                                Header="Open in GitHub"
+                                IsVisible="{Binding HasSelectedRepoGitHubUrl}" />
+                            <MenuItem
+                                Command="{Binding CopyGitHubUrlCommand}"
+                                Header="Copy GitHub URL"
+                                IsVisible="{Binding HasSelectedRepoGitHubUrl}" />
+                            <MenuItem
+                                Command="{Binding CopyRepoPathCommand}"
+                                Header="Copy folder path"
+                                IsVisible="{Binding HasSelectedRepo}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <Button
+                    Command="{Binding CloseCommand}"
+                    ToolTip.Tip="Close panel">
+                    <Path
+                        Width="14"
+                        Height="14"
+                        Data="{tools:SvgPath icon-close}"
+                        Fill="{DynamicResource BodyForegroundBrush}"
+                        Stretch="Uniform" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!--  Name + favorite star  -->
+        <StackPanel Orientation="Horizontal" Spacing="14">
+            <TextBlock
+                VerticalAlignment="Center"
+                FontSize="22"
+                FontWeight="Bold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding SelectedRepoName}"
+                TextTrimming="CharacterEllipsis" />
+            <Button
+                VerticalAlignment="Center"
+                Classes="icon"
+                Command="{Binding ToggleSelectedRepoFavoriteCommand}"
+                ToolTip.Tip="Toggle favorite">
+                <Path
+                    Width="18"
+                    Height="18"
+                    Data="{tools:SvgPath icon-star}"
+                    Fill="{Binding SelectedRepo.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                    Stretch="Uniform" />
+            </Button>
+        </StackPanel>
+
+        <!--  Branch • GitHub URL  -->
+        <StackPanel Margin="0,2,0,4" Orientation="Horizontal" Spacing="10">
+            <!--  Branch name is a plain label, not a link.  -->
+            <StackPanel IsVisible="{Binding HasSelectedRepoGitHubUrl}" Orientation="Horizontal" Spacing="6">
+                <Path
+                    Width="13"
+                    Height="13"
+                    VerticalAlignment="Center"
+                    Data="{tools:SvgPath icon-source-branch}"
+                    Fill="{DynamicResource AccentPrimaryBrush}"
+                    Stretch="Uniform" />
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    Foreground="{DynamicResource AccentPrimaryBrush}"
+                    Text="{Binding SelectedRepoBranch}" />
+            </StackPanel>
+            <TextBlock
+                VerticalAlignment="Center"
+                FontSize="13"
+                Foreground="{DynamicResource MutedForegroundBrush}"
+                IsVisible="{Binding HasSelectedRepoGitHubUrl}"
+                Text="•" />
+            <Button
+                Classes="header-link"
+                Command="{Binding OpenGitHubRepoCommand}"
+                IsVisible="{Binding HasSelectedRepoGitHubUrl}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="13"
+                        Foreground="{DynamicResource BodyForegroundBrush}"
+                        Text="{Binding SelectedRepoGitHubDisplayUrl}" />
+                    <Path
+                        Width="12"
+                        Height="12"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-open-in-new}"
+                        Fill="{DynamicResource MutedForegroundBrush}"
+                        Stretch="Uniform" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!--  Tabs: drive the bottom bar's panel  -->
+        <StackPanel Orientation="Horizontal" Spacing="36">
+            <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}">
+                <TextBlock Classes="tab-label" Text="Overview" />
+            </Button>
+            <Button Classes="bar-tab" Classes.active="{Binding IsActiveChanges}" Command="{Binding ToggleChangesTabCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Classes="tab-label" Text="Changes" />
+                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowChangesBadge}">
+                        <TextBlock Classes="tab-badge" Text="{Binding ChangesCount}" />
+                    </Border>
+                </StackPanel>
+            </Button>
+            <Button
+                Classes="bar-tab"
+                Classes.active="{Binding IsActivePullRequests}"
+                Command="{Binding TogglePullRequestsTabCommand}"
+                IsVisible="{Binding IsGitHubEnabled}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Classes="tab-label" Text="Pull Requests" />
+                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowPullRequestBadge}">
+                        <TextBlock Classes="tab-badge" Text="{Binding PullRequestCount}" />
+                    </Border>
+                </StackPanel>
+            </Button>
+            <Button
+                Classes="bar-tab"
+                Classes.active="{Binding IsActiveIssues}"
+                Command="{Binding ToggleIssuesTabCommand}"
+                IsVisible="{Binding IsGitHubEnabled}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Classes="tab-label" Text="Issues" />
+                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowIssueBadge}">
+                        <TextBlock Classes="tab-badge" Text="{Binding IssueCount}" />
+                    </Border>
+                </StackPanel>
+            </Button>
+            <Button
+                Classes="bar-tab"
+                Classes.active="{Binding IsActiveAzure}"
+                Command="{Binding ToggleAzureTabCommand}"
+                IsVisible="{Binding IsAzureDevOpsEnabled}">
+                <TextBlock Classes="tab-label" Text="Pipelines" />
+            </Button>
+            <Button Classes="bar-tab" Classes.active="{Binding IsActiveGit}" Command="{Binding ToggleGitTabCommand}">
+                <TextBlock Classes="tab-label" Text="Git" />
+            </Button>
+            <Button
+                Classes="bar-tab"
+                Classes.active="{Binding IsActiveOpenCode}"
+                Command="{Binding ToggleOpenCodeTabCommand}"
+                IsVisible="{Binding IsOpenCodeEnabled}">
+                <TextBlock Classes="tab-label" Text="OpenCode" />
+            </Button>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

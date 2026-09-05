@@ -37,8 +37,8 @@ public sealed class GitHubService : IGitHubService
     private const int ItemLimit = 50;
 
     /// <summary>gh JSON field lists, kept minimal for cheap parsing.</summary>
-    private const string PrFields = "number,title,url,author,labels,isDraft";
-    private const string IssueFields = "number,title,url,author,labels";
+    private const string PrFields = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision";
+    private const string IssueFields = "number,title,url,author,labels,updatedAt";
 
     private readonly IRepoService _repoService;
 
@@ -62,6 +62,9 @@ public sealed class GitHubService : IGitHubService
 
     /// <summary>Last fetched item lists per repo folder, backing the details dialog's instant open.</summary>
     private readonly ConcurrentDictionary<string, GitHubActivity> _activityByFolder = new(StringComparer.Ordinal);
+
+    /// <summary>Static repo metadata per repo folder, backing the Overview sidebar's instant open.</summary>
+    private readonly ConcurrentDictionary<string, GitHubRepoDetails?> _detailsByFolder = new(StringComparer.Ordinal);
 
     public GitHubService(IRepoService repoService)
     {
@@ -236,6 +239,49 @@ public sealed class GitHubService : IGitHubService
             ? activity
             : null;
 
+    /// <inheritdoc/>
+    public async Task<GitHubRepoDetails?> GetRepoDetailsAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        var ghPath = _ghPath;
+        if (ghPath is null || repo.FolderPath is null)
+        {
+            return null;
+        }
+        if (_detailsByFolder.TryGetValue(repo.FolderPath, out var cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var json = await RunGhAsync(
+                ghPath,
+                repo.FolderPath,
+                "repo view --json owner,createdAt,primaryLanguage,licenseInfo,repositoryTopics,defaultBranchRef,url",
+                cancellationToken);
+            var payload = string.IsNullOrWhiteSpace(json)
+                ? null
+                : JsonSerializer.Deserialize<RepoDetailsPayload>(json, JsonOptions);
+            var details = payload is null
+                ? null
+                : new GitHubRepoDetails(
+                    payload.Owner?.Login,
+                    payload.CreatedAt,
+                    payload.PrimaryLanguage?.Name,
+                    payload.LicenseInfo?.Name,
+                    payload.DefaultBranchRef?.Name,
+                    payload.RepositoryTopics?.Where(t => !string.IsNullOrWhiteSpace(t.Name)).Select(t => t.Name!).ToArray() ?? [],
+                    payload.Url);
+            _detailsByFolder[repo.FolderPath] = details;
+            return details;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Logger.Debug(ex, "GitHub repo details failed for {FolderPath}", repo.FolderPath);
+            return null;
+        }
+    }
+
     private static void MarkUnavailable(Repo repo)
     {
         repo.GitHubRepoUrl = null;
@@ -249,7 +295,30 @@ public sealed class GitHubService : IGitHubService
 
     private sealed record RepoViewPayload(string? Url);
 
-    private sealed record ItemPayload(int Number, string? Title, string? Url, AuthorPayload? Author, LabelPayload[]? Labels, bool IsDraft);
+    private sealed record RepoDetailsPayload(
+        OwnerPayload? Owner,
+        DateTimeOffset? CreatedAt,
+        NamePayload? PrimaryLanguage,
+        NamePayload? LicenseInfo,
+        NamePayload[]? RepositoryTopics,
+        NamePayload? DefaultBranchRef,
+        string? Url);
+
+    private sealed record OwnerPayload(string? Login);
+
+    private sealed record NamePayload(string? Name);
+
+    private sealed record ItemPayload(
+        int Number,
+        string? Title,
+        string? Url,
+        AuthorPayload? Author,
+        LabelPayload[]? Labels,
+        bool IsDraft,
+        string? HeadRefName = null,
+        string? BaseRefName = null,
+        string? ReviewDecision = null,
+        DateTimeOffset? UpdatedAt = null);
 
     private sealed record AuthorPayload(string? Login);
 
@@ -283,7 +352,11 @@ public sealed class GitHubService : IGitHubService
                     p.Url!,
                     p.Author?.Login,
                     p.Labels?.Where(l => !string.IsNullOrWhiteSpace(l.Name)).Select(l => l.Name!).ToArray() ?? [],
-                    isPullRequest && p.IsDraft))
+                    isPullRequest && p.IsDraft,
+                    isPullRequest ? p.HeadRefName : null,
+                    isPullRequest ? p.BaseRefName : null,
+                    isPullRequest ? p.ReviewDecision : null,
+                    p.UpdatedAt))
                 .ToArray();
         }
         catch (JsonException ex)

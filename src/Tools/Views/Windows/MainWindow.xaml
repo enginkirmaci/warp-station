@@ -6,6 +6,7 @@
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 	xmlns:suki="https://github.com/kikipoulet/SukiUI"
+	xmlns:components="using:Tools.Views.Components"
 	xmlns:tools="using:Tools.Library.MarkupExtensions"
 	Title="DevTools"
 	Width="1400"
@@ -133,7 +134,8 @@
 		</StackPanel>
 	</suki:SukiWindow.LogoContent>
 
-	<Grid ColumnDefinitions="Auto,*">
+	<!--  The bottom bar lives on the Repositories page (its footer), not on every page.  -->
+	<Grid RowDefinitions="*" ColumnDefinitions="Auto,*">
 		<!--  Sidebar Navigation  -->
 		<Border
 			x:Name="SidebarBorder"
@@ -387,10 +389,11 @@
 				Padding="0" />
 		</Grid>
 
-		<!--  Toast overlay (floats above all pages, top-center)  -->
+		<!--  Toast overlay (floats above all pages and the bottom bar, top-center)  -->
 		<ItemsControl
 			x:Name="ToastHost"
 			Grid.ColumnSpan="2"
+			Grid.RowSpan="2"
 			Margin="0,12,0,0"
 			HorizontalAlignment="Center"
 			VerticalAlignment="Top"

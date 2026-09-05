@@ -7,6 +7,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:suki="https://github.com/kikipoulet/SukiUI"
         xmlns:tools="using:Tools.Library.MarkupExtensions"
+        xmlns:components="using:Tools.Views.Components"
         xmlns:vm="using:Tools.ViewModels.Pages"
         x:Name="Root"
         d:DesignHeight="600"
@@ -15,11 +16,13 @@
         x:DataType="vm:ReposViewModel"
         mc:Ignorable="d">
 
-        <Grid
-                Margin="16"
-                ColumnDefinitions="*"
-                RowDefinitions="Auto,Auto,*"
-                RowSpacing="16">
+        <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
+                <Grid
+                        Grid.Row="0"
+                        Margin="16"
+                        ColumnDefinitions="*"
+                        RowDefinitions="Auto,*"
+                        RowSpacing="16">
 
                 <Grid
                         Grid.Row="0"
@@ -27,9 +30,13 @@
                         ColumnSpacing="8">
                         <StackPanel
                                 Grid.Column="0"
+                                VerticalAlignment="Center"
                                 Orientation="Horizontal"
                                 Spacing="8">
-                                <TextBlock VerticalAlignment="Center" Classes="section-title">
+                                <TextBlock
+                                        VerticalAlignment="Center"
+                                        Classes="section-title"
+                                        Margin="0">
                                         <Run Text="Repositories" />
                                         <Run
                                                 FontSize="13"
@@ -91,108 +98,102 @@
                                                 Text="{Binding GitHubTotalIssueCount}" />
                                 </StackPanel>
                         </StackPanel>
-                        <StackPanel
+                        <!--
+                                Toolbar strip: tag filters, sort and page actions grouped in
+                                one rounded card hugging the right edge. Hairline dividers
+                                split the groups (filters / sort / actions).
+                        -->
+                        <Border
                                 Grid.Column="1"
-                                HorizontalAlignment="Right"
-                                Classes="actions">
-                                <!--  Add repository: picks a folder, scans it for git repos and
-                                        tracks the ones the user selects (dialog via DialogService)  -->
-                                <Button
-                                        Command="{Binding AddRepositoryCommand}"
-                                        ToolTip.Tip="Scan a folder for git repositories and add them to the list">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <Path
-                                                        Width="14"
-                                                        Height="14"
-                                                        VerticalAlignment="Center"
-                                                        Data="{tools:SvgPath icon-plus}"
-                                                        Fill="{DynamicResource BodyForegroundBrush}"
-                                                        Stretch="Uniform" />
+                                Padding="14,10"
+                                VerticalAlignment="Center"
+                                Classes="card">
+                                <StackPanel
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Spacing="14">
+                                        <ItemsControl
+                                                VerticalAlignment="Center"
+                                                ItemsSource="{Binding TagFilters}">
+                                                <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                                <StackPanel Orientation="Horizontal" Spacing="16" />
+                                                        </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="entities:TagFilter">
+                                                                <CheckBox
+                                                                        Command="{ReflectionBinding #Root.DataContext.TagFilterChangedCommand}"
+                                                                        Content="{Binding Name}"
+                                                                        IsChecked="{Binding IsChecked, Mode=TwoWay}" />
+                                                        </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Border Classes="vertical-divider" />
+                                        <!--
+                                                Sort selector: the whole list re-orders on pick
+                                                (favorites still pin to the top). The choice is
+                                                persisted in ReposSettings.SortMode.
+                                        -->
+                                        <ComboBox
+                                                MinWidth="140"
+                                                VerticalAlignment="Center"
+                                                ItemsSource="{Binding SortOptions}"
+                                                SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
+                                                ToolTip.Tip="Sort the repositories (favorites always stay on top)">
+                                                <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:RepoSortOption">
+                                                                <TextBlock Text="{Binding Label}" />
+                                                        </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button
+                                                VerticalAlignment="Center"
+                                                Classes="icon"
+                                                Command="{Binding ClearTagFiltersCommand}"
+                                                ToolTip.Tip="Clear selected tags">
                                                 <TextBlock
                                                         VerticalAlignment="Center"
-                                                        Text="Add repository" />
-                                        </StackPanel>
-                                </Button>
-                                <Button
-                                        Classes="icon"
-                                        Command="{Binding RefreshCommand}"
-                                        IsEnabled="{Binding !IsRefreshing}"
-                                        ToolTip.Tip="Refresh">
-                                        <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
-                                </Button>
-                                <Button
-                                        Classes="icon"
-                                        Command="{Binding OpenSettingsCommand}"
-                                        ToolTip.Tip="Settings">
-                                        <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
-                                </Button>
-                        </StackPanel>
-                </Grid>
-
-                <Border
-                        Grid.Row="1"
-                        Padding="12"
-                        HorizontalAlignment="Stretch"
-                        Classes="card">
-                        <!--  Search lives in the window's title bar now (it opens this page and
-                                drives FilterText); the toolbar keeps the tag filters and sorting.  -->
-                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
-                                <ItemsControl
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        ItemsSource="{Binding TagFilters}">
-                                        <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                        <WrapPanel Orientation="Horizontal" />
-                                                </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                                <DataTemplate x:DataType="entities:TagFilter">
-                                                        <CheckBox
-                                                                Margin="0,0,12,0"
-                                                                Command="{ReflectionBinding #Root.DataContext.TagFilterChangedCommand}"
-                                                                Content="{Binding Name}"
-                                                                IsChecked="{Binding IsChecked, Mode=TwoWay}" />
-                                                </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <!--
-                                        Sort selector: the whole list re-orders on pick
-                                        (favorites still pin to the top). The choice is
-                                        persisted in ReposSettings.SortMode.
-                                -->
-                                <Border
-                                        Grid.Column="1"
-                                        Margin="0,4"
-                                        Classes="vertical-divider" />
-                                <ComboBox
-                                        Grid.Column="2"
-                                        MinWidth="140"
-                                        VerticalAlignment="Center"
-                                        ItemsSource="{Binding SortOptions}"
-                                        SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
-                                        ToolTip.Tip="Sort the repositories (favorites always stay on top)">
-                                        <ComboBox.ItemTemplate>
-                                                <DataTemplate x:DataType="vm:RepoSortOption">
-                                                        <TextBlock Text="{Binding Label}" />
-                                                </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <Button
-                                        Grid.Column="3"
-                                        Width="44"
-                                        Padding="8,2"
-                                        VerticalAlignment="Center"
-                                        Classes="icon"
-                                        Command="{Binding ClearTagFiltersCommand}"
-                                        ToolTip.Tip="Clear selected tags">
-                                        <TextBlock
+                                                        Classes="subtle"
+                                                        Text="Clear" />
+                                        </Button>
+                                        <Border Classes="vertical-divider" />
+                                        <Button
+                                                Classes="icon"
+                                                Command="{Binding RefreshCommand}"
+                                                IsEnabled="{Binding !IsRefreshing}"
+                                                ToolTip.Tip="Refresh">
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                                        </Button>
+                                        <!--  Add repository: picks a folder, scans it for git repos and
+                                                tracks the ones the user selects (dialog via DialogService)  -->
+                                        <Button
                                                 VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text="Clear" />
-                                </Button>
-                        </Grid>
-                </Border>
+                                                Classes="accent"
+                                                Command="{Binding AddRepositoryCommand}"
+                                                ToolTip.Tip="Scan a folder for git repositories and add them to the list">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <Path
+                                                                Width="14"
+                                                                Height="14"
+                                                                VerticalAlignment="Center"
+                                                                Data="{tools:SvgPath icon-plus}"
+                                                                Fill="{DynamicResource AccentForegroundBrush}"
+                                                                Stretch="Uniform" />
+                                                        <TextBlock
+                                                                VerticalAlignment="Center"
+                                                                Text="Add Repository" />
+                                                </StackPanel>
+                                        </Button>
+                                        <Button
+                                                Classes="icon"
+                                                Command="{Binding OpenSettingsCommand}"
+                                                ToolTip.Tip="Settings">
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
+                                        </Button>
+                                </StackPanel>
+                        </Border>
+                </Grid>
 
                 <!--
                         Table of repo rows inside a single card surface, no header row.
@@ -205,11 +206,12 @@
                         selected/pressed states) is cleared so only the row hover tint shows.
                 -->
                 <Border
-                        Grid.Row="2"
+                        Grid.Row="1"
                         Grid.Column="0"
                         Padding="0"
                         Classes="card">
                         <ListBox
+                                x:Name="ReposList"
                                 Padding="0"
                                 Background="Transparent"
                                 BorderThickness="0"
@@ -265,6 +267,15 @@
                                                 <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
                                         </Style>
                                         <!--
+                                                The bar's selected repo keeps the same tint after the pointer
+                                                leaves, so the row feeding the bottom bar stays findable in the
+                                                shrunken table (declared after the hover style; brushes are
+                                                identical, so hover/selected interactions are indistinguishable).
+                                        -->
+                                        <Style Selector="Border.repo-row.selected">
+                                                <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+                                        </Style>
+                                        <!--
                                                 SukiTheme's app-wide ListBoxItem ControlTheme replaces the item
                                                 template with a GlassCard that carries a CircleCheck tick
                                                 (PathIcon#CheckSelected) fading in while :selected, plus a
@@ -303,6 +314,7 @@
                                                         MinHeight="56"
                                                         Padding="12,0"
                                                         Classes="repo-row"
+                                                        Classes.selected="{Binding IsBarSelected}"
                                                         PointerPressed="OnCardPointerPressed">
                                                                 <Grid VerticalAlignment="Center">
                                                                 <Grid.ColumnDefinitions>
@@ -344,20 +356,35 @@
                                                                         TextTrimming="CharacterEllipsis"
                                                                         ToolTip.Tip="{Binding FolderPath}" />
 
-                                                                <!--  Branch: colorized pill (main/develop/release/master
-                                                                        pick up their own tint, everything else goes muted
-                                                                        gray), or the checking placeholder. The pill sits in
-                                                                        its own star-sized column so long branch names trim
-                                                                        instead of bleeding into the stats cell next door.  -->
+                                                                <!--  Branch: colorized pill
+                                                                        (main/develop/release/master pick up
+                                                                        their own tint, everything else goes
+                                                                        muted gray), or the checking
+                                                                        placeholder. Clicking the pill opens
+                                                                        the bottom bar's Changes tab for this
+                                                                        repo. The pill sits in its own
+                                                                        star-sized column so long branch
+                                                                        names trim instead of bleeding into
+                                                                        the stats cell next door.  -->
                                                                 <Grid Grid.Column="2" Margin="0,0,16,0">
-                                                                        <Border
+                                                                        <Button
                                                                                 Padding="9,4"
                                                                                 HorizontalAlignment="Left"
                                                                                 VerticalAlignment="Center"
                                                                                 Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
+                                                                                BorderThickness="0"
                                                                                 ClipToBounds="True"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                CommandParameter="{Binding}"
                                                                                 CornerRadius="{DynamicResource ChipRadius}"
-                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                                                Cursor="Hand"
+                                                                                IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                                ToolTip.Tip="Open the changes panel">
+                                                                                <Button.Styles>
+                                                                                        <Style Selector="Button:pointerover">
+                                                                                                <Setter Property="Opacity" Value="0.85" />
+                                                                                        </Style>
+                                                                                </Button.Styles>
                                                                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                                                         <Path
                                                                                                 Grid.Column="0"
@@ -377,7 +404,7 @@
                                                                                                 TextTrimming="CharacterEllipsis"
                                                                                                 ToolTip.Tip="{Binding GitBranchName}" />
                                                                                 </Grid>
-                                                                        </Border>
+                                                                        </Button>
                                                                         <TextBlock
                                                                                 HorizontalAlignment="Left"
                                                                                 VerticalAlignment="Center"
@@ -462,20 +489,27 @@
                                                                                 Text="checking…" />
                                                                 </StackPanel>
 
-                                                                <!--
-                                                                        GitHub: the repo link plus one chip per item
-                                                                        kind with open counts; clicking a chip opens the
-                                                                        details dialog. Only kinds with open items show a
-                                                                        chip, a GitHub repo with nothing open shows "OK",
-                                                                        and anything without a GitHub remote stays empty.
-                                                                        The whole cell hides when the settings disable the
-                                                                        column — the gh probing stops with it. The cell is
-                                                                        a FIXED-width border so the Auto column resolves
-                                                                        identically in every row (rows are independent
-                                                                        grids; Auto sized to varying chip sets would let
-                                                                        the columns to the right drift per row), and it
-                                                                        collapses to zero width when the column is off.
-                                                                -->
+                                                                        <!--
+                                                                                GitHub: the repo link plus one chip
+                                                                                per item kind with open counts;
+                                                                                clicking a chip opens the bottom
+                                                                                bar's matching tab (pull requests /
+                                                                                issues). Only kinds with open items
+                                                                                show a chip, a GitHub repo with
+                                                                                nothing open shows "OK", and
+                                                                                anything without a GitHub remote
+                                                                                stays empty. The whole cell hides
+                                                                                when the settings disable the
+                                                                                column — the gh probing stops with
+                                                                                it. The cell is a FIXED-width
+                                                                                border so the Auto column resolves
+                                                                                identically in every row (rows are
+                                                                                independent grids; Auto sized to
+                                                                                varying chip sets would let the
+                                                                                columns to the right drift per
+                                                                                row), and it collapses to zero width
+                                                                                when the column is off.
+                                                                        -->
                                                                 <Border
                                                                         Grid.Column="4"
                                                                         Width="180"
@@ -510,7 +544,7 @@
                                                                                 Background="{DynamicResource GitHubPrChipBrush}"
                                                                                 BorderThickness="0"
                                                                                 CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubDetailsCommand}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenPullRequestsCommand}"
                                                                                 CommandParameter="{Binding}"
                                                                                 IsVisible="{Binding HasGitHubPullRequests}"
                                                                                 ToolTip.Tip="Open pull requests — click for details">
@@ -536,7 +570,7 @@
                                                                                 Background="{DynamicResource GitHubIssueChipBrush}"
                                                                                 BorderThickness="0"
                                                                                 CornerRadius="{DynamicResource ChipRadius}"
-                                                                                Command="{ReflectionBinding #Root.DataContext.OpenGitHubDetailsCommand}"
+                                                                                Command="{ReflectionBinding #Root.DataContext.OpenIssuesCommand}"
                                                                                 CommandParameter="{Binding}"
                                                                                 IsVisible="{Binding HasGitHubIssues}"
                                                                                 ToolTip.Tip="Open issues — click for details">
@@ -761,9 +795,9 @@
                                                                                         Height="40"
                                                                                         VerticalAlignment="Center"
                                                                                         Classes="icon"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenOpenCodePanelCommand}"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenOpenCodeCommand}"
                                                                                         CommandParameter="{Binding}"
-                                                                                        ToolTip.Tip="Open the options panel (model, instances, template, prompt)">
+                                                                                        ToolTip.Tip="Open the OpenCode panel in the bottom bar (model, instances, template, prompt)">
                                                                                         <Path
                                                                                                 Width="18"
                                                                                                 Height="18"
@@ -864,188 +898,15 @@
                         </ListBox>
                 </Border>
 
-                <!--
-                        OpenCode panel: an overlay docked to the right edge, floating above the
-                        repo list (declared last so it wins z-order) rather than pushing the
-                        content aside. The card class provides the opaque background; the shadow
-                        separates it from the content underneath.
-                -->
-                <Border
-                        Grid.Row="0"
-                        Grid.RowSpan="3"
-                        Width="340"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Stretch"
-                        BoxShadow="{DynamicResource FlyoutShadow}"
-                        Classes="card"
-                        IsVisible="{Binding IsOpenCodePanelOpen}">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
-                                <Grid
-                                        Grid.Row="0"
-                                        Margin="0,0,0,16"
-                                        ColumnDefinitions="*,Auto">
-                                        <TextBlock
-                                                Grid.Column="0"
-                                                Classes="card-title"
-                                                Text="{Binding OpenCodeRepoName}"
-                                                TextTrimming="CharacterEllipsis" />
-                                        <Button
-                                                Grid.Column="1"
-                                                VerticalAlignment="Top"
-                                                Classes="icon"
-                                                Command="{Binding CloseOpenCodePanelCommand}"
-                                                ToolTip.Tip="Close">
-                                                <Path
-                                                        Width="14"
-                                                        Height="14"
-                                                        Data="M19,6.41 L17.59,5 L12,10.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L12,13.41 L17.59,19 L19,17.59 L13.41,12 Z"
-                                                        Fill="{DynamicResource MutedForegroundBrush}"
-                                                        Stretch="Uniform" />
-                                        </Button>
-                                </Grid>
-                                <StackPanel
-                                        Grid.Row="1"
-                                        Margin="0,0,0,16"
-                                        Spacing="8">
-                                        <TextBlock Classes="field-label" Text="Model" />
-                                        <ComboBox
-                                                Name="OpenCodeModelPicker"
-                                                HorizontalAlignment="Stretch"
-                                                IsEditable="True"
-                                                IsEnabled="{Binding OpenCodeHasModels}"
-                                                ItemsSource="{Binding OpenCodeFilteredModels}"
-                                                PlaceholderText="Search or select a model…"
-                                                SelectedItem="{Binding OpenCodeSelectedModel, Mode=OneWay}"
-                                                SelectionChanged="OnOpenCodeModelSelectionChanged"
-                                                Text="{Binding OpenCodeModelFilter, Mode=TwoWay}" />
-                                        <TextBlock
-                                                Classes="subtle"
-                                                FontSize="11"
-                                                IsVisible="{Binding OpenCodeModelsEmpty}"
-                                                Text="No models found. Is opencode installed and on the PATH?"
-                                                TextWrapping="Wrap" />
-                                </StackPanel>
-                                <StackPanel
-                                        Grid.Row="2"
-                                        Margin="0,0,0,16"
-                                        Spacing="8">
-                                        <TextBlock
-                                                Classes="field-label"
-                                                Text="Instances"
-                                                ToolTip.Tip="How many terminal windows to open, each running opencode" />
-                                        <NumericUpDown
-                                                FormatString="0"
-                                                Increment="1"
-                                                Maximum="9"
-                                                Minimum="1"
-                                                ParsingNumberStyle="Integer"
-                                                Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
-                                        <CheckBox
-                                                Content="Arrange into grid"
-                                                IsChecked="{Binding OpenCodeArrangeIntoGrid, Mode=TwoWay}"
-                                                IsVisible="{Binding CanArrangeIntoGrid}"
-                                                ToolTip.Tip="Tile the launched instances across the screen in a grid" />
-                                </StackPanel>
-                                <StackPanel
-                                        Grid.Row="4"
-                                        Margin="0,0,0,16"
-                                        Spacing="8">
-                                        <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock
-                                                        Grid.Column="0"
-                                                        Classes="field-label"
-                                                        Text="Template (optional)"
-                                                        ToolTip.Tip="Copy a template's .opencode folder into the repo" />
-                                                <Button
-                                                        Grid.Column="1"
-                                                        Padding="8,2"
-                                                        VerticalAlignment="Center"
-                                                        Command="{Binding ResetOpenCodeTemplateCommand}"
-                                                        Content="Reset"
-                                                        FontSize="11"
-                                                        ToolTip.Tip="Remove the repo's .opencode folder and re-copy the selected template into it" />
-                                        </Grid>
-                                        <TextBlock
-                                                Classes="subtle"
-                                                FontSize="11"
-                                                Text="Reset removes the repo's .opencode folder and re-copies the selected template into it."
-                                                TextWrapping="Wrap" />
-                                        <ComboBox
-                                                HorizontalAlignment="Stretch"
-                                                ItemsSource="{Binding OpenCodeTemplates}"
-                                                SelectedItem="{Binding OpenCodeSelectedTemplate, Mode=TwoWay}" />
-                                        <TextBlock
-                                                Classes="subtle"
-                                                FontSize="11"
-                                                IsVisible="{Binding OpenCodeSelectedTemplateDescription, Converter={StaticResource StringNotNullToBoolConverter}}"
-                                                Text="{Binding OpenCodeSelectedTemplateDescription}"
-                                                TextWrapping="Wrap" />
-                                </StackPanel>
-                                <StackPanel
-                                        Grid.Row="5"
-                                        Margin="0,0,0,16"
-                                        Spacing="8">
-                                        <TextBlock
-                                                Classes="field-label"
-                                                Text="Prompt (optional)"
-                                                ToolTip.Tip="Load a named prompt into the Start prompt box" />
-                                        <ComboBox
-                                                HorizontalAlignment="Stretch"
-                                                ItemsSource="{Binding OpenCodePrompts}"
-                                                SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
-                                </StackPanel>
-                                <Grid
-                                        Grid.Row="6"
-                                        Margin="0,0,0,16"
-                                        RowDefinitions="Auto,*">
-                                        <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock
-                                                        Grid.Column="0"
-                                                        Classes="field-label"
-                                                        Text="Start prompt (optional)" />
-                                                <Button
-                                                        Grid.Column="1"
-                                                        Padding="8,2"
-                                                        VerticalAlignment="Center"
-                                                        Classes="accent"
-                                                        Content="Save"
-                                                        FontSize="11"
-                                                        ToolTip.Tip="Save the current prompt under a name so it can be reused from the Prompt selector">
-                                                        <Button.Flyout>
-                                                                <Flyout Placement="BottomEdgeAlignedRight">
-                                                                        <StackPanel Width="220" Spacing="10">
-                                                                                <TextBlock Classes="field-label" Text="Save prompt as" />
-                                                                                <TextBox Text="{Binding NewPromptName, Mode=TwoWay}" Watermark="Prompt name" />
-                                                                                <Button
-                                                                                        HorizontalAlignment="Right"
-                                                                                        Classes="accent"
-                                                                                        Command="{Binding SavePromptCommand}"
-                                                                                        Content="Save" />
-                                                                        </StackPanel>
-                                                                </Flyout>
-                                                        </Button.Flyout>
-                                                </Button>
-                                        </Grid>
-                                        <TextBox
-                                                Grid.Row="1"
-                                                MinHeight="120"
-                                                Margin="0,8,0,0"
-                                                VerticalAlignment="Stretch"
-                                                AcceptsReturn="True"
-                                                Text="{Binding OpenCodePrompt, Mode=TwoWay}"
-                                                TextWrapping="Wrap"
-                                                Watermark="e.g. fix the login bug" />
-                                </Grid>
-                                <Button
-                                        Grid.Row="7"
-                                        HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Bottom"
-                                        Classes="accent"
-                                        Command="{Binding LaunchOpenCodeCommand}"
-                                        Content="Open"
-                                        IsEnabled="{Binding OpenCodeRepo, Converter={StaticResource NotNullToBoolConverter}}" />
-                                <Border Grid.Row="8" />
-                        </Grid>
+                </Grid>
+
+                <!--  Bottom bar: this page's footer (repo context, tabs, expandable
+                      panel), flush with the window bottom like the mockup. Hidden until
+                      a repo is selected from the table (the bar binds IsBarVisible and
+                      paints its own hairlines); the singleton ViewModel is attached in
+                      code-behind.  -->
+                <Border Grid.Row="1">
+                        <components:BottomBar x:Name="BottomBarControl" />
                 </Border>
 
         </Grid>

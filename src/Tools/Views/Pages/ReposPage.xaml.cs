@@ -2,31 +2,38 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
+using Tools.Library.Entities;
+using Tools.ViewModels.Components;
 using Tools.ViewModels.Pages;
+using Tools.Views.Components;
 
 namespace Tools.Views.Pages;
 
 public partial class ReposPage : UserControl
 {
-    /// <summary>
-    /// Set while the editable model ComboBox is committing a selection so the auto-open-on-type
-    /// handler doesn't re-pop the dropdown right after the user picks an item.
-    /// </summary>
-    private bool _suppressAutoOpenModelDropdown;
-
     public ReposViewModel ViewModel { get; }
+
+    /// <summary>The bottom bar's singleton ViewModel; row presses hand their repo to it.</summary>
+    public BottomBarViewModel BottomBarViewModel { get; }
+
+    private ListBox? _reposList;
 
     public ReposPage()
     {
         InitializeComponent();
     }
 
-    public ReposPage(ReposViewModel viewModel)
+    public ReposPage(ReposViewModel viewModel, BottomBarViewModel bottomBarViewModel)
     {
         ViewModel = viewModel;
+        BottomBarViewModel = bottomBarViewModel;
         DataContext = viewModel;
         InitializeComponent();
-        Loaded += OnLoaded;
+        // The bottom bar owns its singleton ViewModel (repo context, repo header, tabs,
+        // OpenCode surface); the rest of the page binds to ReposViewModel.
+        this.FindControl<BottomBar>("BottomBarControl")!.DataContext = bottomBarViewModel;
+        _reposList = this.FindControl<ListBox>("ReposList");
     }
 
     private void InitializeComponent()
@@ -34,88 +41,42 @@ public partial class ReposPage : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
-    private void OnLoaded(object? sender, RoutedEventArgs e)
-    {
-        if (this.FindControl<ComboBox>("OpenCodeModelPicker") is not { } picker)
-        {
-            return;
-        }
-
-        // The editable ComboBox's inner TextBox is a template part created after ApplyTemplate.
-        // Its TextChangedEvent bubbles up to the ComboBox, so hook it there to open the dropdown
-        // automatically while typing/deleting.
-        picker.AddHandler(TextBox.TextChangedEvent, OnOpenCodeModelFilterChanged);
-    }
-
     /// <summary>
-    /// Captures a model picked from the editable ComboBox's dropdown. The editable box is bound
-    /// two-way to <see cref="ReposViewModel.OpenCodeModelFilter"/> (the live search text), so the
-    /// actual selection is committed here and the filter text is snapped back to the chosen
-    /// model's full name — otherwise the box would keep showing the partial search term.
-    /// </summary>
-    /// <summary>
-    /// Swallows pointer presses on the card background before they bubble up to the
-    /// ListBoxItem, which would otherwise select the item and flash the theme's
-    /// selected-state indicator. Buttons inside the template sit deeper in the visual
-    /// tree and handle their own presses first, so their clicks are unaffected.
+    /// A press on a row's card selects that repo for the bottom bar — the first press
+    /// reveals the bar, which stays hidden until a repo is picked from the table. The
+    /// press is still swallowed before it reaches the ListBoxItem, which would otherwise
+    /// select the item and flash the theme's selected-state indicator. Buttons inside
+    /// the template sit deeper in the visual tree and handle their own presses first,
+    /// so the row chips route their tabs without also re-firing this.
     /// </summary>
     private void OnCardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         e.Handled = true;
+        if (sender is StyledElement { DataContext: Repo repo }
+            && e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+        {
+            BottomBarViewModel.OpenForRepo(repo);
+
+            // Opening the panel shrinks the table's viewport, which can leave the row
+            // just clicked hidden under it; once the layout has settled, scroll it back
+            // into view.
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () => _reposList?.ScrollIntoView(repo),
+                Avalonia.Threading.DispatcherPriority.ApplicationIdle);
+        }
     }
 
     /// <summary>
-    /// The repo cards are non-interactive containers — every action is an explicit button
-    /// inside the template — so ListBox selection carries no meaning. Clear it immediately
-    /// to suppress the theme's selected-state indicator (the pill shown on a clicked card).
+    /// The repo cards are non-interactive containers — selection now lives in the bottom
+    /// bar (see <see cref="OnCardPointerPressed"/>) — so clear the ListBox selection
+    /// immediately to suppress the theme's selected-state indicator (the pill shown on a
+    /// clicked card).
     /// </summary>
     private void OnRepoSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is ListBox { SelectedItem: not null } listBox)
         {
             listBox.SelectedItem = null;
-        }
-    }
-
-    private void OnOpenCodeModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (sender is ComboBox { SelectedItem: string model } && ViewModel is { } vm)
-        {
-            // The filter update below changes the box text and would otherwise re-open the
-            // dropdown that the selection just closed; suppress that for this cycle.
-            _suppressAutoOpenModelDropdown = true;
-            try
-            {
-                vm.OpenCodeSelectedModel = model;
-                vm.OpenCodeModelFilter = model;
-            }
-            finally
-            {
-                _suppressAutoOpenModelDropdown = false;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Opens the dropdown as the user types into (or deletes from) the editable ComboBox. The
-    /// filter narrows the list in the view model; this just ensures the popup is visible while
-    /// editing so matches are shown without a separate arrow click. Only fires for user-initiated
-    /// edits (the box has keyboard focus) so programmatic text changes — e.g. the view model
-    /// resetting the filter when models load — don't pop the dropdown open.
-    /// </summary>
-    private void OnOpenCodeModelFilterChanged(object? sender, TextChangedEventArgs e)
-    {
-        if (_suppressAutoOpenModelDropdown)
-        {
-            return;
-        }
-
-        if (sender is ComboBox box
-            && box.IsEnabled
-            && !box.IsDropDownOpen
-            && box.IsKeyboardFocusWithin)
-        {
-            box.IsDropDownOpen = true;
         }
     }
 }

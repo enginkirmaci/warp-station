@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using Serilog;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
@@ -136,7 +137,7 @@ public sealed class GitStatusService : IGitStatusService
     /// (missing repo, git error, timeout) still marks the repo loaded with zeroed
     /// counts so the card shows zeros instead of spinning "checking…" forever.
     /// </summary>
-    private async Task RefreshRepoAsync(Repo repo, CancellationToken cancellationToken)
+    public async Task RefreshRepoAsync(Repo repo, CancellationToken cancellationToken)
     {
         try
         {
@@ -160,6 +161,8 @@ public sealed class GitStatusService : IGitStatusService
                 cancellationToken);
             repo.GitLastCommitAt = DateTimeOffset.TryParse(
                 commitDate?.TrimEnd('\r', '\n'), out var at) ? at : null;
+
+            SeedLastFetchTime(repo);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -173,6 +176,209 @@ public sealed class GitStatusService : IGitStatusService
         finally
         {
             repo.GitStatusLoaded = true;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> GetBranchesAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<string>();
+
+        var output = await RunGitAsync(repo.FolderPath, "branch --format=%(refname:short)", cancellationToken);
+        if (string.IsNullOrEmpty(output)) return Array.Empty<string>();
+
+        return output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(b => b.Length > 0)
+            .ToList();
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> CheckoutAsync(Repo repo, string branch, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(branch)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, $"checkout {Quote(branch)}", cancellationToken) is not null;
+        if (ok)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, "fetch --prune", cancellationToken) is not null;
+        if (ok)
+        {
+            repo.GitLastFetchAt = DateTimeOffset.Now;
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<GitChangedFile>> GetChangedFilesAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitChangedFile>();
+
+        var output = await RunGitAsync(
+            repo.FolderPath,
+            "--no-optional-locks status --porcelain=v2 --untracked-files=all",
+            cancellationToken);
+        if (string.IsNullOrEmpty(output)) return Array.Empty<GitChangedFile>();
+
+        var files = new List<GitChangedFile>();
+        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (line.Length == 0 || line[0] == '#') continue;
+
+            // Ordinary/renamed/unmerged entries: "1 <XY> … <path>" / "2 <XY> … <orig> <path>" —
+            // the path is always the LAST space-separated token (renames carry the original
+            // path before it). Untracked entries: "? <path>".
+            var separator = line.IndexOf(' ');
+            if (separator <= 0) continue;
+
+            var kind = line[..separator];
+            var rest = line[(separator + 1)..];
+            string statusCode;
+            string path;
+            if (kind == "?")
+            {
+                // Untracked: the whole remainder IS the path (it may contain spaces).
+                statusCode = "?";
+                path = rest;
+            }
+            else
+            {
+                // Ordinary/renamed/unmerged: "XY <fields…> <path>" — the path is the last
+                // space-separated field (a rename's original path precedes it).
+                var codeEnd = rest.IndexOf(' ');
+                if (codeEnd <= 0) continue;
+                statusCode = rest[..codeEnd];
+                var rest2 = rest[(codeEnd + 1)..];
+                var lastSpace = rest2.LastIndexOf(' ');
+                path = lastSpace >= 0 ? rest2[(lastSpace + 1)..] : rest2;
+            }
+
+            if (path.Length > 0)
+            {
+                files.Add(new GitChangedFile(path, statusCode));
+            }
+        }
+
+        // Merge in per-file added/deleted line counts from the staged + unstaged numstat
+        // diffs. Untracked files never appear there (and binary files report "-"), so
+        // those stay null; a rename's numstat path ("old => new" forms) is matched by its
+        // trailing path segment.
+        var counts = ParseNumstat(await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --numstat", cancellationToken));
+        foreach (var (path, count) in ParseNumstat(await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --cached --numstat", cancellationToken)))
+        {
+            counts[path] = count;
+        }
+        if (counts.Count > 0)
+        {
+            for (var i = 0; i < files.Count; i++)
+            {
+                if (counts.TryGetValue(files[i].Path, out var addDelete))
+                {
+                    files[i] = files[i] with { Additions = addDelete.Additions, Deletions = addDelete.Deletions };
+                }
+            }
+        }
+
+        return files;
+    }
+
+    /// <summary>Parses <c>git diff --numstat</c> output into per-path add/delete counts.</summary>
+    private static Dictionary<string, (int? Additions, int? Deletions)> ParseNumstat(string? output)
+    {
+        var counts = new Dictionary<string, (int?, int?)>(StringComparer.Ordinal);
+        if (string.IsNullOrEmpty(output)) return counts;
+
+        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.TrimEnd('\r');
+            // "additions\tdeletions\tpath" — the path may contain spaces (and renames
+            // render as "old => new" or "{prefix old => suffix new}"), so split exactly
+            // two tab-separated counts off the front.
+            var firstTab = line.IndexOf('\t');
+            if (firstTab <= 0) continue;
+            var secondTab = line.IndexOf('\t', firstTab + 1);
+            if (secondTab <= 0) continue;
+
+            var path = line[(secondTab + 1)..];
+            var arrow = path.LastIndexOf(" => ", StringComparison.Ordinal);
+            if (arrow >= 0)
+            {
+                path = path[(arrow + 4)..];
+            }
+
+            int? additions = int.TryParse(line[..firstTab], out var a) ? a : null;
+            int? deletions = int.TryParse(line[(firstTab + 1)..secondTab], out var d) ? d : null;
+            counts[path] = (additions, deletions);
+        }
+
+        return counts;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitCommitInfo>();
+
+        var output = await RunGitAsync(
+            repo.FolderPath,
+            "log -10 --pretty=format:%h%x09%s%x09%an%x09%cI",
+            cancellationToken);
+        if (string.IsNullOrEmpty(output)) return Array.Empty<GitCommitInfo>();
+
+        var commits = new List<GitCommitInfo>();
+        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = rawLine.TrimEnd('\r').Split('\t', 4);
+            if (parts.Length < 4) continue;
+            if (!DateTimeOffset.TryParse(parts[3], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date))
+            {
+                continue;
+            }
+            commits.Add(new GitCommitInfo(parts[0], parts[1], parts[2], date));
+        }
+
+        return commits;
+    }
+
+    /// <summary>
+    /// Quotes a git argument when it contains spaces (branch names rarely do, but a
+    /// ref with one must not split into two arguments).
+    /// </summary>
+    private static string Quote(string value)
+        => value.Contains(' ') ? $"\"{value}\"" : value;
+
+    /// <summary>
+    /// Seeds <see cref="Repo.GitLastFetchAt"/> from <c>.git/FETCH_HEAD</c>'s last write
+    /// time when the app has not fetched itself yet — a repo fetched outside the app
+    /// still reports an honest age instead of "never".
+    /// </summary>
+    private static void SeedLastFetchTime(Repo repo)
+    {
+        if (repo.GitLastFetchAt is not null || repo.FolderPath is null) return;
+
+        try
+        {
+            var fetchHead = Path.Combine(repo.FolderPath, ".git", "FETCH_HEAD");
+            if (File.Exists(fetchHead))
+            {
+                repo.GitLastFetchAt = File.GetLastWriteTimeUtc(fetchHead);
+            }
+        }
+        catch
+        {
+            // A missing/locked FETCH_HEAD just leaves the timestamp unset.
         }
     }
 

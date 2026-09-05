@@ -16,22 +16,11 @@ namespace Tools.Services;
 public class DialogService : IDialogService
 {
     private readonly MainWindow _mainWindow;
-    private readonly IGitHubService _gitHubService;
-    private readonly IAzureDevOpsService _azureDevOpsService;
-    private readonly IProcessLauncher _processLauncher;
     private readonly IRepoScanner _repoScanner;
 
-    public DialogService(
-        MainWindow mainWindow,
-        IGitHubService gitHubService,
-        IAzureDevOpsService azureDevOpsService,
-        IProcessLauncher processLauncher,
-        IRepoScanner repoScanner)
+    public DialogService(MainWindow mainWindow, IRepoScanner repoScanner)
     {
         _mainWindow = mainWindow;
-        _gitHubService = gitHubService;
-        _azureDevOpsService = azureDevOpsService;
-        _processLauncher = processLauncher;
         _repoScanner = repoScanner;
     }
 
@@ -67,17 +56,4 @@ public class DialogService : IDialogService
         return confirmed ? dialog.GetSelectedPaths() : null;
     }
 
-    /// <inheritdoc/>
-    public async Task ShowGitHubDetailsDialogAsync(Repo repo)
-    {
-        var dialog = new GitHubDetailsDialog(repo, _gitHubService, _processLauncher);
-        await dialog.ShowDialog(_mainWindow);
-    }
-
-    /// <inheritdoc/>
-    public async Task ShowAzureDevOpsDetailsDialogAsync(Repo repo)
-    {
-        var dialog = new AzureDevOpsDetailsDialog(repo, _azureDevOpsService, _processLauncher);
-        await dialog.ShowDialog(_mainWindow);
-    }
 }

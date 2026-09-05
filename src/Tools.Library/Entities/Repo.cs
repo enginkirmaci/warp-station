@@ -90,6 +90,14 @@ public partial class Repo : ObservableObject
     private string? _gitBranchName;
 
     /// <summary>
+    /// Whether this repo is the bottom bar's current selection — the table keeps its
+    /// row highlighted while the bar acts on it. Pushed by the <c>BottomBarViewModel</c>
+    /// on every selection change. Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isBarSelected;
+
+    /// <summary>
     /// Number of working-tree changes (modified, renamed, unmerged and untracked files)
     /// reported by <c>git status --porcelain=v2 --untracked-files=all</c>. Every
     /// untracked file counts individually (git's default directory collapsing is off).
@@ -139,6 +147,23 @@ public partial class Repo : ObservableObject
     public string? GitLastActivity => GitLastCommitAt is { } at ? FormatRelative(at) : null;
 
     partial void OnGitLastCommitAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastActivity));
+
+    /// <summary>
+    /// When the repo was last fetched (<c>git fetch</c>), either run from the app (the
+    /// bottom bar's Fetch button) or seeded from <c>.git/FETCH_HEAD</c>'s write time
+    /// during a status pass. <c>null</c> when the repo has never been fetched.
+    /// Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private DateTimeOffset? _gitLastFetchAt;
+
+    /// <summary>
+    /// The relative-age label shown beside the bottom bar's Fetch button ("2m ago"),
+    /// derived from <see cref="GitLastFetchAt"/>. <c>null</c> when never fetched.
+    /// </summary>
+    public string? GitLastFetchLabel => GitLastFetchAt is { } at ? FormatRelative(at) : null;
+
+    partial void OnGitLastFetchAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastFetchLabel));
 
     // --- GitHub column (runtime-only, pushed by IGitHubService) ---
 

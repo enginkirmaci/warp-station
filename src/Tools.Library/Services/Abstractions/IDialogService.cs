@@ -42,20 +42,4 @@ public interface IDialogService
     /// cancelled (an empty list means confirmed with nothing to add).
     /// </returns>
     Task<IReadOnlyList<string>?> ShowAddRepositoryDialogAsync(ReposSettings settings, IReadOnlyList<Entities.Repo> trackedRepos);
-
-    /// <summary>
-    /// Shows the modal GitHub details dialog for a repo: its open pull requests (first)
-    /// and issues (second) as clickable links, with a Refresh button re-running the
-    /// <c>gh</c> fetch.
-    /// </summary>
-    /// <param name="repo">The repo whose GitHub activity is shown.</param>
-    Task ShowGitHubDetailsDialogAsync(Entities.Repo repo);
-
-    /// <summary>
-    /// Shows the modal Azure DevOps details dialog for a repo: its active pull requests,
-    /// the hosting project's open work items and the repo's recent pipeline runs as
-    /// clickable links, with a Refresh button re-running the REST fetch.
-    /// </summary>
-    /// <param name="repo">The repo whose Azure DevOps activity is shown.</param>
-    Task ShowAzureDevOpsDetailsDialogAsync(Entities.Repo repo);
 }

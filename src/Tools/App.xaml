@@ -34,6 +34,8 @@
 			<conv:PairConverter x:Key="PairConverter" />
 			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
 			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
+			<conv:GitStatusBrushConverter x:Key="GitStatusBrushConverter" />
+			<conv:GitHubStateChipBrushConverter x:Key="GitHubStateChipBrushConverter" />
 			<conv:NotificationKindToBrushConverter x:Key="NotificationKindToBrushConverter" />
 		</ResourceDictionary>
 	</Application.Resources>

@@ -37,6 +37,7 @@ public static class IconAssetLoader
         "icon-chevron-down",
         "icon-clipboard",
         "icon-close",
+        "icon-cloud-download",
         "icon-cog",
         "icon-ellipsis-vertical",
         "icon-folder",
