@@ -1,7 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
-                    xmlns:icons="clr-namespace:SukiUI.Content;assembly=SukiUI"
                     xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
                     xmlns:tools="using:Tools.Library.MarkupExtensions">
     <!--
@@ -95,14 +94,14 @@
                                                             chrome:WindowDecorationProperties.ElementRole="User"
                                                             IsEnabled="{TemplateBinding CanFullScreen}"
                                                             IsVisible="{TemplateBinding CanFullScreen}">
-                                                        <PathIcon x:Name="FullScreenIcon" Data="{x:Static icons:Icons.WindowFullScreen}" />
+                                                        <PathIcon x:Name="FullScreenIcon" Data="{tools:SvgPath icon-window-full-screen, Center=False}" />
                                                     </Button>
                                                     <Button Name="PART_PinButton"
                                                             Classes="WindowControlsButton"
                                                             chrome:WindowDecorationProperties.ElementRole="User"
                                                             IsEnabled="{TemplateBinding CanPin}"
                                                             IsVisible="{TemplateBinding CanPin}">
-                                                        <PathIcon x:Name="PinIcon" Data="{x:Static icons:Icons.WindowPin}" />
+                                                        <PathIcon x:Name="PinIcon" Data="{tools:SvgPath icon-window-pin, Center=False}" />
                                                     </Button>
                                                     <Button Name="PART_MinimizeButton"
                                                             VerticalContentAlignment="Bottom"
@@ -111,18 +110,18 @@
                                                             IsVisible="{TemplateBinding CanMinimize}">
                                                         <PathIcon Margin="0,0,0,6.5"
                                                                   VerticalAlignment="Bottom"
-                                                                  Data="{x:Static icons:Icons.WindowMinimize}" />
+                                                                  Data="{tools:SvgPath icon-window-minimize, Center=False}" />
                                                     </Button>
                                                     <Button Name="PART_MaximizeButton"
                                                             Classes="WindowControlsButton"
                                                             chrome:WindowDecorationProperties.ElementRole="User"
                                                             IsVisible="{TemplateBinding CanMaximize}">
-                                                        <PathIcon x:Name="MaximizeIcon" Data="{x:Static icons:Icons.WindowMaximize}" />
+                                                        <PathIcon x:Name="MaximizeIcon" Data="{tools:SvgPath icon-window-maximize, Center=False}" />
                                                     </Button>
                                                     <Button Name="PART_CloseButton"
                                                             Classes="WindowControlsButton Close"
                                                             chrome:WindowDecorationProperties.ElementRole="User">
-                                                        <PathIcon Data="{x:Static icons:Icons.WindowClose}" />
+                                                        <PathIcon Data="{tools:SvgPath icon-window-close, Center=False}" />
                                                     </Button>
                                                 </StackPanel>
 
@@ -252,24 +251,24 @@
         </Style>
 
         <Style Selector="^[Topmost=False] /template/ PathIcon#PinIcon">
-            <Setter Property="Data" Value="{x:Static icons:Icons.WindowPin}" />
+            <Setter Property="Data" Value="{tools:SvgPath icon-window-pin, Center=False}" />
         </Style>
         <Style Selector="^[Topmost=True] /template/ PathIcon#PinIcon">
-            <Setter Property="Data" Value="{x:Static icons:Icons.WindowPinOff}" />
+            <Setter Property="Data" Value="{tools:SvgPath icon-window-pin-off, Center=False}" />
         </Style>
 
         <Style Selector="^[WindowState=Maximized] /template/ PathIcon#MaximizeIcon">
-            <Setter Property="Data" Value="{x:Static icons:Icons.WindowRestore}" />
+            <Setter Property="Data" Value="{tools:SvgPath icon-window-restore, Center=False}" />
         </Style>
         <Style Selector="^[WindowState=Normal] /template/ PathIcon#MaximizeIcon">
-            <Setter Property="Data" Value="{x:Static icons:Icons.WindowMaximize}" />
+            <Setter Property="Data" Value="{tools:SvgPath icon-window-maximize, Center=False}" />
         </Style>
 
         <Style Selector="^[WindowState=FullScreen] /template/ Button#PART_MaximizeButton">
             <Setter Property="IsVisible" Value="False" />
         </Style>
         <Style Selector="^[WindowState=FullScreen] /template/ PathIcon#FullScreenIcon">
-            <Setter Property="Data" Value="{x:Static icons:Icons.WindowFullScreenOff}" />
+            <Setter Property="Data" Value="{tools:SvgPath icon-window-full-screen-off, Center=False}" />
         </Style>
 
         <Style Selector="^[ShowBottomBorder=True] /template/ Border#PART_BottomBorder">

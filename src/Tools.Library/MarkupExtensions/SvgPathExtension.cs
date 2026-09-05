@@ -32,6 +32,15 @@ public class SvgPathExtension : MarkupExtension
     /// </summary>
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether to normalize the geometry onto the square 24px design grid via
+    /// <see cref="IconGeometry.CenterOnDesignGrid"/>. Content icons rely on this
+    /// for uniform scaling; the window-chrome glyphs (icon-window-*) were tuned
+    /// against their raw bounds and the PathIcon top-left stretch alignment, so
+    /// they pass Center=False to keep their size and margins.
+    /// </summary>
+    public bool Center { get; set; } = true;
+
     public override object ProvideValue(IServiceProvider serviceProvider)
     {
         if (string.IsNullOrWhiteSpace(Name))
@@ -48,7 +57,8 @@ public class SvgPathExtension : MarkupExtension
         try
         {
             var normalized = pathData.Replace(",", " ");
-            return IconGeometry.CenterOnDesignGrid(Geometry.Parse(normalized));
+            var geometry = Geometry.Parse(normalized);
+            return Center ? IconGeometry.CenterOnDesignGrid(geometry) : geometry;
         }
         catch
         {
