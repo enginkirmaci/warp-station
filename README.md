@@ -39,7 +39,36 @@ You can also run the workflow manually from the Actions tab (workflow dispatch).
 
 Notes:
 - The installer is produced without code signing.
-- The Inno Setup script is `setup.iss` at the repository root.
+- The Inno Setup script is `packaging/windows/setup.iss` (moved out of the repo root; its source paths are relative to its own location).
+
+## Packaging
+
+Packaging scripts and assets live under `packaging/` — see `packaging/README.md`:
+
+- `packaging/windows/` — Inno Setup script plus the portable-zip builders
+  (`build-portable.ps1` for Windows, `build-portable.sh` to cross-build the
+  Windows zip from Linux)
+- `packaging/linux/` — `build-appimage.sh`, a self-contained Linux AppImage
+  builder
+
+Artifacts land in `portable/` (portable zip, AppImage) and `installer/`
+(Windows setup exe). Both folders are gitignored.
+
+## Linux (AppImage)
+
+The Linux build packages only `Tools`: the `DevTools` supervisor is
+Windows-only (named-pipe launcher + autostart), so Linux does not need it —
+the AppImage's `AppRun` execs the `Tools` binary directly.
+
+```sh
+packaging/linux/build-appimage.sh            # portable/Tools-0.0.0-dev-x86_64.AppImage
+packaging/linux/build-appimage.sh 1.2.3
+```
+
+The AppImage is self-contained (no .NET runtime needed on the target) and
+stores user data in `~/.devtools`, seeded from the bundled `settings/` tree,
+same as Windows. Launching it needs FUSE2 (`fuse2` on Arch/CachyOS); without
+it, run `./Tools-*.AppImage --appimage-extract-and-run`.
 
 ## License
 

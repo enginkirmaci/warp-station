@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Tools
+GenericName=Developer Tools
+Comment=Compact developer utilities collection
+Exec=Tools
+Icon=tools
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=DevTools

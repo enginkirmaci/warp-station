@@ -5,9 +5,9 @@
 # .github/workflows/build-installer.yml (publish + stage + zip steps).
 #
 # Usage:
-#   ./build-portable.sh                # version defaults to 0.0.0-dev
-#   ./build-portable.sh 1.2.3          # version = 1.2.3
-#   ./build-portable.sh --version 1.2.3
+#   packaging/windows/build-portable.sh                # version defaults to 0.0.0-dev
+#   packaging/windows/build-portable.sh 1.2.3          # version = 1.2.3
+#   packaging/windows/build-portable.sh --version 1.2.3
 #
 # Output: portable/DevTools-Portable-<version>.zip
 # The zip runs on a clean Windows box (no .NET install needed) and stores its
@@ -15,9 +15,10 @@
 
 set -euo pipefail
 
-# --- Locate repo root (this script lives at the repo root, but be defensive) ---
+# --- Locate repo root (script lives in packaging/windows) ---
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." &>/dev/null && pwd)"
+cd "$REPO_ROOT"
 
 VERSION="0.0.0-dev"
 
@@ -164,8 +165,8 @@ else
 fi
 echo "::endgroup::"
 
-ABS_ZIP="$SCRIPT_DIR/$ZIP"
+ABS_ZIP="$REPO_ROOT/$ZIP"
 echo
 echo ":: Portable build ready ::"
-echo "  $SCRIPT_DIR/$ZIP"
-echo "  ($(du -h "$SCRIPT_DIR/$ZIP" | cut -f1))"
+echo "  $REPO_ROOT/$ZIP"
+echo "  ($(du -h "$REPO_ROOT/$ZIP" | cut -f1))"

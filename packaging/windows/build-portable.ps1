@@ -7,10 +7,10 @@ it uses robocopy (the rsync/CI equivalent) for staging and Compress-Archive for
 zipping, so a Windows dev box can build the same artifact locally.
 
 Usage:
-    ./build-portable.ps1                    # version defaults to 0.0.0-dev
-    ./build-portable.ps1 1.2.3              # version = 1.2.3
-    ./build-portable.ps1 -Version 1.2.3     # version = 1.2.3
-    ./build-portable.ps1 -Help              # show this help
+    packaging\windows\build-portable.ps1                    # version defaults to 0.0.0-dev
+    packaging\windows\build-portable.ps1 1.2.3              # version = 1.2.3
+    packaging\windows\build-portable.ps1 -Version 1.2.3     # version = 1.2.3
+    packaging\windows\build-portable.ps1 -Help              # show this help
 
 Output: portable\DevTools-Portable-<version>.zip
 The zip runs on a clean Windows box (no .NET install needed) and stores its
@@ -38,10 +38,10 @@ function Show-Help {
 build-portable.ps1 — generate a self-contained Windows (win-x64) portable build.
 
 Usage:
-    ./build-portable.ps1                    # version defaults to 0.0.0-dev
-    ./build-portable.ps1 1.2.3              # version = 1.2.3
-    ./build-portable.ps1 -Version 1.2.3     # version = 1.2.3
-    ./build-portable.ps1 -Help              # show this help
+    packaging\windows\build-portable.ps1                    # version defaults to 0.0.0-dev
+    packaging\windows\build-portable.ps1 1.2.3              # version = 1.2.3
+    packaging\windows\build-portable.ps1 -Version 1.2.3     # version = 1.2.3
+    packaging\windows\build-portable.ps1 -Help              # show this help
 
 Output:
     portable\DevTools-Portable-<version>.zip
@@ -53,7 +53,7 @@ user data in %USERPROFILE%\.devtools, seeded from the bundled settings\ tree.
 
 # --- Locate repo root (this script lives at the repo root, but be defensive) ---
 if ($Help) { Show-Help; exit 0 }
-Set-Location $PSScriptRoot
+Set-Location (Join-Path $PSScriptRoot "..\..")
 
 # Validate version shape (same regex as the CI workflow and build-portable.sh).
 if ($Version -notmatch '^\d+\.\d+\.\d+') {
