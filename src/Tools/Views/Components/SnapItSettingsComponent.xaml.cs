@@ -2,18 +2,22 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Pages;
+namespace Tools.Views.Components;
 
-public partial class SnapItSettingsPage : UserControl
+/// <summary>
+/// SnapIt settings tool (auto-start, running state, start/stop), hosted in the main
+/// window's floating tool drawer.
+/// </summary>
+public partial class SnapItSettingsComponent : UserControl
 {
     public SnapItSettingsViewModel ViewModel { get; }
 
-    public SnapItSettingsPage()
+    public SnapItSettingsComponent()
     {
         InitializeComponent();
     }
 
-    public SnapItSettingsPage(SnapItSettingsViewModel viewModel)
+    public SnapItSettingsComponent(SnapItSettingsViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

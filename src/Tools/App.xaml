@@ -22,17 +22,12 @@
 			<!--  overridden to the periwinkle app accent in App.ApplyAccentColorOverride  -->
 
 			<!--  Converters  -->
-			<conv:EqualVisibilityConverter x:Key="EqualVisibilityConverter" />
-			<conv:EqualNotVisibilityConverter x:Key="EqualNotVisibilityConverter" />
 			<conv:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
 			<conv:InverseBoolConverter x:Key="InverseBoolConverter" />
-			<conv:BoolAllConverter x:Key="BoolAllConverter" />
 			<conv:BoolToBrushConverter x:Key="BoolToBrushConverter" />
 			<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
-			<conv:StringToBrushConverter x:Key="StringToBrushConverter" />
 			<conv:StringNotNullToBoolConverter x:Key="StringNotNullToBoolConverter" />
 			<conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
-			<conv:PairConverter x:Key="PairConverter" />
 			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
 			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
 			<conv:GitStatusBrushConverter x:Key="GitStatusBrushConverter" />

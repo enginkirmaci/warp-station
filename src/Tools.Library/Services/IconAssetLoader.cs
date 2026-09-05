@@ -112,14 +112,6 @@ public static class IconAssetLoader
         }
     }
 
-    /// <summary>
-    /// Clears the in-memory cache so files can be re-read (useful for tests).
-    /// </summary>
-    public static void ClearCache()
-    {
-        PathCache.Clear();
-    }
-
     private static string LoadPathDataFromAsset(string name)
     {
         try

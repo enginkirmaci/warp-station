@@ -69,12 +69,6 @@
         ================================================================
     -->
 
-    <!--  Page-level hero title (used in Dashboard header).  -->
-    <Style Selector="TextBlock.page-subtitle">
-        <Setter Property="FontSize" Value="13" />
-        <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-    </Style>
-
     <!--  H1 used at the top of a content page (above all cards).  -->
     <Style Selector="TextBlock.section-title">
         <Setter Property="FontSize" Value="20" />
@@ -169,11 +163,6 @@
         <Setter Property="Background" Value="{DynamicResource DividerBrush}" />
     </Style>
 
-    <Style Selector="Border.horizontal-divider">
-        <Setter Property="Height" Value="1" />
-        <Setter Property="Background" Value="{DynamicResource DividerBrush}" />
-    </Style>
-
     <!--
         ================================================================
         CONTROL OVERRIDES
@@ -251,52 +240,6 @@
     <Style Selector="Button.tool-button:pointerover">
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
-    </Style>
-
-    <!--
-        Card button — used for dashboard / interactive cards.
-    -->
-    <Style Selector="Button.card-button">
-        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{DynamicResource CardRadius}" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate>
-                    <Border
-                        Name="RootBorder"
-                        Padding="{TemplateBinding Padding}"
-                        Background="{TemplateBinding Background}"
-                        BorderBrush="{TemplateBinding BorderBrush}"
-                        BorderThickness="{TemplateBinding BorderThickness}"
-                        CornerRadius="{TemplateBinding CornerRadius}"
-                        TextElement.Foreground="{TemplateBinding Foreground}">
-                        <ContentPresenter
-                            Name="PART_ContentPresenter"
-                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
-                            Content="{TemplateBinding Content}"
-                            ContentTemplate="{TemplateBinding ContentTemplate}" />
-                    </Border>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-        <Setter Property="Transitions">
-            <Setter.Value>
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.15" />
-                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
-                </Transitions>
-            </Setter.Value>
-        </Setter>
-    </Style>
-    <Style Selector="Button.card-button:pointerover">
-        <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
-    </Style>
-    <Style Selector="Button.card-button:pointerover /template/ Border#RootBorder">
-        <Setter Property="BoxShadow" Value="{DynamicResource CardHoverShadow}" />
     </Style>
 
 </Styles>

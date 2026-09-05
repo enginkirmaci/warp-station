@@ -17,6 +17,11 @@ public partial class CodeExecuteViewModel : PageViewModelBase
     [ObservableProperty]
     private string _immediateOutput = string.Empty;
 
+    /// <summary>True when the output pane has content (drives its empty state).</summary>
+    public bool HasOutput => !string.IsNullOrEmpty(ImmediateOutput);
+
+    partial void OnImmediateOutputChanged(string value) => OnPropertyChanged(nameof(HasOutput));
+
     /// <summary>
     /// Evaluates the current <see cref="ImmediateInput"/> as a C# script and writes the
     /// result (or the error message) to <see cref="ImmediateOutput"/>.

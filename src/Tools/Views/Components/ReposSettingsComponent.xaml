@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Repo Settings tool-drawer component (the former modal dialog): edits the repo scan
+    settings and resolves them back to DialogService on Save. Cancel closes the drawer
+    through the ViewModel; the drawer header's X and the backdrop/Escape close path land
+    as a cancel too. Sections follow the shared drawer vocabulary: grouped cards with
+    field labels, footer band with Cancel/Save on the right.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.ReposSettingsComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Tools.ViewModels.Windows"
+    d:DesignHeight="620"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:ReposSettingsViewModel"
+    mc:Ignorable="d">
+
+    <Grid RowDefinitions="*,Auto">
+        <!--  Scrollable content: three grouped cards  -->
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,4,16,12" Spacing="12">
+
+                <!--  Scanning: folders, patterns, depth  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Scanning" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Repo Scan Folders"
+                                ToolTip.Tip="Folders to scan for repositories (one per line)" />
+                            <TextBox
+                                Height="120"
+                                AcceptsReturn="True"
+                                Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Excluded Folders"
+                                ToolTip.Tip="Folders to exclude from scanning (one per line)" />
+                            <TextBox
+                                Height="100"
+                                AcceptsReturn="True"
+                                Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />
+                        </StackPanel>
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto"
+                            RowSpacing="8">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Git Folder Pattern"
+                                    ToolTip.Tip="Pattern to search for git folders" />
+                                <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Solution File Pattern"
+                                    ToolTip.Tip="Pattern(s) to search for solution files. Separate multiple patterns with commas or semicolons (e.g. *.sln,*.slnx)" />
+                                <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Platform Folder Name"
+                                    ToolTip.Tip="Identifier for platform folders (auto-tags repos whose path contains it)" />
+                                <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Max Scan Depth"
+                                    ToolTip.Tip="Maximum number of folder levels to scan recursively (e.g. 3)" />
+                                <TextBox Text="{Binding MaxScanDepth, UpdateSourceTrigger=PropertyChanged}" Watermark="3" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!--  External tools: launchers for editors, terminals and agents  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="External Tools" />
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="8">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="VS Code Executable"
+                                    ToolTip.Tip="Path or command for VS Code" />
+                                <TextBox Text="{Binding VsCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="code" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="VS Code Profile"
+                                    ToolTip.Tip="VS Code profile to launch with (--profile). Leave empty to use the default profile" />
+                                <TextBox Text="{Binding VsCodeProfile, UpdateSourceTrigger=PropertyChanged}" Watermark="Leave empty for default profile" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Terminal Executable"
+                                    ToolTip.Tip="Path or command for terminal. 'wt' (the default) auto-detects a native terminal on Linux" />
+                                <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="IDE Executable"
+                                    ToolTip.Tip="IDE used to open solutions. On Windows the .sln file association is used when empty; elsewhere a well-known IDE (e.g. Rider) is auto-detected" />
+                                <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Auto-detect" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="OpenCode Executable"
+                                    ToolTip.Tip="Path or command for OpenCode" />
+                                <TextBox Text="{Binding OpenCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="opencode" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="ZCode Executable"
+                                    ToolTip.Tip="Path or command for zcode. An AppImage (desktop package) opens directly on the repo; a standalone CLI runs in the terminal" />
+                                <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!--  Columns: GitHub / Azure DevOps toggles and their credentials  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Columns" />
+                        <CheckBox
+                            Content="Show GitHub column"
+                            IsChecked="{Binding ShowGitHubColumn, Mode=TwoWay}"
+                            ToolTip.Tip="Show the GitHub column (repo link, open pull requests and issues) on the Repos page. When off, the column is hidden and the gh CLI is not queried" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="GitHub CLI Executable"
+                                ToolTip.Tip="Path or command for the gh CLI, used to query open pull requests and issues for the GitHub column" />
+                            <TextBox
+                                IsEnabled="{Binding ShowGitHubColumn}"
+                                Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="gh" />
+                        </StackPanel>
+                        <CheckBox
+                            Content="Show Azure DevOps column"
+                            IsChecked="{Binding ShowAzureDevOpsColumn, Mode=TwoWay}"
+                            ToolTip.Tip="Show the Azure DevOps column (repo link, active pull requests, open work items and the latest pipeline run) on the Repos page. When off, the column is hidden and no REST calls are sent" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Azure DevOps Token"
+                                ToolTip.Tip="Personal access token used to query pull requests, work items and pipeline runs for the Azure DevOps column. Stored in settings.json; leave empty to use the AZURE_DEVOPS_PAT environment variable instead" />
+                            <TextBox
+                                IsEnabled="{Binding ShowAzureDevOpsColumn}"
+                                PasswordChar="•"
+                                Text="{Binding AzureDevOpsPat, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="personal access token" />
+                        </StackPanel>
+                        <TextBlock
+                            Classes="subtle"
+                            Text="Repos are matched to Azure DevOps by their git remote; query the REST API with a personal access token (Build/Code/Work Items read scopes). Falls back to the AZURE_DEVOPS_PAT environment variable when empty."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  Footer with action buttons (outside scroll area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16,12"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel
+                HorizontalAlignment="Right"
+                Classes="actions">
+                <Button
+                    Command="{Binding CancelCommand}"
+                    Content="Cancel" />
+                <Button
+                    Command="{Binding SaveCommand}"
+                    Classes="Outlined"
+                    Content="Save"
+                    IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,15 +1,26 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Configuration;
+using Tools.Library.Services.Abstractions;
+using Tools.Services;
 
 namespace Tools.ViewModels.Windows;
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Windows.ReposSettingsDialog"/>. Holds the
+/// ViewModel for the <see cref="Views.Components.ReposSettingsComponent"/> (the former
+/// Repo Settings modal dialog, now hosted in the floating tool drawer). Holds the
 /// editing state for <see cref="ReposSettings"/> (multi-line text for the array
 /// fields, plain strings for the rest) and translates between the two on load/save.
 /// </summary>
-public partial class ReposSettingsViewModel : ObservableObject
+public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerContextReceiver
 {
+    private readonly IToolDrawerService _toolDrawer;
+
+    /// <summary>
+    /// The context completion source while this instance is the drawer's open component;
+    /// resolved with the edited settings on Save.
+    /// </summary>
+    private TaskCompletionSource<ReposSettings?>? _completion;
     private const string DefaultGitPattern = "*.git";
     private const string DefaultSolutionPattern = "*.sln,*.slnx";
     private const string DefaultPlatformName = "platform";
@@ -69,12 +80,44 @@ public partial class ReposSettingsViewModel : ObservableObject
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
 
     /// <summary>
-    /// Initializes a new instance from the current settings to edit.
+    /// Initializes a new instance. Editing state is seeded per open through
+    /// <see cref="OnDrawerContext"/> (the component is resolved fresh from DI each time).
     /// </summary>
-    /// <param name="current">The current repo settings to edit.</param>
-    public ReposSettingsViewModel(ReposSettings current)
+    public ReposSettingsViewModel(IToolDrawerService toolDrawer)
     {
-        LoadFrom(current ?? new ReposSettings());
+        _toolDrawer = toolDrawer;
+    }
+
+    /// <summary>
+    /// Drawer open payload: the settings instance to edit plus the completion source the
+    /// Save command resolves. Re-loads the fields so every open starts from the caller's
+    /// current settings.
+    /// </summary>
+    public void OnDrawerContext(object context)
+    {
+        if (context is not ReposSettingsDrawerContext drawerContext)
+        {
+            return;
+        }
+
+        _completion = drawerContext.Completion;
+        LoadFrom(drawerContext.Current ?? new ReposSettings());
+    }
+
+    /// <summary>Cancel/close: resolves the context with null (DialogService semantics).</summary>
+    [RelayCommand]
+    private void Cancel() => _toolDrawer.Close();
+
+    /// <summary>
+    /// Save: resolves the drawer context with the edited settings and closes the drawer.
+    /// Closing raises the drawer's Changed event, which DialogService treats as a cancel
+    /// — a no-op here because the completion is already set.
+    /// </summary>
+    [RelayCommand]
+    private void Save()
+    {
+        _completion?.TrySetResult(BuildSettings());
+        _toolDrawer.Close();
     }
 
     /// <summary>

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    NuGet Package Manager tool-drawer component: watches a folder for .nupkg builds
+    and forces consumers to fetch fresh DLLs by clearing the global cache. Same
+    drawer vocabulary as the Add Repositories component: card content on top,
+    footer band with the watch toggle on the right; the activity card reuses the
+    repos table's list-row language.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.NugetLocalComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Tools.ViewModels.Pages"
+    d:DesignHeight="600"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:NugetLocalViewModel"
+    mc:Ignorable="d">
+
+    <Grid RowDefinitions="*,Auto">
+        <Grid Grid.Row="0" Margin="16,4,16,0" RowDefinitions="Auto,Auto,*">
+            <!--  Setup card: watch folder + resolved cache paths + register  -->
+            <Border Grid.Row="0" Classes="card">
+                <StackPanel Spacing="8">
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            Classes="field-label"
+                            Text="Watch Directory"
+                            ToolTip.Tip="Monitored for new .nupkg build outputs" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox
+                                Text="{Binding WatchFolder, Mode=TwoWay}"
+                                Watermark="Pick or type a folder to watch…" />
+                            <Button
+                                Grid.Column="1"
+                                MinWidth="84"
+                                Command="{Binding SelectFolderCommand}"
+                                CommandParameter="Watch"
+                                Content="Browse…" />
+                        </Grid>
+                    </StackPanel>
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Margin="0,0,16,4"
+                            VerticalAlignment="Center"
+                            Classes="field-label"
+                            Text="Local Cache" />
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Classes="subtle"
+                            Text="{Binding ComputedCopyFolder}"
+                            TextTrimming="CharacterEllipsis"
+                            ToolTip.Tip="{Binding ComputedCopyFolder}" />
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Margin="0,4,16,0"
+                            VerticalAlignment="Center"
+                            Classes="field-label"
+                            Text="Global Cache" />
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Margin="0,4,0,0"
+                            VerticalAlignment="Center"
+                            Classes="subtle"
+                            Text="{Binding GlobalPackagesFolder}"
+                            TextTrimming="CharacterEllipsis"
+                            ToolTip.Tip="{Binding GlobalPackagesFolder}" />
+                        <Button
+                            Grid.RowSpan="2"
+                            Grid.Column="2"
+                            MinWidth="84"
+                            Margin="16,0,0,0"
+                            VerticalAlignment="Center"
+                            Classes="Outlined"
+                            Command="{Binding RegisterSourceCommand}"
+                            Content="Register"
+                            ToolTip.Tip="Register the watch folder as a local NuGet source" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!--  How-it-works card  -->
+            <Border Grid.Row="1" Margin="0,12,0,0" Classes="card">
+                <StackPanel Spacing="6">
+                    <TextBlock Classes="card-title" Text="How it works" />
+                    <TextBlock Classes="body-text" Text="1. Register your build folder as a local NuGet source." />
+                    <TextBlock Classes="body-text" Text="2. Start Watch to monitor for new build outputs (.nupkg)." />
+                    <TextBlock Classes="body-text" Text="3. On every build, the tool clears the global cache, forcing consumer projects to fetch your fresh DLLs." />
+                </StackPanel>
+            </Border>
+
+            <!--  Activity card: refreshed-package count + service log rows  -->
+            <Border Grid.Row="2" Margin="0,12,0,0" Classes="card" Padding="0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border
+                        Grid.Row="0"
+                        Padding="12,8"
+                        BorderBrush="{DynamicResource DividerBrush}"
+                        BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock
+                                Grid.Column="0"
+                                VerticalAlignment="Center"
+                                Classes="card-title"
+                                Text="Activity Log" />
+                            <Border
+                                Grid.Column="1"
+                                Classes="chip"
+                                Padding="10,4">
+                                <TextBlock Classes="subtle" Text="{Binding Count, StringFormat='{}{0} refreshed'}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                    <Panel Grid.Row="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl Margin="8" ItemsSource="{Binding FileList}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Border Classes="list-row">
+                                            <TextBlock
+                                                Classes="subtle"
+                                                Text="{Binding}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTip.Tip="{Binding}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <!--  Empty state: nothing logged yet  -->
+                        <TextBlock
+                            Margin="12"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Classes="subtle"
+                            IsVisible="{Binding !HasActivity}"
+                            Text="No activity yet — start the watch and build something." />
+                    </Panel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  Footer with the watch toggle (outside the content area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16,12"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Classes="actions">
+                <Button Classes="Outlined" Command="{Binding WatchChangesCommand}" CommandParameter="{Binding !WatchStarted}" IsDefault="True">
+                    <Panel>
+                        <TextBlock IsVisible="{Binding !WatchStarted}" Text="Start Watch" />
+                        <TextBlock IsVisible="{Binding WatchStarted}" Text="Stop Watch" />
+                    </Panel>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

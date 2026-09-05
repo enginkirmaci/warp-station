@@ -2,18 +2,22 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Pages;
+namespace Tools.Views.Components;
 
-public partial class FormattersPage : UserControl
+/// <summary>
+/// Formatters tool (base64 / case conversions with history), hosted in the main
+/// window's floating tool drawer.
+/// </summary>
+public partial class FormattersComponent : UserControl
 {
     public FormattersViewModel ViewModel { get; }
 
-    public FormattersPage()
+    public FormattersComponent()
     {
         InitializeComponent();
     }
 
-    public FormattersPage(FormattersViewModel viewModel)
+    public FormattersComponent(FormattersViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

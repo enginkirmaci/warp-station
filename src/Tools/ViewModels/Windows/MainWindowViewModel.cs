@@ -3,9 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Helpers;
 using Tools.Library.Configuration;
-using Tools.Library.Entities;
 using Tools.Library.Mvvm;
-using Tools.Library.Providers;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.ViewModels.Windows;
@@ -19,17 +18,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly INugetLocalService _nugetLocalService;
     private readonly ISettingsService _settingsService;
     private readonly IProcessLauncher _processLauncher;
-    private readonly INavigationService _navigationService;
+    private readonly IToolDrawerService _toolDrawer;
 
     /// <summary>
     /// Gets the title of the application.
     /// </summary>
     public string ApplicationTitle { get; } = "Dev Tools";
-
-    /// <summary>
-    /// Gets the collection of menu items for navigation.
-    /// </summary>
-    public IReadOnlyCollection<NavigationItem> MenuItems { get; }
 
     // ---- Status bar: SnapIt ----
     [ObservableProperty]
@@ -54,49 +48,56 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the NuGet local watch from the status bar.</summary>
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
-    // ---- Left navigation sidebar collapse state ----
-    /// <summary>Tracks whether the left navigation sidebar is collapsed to an icon-only rail.</summary>
+    // ---- Tool drawer (floating right sidebar) ----
+    /// <summary>Whether the tool drawer is currently shown over the page.</summary>
     [ObservableProperty]
-    private bool _isSidebarCollapsed;
+    private bool _isToolDrawerOpen;
 
-    /// <summary>Command to toggle the left navigation sidebar between expanded and icon-only.</summary>
-    public IAsyncRelayCommand ToggleSidebarCommand { get; }
+    /// <summary>Title of the tool currently shown in the drawer.</summary>
+    [ObservableProperty]
+    private string _toolDrawerTitle = string.Empty;
+
+    /// <summary>SVG path data of the current tool's icon, for the drawer header.</summary>
+    [ObservableProperty]
+    private string _toolDrawerIconPath = string.Empty;
 
     /// <summary>
     /// Whether the Clipboard Password tool may appear in the GUI. Mirrors the
-    /// HideFromGui setting used to filter the dashboard cards and sidebar entries;
-    /// when hidden the tool stays reachable through its hotkey only.
+    /// HideFromGui setting used to filter the tools dropdown; when hidden the tool
+    /// stays reachable through its hotkey only.
     /// </summary>
     public bool ShowClipboardPassword { get; }
+
+    /// <summary>
+    /// SnapIt is Windows-only functionality (the engine is Win32-based), so every
+    /// SnapIt surface — the title-bar status chip and the tools dropdown entry —
+    /// hides on other platforms. Runtime check, not the build-machine WINDOWS
+    /// constant, so Windows-targeted builds still show it when run on Windows.
+    /// </summary>
+    public bool ShowSnapIt => OperatingSystem.IsWindows();
 
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         ISettingsService settingsService,
         IProcessLauncher processLauncher,
-        INavigationService navigationService)
+        IToolDrawerService toolDrawer)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _settingsService = settingsService;
         _processLauncher = processLauncher;
-        _navigationService = navigationService;
+        _toolDrawer = toolDrawer;
 
         // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
         // (Task.FromResult), so this never blocks on async work.
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
-        var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
-        ShowClipboardPassword = !hideClipboardPassword;
-        MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
+        ShowClipboardPassword = appSettings.ClipboardPassword?.HideFromGui != true;
 
-        // Restore the sidebar's last collapse state so the layout matches the
-        // previous session. Only the initial value is read sync (cached read);
-        // subsequent toggles persist via the async OnToggleSidebar handler.
-        IsSidebarCollapsed = appSettings.General?.SidebarCollapsed == true;
+        _toolDrawer.Changed += OnToolDrawerChanged;
 
         ToggleSnapItCommand = new AsyncRelayCommand(OnToggleSnapItAsync);
         ToggleNugetWatchCommand = new AsyncRelayCommand(OnToggleNugetWatchAsync);
-        ToggleSidebarCommand = new AsyncRelayCommand(OnToggleSidebarAsync);
 
         _snapItService.RunningChanged += OnSnapItRunningChanged;
         _nugetLocalService.StateChanged += OnNugetLocalStateChanged;
@@ -114,26 +115,6 @@ public partial class MainWindowViewModel : ViewModelBase
         else
         {
             await _snapItService.StartAsync();
-        }
-    }
-
-    private async Task OnToggleSidebarAsync()
-    {
-        IsSidebarCollapsed = !IsSidebarCollapsed;
-
-        // Persist the new state so it is restored on the next launch. Failures
-        // are non-fatal (the in-memory state is already correct), so log and
-        // swallow rather than surfacing an error for a UI preference.
-        try
-        {
-            var settings = await _settingsService.GetSettingsAsync();
-            settings.General ??= new GeneralSettings();
-            settings.General.SidebarCollapsed = IsSidebarCollapsed;
-            await _settingsService.SaveSettingsAsync(settings);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to persist sidebar state: {ex.Message}");
         }
     }
 
@@ -174,6 +155,35 @@ public partial class MainWindowViewModel : ViewModelBase
             : "Idle";
     }
 
+    private void OnToolDrawerChanged()
+    {
+        IsToolDrawerOpen = _toolDrawer.IsOpen;
+
+        var tool = ToolComponentMapper.Find(_toolDrawer.SelectedToolKey);
+        ToolDrawerTitle = tool?.Title ?? string.Empty;
+        ToolDrawerIconPath = tool is null ? string.Empty : IconAssetLoader.GetPathData(tool.IconAsset);
+    }
+
+    /// <summary>
+    /// Opens a tool component in the floating right drawer. Used by the title-bar
+    /// tools dropdown; the drawer service no-ops when that tool is already showing.
+    /// </summary>
+    [RelayCommand]
+    private void OpenTool(string? toolKey)
+    {
+        if (!string.IsNullOrWhiteSpace(toolKey))
+        {
+            _toolDrawer.Open(toolKey);
+        }
+    }
+
+    /// <summary>Closes the tool drawer (header ✕ button).</summary>
+    [RelayCommand]
+    private void CloseToolDrawer()
+    {
+        _toolDrawer.Close();
+    }
+
     /// <summary>
     /// Opens the user settings folder (<c>%USERPROFILE%\.devtools</c>) in the OS
     /// file explorer. ProcessLauncher uses <c>UseShellExecute=true</c>, so passing a folder
@@ -187,20 +197,5 @@ public partial class MainWindowViewModel : ViewModelBase
         var settingsDirectory = UserPaths.UserDataRoot;
         Directory.CreateDirectory(settingsDirectory);
         _processLauncher.StartProcess(settingsDirectory);
-    }
-
-    /// <summary>
-    /// Navigates to a page by its registered page key (see <c>PageNavigationMapper</c>).
-    /// Used by the title-bar tools dropdown, whose entries carry the same keys as the
-    /// sidebar and dashboard cards.
-    /// </summary>
-    [RelayCommand]
-    private void Navigate(string? pageKey)
-    {
-        var pageType = PageNavigationMapper.Convert(pageKey);
-        if (pageType != null)
-        {
-            _navigationService.Navigate(pageType);
-        }
     }
 }

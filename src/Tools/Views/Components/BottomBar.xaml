@@ -25,9 +25,10 @@
         the strip keeps
         only the git context (branch dropdown + bare "N changes" label) and the
         Fetch + last-fetched actions, pinned left/right like the mockup. Chrome
-        matches the old window status bar: SidebarBackgroundBrush surface,
-        DividerBrush hairlines. The bar lives on the Repositories page (it is that
-        page's footer), not on every page.
+        matches the floating tool drawer: one docked card (CardBackgroundBrush
+        surface, HairlineBrush border, CardRadius corners) that lives in the page
+        layout — the table shrinks around it, nothing floats over the page. The bar
+        lives on the Repositories page (it is that page's footer), not on every page.
     -->
     <UserControl.Styles>
         <!--  Overview stat card link ("View changes →"): accent text, underline on hover.  -->
@@ -110,17 +111,22 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid IsVisible="{Binding IsBarVisible}" RowDefinitions="Auto,Auto">
+    <!--  The bar sits inset from the page edges, aligned with the table card above.  -->
+    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto">
 
-        <!--  ============ Expandable panel (repo header + active tab's content) ====  -->
+        <!--  ============ Expandable panel (repo header + active tab's content) ====
+              Top half of the docked card: rounded top corners, hairline border on
+              three sides (the strip's top hairline closes the card at the middle).  -->
         <Border
             Grid.Row="0"
             Height="{Binding PanelHeight}"
-            Background="{DynamicResource SidebarBackgroundBrush}"
-            BorderBrush="{DynamicResource DividerBrush}"
-            BorderThickness="0,1,0,0"
+            Background="{DynamicResource CardBackgroundBrush}"
+            BorderBrush="{DynamicResource HairlineBrush}"
+            BorderThickness="1,1,1,0"
+            ClipToBounds="True"
+            CornerRadius="{DynamicResource CardRadiusTop}"
             IsVisible="{Binding IsPanelOpen}">
-            <Grid Margin="12,4,12,10" RowDefinitions="Auto,*">
+            <Grid Margin="12,8,12,12" RowDefinitions="Auto,*">
 
                 <!--
                     Repo header (mockup): back link, repo name + star, branch / URL
@@ -1547,13 +1553,17 @@
             </Grid>
         </Border>
 
-        <!--  ============ Strip (git context + Fetch; hidden with the whole bar) ====  -->
+        <!--  ============ Strip (git context + Fetch; hidden with the whole bar) ====
+              Bottom half of the docked card: rounded bottom corners, hairline border
+              on three sides, DividerBrush hairline on top separating it from the panel.  -->
         <Border
             Grid.Row="1"
             Height="40"
-            Background="{DynamicResource SidebarBackgroundBrush}"
+            Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource DividerBrush}"
-            BorderThickness="0,1,0,0">
+            BorderThickness="0,1,1,1"
+            ClipToBounds="True"
+            CornerRadius="{DynamicResource CardRadiusBottom}">
             <Grid
                 Margin="12,0,12,0"
                 ColumnDefinitions="Auto,Auto,*,Auto"

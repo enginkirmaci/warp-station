@@ -11,6 +11,7 @@ using Tools.Services;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
+using Tools.Views.Components;
 using Tools.Views.Pages;
 using Tools.Views.Windows;
 
@@ -23,7 +24,7 @@ public partial class App : Application
 {
     public static IHost Host { get; private set; } = null!;
 
-    private Window? _mainWindow;
+    private MainWindow? _mainWindow;
 
     public override void Initialize()
     {
@@ -96,7 +97,7 @@ public partial class App : Application
         services.AddSnapItEngine();
         services.AddSingleton<ISnapItService, SnapItService>();
         // Register application services
-        services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<IToolDrawerService, ToolDrawerService>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<INotificationService, NotificationService>();
@@ -108,13 +109,16 @@ public partial class App : Application
         // selection, open tab) for the whole window lifetime.
         services.AddSingleton<ViewModels.Components.BottomBarViewModel>();
         // Register pages and view models
-        RegisterPageWithViewModel<DashboardPage, DashboardViewModel>(services);
         RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);
-        RegisterPageWithViewModel<FormattersPage, FormattersViewModel>(services);
-        RegisterPageWithViewModel<NugetLocalPage, NugetLocalViewModel>(services);
-        RegisterPageWithViewModel<CodeExecutePage, CodeExecuteViewModel>(services);
-        RegisterPageWithViewModel<ClipboardPasswordPage, ClipboardPasswordViewModel>(services);
-        RegisterPageWithViewModel<SnapItSettingsPage, SnapItSettingsViewModel>(services);
+        // Register tool components (floating drawer) and their view models
+        RegisterPageWithViewModel<FormattersComponent, FormattersViewModel>(services);
+        RegisterPageWithViewModel<NugetLocalComponent, NugetLocalViewModel>(services);
+        RegisterPageWithViewModel<CodeExecuteComponent, CodeExecuteViewModel>(services);
+        RegisterPageWithViewModel<ClipboardPasswordComponent, ClipboardPasswordViewModel>(services);
+        RegisterPageWithViewModel<SnapItSettingsComponent, SnapItSettingsViewModel>(services);
+        // Drawer-hosted dialogs (opened by DialogService instead of modal windows)
+        RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
+        RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
     }
 
     private static void RegisterPageWithViewModel<TPage, TViewModel>(IServiceCollection services)
@@ -131,6 +135,10 @@ public partial class App : Application
         {
             var services = Host.Services;
             _mainWindow = services.GetRequiredService<MainWindow>();
+            // The Repositories page is the window's permanent content. It depends on the
+            // window transitively (DialogService), so it is resolved and attached AFTER
+            // the window exists instead of being a constructor dependency of it.
+            _mainWindow.AttachRepositoriesPage(services.GetRequiredService<ReposPage>());
             desktop.MainWindow = _mainWindow;
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             // Stop background services and dispose the host on application shutdown,
@@ -164,6 +172,12 @@ public partial class App : Application
 
     private static async Task InitializeSnapItAsync(IServiceProvider services)
     {
+        // SnapIt is Windows-only functionality (Win32 engine); never start it elsewhere.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         try
         {
             var settingsService = services.GetRequiredService<ISettingsService>();

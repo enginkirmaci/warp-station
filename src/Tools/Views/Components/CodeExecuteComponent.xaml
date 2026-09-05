@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Code Execute tool-drawer component: evaluates C# snippets via Roslyn scripting.
+    Same drawer vocabulary as the Add Repositories component: card content on top,
+    with the primary action inline under the input (the Add Repositories Scan-row
+    position) instead of a bottom footer band.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.CodeExecuteComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Tools.ViewModels.Pages"
+    d:DesignHeight="600"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:CodeExecuteViewModel"
+    mc:Ignorable="d">
+
+    <Grid Margin="16,4,16,16" RowDefinitions="Auto,*">
+        <!--  Editor card. The editor caps its height and scrolls internally so the
+              output card below keeps a stable share of the drawer.  -->
+        <Border Grid.Row="0" Margin="0,0,0,12" Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock
+                    Classes="field-label"
+                    Text="C# Code"
+                    ToolTip.Tip="Evaluated as a C# script; the last value becomes the output" />
+                <TextBox
+                    MaxHeight="280"
+                    MinHeight="110"
+                    AcceptsReturn="True"
+                    Classes="mono"
+                    Text="{Binding ImmediateInput, Mode=TwoWay}"
+                    TextWrapping="Wrap"
+                    Watermark="Enter C# code to execute…" />
+                <Button
+                    HorizontalAlignment="Left"
+                    Classes="Outlined"
+                    Command="{Binding ExecuteCommand}"
+                    Content="Execute Code" />
+            </StackPanel>
+        </Border>
+
+        <!--  Output card: fills the remaining drawer height, list scrolls  -->
+        <Border Grid.Row="1" Classes="card">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock
+                    Grid.Row="0"
+                    Margin="0,0,0,8"
+                    Classes="card-title"
+                    Text="Output" />
+                <Panel Grid.Row="1">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <TextBlock
+                            Classes="mono"
+                            IsVisible="{Binding HasOutput}"
+                            Text="{Binding ImmediateOutput}"
+                            TextWrapping="Wrap" />
+                    </ScrollViewer>
+                    <!--  Empty state: nothing executed yet  -->
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Classes="subtle"
+                        IsVisible="{Binding !HasOutput}"
+                        Text="Run a snippet to see its output here." />
+                </Panel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

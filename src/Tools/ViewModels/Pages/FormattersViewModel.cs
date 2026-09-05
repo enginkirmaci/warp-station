@@ -36,10 +36,15 @@ public partial class FormattersViewModel : PageViewModelBase
     /// <summary>Maximum number of items retained in <see cref="History"/>.</summary>
     private const int MaxHistory = 100;
 
+    /// <summary>True when the history list has entries (drives its empty state).</summary>
+    public bool HasHistory => History.Count > 0;
+
     public FormattersViewModel(IClipboardService clipboardService, INotificationService notificationService)
     {
         _clipboardService = clipboardService;
         _notificationService = notificationService;
+
+        History.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHistory));
     }
 
     /// <summary>

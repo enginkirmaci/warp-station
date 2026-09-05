@@ -40,6 +40,11 @@ public partial class NugetLocalViewModel : PageViewModelBase
     [ObservableProperty]
     private ObservableCollection<string> _fileList = new();
 
+    /// <summary>True when the activity log has entries (drives its empty state).</summary>
+    public bool HasActivity => FileList.Count > 0;
+
+    partial void OnFileListChanged(ObservableCollection<string> value) => OnPropertyChanged(nameof(HasActivity));
+
     public NugetLocalViewModel(INugetLocalService nugetService, IDialogService dialogService, INotificationService notificationService)
     {
         _nugetService = nugetService;

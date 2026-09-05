@@ -82,19 +82,14 @@
     -->
 
     <!-- Surfaces -->
-    <SolidColorBrush x:Key="AppBackgroundBrush" Color="{DynamicResource SukiBackground}" />
-    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
-    <SolidColorBrush x:Key="SidebarTranslucentBrush" Color="{DynamicResource SukiStrongBackground}" />
     <SolidColorBrush x:Key="ContentBackgroundBrush" Color="{DynamicResource SukiBackground}" />
     <SolidColorBrush x:Key="CardBackgroundBrush" Color="{DynamicResource SukiCardBackground}" />
     <SolidColorBrush x:Key="CardSubtleBackgroundBrush" Color="{DynamicResource SukiStrongBackground}" />
-    <SolidColorBrush x:Key="IconChipBackgroundBrush" Color="{DynamicResource SukiGlassCardOpaqueBackground}" />
     <!-- Header (title bar) search field surface: a step lighter than the app background
          so the floating field reads as its own control, with the hairline border. -->
     <SolidColorBrush x:Key="HeaderSearchBackgroundBrush" Color="{DynamicResource SukiPopupBackground}" />
     <SolidColorBrush x:Key="DividerBrush" Color="{DynamicResource SukiLightBorderBrush}" />
     <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource SukiBorderBrush}" />
-    <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{DynamicResource SukiPrimaryColor25}" />
     <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{DynamicResource SukiControlTouchBackground}" />
     <!-- Repos table row hover — the touch color at low opacity so a full-width row
          highlight stays subtle against the card surface underneath it. -->
@@ -105,7 +100,6 @@
 
     <!-- Text -->
     <SolidColorBrush x:Key="TitleForegroundBrush" Color="{DynamicResource SukiText}" />
-    <SolidColorBrush x:Key="SubtitleForegroundBrush" Color="{DynamicResource SukiLowText}" />
     <SolidColorBrush x:Key="BodyForegroundBrush" Color="{DynamicResource SukiLowText}" />
     <SolidColorBrush x:Key="MutedForegroundBrush" Color="{DynamicResource SukiMuteText}" />
     <SolidColorBrush x:Key="FaintForegroundBrush" Color="{DynamicResource SukiDisabledText}" />
@@ -113,15 +107,10 @@
     <!-- Accent (SukiTheme writes the SukiPrimaryColor* palette, then
          App.ApplyAccentColorOverride overrides it to the periwinkle accent) -->
     <SolidColorBrush x:Key="AccentPrimaryBrush" Color="{DynamicResource SukiPrimaryColor}" />
-    <SolidColorBrush x:Key="AccentPrimaryHoverBrush" Color="{DynamicResource SukiPrimaryColor120}" />
-    <SolidColorBrush x:Key="AccentPrimaryPressedBrush" Color="{DynamicResource SukiPrimaryColor75}" />
-    <SolidColorBrush x:Key="AccentSoftBrush" Color="{DynamicResource SukiPrimaryColor15}" />
     <SolidColorBrush x:Key="AccentSoftBorderBrush" Color="{DynamicResource SukiPrimaryColor50}" />
-    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
 
     <!-- Status indicators -->
     <SolidColorBrush x:Key="StatusActiveBrush" Color="{DynamicResource SukiSuccessColor}" />
-    <SolidColorBrush x:Key="StatusInactiveBrush" Color="{DynamicResource SukiDisabledText}" />
     <SolidColorBrush x:Key="InfoAccentBrush" Color="{DynamicResource SukiInformationColor}" />
     <SolidColorBrush x:Key="WarningAccentBrush" Color="{DynamicResource SukiWarningColor}" />
     <SolidColorBrush x:Key="DangerAccentBrush" Color="{DynamicResource SukiDangerColor}" />
@@ -144,6 +133,10 @@
         ================================================================
     -->
     <CornerRadius x:Key="CardRadius">10</CornerRadius>
+    <!--  Half-card radii: the repos bottom bar's panel (top half) and strip (bottom
+          half) form ONE docked card, so each carries only its own rounded corners.  -->
+    <CornerRadius x:Key="CardRadiusTop">10,10,0,0</CornerRadius>
+    <CornerRadius x:Key="CardRadiusBottom">0,0,10,10</CornerRadius>
     <CornerRadius x:Key="ControlRadius">8</CornerRadius>
     <CornerRadius x:Key="ChipRadius">6</CornerRadius>
 
@@ -156,12 +149,10 @@
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
             <BoxShadows x:Key="CardShadow">0 0 3 0 #353535</BoxShadows>
-            <BoxShadows x:Key="CardHoverShadow">0 2 5 0 #101010</BoxShadows>
             <BoxShadows x:Key="FlyoutShadow">1 1 14 1 #101010</BoxShadows>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <BoxShadows x:Key="CardShadow">0 0 3 0 #eaeaea</BoxShadows>
-            <BoxShadows x:Key="CardHoverShadow">0 2 5 0 LightGray</BoxShadows>
             <BoxShadows x:Key="FlyoutShadow">1 1 8 0 LightGray</BoxShadows>
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>

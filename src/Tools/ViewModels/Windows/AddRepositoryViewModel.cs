@@ -7,6 +7,7 @@ using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Services;
 
 namespace Tools.ViewModels.Windows;
 
@@ -39,17 +40,26 @@ public partial class FoundRepository : ObservableObject
 }
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Windows.AddRepositoryDialog"/>. Holds the folder
-/// to scan, runs the scan through <see cref="IRepoScanner"/> (reusing the repo scan
-/// settings' exclusions/patterns/depth), and presents the discovered repositories for
-/// selection. The dialog returns the selected folder paths; merging them into the
-/// persisted scan folders is the caller's job.
+/// ViewModel for the <see cref="Views.Components.AddRepositoryComponent"/> (the former
+/// Add Repositories modal dialog, now hosted in the floating tool drawer). Holds the
+/// folder to scan, runs the scan through <see cref="IRepoScanner"/> (reusing the repo
+/// scan settings' exclusions/patterns/depth), and presents the discovered repositories
+/// for selection. The component resolves its drawer context with the selected folder
+/// paths; merging them into the persisted scan folders is the caller's job.
 /// </summary>
-public partial class AddRepositoryViewModel : ObservableObject
+public partial class AddRepositoryViewModel : ObservableObject, IToolDrawerContextReceiver
 {
     private readonly IRepoScanner _scanner;
-    private readonly ReposSettings _settings;
-    private readonly HashSet<string> _trackedPaths;
+    private readonly IToolDrawerService _toolDrawer;
+
+    private ReposSettings _settings = new();
+    private HashSet<string> _trackedPaths = new(RepoPath.Comparer);
+
+    /// <summary>
+    /// The context completion source while this instance is the drawer's open component;
+    /// resolved with the selected paths on Add.
+    /// </summary>
+    private TaskCompletionSource<IReadOnlyList<string>?>? _completion;
 
     [ObservableProperty]
     private string _folderPath = string.Empty;
@@ -90,16 +100,61 @@ public partial class AddRepositoryViewModel : ObservableObject
         ? $"Add {SelectedCount} {(SelectedCount == 1 ? "repository" : "repositories")}"
         : "Add";
 
-    public AddRepositoryViewModel(
-        ReposSettings settings,
-        IEnumerable<Repo> trackedRepos,
-        IRepoScanner scanner)
+    public AddRepositoryViewModel(IRepoScanner scanner, IToolDrawerService toolDrawer)
+    {
+        _scanner = scanner;
+        _toolDrawer = toolDrawer;
+    }
+
+    /// <summary>
+    /// Drawer open payload: the request's settings and tracked repos, plus the
+    /// completion source the Add command resolves. Resets any previous scan state so
+    /// every open starts from a clean sheet.
+    /// </summary>
+    public void OnDrawerContext(object context)
+    {
+        if (context is not AddRepositoriesDrawerContext drawerContext)
+        {
+            return;
+        }
+
+        _completion = drawerContext.Completion;
+        Load(drawerContext.Settings, drawerContext.TrackedRepos);
+    }
+
+    /// <summary>Seeds the tracked set and resets the folder/scan state for a fresh open.</summary>
+    private void Load(ReposSettings settings, IReadOnlyList<Repo> trackedRepos)
     {
         _settings = settings;
-        _scanner = scanner;
         _trackedPaths = new HashSet<string>(
             trackedRepos.Where(r => r.FolderPath is not null).Select(r => r.FolderPath!),
             RepoPath.Comparer);
+
+        foreach (var item in FoundRepos)
+            item.PropertyChanged -= OnItemPropertyChanged;
+        FoundRepos.Clear();
+
+        FolderPath = string.Empty;
+        IsScanning = false;
+        HasScanned = false;
+        StatusText = "Pick or type a folder, then scan it for git repositories.";
+        RaiseSelectionBindings();
+    }
+
+    /// <summary>Cancel/close: resolves the context with null (DialogService semantics).</summary>
+    [RelayCommand]
+    private void Cancel() => _toolDrawer.Close();
+
+    /// <summary>
+    /// Add: resolves the drawer context with the checked, not-yet-tracked repo paths and
+    /// closes the drawer. Closing raises the drawer's Changed event, which DialogService
+    /// treats as a cancel — a no-op here because the completion is already set.
+    /// </summary>
+    [RelayCommand]
+    private void Confirm()
+    {
+        _completion?.TrySetResult(GetSelectedPaths());
+        _toolDrawer.Close();
     }
 
     partial void OnFolderPathChanged(string value) => ScanCommand.NotifyCanExecuteChanged();

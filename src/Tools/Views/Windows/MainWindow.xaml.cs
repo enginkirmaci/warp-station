@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -6,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using SukiUI.Controls;
 using Tools.Helpers;
+using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
@@ -14,30 +16,32 @@ using Tools.Views.Pages;
 namespace Tools.Views.Windows;
 
 /// <summary>
-/// Main application window with navigation sidebar, content area, and info bar.
-/// Window chrome (title bar, caption buttons, dragging) is provided by SukiWindow.
+/// Main application window: the Repositories page is the permanent content, and a
+/// floating tool drawer overlays it with the tool components opened from the title-bar
+/// tools dropdown. Window chrome (title bar, caption buttons, dragging) is provided by
+/// SukiWindow.
 /// </summary>
 public partial class MainWindow : SukiWindow
 {
-    private readonly INavigationService _navigationService;
+    private readonly IToolDrawerService _toolDrawer;
+    private readonly IServiceProvider _services;
     private readonly IClipboardPasswordService _clipboardPasswordService;
     private readonly WindowMessageHandler _messageHandler;
     private readonly WindowConfigurator _windowConfigurator;
 
-    private bool _isNavigatingFromCode;
-
     /// <summary>
     /// Idle window for the header search field before its text is pushed to the Repos
     /// page. The page applies its own debounce on top, so this only coalesces keystrokes
-    /// into a single navigation/property push per burst.
+    /// into a single property push per burst.
     /// </summary>
     private const int HeaderSearchDebounceMs = 150;
 
     private CancellationTokenSource? _searchDebounce;
 
     /// <summary>
-    /// True while the code-behind is mirroring state INTO the search field (navigation
-    /// sync); the TextChanged handler must not echo those writes back into the page.
+    /// True while the code-behind is mirroring state INTO the search field (from the
+    /// Repos filter); the TextChanged handler must not echo those writes back into the
+    /// page.
     /// </summary>
     private bool _syncingSearchText;
 
@@ -54,16 +58,14 @@ public partial class MainWindow : SukiWindow
 
     // Named XAML elements
     private ContentControl ContentArea = null!;
-    private ListBox NavigationListBox = null!;
-    private Button BackButton = null!;
+    private ContentControl ToolDrawerHost = null!;
     private ItemsControl ToastHost = null!;
 
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
         ContentArea = this.FindControl<ContentControl>("ContentArea")!;
-        NavigationListBox = this.FindControl<ListBox>("NavigationListBox")!;
-        BackButton = this.FindControl<Button>("BackButton")!;
+        ToolDrawerHost = this.FindControl<ContentControl>("ToolDrawerHost")!;
         ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
     }
 
@@ -95,11 +97,13 @@ public partial class MainWindow : SukiWindow
 
     public MainWindow(
         MainWindowViewModel viewModel,
-        INavigationService navigationService,
+        IToolDrawerService toolDrawer,
+        IServiceProvider services,
         IClipboardPasswordService clipboardPasswordService,
         INotificationService notificationService)
     {
-        _navigationService = navigationService;
+        _toolDrawer = toolDrawer;
+        _services = services;
         _clipboardPasswordService = clipboardPasswordService;
 
         // Initialize helper classes (Dependency Inversion Principle)
@@ -108,7 +112,6 @@ public partial class MainWindow : SukiWindow
 
         DataContext = viewModel;
         InitializeComponent();
-        InitializeNavigation();
         InitializeWindow();
 
         // Wire the toast overlay: the service is its DataContext (provides DismissCommand)
@@ -117,18 +120,24 @@ public partial class MainWindow : SukiWindow
         ToastHost.ItemsSource = notificationService.Toasts;
     }
 
-    #region Initialization
-
-    private void InitializeNavigation()
+    /// <summary>
+    /// Composition-root hook: hosts the Repositories page as the window's permanent
+    /// content. ReposPage transitively depends on this window (DialogService does), so
+    /// it cannot be a constructor dependency — the app resolves it after the window
+    /// exists and attaches it here. There is no navigation stack anymore.
+    /// </summary>
+    public void AttachRepositoriesPage(ReposPage reposPage)
     {
-        // Wire up the navigation service's ContentControl
-        _navigationService.SetContentControl(ContentArea);
-        _navigationService.Navigated += OnNavigated;
-        _navigationService.BackStackChanged += OnBackStackChanged;
-        UpdateBackButtonVisibility();
-        // Navigate to dashboard
-        NavigateToPage("DashboardPage", 0);
+        ContentArea.Content = reposPage;
+
+        if (reposPage.DataContext is ReposViewModel viewModel)
+        {
+            viewModel.PropertyChanged += OnReposViewModelPropertyChanged;
+            FireLifecycle(() => viewModel.OnNavigatedToAsync());
+        }
     }
+
+    #region Initialization
 
     private void InitializeWindow()
     {
@@ -146,97 +155,8 @@ public partial class MainWindow : SukiWindow
         // and needs no window handle; the message-handler hook is Windows-only.
         _clipboardPasswordService.RegisterHotKeys(nint.Zero);
 #endif
+        _toolDrawer.Changed += OnToolDrawerChanged;
         Closed += OnWindowClosed;
-    }
-
-    private void NavigateToPage(string pageKey, int selectedIndex)
-    {
-        _isNavigatingFromCode = true;
-        var pageType = PageNavigationMapper.Convert(pageKey);
-        if (pageType != null)
-        {
-            _navigationService.Navigate(pageType);
-        }
-        NavigationListBox.SelectedIndex = selectedIndex;
-        _isNavigatingFromCode = false;
-    }
-
-    #endregion
-
-    #region Event Handlers
-
-    private void BackButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_navigationService.CanGoBack)
-        {
-            _navigationService.GoBack();
-        }
-    }
-
-    private void NavigationListBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_isNavigatingFromCode) return;
-        if (e.AddedItems.Count > 0 && e.AddedItems[0] is Tools.Library.Entities.NavigationItem item)
-        {
-            // Skip separators and headers
-            if (item.PageKey == "__separator__" || item.PageKey == "__header__")
-            {
-                _isNavigatingFromCode = true;
-                // Re-select the previous valid item
-                if (e.RemovedItems.Count > 0)
-                {
-                    NavigationListBox.SelectedItem = e.RemovedItems[0];
-                }
-                _isNavigatingFromCode = false;
-                return;
-            }
-            var pageType = PageNavigationMapper.Convert(item.PageKey);
-            if (pageType != null)
-            {
-                _navigationService.Navigate(pageType);
-            }
-        }
-    }
-
-    private void OnNavigated(Type? pageType)
-    {
-        UpdateBackButtonVisibility();
-        SyncSidebarSelection(pageType);
-        SyncHeaderSearch(pageType);
-    }
-
-    private void SyncSidebarSelection(Type? pageType)
-    {
-        if (pageType == null || ViewModel.MenuItems == null)
-        {
-            return;
-        }
-
-        var pageName = pageType.Name;
-        var match = ViewModel.MenuItems.FirstOrDefault(item =>
-            !string.IsNullOrEmpty(item.PageKey) &&
-            item.PageKey != "__separator__" &&
-            item.PageKey != "__header__" &&
-            string.Equals(item.PageKey, pageName, StringComparison.OrdinalIgnoreCase));
-
-        if (match == null || ReferenceEquals(NavigationListBox.SelectedItem, match))
-        {
-            return;
-        }
-
-        _isNavigatingFromCode = true;
-        NavigationListBox.SelectedItem = match;
-        _isNavigatingFromCode = false;
-    }
-
-    private void OnBackStackChanged()
-    {
-        UpdateBackButtonVisibility();
-    }
-
-    private void UpdateBackButtonVisibility()
-    {
-        BackButton.IsVisible = _navigationService.CanGoBack;
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -244,12 +164,117 @@ public partial class MainWindow : SukiWindow
         _clipboardPasswordService.UnregisterHotKeys();
         _messageHandler.Uninstall(_windowConfigurator.WindowHandle);
 
-        _navigationService.Navigated -= OnNavigated;
-        _navigationService.BackStackChanged -= OnBackStackChanged;
+        if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel })
+        {
+            viewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
+        }
+        _toolDrawer.Changed -= OnToolDrawerChanged;
         _searchDebounce?.Cancel();
         _searchDebounce?.Dispose();
         // Background services (SnapIt, NuGet watch) are stopped during application
         // shutdown, not here, so the window does not own their lifecycle.
+    }
+
+    /// <summary>
+    /// Mirrors Repos filter changes INTO the header search field so page-side actions
+    /// (the Clear chip) are reflected while the user is not typing in the field.
+    /// </summary>
+    private void OnReposViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ReposViewModel.FilterText)
+            || HeaderSearchBox is null
+            || HeaderSearchBox.IsFocused
+            || _syncingSearchText)
+        {
+            return;
+        }
+
+        var text = sender is ReposViewModel viewModel ? viewModel.FilterText ?? string.Empty : string.Empty;
+        if (HeaderSearchBox.Text == text)
+        {
+            return;
+        }
+
+        _syncingSearchText = true;
+        HeaderSearchBox.Text = text;
+        _syncingSearchText = false;
+        UpdateHeaderSearchChrome();
+    }
+
+    #endregion
+
+    #region Tool drawer
+
+    /// <summary>
+    /// Clicks on the drawer's transparent backdrop (anywhere over the page outside
+    /// the drawer card) close the drawer.
+    /// </summary>
+    private void OnToolDrawerBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _toolDrawer.Close();
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Mirrors the drawer service state into the visuals: swaps the hosted component
+    /// per tool selection, clearing it on close. Components are resolved fresh from DI
+    /// per selection (like the former transient pages), and the hosted ViewModel's
+    /// lifecycle hooks run on open/close so transient subscriptions to singleton
+    /// services (NuGet watch, SnapIt state) are attached and detached symmetrically.
+    /// Drawer-hosted dialogs receive their open payload (request state + completion
+    /// source) through <see cref="IToolDrawerContextReceiver"/> right after hosting.
+    /// </summary>
+    private void OnToolDrawerChanged()
+    {
+        // Teardown the current component first: its ViewModel detaches from singleton
+        // services in OnNavigatedFromAsync.
+        if (ToolDrawerHost.Content is Control previous
+            && previous.DataContext is PageViewModelBase outgoingVm)
+        {
+            FireLifecycle(() => outgoingVm.OnNavigatedFromAsync());
+        }
+
+        if (!_toolDrawer.IsOpen
+            || ToolComponentMapper.Find(_toolDrawer.SelectedToolKey) is not { } tool
+            || _services.GetService(tool.ViewType) is not Control view)
+        {
+            ToolDrawerHost.Content = null;
+            return;
+        }
+
+        ToolDrawerHost.Content = view;
+
+        // Deliver the open's context (tools have none; dialogs seed their state here).
+        if (_toolDrawer.Context is { } context
+            && view.DataContext is IToolDrawerContextReceiver receiver)
+        {
+            receiver.OnDrawerContext(context);
+        }
+
+        if (view.DataContext is PageViewModelBase incomingVm)
+        {
+            FireLifecycle(() => incomingVm.OnNavigatedToAsync());
+        }
+    }
+
+    /// <summary>
+    /// Invokes an asynchronous ViewModel lifecycle hook, surfacing failures via the
+    /// logger instead of silently swallowing them. Fire-and-forget mirrors the former
+    /// navigation service's handling of the same hooks.
+    /// </summary>
+    private static void FireLifecycle(Func<Task> hook)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await hook();
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Logger.Error(ex, "ViewModel lifecycle hook threw");
+            }
+        });
     }
 
     #endregion
@@ -259,10 +284,16 @@ public partial class MainWindow : SukiWindow
     /// <summary>
     /// Ctrl+F focuses the header search field from anywhere in the app. Handled on the
     /// window so it works regardless of which control holds keyboard focus (a TextBox
-    /// lets the unhandled gesture bubble).
+    /// lets the unhandled gesture bubble). Escape closes the tool drawer.
     /// </summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (!e.Handled && e.Key == Key.Escape && _toolDrawer.IsOpen)
+        {
+            _toolDrawer.Close();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && HeaderSearchBox is not null)
         {
             HeaderSearchBox.Focus();
@@ -274,17 +305,13 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>
-    /// Header search typed text: debounce-push the term to the Repos page, navigating
-    /// there first when the user is on another page. An empty field clears the Repos
-    /// filter when the page is open; leaving a non-Repos page just clears the field.
+    /// Header search typed text: debounce-push the term into the Repos page's filter
+    /// (an empty field clears it).
     /// </summary>
     private void OnHeaderSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
         UpdateHeaderSearchChrome();
         if (_syncingSearchText) return;
-
-        var text = HeaderSearchBox.Text ?? string.Empty;
-        if (text.Length == 0 && ContentArea.Content is not ReposPage) return;
 
         _searchDebounce?.Cancel();
         _searchDebounce?.Dispose();
@@ -327,47 +354,16 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>
-    /// Navigates to the Repos page when needed and writes the term into the page's
-    /// filter. The page ViewModel is transient (rebuilt per navigation), so the push is
-    /// safe whether the page was just created (initialization picks the term up) or is
+    /// Writes the term into the Repos page's filter. The page ViewModel lives for the
+    /// window lifetime, so the push is safe whether the page is freshly initialized or
     /// already showing (its own debounce re-filters).
     /// </summary>
     private void ApplyHeaderSearch(string text)
     {
-        if (ContentArea.Content is not ReposPage reposPage)
-        {
-            if (text.Length == 0) return;
-            _navigationService.Navigate(typeof(ReposPage));
-            reposPage = ContentArea.Content as ReposPage;
-            if (reposPage is null) return;
-        }
-
-        if (reposPage.DataContext is ReposViewModel viewModel)
+        if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel })
         {
             viewModel.FilterText = text;
         }
-    }
-
-    /// <summary>
-    /// Mirrors state INTO the search field on navigation: on Repos it shows that page's
-    /// filter, elsewhere it clears. Skipped while the field holds focus — a
-    /// search-triggered navigation lands here mid-typing, and the user's text (not the
-    /// fresh page's empty filter) is the authority while they type.
-    /// </summary>
-    private void SyncHeaderSearch(Type? pageType)
-    {
-        if (HeaderSearchBox is null || HeaderSearchBox.IsFocused) return;
-
-        var text = pageType == typeof(ReposPage)
-            && ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel }
-                ? viewModel.FilterText ?? string.Empty
-                : string.Empty;
-
-        if (HeaderSearchBox.Text == text) return;
-        _syncingSearchText = true;
-        HeaderSearchBox.Text = text;
-        _syncingSearchText = false;
-        UpdateHeaderSearchChrome();
     }
 
     /// <summary>The shortcut hint yields to the clear button once there is text.</summary>
@@ -379,10 +375,6 @@ public partial class MainWindow : SukiWindow
         SearchKbdHint.IsVisible = !hasText;
         SearchClearButton.IsVisible = hasText;
     }
-
-    #endregion
-
-    #region Public Methods
 
     #endregion
 }

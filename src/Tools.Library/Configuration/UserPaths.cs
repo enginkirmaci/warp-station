@@ -66,40 +66,13 @@ public static class UserPaths
     }
 
     /// <summary>
-    /// Always refreshes <paramref name="userFile"/> from the shipped default at
-    /// <c>&lt;install&gt;/settings/<paramref name="shippedRelPath"/></c> when that default
-    /// exists, overwriting any existing user copy. Used for files the app owns
-    /// authoritatively (e.g. the OpenCode model catalog): the shipped copy is the source
-    /// of truth and replaces the user copy on every load so upgrades pick up new model
-    /// lists. Safe to call on every load. Best-effort: errors are swallowed so a missing
-    /// default never blocks startup. Returns true when a refresh was performed.
-    /// </summary>
-    public static bool RefreshFromDefault(string userFile, string shippedRelPath)
-    {
-        try
-        {
-            var shippedFile = Path.Combine(InstallRoot, ShippedSettingsFolder, shippedRelPath);
-            if (!File.Exists(shippedFile))
-                return false;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(userFile)!);
-            File.Copy(shippedFile, userFile, overwrite: true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
     /// One-time seed for a folder of subfolders: for each top-level subfolder under the
     /// shipped default at <c>&lt;install&gt;/settings/<paramref name="shippedRelDirectory"/></c>,
     /// copy it (recursively) into <paramref name="userDirectory"/> only when the matching
     /// user subfolder does not exist yet. Used to seed editable folder-based resources
     /// (e.g. OpenCode templates) without clobbering user edits or user-added entries.
-    /// Safe to call on every load. Best-effort: errors are swallowed so a missing default
-    /// never blocks startup. Returns true when at least one subfolder was seeded.
+    /// Safe to call on every load. Best-effort: errors are swallowed so a missing
+    /// default never blocks startup. Returns true when at least one subfolder was seeded.
     /// </summary>
     public static bool SeedDirectoryFromDefault(string userDirectory, string shippedRelDirectory)
     {

@@ -14,11 +14,12 @@
     mc:Ignorable="d">
 
     <!--
-            Repo detail header (per the mockup): repo name + favorite star,
-            branch / GitHub URL line, and the tab row. Lives INSIDE the bottom bar's
-            expandable panel, above the active tab's content; the tabs drive that panel.
-            The X button (top right) closes the whole bar until another row is picked
-            from the table.
+            Repo detail header, mirroring the tool drawer's header: accent glyph, repo
+            name (drawer-title typography) + favorite star, the branch • GitHub URL line
+            filling the middle, and the actions — Open in GitHub, kebab menu, and the
+            drawer-style X — on the right. Lives INSIDE the bottom bar's docked card,
+            above the active tab's content; the tabs drive that panel. The X closes the
+            whole bar until another row is picked from the table.
     -->
     <UserControl.Styles>
         <!--  Quiet accent links on the branch line (branch view + repo URL): transparent,
@@ -77,11 +78,101 @@
 
     <StackPanel Spacing="2">
 
-        <!--  Actions row: Open in GitHub, kebab menu, panel close at the very end.  -->
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
-                      the native theme hover highlights the whole surface.  -->
+        <!--
+            Header row, mirroring the tool drawer's header: accent glyph, repo name +
+            favorite star, branch • GitHub URL line filling the middle, actions on the
+            right (Open in GitHub, kebab menu, and the drawer-style panel close).
+        -->
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,2">
+            <Path
+                Grid.Column="0"
+                Width="18"
+                Height="18"
+                VerticalAlignment="Center"
+                Data="{tools:SvgPath icon-source-branch}"
+                Fill="{DynamicResource AccentPrimaryBrush}"
+                Stretch="Uniform" />
+
+            <!--  Name + favorite star (drawer-title typography)  -->
+            <StackPanel
+                Grid.Column="1"
+                Margin="10,0,0,0"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="10">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding SelectedRepoName}"
+                    TextTrimming="CharacterEllipsis" />
+                <Button
+                    VerticalAlignment="Center"
+                    Classes="icon"
+                    Command="{Binding ToggleSelectedRepoFavoriteCommand}"
+                    ToolTip.Tip="Toggle favorite">
+                    <Path
+                        Width="16"
+                        Height="16"
+                        Data="{tools:SvgPath icon-star}"
+                        Fill="{Binding SelectedRepo?.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                        Stretch="Uniform" />
+                </Button>
+            </StackPanel>
+
+            <!--  Branch • GitHub URL (clipped inside the star-sized middle column)  -->
+            <StackPanel
+                Grid.Column="2"
+                Margin="14,0,12,0"
+                VerticalAlignment="Center"
+                ClipToBounds="True"
+                Orientation="Horizontal"
+                Spacing="10">
+                <!--  Branch name is a plain label, not a link.  -->
+                <StackPanel IsVisible="{Binding HasSelectedRepoGitHubUrl}" Orientation="Horizontal" Spacing="6">
+                    <Path
+                        Width="13"
+                        Height="13"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-source-branch}"
+                        Fill="{DynamicResource AccentPrimaryBrush}"
+                        Stretch="Uniform" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="13"
+                        Foreground="{DynamicResource AccentPrimaryBrush}"
+                        Text="{Binding SelectedRepoBranch}" />
+                </StackPanel>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    Foreground="{DynamicResource MutedForegroundBrush}"
+                    IsVisible="{Binding HasSelectedRepoGitHubUrl}"
+                    Text="•" />
+                <Button
+                    Classes="header-link"
+                    Command="{Binding OpenGitHubRepoCommand}"
+                    IsVisible="{Binding HasSelectedRepoGitHubUrl}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="13"
+                            Foreground="{DynamicResource BodyForegroundBrush}"
+                            Text="{Binding SelectedRepoGitHubDisplayUrl}" />
+                        <Path
+                            Width="12"
+                            Height="12"
+                            VerticalAlignment="Center"
+                            Data="{tools:SvgPath icon-open-in-new}"
+                            Fill="{DynamicResource MutedForegroundBrush}"
+                            Stretch="Uniform" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!--  Actions: plain default buttons (native hover), drawer-style ✕  -->
+            <StackPanel Grid.Column="3" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
                 <Button
                     Command="{Binding OpenGitHubRepoCommand}"
                     IsVisible="{Binding HasSelectedRepoGitHubUrl}"
@@ -124,84 +215,21 @@
                     </Button.Flyout>
                 </Button>
                 <Button
+                    Width="26"
+                    Height="26"
+                    Padding="0"
+                    Classes="icon"
                     Command="{Binding CloseCommand}"
                     ToolTip.Tip="Close panel">
                     <Path
-                        Width="14"
-                        Height="14"
+                        Width="13"
+                        Height="13"
                         Data="{tools:SvgPath icon-close}"
-                        Fill="{DynamicResource BodyForegroundBrush}"
+                        Fill="{DynamicResource MutedForegroundBrush}"
                         Stretch="Uniform" />
                 </Button>
             </StackPanel>
         </Grid>
-
-        <!--  Name + favorite star  -->
-        <StackPanel Orientation="Horizontal" Spacing="14">
-            <TextBlock
-                VerticalAlignment="Center"
-                FontSize="22"
-                FontWeight="Bold"
-                Foreground="{DynamicResource TitleForegroundBrush}"
-                Text="{Binding SelectedRepoName}"
-                TextTrimming="CharacterEllipsis" />
-            <Button
-                VerticalAlignment="Center"
-                Classes="icon"
-                Command="{Binding ToggleSelectedRepoFavoriteCommand}"
-                ToolTip.Tip="Toggle favorite">
-                <Path
-                    Width="18"
-                    Height="18"
-                    Data="{tools:SvgPath icon-star}"
-                    Fill="{Binding SelectedRepo?.Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
-                    Stretch="Uniform" />
-            </Button>
-        </StackPanel>
-
-        <!--  Branch • GitHub URL  -->
-        <StackPanel Margin="0,2,0,4" Orientation="Horizontal" Spacing="10">
-            <!--  Branch name is a plain label, not a link.  -->
-            <StackPanel IsVisible="{Binding HasSelectedRepoGitHubUrl}" Orientation="Horizontal" Spacing="6">
-                <Path
-                    Width="13"
-                    Height="13"
-                    VerticalAlignment="Center"
-                    Data="{tools:SvgPath icon-source-branch}"
-                    Fill="{DynamicResource AccentPrimaryBrush}"
-                    Stretch="Uniform" />
-                <TextBlock
-                    VerticalAlignment="Center"
-                    FontSize="13"
-                    Foreground="{DynamicResource AccentPrimaryBrush}"
-                    Text="{Binding SelectedRepoBranch}" />
-            </StackPanel>
-            <TextBlock
-                VerticalAlignment="Center"
-                FontSize="13"
-                Foreground="{DynamicResource MutedForegroundBrush}"
-                IsVisible="{Binding HasSelectedRepoGitHubUrl}"
-                Text="•" />
-            <Button
-                Classes="header-link"
-                Command="{Binding OpenGitHubRepoCommand}"
-                IsVisible="{Binding HasSelectedRepoGitHubUrl}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock
-                        VerticalAlignment="Center"
-                        FontSize="13"
-                        Foreground="{DynamicResource BodyForegroundBrush}"
-                        Text="{Binding SelectedRepoGitHubDisplayUrl}" />
-                    <Path
-                        Width="12"
-                        Height="12"
-                        VerticalAlignment="Center"
-                        Data="{tools:SvgPath icon-open-in-new}"
-                        Fill="{DynamicResource MutedForegroundBrush}"
-                        Stretch="Uniform" />
-                </StackPanel>
-            </Button>
-        </StackPanel>
 
         <!--  Tabs: drive the bottom bar's panel  -->
         <StackPanel Orientation="Horizontal" Spacing="36">

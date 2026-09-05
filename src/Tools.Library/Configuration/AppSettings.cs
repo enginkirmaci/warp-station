@@ -212,10 +212,10 @@ public class ClipboardPasswordSettings
     public string? EncryptedPassword { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the Clipboard Password page should be
-    /// hidden from the dashboard and sidebar. When hidden, the stored password can
-    /// still be pasted via the Ctrl+Shift+V hotkey; only the GUI entry points are
-    /// concealed. Configured manually via settings.json.
+    /// Gets or sets a value indicating whether the Clipboard Password tool should be
+    /// hidden from the tools dropdown. When hidden, the stored password can still be
+    /// pasted via the Ctrl+Shift+V hotkey; only the GUI entry points are concealed.
+    /// Configured manually via settings.json.
     /// </summary>
     public bool HideFromGui { get; set; } = true;
 }
@@ -236,11 +236,4 @@ public class GeneralSettings
     /// when the user signs in (synced to the Windows registry Run key on startup).
     /// </summary>
     public bool StartAtBoot { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the navigation sidebar should start
-    /// collapsed to an icon-only rail. Persisted on every toggle so the user's
-    /// last choice is restored on the next launch.
-    /// </summary>
-    public bool SidebarCollapsed { get; set; }
 }

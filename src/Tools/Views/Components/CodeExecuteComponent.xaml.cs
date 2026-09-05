@@ -2,18 +2,22 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Pages;
+namespace Tools.Views.Components;
 
-public partial class CodeExecutePage : UserControl
+/// <summary>
+/// Code Execute tool (run C# snippets via Roslyn scripting), hosted in the main
+/// window's floating tool drawer.
+/// </summary>
+public partial class CodeExecuteComponent : UserControl
 {
     public CodeExecuteViewModel ViewModel { get; }
 
-    public CodeExecutePage()
+    public CodeExecuteComponent()
     {
         InitializeComponent();
     }
 
-    public CodeExecutePage(CodeExecuteViewModel viewModel)
+    public CodeExecuteComponent(CodeExecuteViewModel viewModel)
     {
         ViewModel = viewModel;
         DataContext = viewModel;

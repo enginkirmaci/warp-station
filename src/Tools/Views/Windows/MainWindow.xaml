@@ -6,7 +6,6 @@
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 	xmlns:suki="https://github.com/kikipoulet/SukiUI"
-	xmlns:components="using:Tools.Views.Components"
 	xmlns:tools="using:Tools.Library.MarkupExtensions"
 	Title="DevTools"
 	Width="1400"
@@ -17,27 +16,7 @@
 	BackgroundStyle="Flat"
 	Theme="{StaticResource CustomSukiWindowTheme}">
 
-	<!--  Sidebar collapse: shrink the rail to icon-only width and hide labels/headers  -->
 	<suki:SukiWindow.Styles>
-		<!--  Expanded sidebar width  -->
-		<Style Selector="Border#SidebarBorder">
-			<Setter Property="Width" Value="240" />
-		</Style>
-		<!--  Collapsed rail: icon-only width with a smooth transition  -->
-		<Style Selector="Border#SidebarBorder.collapsed">
-			<Setter Property="Width" Value="70" />
-			<Setter Property="Transitions">
-				<Setter.Value>
-					<Transitions>
-						<DoubleTransition Property="Width" Duration="0:0:0.15" />
-					</Transitions>
-				</Setter.Value>
-			</Setter>
-		</Style>
-		<!--  Hide the nav labels when collapsed to an icon-only rail  -->
-		<Style Selector="Border#SidebarBorder.collapsed TextBlock.nav-label">
-			<Setter Property="IsVisible" Value="False" />
-		</Style>
 		<!--  Title-bar status dots: running = green, SnapIt stopped = red,
 				NuGet idle = yellow. The running class is bound to each tool's
 				running state; define order matters — .running must come last.  -->
@@ -61,8 +40,8 @@
 		<!--
 			Header: the window uses the CustomSukiWindowTheme (see Styles/), whose title
 			bar replaces the app-title text with the centered global search field. The
-			brand cluster (sidebar toggle, back, logo, app name) lives in LogoContent at
-			the bar's left; the bar keeps its drag role everywhere else.
+			brand cluster (logo, app name) lives in LogoContent at the bar's left; the
+			bar keeps its drag role everywhere else.
 		-->
 		<!--  The search field tints its hairline with the accent while focused  -->
 		<Style Selector="Border#HeaderSearchBorder:focus-within">
@@ -70,45 +49,13 @@
 		</Style>
 	</suki:SukiWindow.Styles>
 
-	<!--  Back button hosted on the left of the title bar  -->
+	<!--  Logo mark + app name hosted on the left of the title bar  -->
 	<suki:SukiWindow.LogoContent>
-		<!--  Header brand cluster: sidebar toggle, back, logo mark, app title  -->
+		<!--  Header brand cluster: logo mark, app title  -->
 		<StackPanel
 			VerticalAlignment="Center"
 			Orientation="Horizontal"
 			Spacing="8">
-			<Button
-				Width="26"
-				Height="26"
-				Margin="8,0,0,0"
-				Padding="0"
-				VerticalAlignment="Center"
-				Classes="icon"
-				Command="{Binding ToggleSidebarCommand}"
-				ToolTip.Tip="Toggle sidebar">
-				<Path
-					Width="14"
-					Height="14"
-					Data="{tools:SvgPath icon-menu}"
-					Fill="{DynamicResource BodyForegroundBrush}"
-					Stretch="Uniform" />
-			</Button>
-			<Button
-				x:Name="BackButton"
-				Height="24"
-				Padding="0"
-				VerticalAlignment="Center"
-				Classes="icon"
-				Click="BackButton_Click"
-				IsVisible="False"
-				ToolTip.Tip="Back">
-				<Path
-					Width="14"
-					Height="14"
-					Data="{tools:SvgPath icon-arrow-left}"
-					Fill="{DynamicResource BodyForegroundBrush}"
-					Stretch="Uniform" />
-			</Button>
 			<!--  Logo mark: code brackets around a slash  -->
 			<Path
 				Width="20"
@@ -137,7 +84,7 @@
 		bar around them keeps its drag role.
 	-->
 	<suki:SukiWindow.RightWindowTitleBarControls>
-		<!--  Tools dropdown: quick navigation to the utility pages  -->
+		<!--  Tools dropdown: opens the tool components in the floating right drawer  -->
 		<Button
 			Width="38"
 			Height="26"
@@ -160,10 +107,12 @@
 					Stretch="Uniform" />
 			</StackPanel>
 			<Button.Flyout>
-				<MenuFlyout Placement="BottomEdgeAlignedLeft">
+				<!--  Right-aligned: the button sits at the window's right edge, so a
+						left-aligned flyout would overflow off the window.  -->
+				<MenuFlyout Placement="BottomEdgeAlignedRight">
 					<!--  Icon rows ride in an explicit Header element: the XAML compiler
 							crashes resolving MenuFlyoutItem's implicit content property.  -->
-					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="NugetLocalPage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="NugetLocalPage">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -176,7 +125,7 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="FormattersPage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="FormattersPage">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -191,7 +140,7 @@
 					</MenuItem>
 					<!--  Hidden along with the tool itself when HideFromGui is set  -->
 					<MenuItem
-						Command="{Binding NavigateCommand}"
+						Command="{Binding OpenToolCommand}"
 						CommandParameter="ClipboardPasswordPage"
 						IsVisible="{Binding ShowClipboardPassword}">
 						<MenuItem.Header>
@@ -206,7 +155,7 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="CodeExecutePage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="CodeExecutePage">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -219,7 +168,11 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="SnapItSettingsPage">
+					<!--  SnapIt is Windows-only: the entry hides on other platforms  -->
+					<MenuItem
+						Command="{Binding OpenToolCommand}"
+						CommandParameter="SnapItSettingsPage"
+						IsVisible="{Binding ShowSnapIt}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -273,7 +226,8 @@
 					Text="NuGet" />
 			</StackPanel>
 		</Button>
-		<!--  SnapIt status chip: dot red while stopped, green while running; click toggles  -->
+		<!--  SnapIt status chip: dot red while stopped, green while running; click toggles.
+				Windows-only functionality — hidden entirely on other platforms.  -->
 		<Button
 			Height="26"
 			Margin="4,0"
@@ -282,6 +236,7 @@
 			Command="{Binding ToggleSnapItCommand}"
 			CornerRadius="{DynamicResource ChipRadius}"
 			Cursor="Hand"
+			IsVisible="{Binding ShowSnapIt}"
 			ToolTip.Tip="{Binding SnapItStatusText, StringFormat='SnapIt: {0}'}">
 			<StackPanel Orientation="Horizontal" Spacing="7">
 				<Ellipse
@@ -298,131 +253,84 @@
 	</suki:SukiWindow.RightWindowTitleBarControls>
 
 	<!--  The bottom bar lives on the Repositories page (its footer), not on every page.  -->
-	<Grid RowDefinitions="*" ColumnDefinitions="Auto,*">
-		<!--  Sidebar Navigation  -->
-		<Border
-			x:Name="SidebarBorder"
-			Grid.Row="0"
-			Grid.Column="0"
-			Padding="0,6,0,0"
-			Background="{DynamicResource SidebarBackgroundBrush}"
-			BorderBrush="{DynamicResource DividerBrush}"
-			BorderThickness="0,0,1,0"
-			Classes.collapsed="{Binding IsSidebarCollapsed}">
-			<DockPanel Margin="0,0,0,8">
-				<ListBox
-					x:Name="NavigationListBox"
-					Padding="8,0"
-					Background="Transparent"
-					BorderThickness="0"
-					Classes="Void"
-					ItemsSource="{Binding MenuItems}"
-					SelectedIndex="0"
-					SelectionChanged="NavigationListBox_SelectionChanged">
-					<ListBox.Styles>
-						<Style Selector="ListBoxItem">
-							<Setter Property="Padding" Value="0" />
-							<Setter Property="Background" Value="Transparent" />
-						</Style>
-						<!--  Nav surface: transparent by default, indigo-tinted when selected  -->
-						<Style Selector="Border.nav-item-surface">
-							<Setter Property="Background" Value="Transparent" />
-							<Setter Property="Transitions">
-								<Setter.Value>
-									<Transitions>
-										<BrushTransition Property="Background" Duration="0:0:0.12" />
-									</Transitions>
-								</Setter.Value>
-							</Setter>
-						</Style>
-						<!--  Selected item: accent-filled pill  -->
-						<Style Selector="ListBoxItem:selected Border.nav-item-surface">
-							<Setter Property="Background" Value="{DynamicResource AccentPrimaryBrush}" />
-						</Style>
-						<!--  Nav icon: muted by default, bright when selected  -->
-						<Style Selector="Path.nav-icon">
-							<Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
-							<Setter Property="Transitions">
-								<Setter.Value>
-									<Transitions>
-										<BrushTransition Property="Fill" Duration="0:0:0.12" />
-									</Transitions>
-								</Setter.Value>
-							</Setter>
-						</Style>
-						<Style Selector="ListBoxItem:selected Path.nav-icon">
-							<Setter Property="Fill" Value="{DynamicResource AccentForegroundBrush}" />
-						</Style>
-						<!--  Nav label: body by default, title when selected  -->
-						<Style Selector="TextBlock.nav-label">
-							<Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-							<Setter Property="Transitions">
-								<Setter.Value>
-									<Transitions>
-										<BrushTransition Property="Foreground" Duration="0:0:0.12" />
-									</Transitions>
-								</Setter.Value>
-							</Setter>
-						</Style>
-						<Style Selector="ListBoxItem:selected TextBlock.nav-label">
-							<Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
-							<Setter Property="FontWeight" Value="SemiBold" />
-						</Style>
-					</ListBox.Styles>
-					<ListBox.ItemTemplate>
-						<DataTemplate>
-							<!--  Normal navigation item  -->
-							<Border
-								Margin="0,1"
-								Padding="0"
-								CornerRadius="{DynamicResource ControlRadius}">
-								<Grid ColumnDefinitions="3,*">
-									<!--  Nav surface + content  -->
-									<Border
-										Grid.Column="1"
-										Margin="0"
-										Padding="12,8"
-										Classes="nav-item-surface"
-										CornerRadius="{DynamicResource ControlRadius}"
-										ToolTip.Tip="{Binding Title}">
-										<StackPanel Orientation="Horizontal" Spacing="12">
-											<Path
-												Width="18"
-												Height="18"
-												VerticalAlignment="Center"
-												Classes="nav-icon"
-												Data="{Binding IconPath, Converter={StaticResource StringToGeometryConverter}}"
-												Stretch="Uniform" />
-											<TextBlock
-												VerticalAlignment="Center"
-												Classes="nav-label"
-												FontSize="13"
-												Text="{Binding Title}" />
-										</StackPanel>
-									</Border>
-								</Grid>
-							</Border>
-						</DataTemplate>
-					</ListBox.ItemTemplate>
-				</ListBox>
-			</DockPanel>
-		</Border>
-
+	<Grid ColumnDefinitions="*">
 		<!--  Content Area  -->
-		<Grid
-			Grid.Row="0"
-			Grid.Column="1"
-			Background="{DynamicResource ContentBackgroundBrush}">
+		<Grid Background="{DynamicResource ContentBackgroundBrush}">
 			<ContentControl
 				x:Name="ContentArea"
 				Padding="0" />
 		</Grid>
 
-		<!--  Toast overlay (floats above all pages and the bottom bar, top-center)  -->
+		<!--
+			Floating tool drawer: a card anchored over the right edge of the open page,
+			opened from the title-bar tools dropdown or the dashboard tool cards. The
+			transparent backdrop eats clicks anywhere outside the card (closing it) while
+			leaving the page visually untouched.
+		-->
+		<Panel IsVisible="{Binding IsToolDrawerOpen}">
+			<Border
+				x:Name="ToolDrawerBackdrop"
+				Background="Transparent"
+				PointerPressed="OnToolDrawerBackdropPointerPressed" />
+			<Border
+				Width="540"
+				Margin="0,12,12,12"
+				HorizontalAlignment="Right"
+				VerticalAlignment="Stretch"
+				Background="{DynamicResource CardBackgroundBrush}"
+				BorderBrush="{DynamicResource HairlineBrush}"
+				BorderThickness="1"
+				BoxShadow="{DynamicResource FlyoutShadow}"
+				CornerRadius="{DynamicResource CardRadius}">
+				<Grid RowDefinitions="Auto,*">
+					<!--  Drawer header: current tool icon + title, close on the right  -->
+					<Grid
+						Grid.Row="0"
+						Margin="16,12,8,4"
+						ColumnDefinitions="Auto,*,Auto">
+						<Path
+							Grid.Column="0"
+							Width="18"
+							Height="18"
+							VerticalAlignment="Center"
+							Data="{Binding ToolDrawerIconPath, Converter={StaticResource StringToGeometryConverter}}"
+							Fill="{DynamicResource AccentPrimaryBrush}"
+							Stretch="Uniform" />
+						<TextBlock
+							Grid.Column="1"
+							Margin="10,0,0,0"
+							VerticalAlignment="Center"
+							FontSize="16"
+							FontWeight="SemiBold"
+							Foreground="{DynamicResource TitleForegroundBrush}"
+							Text="{Binding ToolDrawerTitle}" />
+						<Button
+							Grid.Column="2"
+							Width="26"
+							Height="26"
+							Padding="0"
+							Classes="icon"
+							Command="{Binding CloseToolDrawerCommand}"
+							ToolTip.Tip="Close">
+							<Path
+								Width="13"
+								Height="13"
+								Data="{tools:SvgPath icon-close}"
+								Fill="{DynamicResource MutedForegroundBrush}"
+								Stretch="Uniform" />
+						</Button>
+					</Grid>
+					<!--  The open tool's component view; the window swaps it per selection  -->
+					<ContentControl
+						Grid.Row="1"
+						x:Name="ToolDrawerHost" />
+				</Grid>
+			</Border>
+		</Panel>
+
+		<!--  Toast overlay (floats above all pages, the drawer and the bottom bar, top-center)  -->
 		<ItemsControl
 			x:Name="ToastHost"
-			Grid.ColumnSpan="2"
-			Grid.RowSpan="2"
 			Margin="0,12,0,0"
 			HorizontalAlignment="Center"
 			VerticalAlignment="Top"

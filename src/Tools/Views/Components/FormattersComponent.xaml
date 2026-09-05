@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Formatters tool-drawer component: per-line base64 / case conversions with a
+    copyable history (newest first). Same drawer vocabulary as the Add Repositories
+    component: card content on top, with the primary action inline under the input
+    (the Add Repositories Scan-row position); the history card reuses the repos
+    table's list-row language.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.FormattersComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Pages"
+    x:Name="RootComponent"
+    d:DesignHeight="600"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:FormattersViewModel"
+    mc:Ignorable="d">
+
+    <Grid Margin="16,4,16,16" RowDefinitions="Auto,*">
+        <!--  Operation + input card, with Convert right under the input  -->
+        <Border Grid.Row="0" Margin="0,0,0,12" Classes="card">
+            <StackPanel Spacing="8">
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        Classes="field-label"
+                        Text="Convert to"
+                        ToolTip.Tip="Each line is converted separately" />
+                    <Grid
+                        ColumnDefinitions="*,*"
+                        ColumnSpacing="16"
+                        RowDefinitions="Auto,Auto"
+                        RowSpacing="6">
+                        <RadioButton
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Content="Base64 Encode"
+                            GroupName="Operation"
+                            IsChecked="{Binding IsBase64EncodeSelected, Mode=TwoWay}" />
+                        <RadioButton
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            Content="Base64 Decode"
+                            GroupName="Operation"
+                            IsChecked="{Binding IsBase64DecodeSelected, Mode=TwoWay}" />
+                        <RadioButton
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Content="Snake Case"
+                            GroupName="Operation"
+                            IsChecked="{Binding IsSnakeCaseSelected, Mode=TwoWay}" />
+                        <RadioButton
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Content="Pascal Case"
+                            GroupName="Operation"
+                            IsChecked="{Binding IsPascalCaseSelected, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="field-label" Text="Input (one entry per line)" />
+                    <TextBox
+                        MaxHeight="160"
+                        MinHeight="64"
+                        AcceptsReturn="True"
+                        Text="{Binding InputText, Mode=TwoWay}"
+                        TextWrapping="Wrap"
+                        Watermark="Enter text to convert…" />
+                </StackPanel>
+                <Button
+                    HorizontalAlignment="Left"
+                    Classes="Outlined"
+                    Command="{Binding ConvertCommand}"
+                    Content="Convert" />
+            </StackPanel>
+        </Border>
+
+        <!--  History card: converted results, newest first, copy per row  -->
+        <Border Grid.Row="1" Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+                <Border
+                    Grid.Row="0"
+                    Padding="12,8"
+                    BorderBrush="{DynamicResource DividerBrush}"
+                    BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Classes="card-title"
+                            Text="History" />
+                        <Button
+                            Grid.Column="1"
+                            Classes="icon"
+                            Command="{Binding ClearHistoryCommand}"
+                            IsVisible="{Binding HasHistory}"
+                            ToolTip.Tip="Clear history">
+                            <Path Classes="icon" Data="{tools:SvgPath icon-close}" />
+                        </Button>
+                    </Grid>
+                </Border>
+                <Panel Grid.Row="1">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl Margin="8" ItemsSource="{Binding History}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Border Classes="list-row">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock
+                                                Grid.Column="0"
+                                                VerticalAlignment="Center"
+                                                Classes="mono"
+                                                Text="{Binding}"
+                                                TextWrapping="Wrap" />
+                                            <Button
+                                                Grid.Column="1"
+                                                Margin="8,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Classes="icon"
+                                                Command="{Binding $parent[UserControl].((vm:FormattersViewModel)DataContext).CopyToClipboardCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="Copy to clipboard">
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-clipboard}" />
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <!--  Empty state: nothing converted yet  -->
+                    <TextBlock
+                        Margin="12"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Classes="subtle"
+                        IsVisible="{Binding !HasHistory}"
+                        Text="Converted results are collected here." />
+                </Panel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

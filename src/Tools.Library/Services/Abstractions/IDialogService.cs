@@ -3,10 +3,11 @@ using Tools.Library.Configuration;
 namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
-/// Abstracts UI interactions (folder pickers, modal dialogs) so that ViewModels do not
-/// depend on the application's <c>App.MainWindow</c> static or on Avalonia
-/// <see cref="Avalonia.Controls.TopLevel"/> directly. This keeps ViewModels testable and
-/// decoupled from the view layer.
+/// Abstracts UI interactions (folder pickers, repo settings and Add Repositories flows)
+/// so that ViewModels do not depend on the application's <c>App.MainWindow</c> static or
+/// on Avalonia <see cref="Avalonia.Controls.TopLevel"/> directly. The two flows are
+/// shown as components in the main window's floating tool drawer; both keep dialog
+/// return semantics: the confirmed result, or <c>null</c> when the user cancelled.
 /// </summary>
 public interface IDialogService
 {
