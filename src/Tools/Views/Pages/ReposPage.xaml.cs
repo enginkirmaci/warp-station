@@ -49,8 +49,10 @@ public partial class ReposPage : UserControl
     }
 
     /// <summary>
-    /// A press on a row's card selects that repo for the bottom bar — the first press
-    /// reveals the bar, which stays hidden until a repo is picked from the table. The
+    /// A press on a row's card routes that repo to the bottom bar — the first press
+    /// reveals the bar (which stays hidden until a repo is picked from the table) and
+    /// a press on the already-highlighted row closes the bar entirely and clears the
+    /// row's highlight (see <see cref="BottomBarViewModel.ToggleForRepo"/>). The
     /// press is still swallowed before it reaches the ListBoxItem, which would otherwise
     /// select the item and flash the theme's selected-state indicator. Buttons inside
     /// the template sit deeper in the visual tree and handle their own presses first,
@@ -62,7 +64,7 @@ public partial class ReposPage : UserControl
         if (sender is StyledElement { DataContext: Repo repo }
             && e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
         {
-            BottomBarViewModel.OpenForRepo(repo);
+            BottomBarViewModel.ToggleForRepo(repo);
 
             // Opening the panel shrinks the table's viewport, which can leave the row
             // just clicked hidden under it; once the layout has settled, scroll it back

@@ -380,6 +380,20 @@ public partial class BottomBarViewModel : ObservableObject
         _ = LoadOverviewAsync();
     }
 
+    /// <summary>Row press on the already-highlighted repo: closes the bar entirely —
+    /// panel, strip and selection — so the row loses its highlight, exactly like the
+    /// header's close button; pressing the row again re-opens Overview. Any other row
+    /// press opens as usual.</summary>
+    public void ToggleForRepo(Repo repo)
+    {
+        if (IsBarVisible && SelectedRepo == repo && ActiveTab != BottomBarTab.None)
+        {
+            Close();
+            return;
+        }
+        OpenForRepo(repo);
+    }
+
     // --- Tabs ---
 
     [ObservableProperty]
