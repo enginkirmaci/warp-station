@@ -861,9 +861,9 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// Opens the bottom bar's OpenCode tab on the clicked row's repo: the model picker
-    /// (which persists the configured default model), instances, template, prompt and the
-    /// launch button — the relocated options panel.
+    /// Opens the OpenCode bottom panel on the clicked row's repo: the model picker
+    /// (which persists the configured default model), instances, template, prompt and
+    /// the launch button — a full bottom panel that replaces the bar while open.
     /// </summary>
     [RelayCommand]
     private void OpenOpenCode(Repo? repo)

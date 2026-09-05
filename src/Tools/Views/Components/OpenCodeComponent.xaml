@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    OpenCode launch surface: the model picker (a pick persists DefaultModel), instance
+    count, template + prompt and the launch button. Shown inside the OpenCodePanel —
+    the full bottom panel the repo row's OpenCode options icon opens. Its DataContext
+    is the singleton BottomBarViewModel, inherited from the panel (same as RepoHeader).
+-->
+<UserControl
+    x:Class="Tools.Views.Components.OpenCodeComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Tools.ViewModels.Components"
+    d:DesignHeight="300"
+    d:DesignWidth="1000"
+    x:CompileBindings="True"
+    x:DataType="vm:BottomBarViewModel"
+    mc:Ignorable="d">
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel
+            Margin="0,8,0,0"
+            HorizontalAlignment="Left"
+            Orientation="Horizontal"
+            Spacing="16">
+            <!--  Model + enabled  -->
+            <StackPanel Width="300" Spacing="8">
+                <TextBlock Classes="field-label" Text="Model (default)" />
+                <ComboBox
+                    Name="OpenCodeModelPicker"
+                    HorizontalAlignment="Stretch"
+                    IsEditable="True"
+                    IsEnabled="{Binding OpenCodeHasModels}"
+                    ItemsSource="{Binding OpenCodeFilteredModels}"
+                    PlaceholderText="Search or select a model…"
+                    SelectedItem="{Binding OpenCodeSelectedModel, Mode=OneWay}"
+                    SelectionChanged="OnOpenCodeModelSelectionChanged"
+                    Text="{Binding OpenCodeModelFilter, Mode=TwoWay}" />
+                <TextBlock
+                    Classes="subtle"
+                    IsVisible="{Binding OpenCodeModelsEmpty}"
+                    Text="No models found. Is opencode installed and on the PATH?"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    Classes="subtle"
+                    Text="Picking a model persists it as the default (settings.json) and preselects it for every launch."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <Border Classes="vertical-divider" />
+            <!--  Instances + template + prompt  -->
+            <StackPanel Width="300" Spacing="8">
+                <TextBlock
+                    Classes="field-label"
+                    Text="Instances"
+                    ToolTip.Tip="How many terminal windows to open, each running opencode" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <NumericUpDown
+                        Width="110"
+                        FormatString="0"
+                        Increment="1"
+                        Maximum="9"
+                        Minimum="1"
+                        ParsingNumberStyle="Integer"
+                        Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
+                    <CheckBox
+                        Content="Arrange into grid"
+                        IsChecked="{Binding OpenCodeArrangeIntoGrid, Mode=TwoWay}"
+                        IsVisible="{Binding CanArrangeIntoGrid}"
+                        ToolTip.Tip="Tile the launched instances across the screen in a grid" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock
+                        Grid.Column="0"
+                        Classes="field-label"
+                        Text="Template (optional)"
+                        ToolTip.Tip="Copy a template's .opencode folder into the repo" />
+                    <Button
+                        Grid.Column="1"
+                        Padding="8,2"
+                        VerticalAlignment="Center"
+                        Command="{Binding ResetOpenCodeTemplateCommand}"
+                        Content="Reset"
+                        ToolTip.Tip="Remove the repo's .opencode folder and re-copy the selected template into it" />
+                </Grid>
+                <ComboBox
+                    HorizontalAlignment="Stretch"
+                    ItemsSource="{Binding OpenCodeTemplates}"
+                    SelectedItem="{Binding OpenCodeSelectedTemplate, Mode=TwoWay}" />
+                <TextBlock Classes="field-label" Text="Prompt (optional)" />
+                <ComboBox
+                    HorizontalAlignment="Stretch"
+                    ItemsSource="{Binding OpenCodePrompts}"
+                    SelectedItem="{Binding OpenCodeSelectedPrompt, Mode=TwoWay}" />
+            </StackPanel>
+            <Border Classes="vertical-divider" />
+            <!--  Start prompt + launch  -->
+            <StackPanel Width="320" Spacing="8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock
+                        Grid.Column="0"
+                        Classes="field-label"
+                        Text="Start prompt (optional)" />
+                    <Button
+                        Grid.Column="1"
+                        Padding="8,2"
+                        VerticalAlignment="Center"
+                        Classes="Outlined"
+                        Content="Save"
+                        ToolTip.Tip="Save the current prompt under a name so it can be reused from the Prompt selector">
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <StackPanel Width="220" Spacing="10">
+                                    <TextBlock Classes="field-label" Text="Save prompt as" />
+                                    <TextBox Text="{Binding NewPromptName, Mode=TwoWay}" Watermark="Prompt name" />
+                                    <Button
+                                        HorizontalAlignment="Right"
+                                        Classes="Outlined"
+                                        Command="{Binding SavePromptCommand}"
+                                        Content="Save" />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </Grid>
+                <TextBox
+                    MinHeight="96"
+                    AcceptsReturn="True"
+                    Text="{Binding OpenCodePrompt, Mode=TwoWay}"
+                    TextWrapping="Wrap"
+                    Watermark="e.g. fix the login bug" />
+                <Button
+                    HorizontalAlignment="Stretch"
+                    Classes="Outlined"
+                    Command="{Binding LaunchOpenCodeCommand}"
+                    Content="Open opencode" />
+                <TextBlock
+                    Classes="subtle"
+                    IsVisible="{Binding !HasOpenCode}"
+                    Text="opencode is disabled or its executable was not found on this machine."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

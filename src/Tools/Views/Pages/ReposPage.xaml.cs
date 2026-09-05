@@ -30,8 +30,11 @@ public partial class ReposPage : UserControl
         BottomBarViewModel = bottomBarViewModel;
         InitializeComponent();
         // The bottom bar owns its singleton ViewModel (repo context, repo header, tabs,
-        // OpenCode surface); the rest of the page binds to ReposViewModel.
+        // OpenCode surface); the rest of the page binds to ReposViewModel. The OpenCode
+        // panel (the full bottom panel the row options icon opens) binds the SAME
+        // instance, so its launch targets the bar's selected repo.
         this.FindControl<BottomBar>("BottomBarControl")!.DataContext = bottomBarViewModel;
+        this.FindControl<OpenCodePanel>("OpenCodePanelControl")!.DataContext = bottomBarViewModel;
         _reposList = this.FindControl<ListBox>("ReposList");
         // Must stay after the bar's DataContext: while InitializeComponent runs the bar
         // inherits a null page DataContext and its compiled bindings stay dormant. If the

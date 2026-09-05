@@ -22,15 +22,17 @@ public enum BottomBarTab
     Issues,
     Azure,
     Git,
-    OpenCode,
 }
 
 /// <summary>
-/// Binding adapter for the Repos page's bottom bar. Owns the bar's selected repo (the
-/// git controls, GitHub/Azure panels and OpenCode launch all target it), the expandable
-/// tab panels' data, and — relocated from the Repos page's overlay panel — the whole
-/// OpenCode launch surface. Unlike the transient page ViewModels this one is a singleton:
-/// it lives as long as the window, so the bar's state survives page navigation.
+/// Binding adapter for the Repos page's bottom panels. Owns the bar's selected repo (the
+/// git controls, GitHub/Azure panels and the OpenCode launch all target it), the
+/// expandable tab panels' data, and — relocated from the Repos page's overlay panel — the
+/// whole OpenCode launch surface, which the <see cref="Tools.Views.Components.OpenCodePanel"/>
+/// control shows as a full bottom panel of its own (the row options icon opens it; it
+/// replaces the bar, which comes back on the next row press or row chip). Unlike the
+/// transient page ViewModels this one is a singleton: it lives as long as the window, so
+/// the panels' state survives page navigation.
 /// <para>
 /// The bar stays hidden until a repo is selected from the table — a row press or any
 /// row chip routing to a tab (constructor-injected reference; every row chip that used
@@ -288,14 +290,16 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The header's X button (far right): closes the whole bar — panel and strip — and
-    /// drops the selection, clearing the table row's highlight. A row press (Overview)
-    /// or any row chip brings it back.
+    /// The X button (far right of the bar header or the OpenCode panel header): closes
+    /// whichever bottom panel is open — bar panel, OpenCode panel and strip — and drops
+    /// the selection, clearing the table row's highlight. A row press (Overview) or any
+    /// row chip brings the bar back.
     /// </summary>
     [RelayCommand]
     private void Close()
     {
         ActiveTab = BottomBarTab.None;
+        IsOpenCodePanelVisible = false;
         SelectedRepo = null;
         IsBarVisible = false;
     }
@@ -357,6 +361,14 @@ public partial class BottomBarViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBarVisible;
 
+    /// <summary>
+    /// Whether the standalone OpenCode panel shows — the full bottom panel (same docked
+    /// card as the bar's panel, no tab row, no strip) that the repo row's options icon
+    /// opens. Mutually exclusive with the bar: opening either hides the other.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isOpenCodePanelVisible;
+
     /// <summary>Selects a repo from a table row press and reveals the bar. The panel
     /// always opens on Overview — the repo view of the mockup — regardless of which tab
     /// was open before (row chips still route to their own tabs).</summary>
@@ -388,7 +400,6 @@ public partial class BottomBarViewModel : ObservableObject
     public bool IsActiveIssues => ActiveTab == BottomBarTab.Issues;
     public bool IsActiveAzure => ActiveTab == BottomBarTab.Azure;
     public bool IsActiveGit => ActiveTab == BottomBarTab.Git;
-    public bool IsActiveOpenCode => ActiveTab == BottomBarTab.OpenCode;
 
     partial void OnActiveTabChanged(BottomBarTab value)
     {
@@ -400,7 +411,6 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(IsActiveIssues));
         OnPropertyChanged(nameof(IsActiveAzure));
         OnPropertyChanged(nameof(IsActiveGit));
-        OnPropertyChanged(nameof(IsActiveOpenCode));
     }
 
     /// <summary>
@@ -419,6 +429,7 @@ public partial class BottomBarViewModel : ObservableObject
     private void SetTargetRepo(Repo? repo)
     {
         if (repo is null) return;
+        IsOpenCodePanelVisible = false;
         IsBarVisible = true;
         if (!ReferenceEquals(repo, SelectedRepo))
         {
@@ -1036,7 +1047,8 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    // --- OpenCode tab (relocated from the Repos page overlay panel) ---
+    // --- OpenCode panel (state shown by the OpenCodePanel control; relocated from the
+    //     Repos page overlay panel, then from the bar's tab row to a panel of its own) ---
 
     /// <summary>
     /// Whether the OpenCode integration is enabled (mirrors and persists
@@ -1431,7 +1443,7 @@ public partial class BottomBarViewModel : ObservableObject
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null)
         {
-            ActiveTab = BottomBarTab.None;
+            CloseOpenCodePanelToStrip();
             return;
         }
 
@@ -1454,10 +1466,22 @@ public partial class BottomBarViewModel : ObservableObject
             }
         }
 
-        ActiveTab = BottomBarTab.None;
+        CloseOpenCodePanelToStrip();
     }
 
     private bool CanLaunchOpenCode() => HasOpenCode && HasSelectedRepo;
+
+    /// <summary>
+    /// After a launch attempt (or a missing terminal): the OpenCode panel closes and the
+    /// bar returns as the strip-only footer — the same end state the old tab flow had
+    /// when the tab collapsed to the strip.
+    /// </summary>
+    private void CloseOpenCodePanelToStrip()
+    {
+        IsOpenCodePanelVisible = false;
+        ActiveTab = BottomBarTab.None;
+        IsBarVisible = true;
+    }
 
     /// <summary>
     /// Resolves a CLI name for embedding in a terminal command line: the spawned terminal
@@ -1537,21 +1561,26 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Opens the OpenCode tab. A no-op while the integration is disabled (the per-row
-    /// button is hidden then, but the strip tab remains clickable).
+    /// Opens the OpenCode panel — the full bottom panel that the repo row's options icon
+    /// opens: model picker (which persists the default), instances, template, prompt and
+    /// the launch button. A no-op while the integration is disabled. The panel REPLACES
+    /// the bar in the page's bottom slot (the bar hides, strip included); a row press or
+    /// row chip brings the bar back (and hides the panel via <see cref="SetTargetRepo"/>).
     /// </summary>
     public void OpenOpenCode(Repo? repo = null)
     {
         if (!IsOpenCodeEnabled) return;
         SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.OpenCode;
+        ActiveTab = BottomBarTab.None;
+        IsBarVisible = false;
+        IsOpenCodePanelVisible = true;
         _ = LoadOpenCodeModelsAsync();
     }
 
     /// <summary>
     /// Header tab buttons: the panel is the repo view, so tabs only SWITCH — clicking
     /// the active tab does nothing (there is no collapse-to-strip; leaving the repo
-    /// view is "Back to Repositories", which hides the whole bar).
+    /// view is the header X, which hides the whole bar).
     /// </summary>
     [RelayCommand] private void ToggleOverviewTab() { if (ActiveTab != BottomBarTab.Overview) OpenOverview(); }
     [RelayCommand] private void ToggleChangesTab() { if (ActiveTab != BottomBarTab.Changes) OpenChanges(); }
@@ -1559,5 +1588,4 @@ public partial class BottomBarViewModel : ObservableObject
     [RelayCommand] private void ToggleIssuesTab() { if (ActiveTab != BottomBarTab.Issues) OpenIssues(); }
     [RelayCommand] private void ToggleAzureTab() { if (ActiveTab != BottomBarTab.Azure) OpenAzure(); }
     [RelayCommand] private void ToggleGitTab() { if (ActiveTab != BottomBarTab.Git) OpenGit(); }
-    [RelayCommand] private void ToggleOpenCodeTab() { if (ActiveTab != BottomBarTab.OpenCode) OpenOpenCode(); }
 }

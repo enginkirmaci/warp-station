@@ -912,5 +912,13 @@
                         <components:BottomBar x:Name="BottomBarControl" />
                 </Border>
 
+                <!--  OpenCode panel: the repo row's options icon opens OpenCode as its
+                        own full bottom panel (same docked card as the bar's panel). It
+                        hides the bar while open; the same singleton ViewModel is
+                        attached in code-behind.  -->
+                <Border Grid.Row="1">
+                        <components:OpenCodePanel x:Name="OpenCodePanelControl" />
+                </Border>
+
         </Grid>
 </UserControl>
