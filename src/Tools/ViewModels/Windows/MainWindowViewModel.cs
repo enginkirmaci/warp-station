@@ -1,6 +1,7 @@
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Tools.Helpers;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Mvvm;
@@ -18,6 +19,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly INugetLocalService _nugetLocalService;
     private readonly ISettingsService _settingsService;
     private readonly IProcessLauncher _processLauncher;
+    private readonly INavigationService _navigationService;
 
     /// <summary>
     /// Gets the title of the application.
@@ -60,21 +62,31 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Command to toggle the left navigation sidebar between expanded and icon-only.</summary>
     public IAsyncRelayCommand ToggleSidebarCommand { get; }
 
+    /// <summary>
+    /// Whether the Clipboard Password tool may appear in the GUI. Mirrors the
+    /// HideFromGui setting used to filter the dashboard cards and sidebar entries;
+    /// when hidden the tool stays reachable through its hotkey only.
+    /// </summary>
+    public bool ShowClipboardPassword { get; }
+
     public MainWindowViewModel(
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         ISettingsService settingsService,
-        IProcessLauncher processLauncher)
+        IProcessLauncher processLauncher,
+        INavigationService navigationService)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _settingsService = settingsService;
         _processLauncher = processLauncher;
+        _navigationService = navigationService;
 
         // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
         // (Task.FromResult), so this never blocks on async work.
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
         var hideClipboardPassword = appSettings.ClipboardPassword?.HideFromGui == true;
+        ShowClipboardPassword = !hideClipboardPassword;
         MenuItems = NavigationProvider.GetNavigationMenuItems(hideClipboardPassword);
 
         // Restore the sidebar's last collapse state so the layout matches the
@@ -175,5 +187,20 @@ public partial class MainWindowViewModel : ViewModelBase
         var settingsDirectory = UserPaths.UserDataRoot;
         Directory.CreateDirectory(settingsDirectory);
         _processLauncher.StartProcess(settingsDirectory);
+    }
+
+    /// <summary>
+    /// Navigates to a page by its registered page key (see <c>PageNavigationMapper</c>).
+    /// Used by the title-bar tools dropdown, whose entries carry the same keys as the
+    /// sidebar and dashboard cards.
+    /// </summary>
+    [RelayCommand]
+    private void Navigate(string? pageKey)
+    {
+        var pageType = PageNavigationMapper.Convert(pageKey);
+        if (pageType != null)
+        {
+            _navigationService.Navigate(pageType);
+        }
     }
 }

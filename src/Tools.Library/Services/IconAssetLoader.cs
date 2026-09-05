@@ -63,6 +63,7 @@ public static class IconAssetLoader
         "icon-terminal",
         "icon-terminal-alt",
         "icon-text-format",
+        "icon-tools",
         "icon-vscode",
         "icon-zcode",
     };

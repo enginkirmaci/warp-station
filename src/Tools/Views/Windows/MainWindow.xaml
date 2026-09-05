@@ -38,31 +38,25 @@
 		<Style Selector="Border#SidebarBorder.collapsed TextBlock.nav-label">
 			<Setter Property="IsVisible" Value="False" />
 		</Style>
-		<!--  Collapsed rail: center the footer icons (settings gear, status icons);
-				with the labels hidden the panels shrink to the icon and center.
-				Status buttons must get their Left alignment from a style, not a local
-				value — a local HorizontalContentAlignment would beat the collapsed
-				setter and keep the dots left-aligned.  -->
-		<Style Selector="Border#SidebarBorder.collapsed StackPanel.nav-footer">
-			<Setter Property="HorizontalAlignment" Value="Center" />
-		</Style>
-		<Style Selector="Button.nav-status">
-			<Setter Property="HorizontalContentAlignment" Value="Left" />
-		</Style>
-		<Style Selector="Border#SidebarBorder.collapsed Button.nav-status">
-			<Setter Property="HorizontalContentAlignment" Value="Center" />
-		</Style>
-		<!--  Status icon traffic lights: running = green, SnapIt stopped = red,
+		<!--  Title-bar status dots: running = green, SnapIt stopped = red,
 				NuGet idle = yellow. The running class is bound to each tool's
 				running state; define order matters — .running must come last.  -->
-		<Style Selector="Path.status-icon">
+		<Style Selector="Ellipse.status-dot">
 			<Setter Property="Fill" Value="{DynamicResource DangerAccentBrush}" />
 		</Style>
-		<Style Selector="Path.status-icon.status-idle">
+		<Style Selector="Ellipse.status-dot.status-idle">
 			<Setter Property="Fill" Value="{DynamicResource WarningAccentBrush}" />
 		</Style>
-		<Style Selector="Path.status-icon.running">
+		<Style Selector="Ellipse.status-dot.running">
 			<Setter Property="Fill" Value="{DynamicResource StatusActiveBrush}" />
+		</Style>
+		<!--  Title-bar status chip: transparent until hovered  -->
+		<Style Selector="Button.titlebar-status">
+			<Setter Property="Background" Value="Transparent" />
+			<Setter Property="BorderThickness" Value="0" />
+		</Style>
+		<Style Selector="Button.titlebar-status:pointerover">
+			<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
 		</Style>
 		<!--
 			Header: the window uses the CustomSukiWindowTheme (see Styles/), whose title
@@ -134,6 +128,175 @@
 		</StackPanel>
 	</suki:SukiWindow.LogoContent>
 
+	<!--
+		Title-bar tray on the right of the search field: live status chips, settings,
+		and a tools dropdown. SukiWindow lays RightWindowTitleBarControls out right-to-left,
+		so items are declared in REVERSE of their visual order: the tools button ends up
+		next to the caption buttons, the status chips nearest the search field. Each child
+		gets ElementRole=User from the window template, so they stay clickable while the
+		bar around them keeps its drag role.
+	-->
+	<suki:SukiWindow.RightWindowTitleBarControls>
+		<!--  Tools dropdown: quick navigation to the utility pages  -->
+		<Button
+			Width="38"
+			Height="26"
+			Margin="4,0"
+			Padding="0"
+			Classes="icon"
+			ToolTip.Tip="Tools">
+			<StackPanel Orientation="Horizontal" Spacing="3">
+				<Path
+					Width="14"
+					Height="14"
+					Data="{tools:SvgPath icon-tools}"
+					Fill="{DynamicResource BodyForegroundBrush}"
+					Stretch="Uniform" />
+				<Path
+					Width="10"
+					Height="7"
+					Data="{tools:SvgPath icon-chevron-down}"
+					Fill="{DynamicResource MutedForegroundBrush}"
+					Stretch="Uniform" />
+			</StackPanel>
+			<Button.Flyout>
+				<MenuFlyout Placement="BottomEdgeAlignedLeft">
+					<!--  Icon rows ride in an explicit Header element: the XAML compiler
+							crashes resolving MenuFlyoutItem's implicit content property.  -->
+					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="NugetLocalPage">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-package}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="NuGet Package Manager" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
+					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="FormattersPage">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-text-format}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="Formatters" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
+					<!--  Hidden along with the tool itself when HideFromGui is set  -->
+					<MenuItem
+						Command="{Binding NavigateCommand}"
+						CommandParameter="ClipboardPasswordPage"
+						IsVisible="{Binding ShowClipboardPassword}">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-lock}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="Clipboard Password" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
+					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="CodeExecutePage">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-terminal-alt}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="Code Execute" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
+					<MenuItem Command="{Binding NavigateCommand}" CommandParameter="SnapItSettingsPage">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-grid}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="SnapIt" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
+				</MenuFlyout>
+			</Button.Flyout>
+		</Button>
+		<!--  Open the settings folder  -->
+		<Button
+			Width="26"
+			Height="26"
+			Margin="4,0"
+			Padding="0"
+			Classes="icon"
+			Command="{Binding OpenSettingsFolderCommand}"
+			ToolTip.Tip="Open settings folder">
+			<Path
+				Width="15"
+				Height="15"
+				Data="{tools:SvgPath icon-cog}"
+				Fill="{DynamicResource BodyForegroundBrush}"
+				Stretch="Uniform" />
+		</Button>
+		<!--  NuGet watch status chip: dot yellow while idle, green while watching; click toggles  -->
+		<Button
+			Height="26"
+			Margin="4,0"
+			Padding="10,0"
+			Classes="titlebar-status"
+			Command="{Binding ToggleNugetWatchCommand}"
+			CornerRadius="{DynamicResource ChipRadius}"
+			Cursor="Hand"
+			ToolTip.Tip="{Binding NugetWatchStatusText, StringFormat='NuGet watch: {0}'}">
+			<StackPanel Orientation="Horizontal" Spacing="7">
+				<Ellipse
+					Width="8"
+					Height="8"
+					Classes="status-dot status-idle"
+					Classes.running="{Binding NugetWatchRunning}" />
+				<TextBlock
+					VerticalAlignment="Center"
+					Foreground="{DynamicResource BodyForegroundBrush}"
+					Text="NuGet" />
+			</StackPanel>
+		</Button>
+		<!--  SnapIt status chip: dot red while stopped, green while running; click toggles  -->
+		<Button
+			Height="26"
+			Margin="4,0"
+			Padding="10,0"
+			Classes="titlebar-status"
+			Command="{Binding ToggleSnapItCommand}"
+			CornerRadius="{DynamicResource ChipRadius}"
+			Cursor="Hand"
+			ToolTip.Tip="{Binding SnapItStatusText, StringFormat='SnapIt: {0}'}">
+			<StackPanel Orientation="Horizontal" Spacing="7">
+				<Ellipse
+					Width="8"
+					Height="8"
+					Classes="status-dot"
+					Classes.running="{Binding SnapItRunning}" />
+				<TextBlock
+					VerticalAlignment="Center"
+					Foreground="{DynamicResource BodyForegroundBrush}"
+					Text="SnapIt" />
+			</StackPanel>
+		</Button>
+	</suki:SukiWindow.RightWindowTitleBarControls>
+
 	<!--  The bottom bar lives on the Repositories page (its footer), not on every page.  -->
 	<Grid RowDefinitions="*" ColumnDefinitions="Auto,*">
 		<!--  Sidebar Navigation  -->
@@ -147,140 +310,6 @@
 			BorderThickness="0,0,1,0"
 			Classes.collapsed="{Binding IsSidebarCollapsed}">
 			<DockPanel Margin="0,0,0,8">
-				<!--  Pinned footer: settings, divider, then the live status toggles  -->
-				<StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,2">
-					<!--  Open settings folder  -->
-					<Button
-						Margin="8,4"
-						Padding="0"
-						HorizontalAlignment="Stretch"
-						HorizontalContentAlignment="Stretch"
-						Background="Transparent"
-						BorderThickness="0"
-						Command="{Binding OpenSettingsFolderCommand}"
-						Cursor="Hand"
-						ToolTip.Tip="Open settings folder">
-						<Button.Styles>
-							<!--  Neutralize button chrome so only the surface pill reacts to hover  -->
-							<Style Selector="Button:pointerover">
-								<Setter Property="Background" Value="Transparent" />
-							</Style>
-							<Style Selector="Button:pointerover Border.nav-surface">
-								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-							</Style>
-						</Button.Styles>
-						<Grid ColumnDefinitions="3,*">
-							<Border
-								Grid.Column="1"
-								Margin="0"
-								Padding="12,8"
-								Classes="nav-surface"
-								CornerRadius="{DynamicResource ControlRadius}">
-								<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="12">
-									<Path
-										Width="18"
-										Height="18"
-										VerticalAlignment="Center"
-										Data="{tools:SvgPath icon-cog}"
-										Fill="{DynamicResource MutedForegroundBrush}"
-										Stretch="Uniform" />
-									<TextBlock
-										VerticalAlignment="Center"
-										Classes="nav-label"
-										FontSize="13"
-										Foreground="{DynamicResource BodyForegroundBrush}"
-										Text="Settings" />
-								</StackPanel>
-							</Border>
-						</Grid>
-					</Button>
-					<!--  Divider between settings and the status toggles  -->
-					<Border
-						Height="1"
-						Margin="14,2,14,2"
-						Background="{DynamicResource DividerBrush}"
-						IsVisible="{Binding IsSidebarCollapsed, Converter={StaticResource InverseBoolConverter}}" />
-					<!--  SnapIt status toggle (moved from the removed window status bar)  -->
-					<Button
-						Margin="8,0"
-						Padding="12,6"
-						Classes="nav-status"
-						Background="Transparent"
-						BorderThickness="0"
-						Command="{Binding ToggleSnapItCommand}"
-						CornerRadius="{DynamicResource ChipRadius}"
-						Cursor="Hand"
-						ToolTip.Tip="{Binding SnapItStatusText, StringFormat='SnapIt: {0}'}">
-						<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="6">
-							<Path
-								Width="18"
-								Height="18"
-								Classes="status-icon"
-								Classes.running="{Binding SnapItRunning}"
-								VerticalAlignment="Center"
-								Data="{tools:SvgPath icon-grid}"
-								Stretch="Uniform" />
-							<TextBlock
-								VerticalAlignment="Center"
-								Classes="nav-label"
-								FontSize="11"
-								FontWeight="Medium"
-								Foreground="{DynamicResource BodyForegroundBrush}"
-								Text="SnapIt" />
-							<TextBlock
-								VerticalAlignment="Center"
-								Classes="nav-label"
-								FontSize="11"
-								Foreground="{DynamicResource MutedForegroundBrush}"
-								Text="{Binding SnapItStatusText, Mode=OneWay}" />
-						</StackPanel>
-						<Button.Styles>
-							<Style Selector="Button:pointerover">
-								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-							</Style>
-						</Button.Styles>
-					</Button>
-					<!--  NuGet Local watch status toggle  -->
-					<Button
-						Margin="8,0"
-						Padding="12,6"
-						Classes="nav-status"
-						Background="Transparent"
-						BorderThickness="0"
-						Command="{Binding ToggleNugetWatchCommand}"
-						CornerRadius="{DynamicResource ChipRadius}"
-						Cursor="Hand"
-						ToolTip.Tip="{Binding NugetWatchStatusText, StringFormat='NuGet watch: {0}'}">
-						<StackPanel Classes="nav-footer" Orientation="Horizontal" Spacing="6">
-							<Path
-								Width="18"
-								Height="18"
-								Classes="status-icon status-idle"
-								Classes.running="{Binding NugetWatchRunning}"
-								VerticalAlignment="Center"
-								Data="{tools:SvgPath icon-package}"
-								Stretch="Uniform" />
-							<TextBlock
-								VerticalAlignment="Center"
-								Classes="nav-label"
-								FontSize="11"
-								FontWeight="Medium"
-								Foreground="{DynamicResource BodyForegroundBrush}"
-								Text="NuGet watch" />
-							<TextBlock
-								VerticalAlignment="Center"
-								Classes="nav-label"
-								FontSize="11"
-								Foreground="{DynamicResource MutedForegroundBrush}"
-								Text="{Binding NugetWatchStatusText, Mode=OneWay}" />
-						</StackPanel>
-						<Button.Styles>
-							<Style Selector="Button:pointerover">
-								<Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-							</Style>
-						</Button.Styles>
-					</Button>
-				</StackPanel>
 				<ListBox
 					x:Name="NavigationListBox"
 					Padding="8,0"
