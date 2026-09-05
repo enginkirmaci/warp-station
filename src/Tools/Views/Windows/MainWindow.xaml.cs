@@ -257,13 +257,13 @@ public partial class MainWindow : SukiWindow
     #region Header search
 
     /// <summary>
-    /// Ctrl+K focuses the header search field from anywhere in the app. Handled on the
+    /// Ctrl+F focuses the header search field from anywhere in the app. Handled on the
     /// window so it works regardless of which control holds keyboard focus (a TextBox
     /// lets the unhandled gesture bubble).
     /// </summary>
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Control) && HeaderSearchBox is not null)
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control) && HeaderSearchBox is not null)
         {
             HeaderSearchBox.Focus();
             HeaderSearchBox.SelectAll();

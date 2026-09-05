@@ -188,7 +188,7 @@
                                                                 <TextBlock
                                                                     FontSize="11"
                                                                     Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                    Text="Ctrl + K" />
+                                                                    Text="Ctrl + F" />
                                                             </Border>
                                                             <!--  Clear button: shown once the field has text  -->
                                                             <Button
