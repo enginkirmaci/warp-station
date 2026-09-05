@@ -196,8 +196,7 @@
                                 Grid.Column="0"
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleChangesTabCommand}"
-                                ToolTip.Tip="Open the Changes tab">
+                                Command="{Binding ToggleChangesTabCommand}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -228,8 +227,7 @@
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding TogglePullRequestsTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}"
-                                ToolTip.Tip="Open the Pull Requests tab">
+                                IsVisible="{Binding IsGitHubEnabled}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -260,8 +258,7 @@
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleIssuesTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}"
-                                ToolTip.Tip="Open the Issues tab">
+                                IsVisible="{Binding IsGitHubEnabled}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -335,8 +332,7 @@
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleChangesTabCommand}"
-                                ToolTip.Tip="Open the Changes tab">
+                                Command="{Binding ToggleChangesTabCommand}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -366,8 +362,7 @@
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding TogglePullRequestsTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}"
-                                ToolTip.Tip="Open the Pull Requests tab">
+                                IsVisible="{Binding IsGitHubEnabled}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -397,8 +392,7 @@
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleIssuesTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}"
-                                ToolTip.Tip="Open the Issues tab">
+                                IsVisible="{Binding IsGitHubEnabled}">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <Grid
                                         Width="36"
@@ -436,8 +430,7 @@
                             <Button
                                 Grid.Column="0"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleChangesTabCommand}"
-                                ToolTip.Tip="Open the Changes tab">
+                                Command="{Binding ToggleChangesTabCommand}">
                                 <DockPanel>
                                     <TextBlock
                                         Margin="0,0,0,4"
@@ -504,8 +497,7 @@
                             <Button
                                 Grid.Column="1"
                                 Classes="ov-card-btn"
-                                Command="{Binding TogglePullRequestsTabCommand}"
-                                ToolTip.Tip="Open the Pull Requests tab">
+                                Command="{Binding TogglePullRequestsTabCommand}">
                                 <DockPanel>
                                     <TextBlock
                                         Margin="0,0,0,4"
@@ -598,8 +590,7 @@
                             <Button
                                 Grid.Column="2"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleIssuesTabCommand}"
-                                ToolTip.Tip="Open the Issues tab">
+                                Command="{Binding ToggleIssuesTabCommand}">
                                 <DockPanel>
                                     <TextBlock
                                         Margin="0,0,0,4"
@@ -1489,17 +1480,18 @@
               Bottom half of the docked card: rounded bottom corners, hairline border
               on three sides, DividerBrush hairline on top separating it from the panel.
               The extra height (over the 40px it replaced) gives the branch dropdown,
-              Fetch and last-fetched row vertical breathing room.  -->
+              Fetch and last-fetched row breathing room — biased to the top so the row
+              clears the panel's hairline above.  -->
         <Border
             Grid.Row="1"
-            Height="48"
+            Height="56"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource DividerBrush}"
             BorderThickness="0,1,1,1"
             ClipToBounds="True"
             CornerRadius="{DynamicResource CardRadiusBottom}">
             <Grid
-                Margin="12,0,12,0"
+                Margin="12,6,12,2"
                 ColumnDefinitions="Auto,Auto,*,Auto"
                 ColumnSpacing="14">
 

@@ -131,14 +131,20 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
+                <!--  Same compact icon button as the tool drawer's close (26x26,
+                      Padding 0, muted 13px glyph) so both panels close alike.  -->
                 <Button
+                    Width="26"
+                    Height="26"
+                    Padding="0"
+                    Classes="icon"
                     Command="{Binding CloseCommand}"
                     ToolTip.Tip="Close panel">
                     <Path
-                        Width="14"
-                        Height="14"
+                        Width="13"
+                        Height="13"
                         Data="{tools:SvgPath icon-close}"
-                        Fill="{DynamicResource BodyForegroundBrush}"
+                        Fill="{DynamicResource MutedForegroundBrush}"
                         Stretch="Uniform" />
                 </Button>
             </StackPanel>
@@ -188,8 +194,9 @@
             </Button>
         </StackPanel>
 
-        <!--  Tabs: drive the bottom bar's panel  -->
-        <StackPanel Orientation="Horizontal" Spacing="36">
+        <!--  Tabs: drive the bottom bar's panel; bottom margin keeps the active
+              tab's underline off the tab content below.  -->
+        <StackPanel Margin="0,0,0,8" Orientation="Horizontal" Spacing="36">
             <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}">
                 <TextBlock Classes="tab-label" Text="Overview" />
             </Button>
