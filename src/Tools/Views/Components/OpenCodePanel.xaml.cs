@@ -19,6 +19,11 @@ public partial class OpenCodePanel : UserControl
     public OpenCodePanel()
     {
         InitializeComponent();
+        PanelResizeController.Attach(
+            this.FindControl<Border>("PanelResizer")
+            ?? throw new InvalidOperationException("PanelResizer missing"),
+            this,
+            delta => ViewModel?.AdjustPanelHeight(delta));
     }
 
     private void InitializeComponent()

@@ -32,6 +32,7 @@
                     MinHeight="110"
                     AcceptsReturn="True"
                     Classes="mono"
+                    VerticalContentAlignment="Top"
                     Text="{Binding ImmediateInput, Mode=TwoWay}"
                     TextWrapping="Wrap"
                     Watermark="Enter C# code to execute…" />

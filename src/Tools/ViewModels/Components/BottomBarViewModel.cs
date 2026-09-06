@@ -428,8 +428,11 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>Applies a drag delta (positive = taller) to the active tab's panel height.</summary>
     public void AdjustPanelHeight(double delta)
     {
-        var value = Math.Clamp((ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight) + delta,
-            MinPanelHeight, MaxPanelHeight);
+        var current = ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight;
+        // Whole logical pixels only: sub-pixel heights re-rasterize without a visible
+        // gain, and unchanged values must not trigger another layout pass (drag smoothness).
+        var value = Math.Clamp(Math.Round(current + delta), MinPanelHeight, MaxPanelHeight);
+        if (Math.Abs(value - current) < 0.5) return;
         if (ActiveTab == BottomBarTab.Changes) _changesPanelHeight = value;
         else _overviewPanelHeight = value;
         OnPropertyChanged(nameof(PanelHeight));
@@ -881,33 +884,66 @@ public partial class BottomBarViewModel : ObservableObject
 
     // --- Changes tab: commit ---
 
-    /// <summary>The commit message box's content (required before Commit enables).</summary>
+    /// <summary>The commit message box's content. Optional: an empty box makes Commit
+    /// generate the message first (the wand's run), then commit.</summary>
     [ObservableProperty]
     private string _commitMessage = string.Empty;
+
+    /// <summary>The commit button's label: "Generate &amp; Commit" while the box is empty
+    /// (the press writes the message first, exactly like the wand), "Commit" otherwise.</summary>
+    public string CommitButtonText => string.IsNullOrWhiteSpace(CommitMessage)
+        ? "Generate & Commit"
+        : "Commit";
+
+    /// <summary>True while the box is empty — the commit press generates the message first;
+    /// picks the commit button's icon (wand vs check).</summary>
+    public bool CommitWillAutoGenerate => string.IsNullOrWhiteSpace(CommitMessage);
 
     /// <summary>True while the commit runs; disables the Commit button.</summary>
     [ObservableProperty]
     private bool _isCommitting;
 
     private bool CanCommit() => HasSelectedRepo && !IsCommitting
-        && StagedFiles.Count > 0 && !string.IsNullOrWhiteSpace(CommitMessage);
+        && StagedFiles.Count > 0
+        && (!string.IsNullOrWhiteSpace(CommitMessage) || CanGenerateCommitMessage());
 
-    partial void OnCommitMessageChanged(string value) => CommitCommand.NotifyCanExecuteChanged();
+    partial void OnCommitMessageChanged(string value)
+    {
+        CommitCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CommitButtonText));
+        OnPropertyChanged(nameof(CommitWillAutoGenerate));
+    }
 
     partial void OnIsCommittingChanged(bool value) => CommitCommand.NotifyCanExecuteChanged();
 
-    /// <summary>Commits the staged index with the typed message; success clears the box
-    /// and reloads the tab (the staged section empties, recent commits gain a row).</summary>
+    /// <summary>Commits the staged index. With a typed message it commits that; with an
+    /// empty box it first generates a message exactly like the wand (opencode over the
+    /// staged diff) — the generated message lands in the box so it is visible and kept
+    /// when the commit fails — then commits. Success clears the box and reloads the tab
+    /// (the staged section empties, recent commits gain a row).</summary>
     [RelayCommand(CanExecute = nameof(CanCommit))]
     private async Task CommitAsync()
     {
         var repo = SelectedRepo;
         var message = CommitMessage.Trim();
-        if (repo is null || message.Length == 0) return;
+        if (repo is null) return;
 
         IsCommitting = true;
         try
         {
+            if (message.Length == 0)
+            {
+                var generated = await TryGenerateCommitMessageAsync();
+                if (generated is null)
+                {
+                    _notificationService.Show("Could not generate a commit message", NotificationKind.Error);
+                    return;
+                }
+
+                CommitMessage = generated;
+                message = generated;
+            }
+
             var hash = await _gitStatusService.CommitAsync(repo, message);
             if (hash is null)
             {
@@ -939,9 +975,17 @@ public partial class BottomBarViewModel : ObservableObject
     private bool CanGenerateCommitMessage() => HasOpenCode && HasSelectedRepo
         && StagedFiles.Count > 0 && !IsGeneratingMessage;
 
-    partial void OnIsGeneratingMessageChanged(bool value) => GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+    partial void OnIsGeneratingMessageChanged(bool value)
+    {
+        GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+        CommitCommand.NotifyCanExecuteChanged(); // CanCommit defers to the wand when the box is empty
+    }
 
-    partial void OnHasOpenCodeChanged(bool value) => GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+    partial void OnHasOpenCodeChanged(bool value)
+    {
+        GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+        CommitCommand.NotifyCanExecuteChanged(); // CanCommit defers to the wand when the box is empty
+    }
 
     /// <summary>
     /// The wand button: asks opencode to write a commit message from the staged diff
@@ -951,26 +995,17 @@ public partial class BottomBarViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanGenerateCommitMessage))]
     private async Task GenerateCommitMessageAsync()
     {
-        var repo = SelectedRepo;
-        if (repo?.FolderPath is null) return;
+        if (SelectedRepo?.FolderPath is null) return;
 
         IsGeneratingMessage = true;
         try
         {
-            var patch = await _gitStatusService.GetStagedPatchAsync(repo);
-            if (string.IsNullOrWhiteSpace(patch))
-            {
-                _notificationService.Show("Nothing staged yet — stage changes first", NotificationKind.Error);
-                return;
-            }
-
-            var prompt = BuildCommitMessagePrompt(patch);
-            var answer = await _openCodeRunService.RunAsync(
-                _reposSettings.OpenCodeExecutable, ResolveWandModel(), prompt);
-            var message = CleanGeneratedMessage(answer);
+            var message = await TryGenerateCommitMessageAsync();
             if (message is null)
             {
-                _notificationService.Show("Could not generate a commit message", NotificationKind.Error);
+                _notificationService.Show(
+                    StagedFiles.Count == 0 ? "Nothing staged yet — stage changes first" : "Could not generate a commit message",
+                    NotificationKind.Error);
                 return;
             }
 
@@ -980,6 +1015,27 @@ public partial class BottomBarViewModel : ObservableObject
         {
             IsGeneratingMessage = false;
         }
+    }
+
+    /// <summary>
+    /// The wand's core, shared with the auto-generate path of <see cref="CommitAsync"/>:
+    /// runs the staged patch through opencode (the user-editable prompt template, the
+    /// dedicated commit model or the default) and returns the cleaned message — null
+    /// when nothing is staged, the CLI fails, or nothing usable came back. The caller
+    /// reports the failure.
+    /// </summary>
+    private async Task<string?> TryGenerateCommitMessageAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo?.FolderPath is null) return null;
+
+        var patch = await _gitStatusService.GetStagedPatchAsync(repo);
+        if (string.IsNullOrWhiteSpace(patch)) return null;
+
+        var prompt = BuildCommitMessagePrompt(patch);
+        var answer = await _openCodeRunService.RunAsync(
+            _reposSettings.OpenCodeExecutable, ResolveWandModel(), prompt);
+        return CleanGeneratedMessage(answer);
     }
 
     /// <summary>
@@ -1011,9 +1067,13 @@ public partial class BottomBarViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(answer)) return null;
 
-        var lines = answer.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal))
-            .Reverse().SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal)).Reverse()
+        // Interior blank lines must survive (sections of a structured body are separated
+        // by them), and so must a wrapped bullet's 2-space continuation indent — only
+        // trailing whitespace, the fences and the outer padding are stripped.
+        var lines = answer.Split('\n')
+            .Select(l => l.TrimEnd())
+            .SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal) || l.Trim().Length == 0)
+            .Reverse().SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal) || l.Trim().Length == 0).Reverse()
             .ToList();
         var message = string.Join('\n', lines).Trim().Trim('"', '`').Trim();
         if (message.Length > 1500) message = message[..1500].TrimEnd();
@@ -1553,27 +1613,39 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     private void ApplyOpenCodeModels(IReadOnlyList<string> models)
     {
-        OpenCodeModels = new ObservableCollection<string>(models);
+        // The ItemsSource swap transiently re-selects the pickers' first item (the
+        // commit picker's sentinel) and re-fires SelectionChanged — without this guard
+        // that phantom pick PERSISTS, wiping the user's configured models on every
+        // list refresh (observed: CommitModel reset to null on every app start).
+        _syncingOpenCodePickers = true;
+        try
+        {
+            OpenCodeModels = new ObservableCollection<string>(models);
 
-        var previous = OpenCodeSelectedModel;
-        var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
-        OpenCodeSelectedModel = previousStillListed
-            ? previous
-            : SelectConfiguredOrDefaultModel(OpenCodeModels);
+            var previous = OpenCodeSelectedModel;
+            var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
+            OpenCodeSelectedModel = previousStillListed
+                ? previous
+                : SelectConfiguredOrDefaultModel(OpenCodeModels);
 
-        OpenCodeModelFilter = OpenCodeSelectedModel;
-        RefreshOpenCodeFilteredModels();
+            OpenCodeModelFilter = OpenCodeSelectedModel;
+            RefreshOpenCodeFilteredModels();
 
-        // Re-raise so the OneWay SelectedItem binding re-resolves after the in-place list
-        // rebuild — including when the value did not change and ObservableProperty raised
-        // nothing. Safe from text clobbering: the filter was just mirrored to the same
-        // value, and the code-behind's commit handler re-commits equal values (no loop).
-        OnPropertyChanged(nameof(OpenCodeSelectedModel));
+            // Re-raise so the OneWay SelectedItem binding re-resolves after the in-place list
+            // rebuild — including when the value did not change and ObservableProperty raised
+            // nothing. Safe from text clobbering: the filter was just mirrored to the same
+            // value, and the code-behind's commit handler re-commits equal values (no loop).
+            OnPropertyChanged(nameof(OpenCodeSelectedModel));
 
-        OnPropertyChanged(nameof(OpenCodeHasModels));
-        OnPropertyChanged(nameof(OpenCodeModelsEmpty));
+            OnPropertyChanged(nameof(OpenCodeHasModels));
+            OnPropertyChanged(nameof(OpenCodeModelsEmpty));
 
-        ApplyOpenCodeCommitModelOptions(models);
+            ApplyOpenCodeCommitModelOptions(models);
+        }
+        finally
+        {
+            _syncingOpenCodePickers = false;
+        }
     }
 
     /// <summary>
@@ -1683,6 +1755,7 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     public async Task CommitOpenCodeModelAsync(string model)
     {
+        if (_syncingOpenCodePickers) return; // phantom pick from an option-list rebuild
         if (string.IsNullOrWhiteSpace(model)) return;
         if (string.Equals(model, OpenCodeSelectedModel, StringComparison.Ordinal)
             && string.Equals(_openCodeSettings.DefaultModel, model, StringComparison.Ordinal))

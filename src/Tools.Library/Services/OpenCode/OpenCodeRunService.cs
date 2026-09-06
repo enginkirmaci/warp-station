@@ -39,6 +39,11 @@ public class OpenCodeRunService : IOpenCodeRunService
                 WindowStyle = ProcessWindowStyle.Hidden,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                // The child must never see the host's stdin: under a debugger (or any
+                // launcher keeping a live pipe open) `opencode run` waits on that pipe
+                // forever instead of using the argv prompt. A closed pipe is an instant
+                // EOF, same as a terminal run.
+                RedirectStandardInput = true,
             };
             // ArgumentList, not an Arguments string: the prompt (a diff + instructions)
             // carries quotes and newlines no shell-style escaping should have to survive.
@@ -55,10 +60,14 @@ public class OpenCodeRunService : IOpenCodeRunService
 
             using var process = new Process { StartInfo = psi };
             process.Start();
+            process.StandardInput.Close();
 
+            // stderr must be drained even when only stdout is used: an undrained pipe
+            // fills, the child blocks writing its progress, and the run "times out".
             var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var completed = await Task.WhenAny(outputTask, Task.Delay(CliTimeout, cancellationToken));
-            if (completed != outputTask)
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            var completed = await Task.WhenAny(outputTask, errorTask, Task.Delay(CliTimeout, cancellationToken));
+            if (completed != outputTask && completed != errorTask)
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
                 Log.Logger.Warning("OpenCodeRunService: '{Exe} run' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
@@ -66,7 +75,18 @@ public class OpenCodeRunService : IOpenCodeRunService
             }
 
             await process.WaitForExitAsync(cancellationToken);
-            return process.ExitCode == 0 ? outputTask.Result.Trim() : null;
+            var output = (await outputTask).Trim();
+            if (process.ExitCode != 0)
+            {
+                // Previously silent: a CLI refusal (bad model, auth, …) surfaced as a
+                // bare null with no trace.
+                var errorTail = (await errorTask).Trim();
+                Log.Logger.Warning(
+                    "OpenCodeRunService: '{Exe} run' exited {ExitCode}: {Stderr}",
+                    exe, process.ExitCode, errorTail.Length > 500 ? errorTail[..500] : errorTail);
+                return null;
+            }
+            return output;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

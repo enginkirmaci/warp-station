@@ -36,6 +36,7 @@
                             <TextBox
                                 Height="120"
                                 AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
                                 Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
                                 TextWrapping="Wrap"
                                 Watermark="Enter folder paths, one per line&#x0a;Example:&#x0a;C:\Projects&#x0a;D:\Development" />
@@ -48,6 +49,7 @@
                             <TextBox
                                 Height="100"
                                 AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
                                 Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
                                 TextWrapping="Wrap"
                                 Watermark="Enter folder paths to exclude, one per line&#x0a;Example:&#x0a;C:\Projects\Archive&#x0a;node_modules" />

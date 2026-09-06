@@ -23,8 +23,29 @@
         DataContext is the singleton BottomBarViewModel, attached by ReposPage (the same
         instance the bar binds — the launch targets the selected repo).
     -->
-    <Grid IsVisible="{Binding IsOpenCodePanelVisible}" Margin="16,0,16,16">
+    <Grid IsVisible="{Binding IsOpenCodePanelVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto">
+
+        <!--  Same panel-top drag divider as the bar: three grip dots, the whole row is
+              the resize surface (wired in code-behind via PanelResizeController).  -->
         <Border
+            Grid.Row="0"
+            x:Name="PanelResizer"
+            Height="28"
+            Background="Transparent"
+            Cursor="SizeNorthSouth">
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="3">
+                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
+                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
+                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
+            </StackPanel>
+        </Border>
+
+        <Border
+            Grid.Row="1"
             Height="{Binding PanelHeight}"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource HairlineBrush}"

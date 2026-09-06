@@ -32,9 +32,12 @@
         </UserControl.Resources>
 
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
+                <!--  Bottom margin 0: the bar's divider row owns the table↔bar gap (its
+                      28px drag band centers the grip dots); the strip keeps its own
+                      bottom spacing.  -->
                 <Grid
                         Grid.Row="0"
-                        Margin="16"
+                        Margin="16,16,16,0"
                         ColumnDefinitions="*"
                         RowDefinitions="Auto,*"
                         RowSpacing="16">

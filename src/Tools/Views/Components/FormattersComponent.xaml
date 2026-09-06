@@ -67,6 +67,7 @@
                         MaxHeight="160"
                         MinHeight="64"
                         AcceptsReturn="True"
+                        VerticalContentAlignment="Top"
                         Text="{Binding InputText, Mode=TwoWay}"
                         TextWrapping="Wrap"
                         Watermark="Enter text to convert…" />

@@ -58,6 +58,8 @@ public class SettingsService : ISettingsService
 
     public async Task SaveSettingsAsync(AppSettings settings)
     {
+        // TEMP DIAGNOSTIC: trace who saves and what OpenCode.CommitModel they carry.
+        Console.WriteLine($"[SAVEDIAG] SaveSettingsAsync CommitModel={settings.OpenCode?.CommitModel ?? "<null>"} from:\n{Environment.StackTrace}");
         // Adopt the caller's instance as the new authoritative state under the lock.
         var snapshot = settings;
         string json;
