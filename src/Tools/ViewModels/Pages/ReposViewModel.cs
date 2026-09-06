@@ -160,18 +160,45 @@ public partial class ReposViewModel : PageViewModelBase
     public bool HasGitHubTotals => IsGitHubColumnVisible
         && (GitHubTotalPrCount > 0 || GitHubTotalIssueCount > 0);
 
-    partial void OnIsGitHubColumnVisibleChanged(bool value) => OnPropertyChanged(nameof(HasGitHubTotals));
+    partial void OnIsGitHubColumnVisibleChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HasGitHubTotals));
+        OnPropertyChanged(nameof(HasHeaderStats));
+    }
 
     /// <summary>
-    /// Re-raises the GitHub totals after the repo set may have been replaced wholesale
-    /// (initial load, rescan): the fresh entities start at zero, so a previously non-zero
-    /// summary must drop without any single entity carrying a change notification.
+    /// Total uncommitted file changes across all known repos — the red third of the
+    /// header stat row. Starts at zero and fills in as the background git status probes
+    /// push their counts onto the entities (see <see cref="OnRepoPropertyChanged"/>).
     /// </summary>
-    private void RefreshGitHubTotals()
+    public int GitTotalModifiedCount => _repoService.Repos.Sum(r => r.GitModifiedCount);
+
+    /// <summary>
+    /// Whether the changes stat shows: a red zero is pure noise, so unlike the GitHub
+    /// pair (which shows together once either count is open) it waits for the first
+    /// modified file.
+    /// </summary>
+    public bool HasChangesTotal => GitTotalModifiedCount > 0;
+
+    /// <summary>
+    /// Whether any header stat is visible — gates the hairline divider between the
+    /// count badge and the stats, so the title cluster doesn't end in a dangling line.
+    /// </summary>
+    public bool HasHeaderStats => HasGitHubTotals || HasChangesTotal;
+
+    /// <summary>
+    /// Re-raises every header total after the repo set may have been replaced wholesale
+    /// (initial load, rescan): the fresh entities start at zero, so previously non-zero
+    /// stats must drop without any single entity carrying a change notification.
+    /// </summary>
+    private void RefreshHeaderTotals()
     {
         OnPropertyChanged(nameof(GitHubTotalPrCount));
         OnPropertyChanged(nameof(GitHubTotalIssueCount));
         OnPropertyChanged(nameof(HasGitHubTotals));
+        OnPropertyChanged(nameof(GitTotalModifiedCount));
+        OnPropertyChanged(nameof(HasChangesTotal));
+        OnPropertyChanged(nameof(HasHeaderStats));
     }
 
     // --- Azure DevOps column visibility ---
@@ -339,10 +366,10 @@ public partial class ReposViewModel : PageViewModelBase
         await _repoService.EnsureLoadedAsync(_reposSettings);
         RebuildTagFilters();
         RefreshSortListeners();
-        // The repos are singleton-cached and may still carry GitHub counts from an earlier
-        // page visit — seed the header totals from them (fresh loads start at zero, where
-        // this raise is a harmless no-op for the UI).
-        RefreshGitHubTotals();
+        // The repos are singleton-cached and may still carry GitHub counts / git changes
+        // from an earlier page visit — seed the header totals from them (fresh loads
+        // start at zero, where this raise is a harmless no-op for the UI).
+        RefreshHeaderTotals();
         ApplyFilter();
 
         // Kick the local git status checks in the background — the cards render instantly
@@ -410,10 +437,10 @@ public partial class ReposViewModel : PageViewModelBase
                     if (token.IsCancellationRequested) return;
                     RebuildTagFilters();
                     // A rescan can replace repo instances — re-wire the live-re-sort
-                    // listeners to the fresh set before re-ordering, and drop the GitHub
+                    // listeners to the fresh set before re-ordering, and drop the header
                     // totals the orphaned entities were carrying.
                     RefreshSortListeners();
-                    RefreshGitHubTotals();
+                    RefreshHeaderTotals();
                     ApplyFilter();
                 });
             }
@@ -565,11 +592,19 @@ public partial class ReposViewModel : PageViewModelBase
         {
             OnPropertyChanged(nameof(GitHubTotalPrCount));
             OnPropertyChanged(nameof(HasGitHubTotals));
+            OnPropertyChanged(nameof(HasHeaderStats));
         }
         else if (e.PropertyName is nameof(Repo.GitHubIssueCount))
         {
             OnPropertyChanged(nameof(GitHubTotalIssueCount));
             OnPropertyChanged(nameof(HasGitHubTotals));
+            OnPropertyChanged(nameof(HasHeaderStats));
+        }
+        else if (e.PropertyName is nameof(Repo.GitModifiedCount))
+        {
+            OnPropertyChanged(nameof(GitTotalModifiedCount));
+            OnPropertyChanged(nameof(HasChangesTotal));
+            OnPropertyChanged(nameof(HasHeaderStats));
         }
     }
 

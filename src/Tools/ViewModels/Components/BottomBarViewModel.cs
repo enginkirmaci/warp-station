@@ -205,7 +205,7 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowIssueBadge));
         OnPropertyChanged(nameof(LastFetchText));
         OnPropertyChanged(nameof(HasFetched));
-        OnPropertyChanged(nameof(SelectedRepoBranch));
+        OnPropertyChanged(nameof(SelectedRepoFolderPath));
         OnPropertyChanged(nameof(HasSelectedRepoGitHubUrl));
         OnPropertyChanged(nameof(SelectedRepoGitHubDisplayUrl));
     }
@@ -233,14 +233,15 @@ public partial class BottomBarViewModel : ObservableObject
 
     // --- Repo header (the page's title while a repo is selected) ---
 
-    /// <summary>Current branch of the selected repo (the header's branch line).</summary>
-    public string? SelectedRepoBranch => SelectedRepo?.GitBranchName;
+    /// <summary>Folder path of the selected repo — the header's location link.</summary>
+    public string? SelectedRepoFolderPath => SelectedRepo?.FolderPath;
 
     /// <summary>Whether the header can offer GitHub entry points for the selected repo.</summary>
     public bool HasSelectedRepoGitHubUrl => !string.IsNullOrWhiteSpace(SelectedRepo?.GitHubRepoUrl);
 
     /// <summary>
-    /// The GitHub URL in display form — scheme stripped, so <c>github.com/owner/repo</c>.
+    /// The GitHub URL in display form — scheme stripped, so <c>github.com/owner/repo</c>
+    /// (the Repository Details card's link label).
     /// </summary>
     public string? SelectedRepoGitHubDisplayUrl
     {
@@ -286,6 +287,16 @@ public partial class BottomBarViewModel : ObservableObject
         {
             _clipboardService.CopyText(path);
             _notificationService.Show("Folder path copied", NotificationKind.Success);
+        }
+    }
+
+    /// <summary>Opens the selected repo's folder (the header's location link) in the file manager.</summary>
+    [RelayCommand]
+    private void OpenRepoFolder()
+    {
+        if (SelectedRepo?.FolderPath is { } path)
+        {
+            _processLauncher.StartProcess(path);
         }
     }
 

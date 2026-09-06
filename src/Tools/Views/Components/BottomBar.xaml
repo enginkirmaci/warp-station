@@ -79,6 +79,17 @@
         <Style Selector="Button.bar-item:pointerover">
             <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
+        <!--  Quiet accent link (like RepoHeader's header-link): transparent, no box —
+              the text plus the open-in-new glyph is the affordance.  -->
+        <Style Selector="Button.detail-link">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.detail-link:pointerover /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
         <!--
             Overview clickable card: the ov-card look on a Button using the same
             stretch template, so the WHOLE card routes to its tab and the hover tint
@@ -684,23 +695,62 @@
                                 Text="Repository Details" />
                             <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="8">
+                                    <StackPanel.Styles>
+                                        <Style Selector="TextBlock.detail-key">
+                                            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+                                        </Style>
+                                        <Style Selector="TextBlock.detail-value">
+                                            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+                                        </Style>
+                                    </StackPanel.Styles>
                                     <TextBlock
                                         Classes="subtle"
                                         IsVisible="{Binding !HasRepoDetails}"
                                         Text="No GitHub data for this repository"
                                         TextWrapping="Wrap" />
+                                    <!--
+                                        GitHub link row: the repo's page as a clickable
+                                        display URL. Sits OUTSIDE the details gate so it
+                                        shows whenever the repo has a GitHub remote — even
+                                        while the gh details are still loading (or absent).
+                                    -->
+                                    <Grid
+                                        ColumnDefinitions="110,*"
+                                        ColumnSpacing="10"
+                                        IsVisible="{Binding HasSelectedRepoGitHubUrl}">
+                                        <TextBlock Classes="detail-key" Text="GitHub" />
+                                        <Button
+                                            Grid.Column="1"
+                                            Classes="detail-link"
+                                            Command="{Binding OpenGitHubRepoCommand}"
+                                            HorizontalAlignment="Left"
+                                            ToolTip.Tip="Open the repository's GitHub page">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <!--  The details sidebar is a fixed 290px column, so
+                                                      after the 110px key + paddings the value cell
+                                                      has ~130px: cap the URL explicitly (desired-
+                                                      sized presenter would otherwise overflow the
+                                                      card) and let the ellipsis take the rest.  -->
+                                                <TextBlock
+                                                    MaxWidth="126"
+                                                    VerticalAlignment="Center"
+                                                    Classes="detail-value"
+                                                    Text="{Binding SelectedRepoGitHubDisplayUrl}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <Path
+                                                    Width="12"
+                                                    Height="12"
+                                                    VerticalAlignment="Center"
+                                                    Data="{tools:SvgPath icon-open-in-new}"
+                                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                                    Stretch="Uniform" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
                                     <Grid
                                         ColumnDefinitions="Auto,*"
                                         ColumnSpacing="10"
                                         IsVisible="{Binding HasRepoDetails}">
-                                        <Grid.Styles>
-                                            <Style Selector="TextBlock.detail-key">
-                                                <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-                                            </Style>
-                                            <Style Selector="TextBlock.detail-value">
-                                                <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-                                            </Style>
-                                        </Grid.Styles>
                                         <StackPanel Grid.ColumnSpan="2" Spacing="6">
                                             <Grid
                                                 ColumnDefinitions="110,*"
@@ -1084,7 +1134,7 @@
                                                                     Height="15"
                                                                     VerticalAlignment="Center"
                                                                     Data="{tools:SvgPath icon-issue}"
-                                                                    Fill="{DynamicResource WarningAccentBrush}"
+                                                                    Fill="{DynamicResource StatusActiveBrush}"
                                                                     Stretch="Uniform" />
                                                                 <!--  One line: number + title, then the tag
                                                                       pills, the author and the relative age.
@@ -1232,7 +1282,7 @@
                                                         Height="15"
                                                         VerticalAlignment="Center"
                                                         Data="{tools:SvgPath icon-git-pull-request}"
-                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                        Fill="{DynamicResource PurpleAccentBrush}"
                                                         Stretch="Uniform" />
                                                     <StackPanel
                                                         Grid.Column="1"
@@ -1286,7 +1336,7 @@
                                                         Height="15"
                                                         VerticalAlignment="Center"
                                                         Data="{tools:SvgPath icon-issue}"
-                                                        Fill="{DynamicResource WarningAccentBrush}"
+                                                        Fill="{DynamicResource StatusActiveBrush}"
                                                         Stretch="Uniform" />
                                                     <TextBlock
                                                         Grid.Column="1"
