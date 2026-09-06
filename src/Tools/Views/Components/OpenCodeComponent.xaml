@@ -52,19 +52,12 @@
                     <TextBlock
                         Classes="field-label"
                         Text="Commit model (wand)"
-                        ToolTip.Tip="Model used only by the Changes tab's wand when it generates a commit message" />
-                    <ComboBox
-                        Name="OpenCodeCommitModelPicker"
-                        HorizontalAlignment="Stretch"
-                        IsEnabled="{Binding OpenCodeHasModels}"
-                        ItemsSource="{Binding OpenCodeCommitModelOptions}"
-                        PlaceholderText="(use default model)"
-                        SelectedItem="{Binding OpenCodeCommitModel, Mode=OneWay}"
-                        SelectionChanged="OnOpenCodeCommitModelSelectionChanged" />
-                    <TextBlock
-                        Classes="subtle"
-                        Text="Used only for the commit-message wand. Empty falls back to the default model."
-                        TextWrapping="Wrap" />
+                        ToolTip.Tip="Model used only by the Changes tab's wand when it generates a commit message; empty = the default model" />
+                    <TextBox
+                        Name="CommitModelBox"
+                        LostFocus="OnCommitModelLostFocus"
+                        Text="{Binding OpenCodeCommitModelText, Mode=TwoWay}"
+                        Watermark="(empty = default model)" />
                 </StackPanel>
             </Border>
 

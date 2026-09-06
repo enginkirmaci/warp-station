@@ -16,19 +16,17 @@
     mc:Ignorable="d">
 
     <!--
-        Bottom bar: an expandable panel (the active tab's content — Overview with
-        stat cards + activity lists + repository details, Changes, Pull Requests,
-        Issues, Pipelines and Git) plus a 40px strip (git context + Fetch).
-        The whole control stays hidden until a repo is selected from the table: a
-        row press or a row chip reveals it (IsBarVisible); the header's X hides it
-        again, strip included. The tab row lives in the RepoHeader inside the panel;
-        the strip keeps
-        only the git context (branch dropdown + bare "N changes" label) and the
-        Fetch + last-fetched actions, pinned left/right like the mockup. Chrome
-        matches the floating tool drawer: one docked card (CardBackgroundBrush
-        surface, HairlineBrush border, CardRadius corners) that lives in the page
-        layout — the table shrinks around it, nothing floats over the page. The bar
-        lives on the Repositories page (it is that page's footer), not on every page.
+        Bottom bar: the expandable panel with the active tab's content (Overview,
+        Changes, Pull Requests, Issues, Pipelines). The whole control stays hidden
+        until a repo is selected from the table: a row press or a row chip reveals
+        it (IsBarVisible); the header's X hides it again. The tab row lives in the
+        RepoHeader inside the panel; the git context (branch dropdown + Fetch +
+        last-fetched) lives in the Changes tab's toolbar row — the old bottom strip
+        that held them is gone. Chrome matches the floating tool drawer: one docked
+        card (CardBackgroundBrush surface, HairlineBrush border, CardRadius corners)
+        that lives in the page layout — the table shrinks around it, nothing floats
+        over the page. The bar lives on the Repositories page (it is that page's
+        footer), not on every page.
     -->
     <!--
         Stretch button theme: replaces SukiUI's Button template for the bar's clickable
@@ -121,15 +119,6 @@
             <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
         </Style>
         <!--
-            The strip sits on the window's bottom edge: the branch dropdown must open
-            upward. SukiUI 7.0.1's drop-down (PART_Popup) leaves Placement at its Bottom
-            default and nothing owns that value programmatically, so a style can flip
-            it for this box alone.
-        -->
-        <Style Selector="ComboBox#BranchPicker /template/ Popup#PART_Popup">
-            <Setter Property="Placement" Value="Top" />
-        </Style>
-        <!--
             Overview stat-card icon badge (Border.stat-badge) lives app-wide in
             AppStyles.axaml so pages share the same vocabulary.
         -->
@@ -149,19 +138,6 @@
             <Setter Property="Margin" Value="0,0,6,0" />
         </Style>
         <!--
-            Changes label in the strip (opens the Changes tab): bare orange icon + text,
-            no pill — per the mockup.
-        -->
-        <Style Selector="Button.bar-chip">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.bar-chip:pointerover /template/ ContentPresenter">
-            <Setter Property="Opacity" Value="0.8" />
-        </Style>
-        <!--
             Commit-message wand: a bare icon floating over the message box's corner —
             transparent so the TextBox shows through, dimming on hover like the other
             quiet buttons.
@@ -178,13 +154,13 @@
     </UserControl.Styles>
 
     <!--  The bar sits inset from the page edges, aligned with the table card above.  -->
-    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto,Auto">
+    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto">
 
         <!--  ============ Panel-top drag divider ====
               Three grip dots between the repo table and the bar; the WHOLE row (not just
               the dots) is the drag surface and resizes the expanded panel (the table
-              above shrinks/grows to match). Visible whenever the bar is (panel open or
-              strip-only) so it always separates the table from the bar. The band is
+              above shrinks/grows to match). Visible whenever the bar is, so it always
+              separates the table from the bar. The band is
               28px and the dots sit dead-center (12.5 above / 12.5 below) — the page's
               table margin no longer adds a top gap.  -->
         <Border
@@ -205,16 +181,17 @@
         </Border>
 
         <!--  ============ Expandable panel (repo header + active tab's content) ====
-              Top half of the docked card: rounded top corners, hairline border on
-              three sides (the strip's top hairline closes the card at the middle).  -->
+              The whole docked card (the old strip is gone — its branch/Fetch row
+              moved into the Changes tab's toolbar): full rounded corners, hairline
+              border on all four sides.  -->
         <Border
             Grid.Row="1"
             Height="{Binding PanelHeight}"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource HairlineBrush}"
-            BorderThickness="1,1,1,0"
+            BorderThickness="1"
             ClipToBounds="True"
-            CornerRadius="{DynamicResource CardRadiusTop}"
+            CornerRadius="{DynamicResource CardRadius}"
             IsVisible="{Binding IsPanelOpen}">
             <Grid Margin="12,8,12,12" RowDefinitions="Auto,*">
 
@@ -896,36 +873,167 @@
                 </Grid>
 
                 <!--
-                    Changes tab (commit workspace, mockup): LEFT — the staged/unstaged
-                    tree as two sections, each with its own header (icon + name + count
-                    + Stage All / Unstage All) and one row per file with a status chip,
-                    per-side numstat and a + / − button; RIGHT — the commit message box
-                    with the wand button, Commit and the branch/Fetch row; BOTTOM —
-                    the repo's recent commits.
+                    Changes tab (commit workspace, mockup): TOP — the branch dropdown +
+                    Fetch/last-fetched row (moved up from the old strip); LEFT — the
+                    staged/unstaged tree as two sections, each with its own header (icon
+                    + name + count + Stage All / Unstage All) and one row per file with
+                    a status chip, per-side numstat and a + / − button; RIGHT — the
+                    commit message box with the wand button and Commit; BOTTOM — the
+                    repo's recent commits, collapsed by default behind a header toggle.
                 -->
                 <DockPanel Grid.Row="1" IsVisible="{Binding IsActiveChanges}">
 
-                    <!--  Bottom part: Recent Commits (full width, under a hairline)  -->
-                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Spacing="2">
-                        <Border Height="1" Margin="0,2,0,6" Background="{DynamicResource HairlineBrush}" />
-                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,0,0,4">
-                            <Path
-                                Width="13"
-                                Height="13"
+                    <!--  Top toolbar: branch dropdown (pick to check out) + Fetch and
+                          last-fetched — moved up from the old bottom strip, which held
+                          nothing else and was removed with it.  -->
+                    <Grid
+                        DockPanel.Dock="Top"
+                        Margin="0,0,0,8"
+                        ColumnDefinitions="Auto,*,Auto"
+                        ColumnSpacing="14">
+
+                        <!--
+                            Branch dropdown — outlined box with a branch icon + name;
+                            picking an entry checks it out.
+                        -->
+                        <ComboBox
+                            x:Name="BranchPicker"
+                            Grid.Column="0"
+                            Height="30"
+                            MinWidth="88"
+                            MaxWidth="200"
+                            VerticalAlignment="Center"
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource HairlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            ItemsSource="{Binding Branches}"
+                            PlaceholderText="branch"
+                            SelectedItem="{Binding SelectedBranch, Mode=OneWay}"
+                            SelectionChanged="OnBranchSelectionChanged"
+                            ToolTip.Tip="Current branch — pick another to check it out">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Path
+                                            Width="12"
+                                            Height="12"
+                                            Data="{tools:SvgPath icon-source-branch}"
+                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                            Stretch="Uniform" />
+                                        <!--
+                                            Explicit foreground: SukiUI brightens only TextBlocks that
+                                            are the ComboBoxItem's DIRECT content; inside this
+                                            StackPanel the inherited popup color is too dim.
+                                        -->
+                                        <TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="{Binding}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <!--  Fetch + last fetched (pinned right): outlined Fetch button
+                              with a cloud-download icon, then the status dot + relative
+                              label.  -->
+                        <StackPanel
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding HasSelectedRepo}"
+                            Orientation="Horizontal"
+                            Spacing="10">
+                            <!--  Plain default button (Browse…-style native hover).  -->
+                            <Button Command="{Binding FetchCommand}" ToolTip.Tip="git fetch --prune for the selected repository">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Path
+                                        Width="13"
+                                        Height="13"
+                                        VerticalAlignment="Center"
+                                        Classes="icon"
+                                        Data="{tools:SvgPath icon-cloud-download}" />
+                                    <TextBlock VerticalAlignment="Center" Text="Fetch" />
+                                </StackPanel>
+                            </Button>
+                            <StackPanel
                                 VerticalAlignment="Center"
-                                Data="{tools:SvgPath icon-clock}"
-                                Fill="{DynamicResource MutedForegroundBrush}"
-                                Stretch="Uniform" />
-                            <TextBlock Classes="ov-card-title" Text="Recent Commits" />
-                            <TextBlock
-                                VerticalAlignment="Center"
-                                Classes="subtle"
-                                Text="{Binding GitCommits.Count, StringFormat='({0})'}" />
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <Border
+                                    Width="7"
+                                    Height="7"
+                                    VerticalAlignment="Center"
+                                    Background="{Binding HasFetched, Converter={StaticResource BoolToBrushConverter}}"
+                                    CornerRadius="4" />
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Foreground="{DynamicResource BodyForegroundBrush}"
+                                    Text="{Binding LastFetchText, TargetNullValue='Not fetched'}" />
+                            </StackPanel>
                         </StackPanel>
+                    </Grid>
+
+                    <!--  Bottom part: Recent Commits — collapsed by default; the header
+                          row is the toggle (chevron flips, hairline + list hide), and
+                          the history loads on first expand.  -->
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Spacing="2">
+                        <Border
+                            Height="1"
+                            Margin="0,2,0,6"
+                            Background="{DynamicResource HairlineBrush}"
+                            IsVisible="{Binding ShowRecentCommits}" />
+                        <Button
+                            Padding="2,2,6,2"
+                            Classes="bar-item"
+                            Command="{Binding ToggleRecentCommitsCommand}"
+                            ToolTip.Tip="Show / hide this repository's recent commits">
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
+                                <Path
+                                    Grid.Column="0"
+                                    Width="13"
+                                    Height="13"
+                                    VerticalAlignment="Center"
+                                    Data="{tools:SvgPath icon-clock}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                                <TextBlock
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Classes="ov-card-title"
+                                    Text="Recent Commits" />
+                                <!--  count only when expanded: collapsed, the list isn't
+                                      loaded and "(0)" would read as "no commits"  -->
+                                <TextBlock
+                                    Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    Classes="subtle"
+                                    IsVisible="{Binding ShowRecentCommits}"
+                                    Text="{Binding GitCommits.Count, StringFormat='({0})'}" />
+                                <!--  box sized to the chevron's ink aspect (12x7.4): a square
+                                      box under Stretch=Uniform rides the ink high  -->
+                                <Path
+                                    Grid.Column="4"
+                                    Width="12"
+                                    Height="8"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding ShowRecentCommits}"
+                                    Data="{tools:SvgPath icon-chevron-down}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                                <Path
+                                    Grid.Column="4"
+                                    Width="12"
+                                    Height="8"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding !ShowRecentCommits}"
+                                    Data="{tools:SvgPath icon-chevron-right}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                            </Grid>
+                        </Button>
                         <ScrollViewer
                             MaxHeight="132"
                             HorizontalScrollBarVisibility="Disabled"
-                            VerticalScrollBarVisibility="Auto">
+                            VerticalScrollBarVisibility="Auto"
+                            IsVisible="{Binding ShowRecentCommits}">
                             <!--  Fixed hash/author columns: the rows are independent Grids,
                                   so Auto columns would size per-row and author/time would
                                   drift. Fixed widths (repo-table pattern) keep every row's
@@ -1865,106 +1973,5 @@
             </Grid>
         </Border>
 
-        <!--  ============ Strip (git context + Fetch; hidden with the whole bar) ====
-              Bottom half of the docked card: rounded bottom corners, hairline border
-              on three sides, DividerBrush hairline on top separating it from the panel.
-              The extra height (over the 40px it replaced) gives the branch dropdown,
-              Fetch and last-fetched row breathing room — biased to the top so the row
-              clears the panel's hairline above.  -->
-        <Border
-            Grid.Row="2"
-            Height="56"
-            Background="{DynamicResource CardBackgroundBrush}"
-            BorderBrush="{DynamicResource DividerBrush}"
-            BorderThickness="0,1,1,1"
-            ClipToBounds="True"
-            CornerRadius="{DynamicResource CardRadiusBottom}">
-            <Grid
-                Margin="12,6,12,2"
-                ColumnDefinitions="Auto,*,Auto"
-                ColumnSpacing="14">
-
-                <!--
-                    Branch dropdown — the strip's left edge per the mockup: outlined
-                    box with a branch icon + name; picking an entry checks it out.
-                -->
-                <ComboBox
-                    x:Name="BranchPicker"
-                    Grid.Column="0"
-                    Height="30"
-                    MinWidth="88"
-                    MaxWidth="200"
-                    VerticalAlignment="Center"
-                    Background="Transparent"
-                    BorderBrush="{DynamicResource HairlineBrush}"
-                    BorderThickness="1"
-                    CornerRadius="6"
-                    ItemsSource="{Binding Branches}"
-                    PlaceholderText="branch"
-                    SelectedItem="{Binding SelectedBranch, Mode=OneWay}"
-                    SelectionChanged="OnBranchSelectionChanged"
-                    ToolTip.Tip="Current branch — pick another to check it out">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="x:String">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Path
-                                    Width="12"
-                                    Height="12"
-                                    Data="{tools:SvgPath icon-source-branch}"
-                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                    Stretch="Uniform" />
-                                <!--
-                                    Explicit foreground: SukiUI brightens only TextBlocks that
-                                    are the ComboBoxItem's DIRECT content; inside this
-                                    StackPanel the inherited popup color is too dim.
-                                -->
-                                <TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="{Binding}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-
-                
-                <!--
-                    Fetch + last fetched (pinned right, mockup): outlined Fetch button
-                    with a cloud-download icon, then the status dot + relative label.
-                    (The tab row moved up into the RepoHeader.)
-                -->
-                <StackPanel
-                    Grid.Column="2"
-                    VerticalAlignment="Center"
-                    IsVisible="{Binding HasSelectedRepo}"
-                    Orientation="Horizontal"
-                    Spacing="10">
-                    <!--  Plain default button (Browse…-style native hover).  -->
-                    <Button Command="{Binding FetchCommand}" ToolTip.Tip="git fetch --prune for the selected repository">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Path
-                                Width="13"
-                                Height="13"
-                                VerticalAlignment="Center"
-                                Classes="icon"
-                                Data="{tools:SvgPath icon-cloud-download}" />
-                            <TextBlock VerticalAlignment="Center" Text="Fetch" />
-                        </StackPanel>
-                    </Button>
-                    <StackPanel
-                        VerticalAlignment="Center"
-                        Orientation="Horizontal"
-                        Spacing="8">
-                        <Border
-                            Width="7"
-                            Height="7"
-                            VerticalAlignment="Center"
-                            Background="{Binding HasFetched, Converter={StaticResource BoolToBrushConverter}}"
-                            CornerRadius="4" />
-                        <TextBlock
-                            VerticalAlignment="Center"
-                            Foreground="{DynamicResource BodyForegroundBrush}"
-                            Text="{Binding LastFetchText, TargetNullValue='Not fetched'}" />
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
-        </Border>
     </Grid>
 </UserControl>

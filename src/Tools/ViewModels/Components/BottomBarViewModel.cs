@@ -12,7 +12,8 @@ using Tools.Services.Abstractions;
 
 namespace Tools.ViewModels.Components;
 
-/// <summary>The panels the bottom bar can expand to. <see cref="None"/> is the collapsed strip.</summary>
+/// <summary>The panels the bottom bar can expand to. <see cref="None"/> has no
+/// expanded panel (the bar shows nothing — the old strip is gone).</summary>
 public enum BottomBarTab
 {
     None = 0,
@@ -116,6 +117,7 @@ public partial class BottomBarViewModel : ObservableObject
             IsGitHubEnabled = _reposSettings.ShowGitHubColumn;
             IsAzureDevOpsEnabled = _reposSettings.ShowAzureDevOpsColumn;
             IsOpenCodeEnabled = _openCodeSettings.Enabled;
+            OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
             RefreshOpenCodeAvailability();
 
             await LoadOpenCodeTemplatesAsync();
@@ -303,8 +305,8 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>
     /// The X button (far right of the bar header or the OpenCode panel header): closes
-    /// whichever bottom panel is open — bar panel, OpenCode panel and strip — and drops
-    /// the selection, clearing the table row's highlight. A row press (Overview) or any
+    /// whichever bottom panel is open — bar panel or OpenCode panel — and drops the
+    /// selection, clearing the table row's highlight. A row press (Overview) or any
     /// row chip brings the bar back.
     /// </summary>
     [RelayCommand]
@@ -375,8 +377,8 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>
     /// Whether the standalone OpenCode panel shows — the full bottom panel (same docked
-    /// card as the bar's panel, no tab row, no strip) that the repo row's options icon
-    /// opens. Mutually exclusive with the bar: opening either hides the other.
+    /// card as the bar's panel, no tab row) that the repo row's options icon opens.
+    /// Mutually exclusive with the bar: opening either hides the other.
     /// </summary>
     [ObservableProperty]
     private bool _isOpenCodePanelVisible;
@@ -393,7 +395,7 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>Row press on the already-highlighted repo: closes the bar entirely —
-    /// panel, strip and selection — so the row loses its highlight, exactly like the
+    /// panel and selection — so the row loses its highlight, exactly like the
     /// header's close button; pressing the row again re-opens Overview. Any other row
     /// press opens as usual.</summary>
     public void ToggleForRepo(Repo repo)
@@ -724,14 +726,17 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>
     /// Loads everything the Changes tab shows: the merged change list (keeps the
-    /// Overview card's preview fresh), the staged/unstaged split and the recent
-    /// commits. The three loads run concurrently.
+    /// Overview card's preview fresh), the staged/unstaged split and — when the
+    /// Recent Commits section is expanded — the recent commits. Concurrent.
     /// </summary>
     private async Task LoadChangesTabAsync()
     {
         _ = LoadChangedFilesAsync();
         _ = LoadChangeGroupsAsync();
-        await LoadRecentCommitsAsync();
+        if (ShowRecentCommits)
+        {
+            await LoadRecentCommitsAsync();
+        }
     }
 
     // --- Changes tab: staged/unstaged split ---
@@ -1171,6 +1176,26 @@ public partial class BottomBarViewModel : ObservableObject
 
     partial void OnIsLoadingCommitsChanged(bool value) => OnPropertyChanged(nameof(ShowCommitsEmpty));
 
+    /// <summary>
+    /// Whether the Recent Commits section shows under the Changes tab's workspace.
+    /// Collapsed by default — the section header stays visible as the toggle and the
+    /// history only loads once first expanded.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showRecentCommits;
+
+    /// <summary>Header-row toggle: expanding with no commits loaded yet fetches them
+    /// (the tab load skips the history while the section is collapsed).</summary>
+    [RelayCommand]
+    private async Task ToggleRecentCommitsAsync()
+    {
+        ShowRecentCommits = !ShowRecentCommits;
+        if (ShowRecentCommits && GitCommits.Count == 0)
+        {
+            await LoadRecentCommitsAsync();
+        }
+    }
+
     /// <summary>Loads the recent commit list for the Changes tab's Recent Commits section.</summary>
     private async Task LoadRecentCommitsAsync()
     {
@@ -1502,19 +1527,28 @@ public partial class BottomBarViewModel : ObservableObject
     private ObservableCollection<string> _openCodeModels = new();
 
     /// <summary>
-    /// The Changes tab's wand writes commit messages through <c>opencode run</c> with
-    /// THIS model (a dedicated cheap/fast pick), falling back to the configured default
-    /// when unset. The picker's first entry is the "(use default model)" sentinel.
+    /// The commit-model box's text buffer (the OpenCode panel's plain TextBox). Persisted
+    /// by <see cref="SaveCommitModelAsync"/> when the box loses focus — empty text means
+    /// "no dedicated commit model", and the wand then uses the default model.
     /// </summary>
-    public const string UseDefaultModelSentinel = "(use default model)";
-
-    /// <summary>The commit-model picker's entries: the sentinel + the model catalog.</summary>
     [ObservableProperty]
-    private ObservableCollection<string> _openCodeCommitModelOptions = new([UseDefaultModelSentinel]);
+    private string _openCodeCommitModelText = string.Empty;
 
-    /// <summary>The committed commit-model selection (sentinel or model id), OneWay-bound.</summary>
-    [ObservableProperty]
-    private string? _openCodeCommitModel = UseDefaultModelSentinel;
+    /// <summary>
+    /// Persists the commit-model box: empty/whitespace clears the dedicated commit model
+    /// (the wand falls back to the configured default), anything else keeps the trimmed
+    /// id verbatim. No-op when the value didn't change.
+    /// </summary>
+    public async Task SaveCommitModelAsync()
+    {
+        var desired = string.IsNullOrWhiteSpace(OpenCodeCommitModelText)
+            ? null
+            : OpenCodeCommitModelText.Trim();
+        if (string.Equals(_openCodeSettings.CommitModel, desired, StringComparison.Ordinal)) return;
+
+        _openCodeSettings.CommitModel = desired;
+        await PersistOpenCodeSettingAsync(s => s.OpenCode.CommitModel = desired);
+    }
 
     /// <summary>
     /// The model the wand should run with: the dedicated commit model when set, else the
@@ -1597,114 +1631,61 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     private async Task LoadOpenCodeModelsAsync()
     {
-        var cached = _openCodeModelService.GetCachedModels(_openCodeSettings.DefaultModel);
-        if (cached.Count > 0)
-            ApplyOpenCodeModels(cached);
+        // Guard spans the WHOLE load — including the await and the deferred
+        // SelectionChanged the ComboBox raises after its ItemsSource swap (a synchronous
+        // flag reset misses that, and the phantom sentinel pick persisted null over the
+        // configured CommitModel on every app start).
+        _syncingOpenCodePickers = true;
+        try
+        {
+            var cached = _openCodeModelService.GetCachedModels(_openCodeSettings.DefaultModel);
+            if (cached.Count > 0)
+                ApplyOpenCodeModels(cached);
 
-        var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, _openCodeSettings.DefaultModel);
-        ApplyOpenCodeModels(models);
+            var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, _openCodeSettings.DefaultModel);
+            ApplyOpenCodeModels(models);
+        }
+        finally
+        {
+            Dispatcher.UIThread.Post(() => _syncingOpenCodePickers = false, DispatcherPriority.Background);
+        }
     }
+
+    /// <summary>
+    /// True while <see cref="LoadOpenCodeModelsAsync"/> refreshes the model list: the
+    /// ItemsSource swap transiently re-selects entries and re-fires the default-model
+    /// picker's commit handler, which must not persist those phantom picks.
+    /// </summary>
+    private bool _syncingOpenCodePickers;
 
     /// <summary>
     /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the
     /// configured default or first entry (or clears the selection when empty), and
     /// refreshes the filter projection and the computed has/empty flags. A model the user
-    /// already picked survives the refresh when it is still present.
+    /// already picked survives the refresh when it is still present. Callers own the
+    /// <see cref="_syncingOpenCodePickers"/> guard — this runs inside it.
     /// </summary>
     private void ApplyOpenCodeModels(IReadOnlyList<string> models)
     {
-        // The ItemsSource swap transiently re-selects the pickers' first item (the
-        // commit picker's sentinel) and re-fires SelectionChanged — without this guard
-        // that phantom pick PERSISTS, wiping the user's configured models on every
-        // list refresh (observed: CommitModel reset to null on every app start).
-        _syncingOpenCodePickers = true;
-        try
-        {
-            OpenCodeModels = new ObservableCollection<string>(models);
+        OpenCodeModels = new ObservableCollection<string>(models);
 
-            var previous = OpenCodeSelectedModel;
-            var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
-            OpenCodeSelectedModel = previousStillListed
-                ? previous
-                : SelectConfiguredOrDefaultModel(OpenCodeModels);
+        var previous = OpenCodeSelectedModel;
+        var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
+        OpenCodeSelectedModel = previousStillListed
+            ? previous
+            : SelectConfiguredOrDefaultModel(OpenCodeModels);
 
-            OpenCodeModelFilter = OpenCodeSelectedModel;
-            RefreshOpenCodeFilteredModels();
+        OpenCodeModelFilter = OpenCodeSelectedModel;
+        RefreshOpenCodeFilteredModels();
 
-            // Re-raise so the OneWay SelectedItem binding re-resolves after the in-place list
-            // rebuild — including when the value did not change and ObservableProperty raised
-            // nothing. Safe from text clobbering: the filter was just mirrored to the same
-            // value, and the code-behind's commit handler re-commits equal values (no loop).
-            OnPropertyChanged(nameof(OpenCodeSelectedModel));
+        // Re-raise so the OneWay SelectedItem binding re-resolves after the in-place list
+        // rebuild — including when the value did not change and ObservableProperty raised
+        // nothing. Safe from text clobbering: the filter was just mirrored to the same
+        // value, and the code-behind's commit handler re-commits equal values (no loop).
+        OnPropertyChanged(nameof(OpenCodeSelectedModel));
 
-            OnPropertyChanged(nameof(OpenCodeHasModels));
-            OnPropertyChanged(nameof(OpenCodeModelsEmpty));
-
-            ApplyOpenCodeCommitModelOptions(models);
-        }
-        finally
-        {
-            _syncingOpenCodePickers = false;
-        }
-    }
-
-    /// <summary>
-    /// Rebuilds the commit-model picker's entries (sentinel + catalog) and re-selects the
-    /// configured commit model — or the sentinel when unset/stale. Called on the same
-    /// schedule as the default-model list refresh.
-    /// </summary>
-    private void ApplyOpenCodeCommitModelOptions(IReadOnlyList<string> models)
-    {
-        var options = new ObservableCollection<string> { UseDefaultModelSentinel };
-        foreach (var model in models)
-        {
-            options.Add(model);
-        }
-        OpenCodeCommitModelOptions = options;
-
-        // Show the configured value even when the catalog no longer lists it, so the
-        // picker always tells the truth about what the wand will use.
-        var configured = _openCodeSettings.CommitModel?.Trim();
-        OpenCodeCommitModel = string.IsNullOrEmpty(configured) || configured == UseDefaultModelSentinel
-            ? UseDefaultModelSentinel
-            : options.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase))
-                ?? configured;
-    }
-
-    /// <summary>
-    /// Commits a commit-model pick from the picker (called by the component's code-behind):
-    /// the sentinel clears the dedicated commit model (the wand then uses the default);
-    /// anything else persists the pick. Mirrors <see cref="CommitOpenCodeModelAsync"/>.
-    /// </summary>
-    public async Task CommitCommitModelAsync(string model)
-    {
-        var isSentinel = string.Equals(model, UseDefaultModelSentinel, StringComparison.Ordinal);
-        var desired = isSentinel ? null : model;
-
-        // Idempotent, like the default-model commit: the OneWay selection re-push after
-        // every option-list rebuild re-fires SelectionChanged with the shown value —
-        // persisting/notifying then would spam the user on each panel open.
-        if (string.Equals(_openCodeSettings.CommitModel, desired, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _openCodeSettings.CommitModel = desired;
-
-        try
-        {
-            var settings = await _settingsService.GetSettingsAsync();
-            settings.OpenCode ??= new OpenCodeSettings();
-            settings.OpenCode.CommitModel = _openCodeSettings.CommitModel;
-            await _settingsService.SaveSettingsAsync(settings);
-            _notificationService.Show(
-                isSentinel ? "Commit model cleared — wand uses the default model" : $"Commit model set to {model}",
-                NotificationKind.Success);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Warning(ex, "Failed to persist the OpenCode commit model");
-        }
+        OnPropertyChanged(nameof(OpenCodeHasModels));
+        OnPropertyChanged(nameof(OpenCodeModelsEmpty));
     }
 
     /// <summary>
@@ -1755,6 +1736,7 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     public async Task CommitOpenCodeModelAsync(string model)
     {
+        if (!IsOpenCodePanelVisible) return; // phantom pick while the panel is hidden
         if (_syncingOpenCodePickers) return; // phantom pick from an option-list rebuild
         if (string.IsNullOrWhiteSpace(model)) return;
         if (string.Equals(model, OpenCodeSelectedModel, StringComparison.Ordinal)
@@ -1954,7 +1936,7 @@ public partial class BottomBarViewModel : ObservableObject
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null)
         {
-            CloseOpenCodePanelToStrip();
+            CloseOpenCodePanelToBar();
             return;
         }
 
@@ -1977,21 +1959,23 @@ public partial class BottomBarViewModel : ObservableObject
             }
         }
 
-        CloseOpenCodePanelToStrip();
+        CloseOpenCodePanelToBar();
     }
 
     private bool CanLaunchOpenCode() => HasOpenCode && HasSelectedRepo;
 
-    /// <summary>
-    /// After a launch attempt (or a missing terminal): the OpenCode panel closes and the
-    /// bar returns as the strip-only footer — the same end state the old tab flow had
-    /// when the tab collapsed to the strip.
-    /// </summary>
-    private void CloseOpenCodePanelToStrip()
+    /// <summary>After a launch attempt (or a missing terminal): the OpenCode panel
+    /// closes and the bar returns on the repo view (Overview) — the closest surviving
+    /// equivalent of the old return to the strip, which no longer exists.</summary>
+    private void CloseOpenCodePanelToBar()
     {
         IsOpenCodePanelVisible = false;
-        ActiveTab = BottomBarTab.None;
         IsBarVisible = true;
+        if (ActiveTab == BottomBarTab.None)
+        {
+            ActiveTab = BottomBarTab.Overview;
+            _ = LoadOverviewAsync();
+        }
     }
 
     /// <summary>
@@ -2021,7 +2005,7 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    // --- Public tab entry points (strip buttons toggle; row chips open directly) ---
+    // --- Public tab entry points (header tabs toggle; row chips open directly) ---
 
     /// <summary>Opens the Overview tab (repo optional — the row chip passes its repo).</summary>
     public void OpenOverview(Repo? repo = null)
@@ -2067,8 +2051,8 @@ public partial class BottomBarViewModel : ObservableObject
     /// Opens the OpenCode panel — the full bottom panel that the repo row's options icon
     /// opens: model picker (which persists the default), instances, template, prompt and
     /// the launch button. A no-op while the integration is disabled. The panel REPLACES
-    /// the bar in the page's bottom slot (the bar hides, strip included); a row press or
-    /// row chip brings the bar back (and hides the panel via <see cref="SetTargetRepo"/>).
+    /// the bar in the page's bottom slot (the bar hides); a row press or row chip brings
+    /// the bar back (and hides the panel via <see cref="SetTargetRepo"/>).
     /// </summary>
     public void OpenOpenCode(Repo? repo = null)
     {

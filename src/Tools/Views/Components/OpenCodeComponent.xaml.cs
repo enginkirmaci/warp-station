@@ -101,11 +101,17 @@ public partial class OpenCodeComponent : UserControl
     /// selection is committed through the view model like the default model's, not a
     /// TwoWay binding, so option-list rebuilds never write transients back.
     /// </summary>
-    private void OnOpenCodeCommitModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    /// <summary>
+    /// Persists the commit-model box when it loses focus (click-away/Tab): empty text
+    /// clears the dedicated commit model so the wand falls back to the default. A lost-
+    /// focus commit replaces the old ComboBox's SelectionChanged plumbing — a TextBox
+    /// cannot fire phantom selection events during option-list rebuilds.
+    /// </summary>
+    private void OnCommitModelLostFocus(object? sender, RoutedEventArgs e)
     {
-        if (sender is ComboBox { SelectedItem: string model } && ViewModel is { } vm)
+        if (ViewModel is { } vm)
         {
-            _ = vm.CommitCommitModelAsync(model);
+            _ = vm.SaveCommitModelAsync();
         }
     }
 }
