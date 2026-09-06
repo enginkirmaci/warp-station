@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Serilog;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
@@ -292,6 +293,182 @@ public sealed class GitStatusService : IGitStatusService
         }
 
         return files;
+    }
+
+    /// <inheritdoc/>
+    public async Task<GitChangeGroups> GetChangeGroupsAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitChangeGroups([], []);
+
+        var output = await RunGitAsync(
+            repo.FolderPath,
+            "--no-optional-locks status --porcelain=v2 --untracked-files=all",
+            cancellationToken);
+        if (string.IsNullOrEmpty(output)) return new GitChangeGroups([], []);
+
+        var staged = new List<GitChangedFile>();
+        var unstaged = new List<GitChangedFile>();
+        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (line.Length == 0 || line[0] == '#') continue;
+
+            var separator = line.IndexOf(' ');
+            if (separator <= 0) continue;
+
+            var kind = line[..separator];
+            var rest = line[(separator + 1)..];
+            if (kind == "?")
+            {
+                // Untracked: the whole remainder IS the path; it lives on the
+                // worktree side only (nothing is staged).
+                unstaged.Add(new GitChangedFile(rest, "?"));
+                continue;
+            }
+
+            if (kind == "u")
+            {
+                // Unmerged (conflict): surfaces as a "U" worktree entry — there is
+                // no clean index side to stage until the conflict is resolved.
+                unstaged.Add(new GitChangedFile(LastToken(rest), "U"));
+                continue;
+            }
+
+            // Ordinary/renamed entries: the XY pair right after the kind — X is the
+            // index (staged) status, Y the worktree (unstaged) status, '.' meaning
+            // unmodified on that side. The path is the LAST space-separated token
+            // (a rename's original path precedes it).
+            if (rest.Length < 3) continue;
+            var indexCode = rest[0];
+            var worktreeCode = rest[1];
+            var path = LastToken(rest[3..]);
+
+            if (indexCode is not ('.' or ' '))
+            {
+                staged.Add(new GitChangedFile(path, indexCode.ToString()));
+            }
+            if (worktreeCode is not ('.' or ' '))
+            {
+                unstaged.Add(new GitChangedFile(path, worktreeCode.ToString()));
+            }
+        }
+
+        // Per-side numstat: the unstaged counts come from the worktree diff, the
+        // staged ones from the cached diff. Untracked files appear in neither (and
+        // binary files report "-", parsing to nulls) so they stay count-less.
+        var worktreeCounts = ParseNumstat(
+            await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --numstat", cancellationToken));
+        unstaged = unstaged
+            .Select(file => worktreeCounts.TryGetValue(file.Path, out var addDelete)
+                ? file with { Additions = addDelete.Additions, Deletions = addDelete.Deletions }
+                : file)
+            .ToList();
+
+        var cachedCounts = ParseNumstat(
+            await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --cached --numstat", cancellationToken));
+        staged = staged
+            .Select(file => cachedCounts.TryGetValue(file.Path, out var addDelete)
+                ? file with { Additions = addDelete.Additions, Deletions = addDelete.Deletions }
+                : file)
+            .ToList();
+
+        return new GitChangeGroups(staged, unstaged);
+    }
+
+    /// <summary>The last space-separated token of a porcelain v2 change line.</summary>
+    private static string LastToken(string fields)
+    {
+        var lastSpace = fields.LastIndexOf(' ');
+        return lastSpace >= 0 ? fields[(lastSpace + 1)..] : fields;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> StageAsync(Repo repo, string path, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, $"add -- {Quote(path)}", cancellationToken) is not null;
+        if (ok)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> StageAllAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, "add -A", cancellationToken) is not null;
+        if (ok)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> UnstageAsync(Repo repo, string path, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, $"reset -q HEAD -- {Quote(path)}", cancellationToken) is not null;
+        if (ok)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> UnstageAllAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, "reset -q HEAD", cancellationToken) is not null;
+        if (ok)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> CommitAsync(Repo repo, string message, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(message)) return null;
+
+        // The message goes through a temp file (-F) instead of -m: it may carry
+        // quotes, newlines or anything else a shell-style argument would mangle.
+        var messageFile = Path.Combine(Path.GetTempPath(), $"devtools-commit-{Guid.NewGuid():N}.msg");
+        try
+        {
+            await File.WriteAllTextAsync(messageFile, message, cancellationToken);
+            var output = await RunGitAsync(repo.FolderPath, $"commit -F {Quote(messageFile)}", cancellationToken);
+            if (output is null) return null;
+
+            // First line of git's output: "[branch abc1234] subject" — pick the hash.
+            var match = Regex.Match(output, @"\[[^\]]+?\s([0-9a-f]{7,40})\]");
+            await RefreshRepoAsync(repo, cancellationToken);
+            return match.Success ? match.Groups[1].Value[..7] : string.Empty;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Logger.Debug(ex, "git commit failed for {FolderPath}", repo.FolderPath);
+            return null;
+        }
+        finally
+        {
+            try { File.Delete(messageFile); } catch { /* best effort cleanup */ }
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return null;
+        return await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --cached", cancellationToken);
     }
 
     /// <summary>Parses <c>git diff --numstat</c> output into per-path add/delete counts.</summary>

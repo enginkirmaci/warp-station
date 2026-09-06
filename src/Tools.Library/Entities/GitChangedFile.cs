@@ -17,8 +17,15 @@ public sealed record GitChangedFile(
     /// <summary>Whether the file carries numstat line counts (untracked/binary do not).</summary>
     public bool HasCounts => Additions is not null || Deletions is not null;
 
-    /// <summary>The "+12 −3" per-file delta text; empty without counts.</summary>
-    public string DeltaText => Additions is null && Deletions is null
-        ? string.Empty
-        : $"+{Additions ?? 0} −{Deletions ?? 0}";
+    /// <summary>
+    /// The status letter as the UI shows it — "U" for untracked (VS Code's letter), the
+    /// porcelain code otherwise ("?" is git's raw untracked marker, never displayed).
+    /// </summary>
+    public string DisplayStatusCode => StatusCode == "?" ? "U" : StatusCode;
+
+    /// <summary>The "+N" additions half of the delta; null without counts.</summary>
+    public string? AddedText => Additions is null ? null : $"+{Additions}";
+
+    /// <summary>The "−N" deletions half of the delta; null without counts.</summary>
+    public string? RemovedText => Deletions is null ? null : $"−{Deletions}";
 }

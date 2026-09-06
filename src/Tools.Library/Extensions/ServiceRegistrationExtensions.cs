@@ -46,6 +46,12 @@ public static class ServiceRegistrationExtensions
         // opencode model list (one-shot 'opencode models' CLI runner)
         services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
 
+        // opencode one-shot prompt run (the Changes tab's commit-message wand)
+        services.AddSingleton<IOpenCodeRunService, OpenCodeRunService>();
+
+        // commit-message wand's prompt template (settings-folder MD, user-editable)
+        services.AddSingleton<ICommitMessagePromptService, CommitMessagePromptService>();
+
         return services;
     }
 }

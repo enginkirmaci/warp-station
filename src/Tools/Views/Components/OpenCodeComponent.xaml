@@ -46,6 +46,22 @@
                     Classes="subtle"
                     Text="Picking a model persists it as the default (settings.json) and preselects it for every launch."
                     TextWrapping="Wrap" />
+                <TextBlock
+                    Classes="field-label"
+                    Text="Commit model (wand)"
+                    ToolTip.Tip="Model used only by the Changes tab's wand when it generates a commit message" />
+                <ComboBox
+                    Name="OpenCodeCommitModelPicker"
+                    HorizontalAlignment="Stretch"
+                    IsEnabled="{Binding OpenCodeHasModels}"
+                    ItemsSource="{Binding OpenCodeCommitModelOptions}"
+                    PlaceholderText="(use default model)"
+                    SelectedItem="{Binding OpenCodeCommitModel, Mode=OneWay}"
+                    SelectionChanged="OnOpenCodeCommitModelSelectionChanged" />
+                <TextBlock
+                    Classes="subtle"
+                    Text="Used only for the commit-message wand. Empty falls back to the default model."
+                    TextWrapping="Wrap" />
             </StackPanel>
             <Border Classes="vertical-divider" />
             <!--  Instances + template + prompt  -->

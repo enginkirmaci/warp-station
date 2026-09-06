@@ -21,7 +21,6 @@ public enum BottomBarTab
     PullRequests,
     Issues,
     Azure,
-    Git,
 }
 
 /// <summary>
@@ -50,7 +49,9 @@ public partial class BottomBarViewModel : ObservableObject
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
+    private readonly IOpenCodeRunService _openCodeRunService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
+    private readonly ICommitMessagePromptService _commitMessagePromptService;
     private readonly INotificationService _notificationService;
     private readonly IClipboardService _clipboardService;
 
@@ -79,7 +80,9 @@ public partial class BottomBarViewModel : ObservableObject
         IOpenCodeModelService openCodeModelService,
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
+        IOpenCodeRunService openCodeRunService,
         IOpenCodeGridLauncher openCodeGridLauncher,
+        ICommitMessagePromptService commitMessagePromptService,
         INotificationService notificationService,
         IClipboardService clipboardService)
     {
@@ -92,7 +95,9 @@ public partial class BottomBarViewModel : ObservableObject
         _openCodeModelService = openCodeModelService;
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
+        _openCodeRunService = openCodeRunService;
         _openCodeGridLauncher = openCodeGridLauncher;
+        _commitMessagePromptService = commitMessagePromptService;
         _notificationService = notificationService;
         _clipboardService = clipboardService;
 
@@ -198,7 +203,6 @@ public partial class BottomBarViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ChangesCount));
         OnPropertyChanged(nameof(ShowChangesBadge));
-        OnPropertyChanged(nameof(ChangesChipText));
         OnPropertyChanged(nameof(PullRequestCount));
         OnPropertyChanged(nameof(ShowPullRequestBadge));
         OnPropertyChanged(nameof(IssueCount));
@@ -210,13 +214,10 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedRepoGitHubDisplayUrl));
     }
 
-    /// <summary>Working-tree change count of the selected repo (the Changes badge/chip).</summary>
+    /// <summary>Working-tree change count of the selected repo (the Overview card's footer).</summary>
     public int ChangesCount => SelectedRepo?.GitModifiedCount ?? 0;
 
     public bool ShowChangesBadge => ChangesCount > 0;
-
-    /// <summary>"5 changes" label for the strip chip (singular-aware).</summary>
-    public string ChangesChipText => ChangesCount == 1 ? "1 change" : $"{ChangesCount} changes";
 
     public int PullRequestCount => SelectedRepo?.GitHubPrCount ?? 0;
 
@@ -412,19 +413,33 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool IsPanelOpen => ActiveTab != BottomBarTab.None;
 
-    /// <summary>
-    /// The expanded panel's height, identical for every tab (the header plus the tab's
-    /// content — sized so the Overview's five-row lists fit without inner scrolling;
-    /// longer tab lists scroll internally).
-    /// </summary>
-    public double PanelHeight => 440d;
+    // Per-tab panel heights: every tab shares the Overview-sized height except Changes,
+    // which carries the full commit workspace (staged/unstaged lists, commit message box
+    // and the recent-commits list) and starts taller. The panel's top-edge divider
+    // (BottomBar's PanelResizer) drags these values around.
+    private const double MinPanelHeight = 260d;
+    private const double MaxPanelHeight = 780d;
+    private double _overviewPanelHeight = 440d;
+    private double _changesPanelHeight = 560d;
+
+    /// <summary>The expanded panel's height — the active tab's own value (see above).</summary>
+    public double PanelHeight => ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight;
+
+    /// <summary>Applies a drag delta (positive = taller) to the active tab's panel height.</summary>
+    public void AdjustPanelHeight(double delta)
+    {
+        var value = Math.Clamp((ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight) + delta,
+            MinPanelHeight, MaxPanelHeight);
+        if (ActiveTab == BottomBarTab.Changes) _changesPanelHeight = value;
+        else _overviewPanelHeight = value;
+        OnPropertyChanged(nameof(PanelHeight));
+    }
 
     public bool IsActiveOverview => ActiveTab == BottomBarTab.Overview;
     public bool IsActiveChanges => ActiveTab == BottomBarTab.Changes;
     public bool IsActivePullRequests => ActiveTab == BottomBarTab.PullRequests;
     public bool IsActiveIssues => ActiveTab == BottomBarTab.Issues;
     public bool IsActiveAzure => ActiveTab == BottomBarTab.Azure;
-    public bool IsActiveGit => ActiveTab == BottomBarTab.Git;
 
     partial void OnActiveTabChanged(BottomBarTab value)
     {
@@ -435,7 +450,6 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(IsActivePullRequests));
         OnPropertyChanged(nameof(IsActiveIssues));
         OnPropertyChanged(nameof(IsActiveAzure));
-        OnPropertyChanged(nameof(IsActiveGit));
     }
 
     /// <summary>
@@ -471,7 +485,7 @@ public partial class BottomBarViewModel : ObservableObject
                 _ = LoadOverviewAsync();
                 break;
             case BottomBarTab.Changes:
-                _ = LoadChangedFilesAsync();
+                _ = LoadChangesTabAsync();
                 break;
             case BottomBarTab.PullRequests:
             case BottomBarTab.Issues:
@@ -480,11 +494,12 @@ public partial class BottomBarViewModel : ObservableObject
             case BottomBarTab.Azure:
                 _ = LoadAzureAsync();
                 break;
-            case BottomBarTab.Git:
-                _ = LoadGitAsync();
-                break;
         }
     }
+
+    /// <summary>Refreshes the open panel's data (the header's refresh button).</summary>
+    [RelayCommand]
+    private void RefreshPanel() => ReloadActiveTab();
 
     // --- Git: branch dropdown, checkout, fetch ---
 
@@ -704,6 +719,307 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Loads everything the Changes tab shows: the merged change list (keeps the
+    /// Overview card's preview fresh), the staged/unstaged split and the recent
+    /// commits. The three loads run concurrently.
+    /// </summary>
+    private async Task LoadChangesTabAsync()
+    {
+        _ = LoadChangedFilesAsync();
+        _ = LoadChangeGroupsAsync();
+        await LoadRecentCommitsAsync();
+    }
+
+    // --- Changes tab: staged/unstaged split ---
+
+    /// <summary>The index side of the selected repo's changes (the Staged section).</summary>
+    [ObservableProperty]
+    private ObservableCollection<GitChangedFile> _stagedFiles = new();
+
+    /// <summary>The worktree side (the Unstaged section; untracked files included).</summary>
+    [ObservableProperty]
+    private ObservableCollection<GitChangedFile> _unstagedFiles = new();
+
+    /// <summary>True while the staged/unstaged split is loading; gates the empty state.</summary>
+    [ObservableProperty]
+    private bool _isLoadingGroups;
+
+    public int StagedCount => StagedFiles.Count;
+
+    public int UnstagedCount => UnstagedFiles.Count;
+
+    public bool ShowStagedSection => StagedFiles.Count > 0;
+
+    public bool ShowUnstagedSection => UnstagedFiles.Count > 0;
+
+    /// <summary>The whole tab's empty state: no staged and no unstaged entries at all.</summary>
+    public bool ShowChangesTabEmpty => !IsLoadingFiles && !IsLoadingGroups
+        && StagedFiles.Count == 0 && UnstagedFiles.Count == 0;
+
+    partial void OnIsLoadingGroupsChanged(bool value) => RaiseChangeGroupsDerived();
+
+    /// <summary>
+    /// Raises every computed binding over <see cref="StagedFiles"/>/<see cref="UnstagedFiles"/>
+    /// and re-evaluates the commit + wand commands, whose CanExecute read the staged count.
+    /// The collections are mutated in place, so the count-derived bindings need this push.
+    /// </summary>
+    private void RaiseChangeGroupsDerived()
+    {
+        OnPropertyChanged(nameof(StagedCount));
+        OnPropertyChanged(nameof(UnstagedCount));
+        OnPropertyChanged(nameof(ShowStagedSection));
+        OnPropertyChanged(nameof(ShowUnstagedSection));
+        OnPropertyChanged(nameof(ShowChangesTabEmpty));
+        CommitCommand.NotifyCanExecuteChanged();
+        GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task LoadChangeGroupsAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo is null)
+        {
+            StagedFiles.Clear();
+            UnstagedFiles.Clear();
+            IsLoadingGroups = false;
+            RaiseChangeGroupsDerived();
+            return;
+        }
+
+        IsLoadingGroups = true;
+        try
+        {
+            var groups = await _gitStatusService.GetChangeGroupsAsync(repo);
+            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
+
+            StagedFiles.Clear();
+            foreach (var file in groups.Staged)
+            {
+                StagedFiles.Add(file);
+            }
+            UnstagedFiles.Clear();
+            foreach (var file in groups.Unstaged)
+            {
+                UnstagedFiles.Add(file);
+            }
+        }
+        finally
+        {
+            IsLoadingGroups = false;
+            RaiseChangeGroupsDerived();
+        }
+    }
+
+    /// <summary>Stages one file (+ button on an unstaged row).</summary>
+    [RelayCommand]
+    private async Task StageFileAsync(GitChangedFile? file)
+    {
+        var repo = SelectedRepo;
+        if (repo is null || file is null) return;
+
+        if (await _gitStatusService.StageAsync(repo, file.Path))
+        {
+            _ = LoadChangesTabAsync();
+        }
+        else
+        {
+            _notificationService.Show($"Could not stage {file.Path}", NotificationKind.Error);
+        }
+    }
+
+    /// <summary>Unstages one file (− button on a staged row); the working tree keeps the change.</summary>
+    [RelayCommand]
+    private async Task UnstageFileAsync(GitChangedFile? file)
+    {
+        var repo = SelectedRepo;
+        if (repo is null || file is null) return;
+
+        if (await _gitStatusService.UnstageAsync(repo, file.Path))
+        {
+            _ = LoadChangesTabAsync();
+        }
+        else
+        {
+            _notificationService.Show($"Could not unstage {file.Path}", NotificationKind.Error);
+        }
+    }
+
+    /// <summary>Stages everything, untracked files and deletions included (Stage All).</summary>
+    [RelayCommand]
+    private async Task StageAllAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo is null) return;
+
+        if (await _gitStatusService.StageAllAsync(repo))
+        {
+            _ = LoadChangesTabAsync();
+        }
+        else
+        {
+            _notificationService.Show($"Could not stage the changes of {repo.Name}", NotificationKind.Error);
+        }
+    }
+
+    /// <summary>Unstages everything — index back to HEAD, working tree untouched (Unstage All).</summary>
+    [RelayCommand]
+    private async Task UnstageAllAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo is null) return;
+
+        if (await _gitStatusService.UnstageAllAsync(repo))
+        {
+            _ = LoadChangesTabAsync();
+        }
+        else
+        {
+            _notificationService.Show($"Could not unstage the changes of {repo.Name}", NotificationKind.Error);
+        }
+    }
+
+    // --- Changes tab: commit ---
+
+    /// <summary>The commit message box's content (required before Commit enables).</summary>
+    [ObservableProperty]
+    private string _commitMessage = string.Empty;
+
+    /// <summary>True while the commit runs; disables the Commit button.</summary>
+    [ObservableProperty]
+    private bool _isCommitting;
+
+    private bool CanCommit() => HasSelectedRepo && !IsCommitting
+        && StagedFiles.Count > 0 && !string.IsNullOrWhiteSpace(CommitMessage);
+
+    partial void OnCommitMessageChanged(string value) => CommitCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsCommittingChanged(bool value) => CommitCommand.NotifyCanExecuteChanged();
+
+    /// <summary>Commits the staged index with the typed message; success clears the box
+    /// and reloads the tab (the staged section empties, recent commits gain a row).</summary>
+    [RelayCommand(CanExecute = nameof(CanCommit))]
+    private async Task CommitAsync()
+    {
+        var repo = SelectedRepo;
+        var message = CommitMessage.Trim();
+        if (repo is null || message.Length == 0) return;
+
+        IsCommitting = true;
+        try
+        {
+            var hash = await _gitStatusService.CommitAsync(repo, message);
+            if (hash is null)
+            {
+                _notificationService.Show("Commit failed — nothing staged, or git rejected it", NotificationKind.Error);
+                return;
+            }
+
+            CommitMessage = string.Empty;
+            _notificationService.Show(
+                hash.Length > 0 ? $"Committed {hash} to {repo.Name}" : $"Committed to {repo.Name}",
+                NotificationKind.Success);
+            _ = LoadChangesTabAsync();
+        }
+        finally
+        {
+            IsCommitting = false;
+        }
+    }
+
+    // --- Changes tab: commit-message wand ---
+
+    /// <summary>True while opencode writes the message; disables the wand button.</summary>
+    [ObservableProperty]
+    private bool _isGeneratingMessage;
+
+    /// <summary>Upper bound on the staged diff fed to the model, so the prompt stays sane.</summary>
+    private const int MaxPromptPatchLength = 8000;
+
+    private bool CanGenerateCommitMessage() => HasOpenCode && HasSelectedRepo
+        && StagedFiles.Count > 0 && !IsGeneratingMessage;
+
+    partial void OnIsGeneratingMessageChanged(bool value) => GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+
+    partial void OnHasOpenCodeChanged(bool value) => GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+
+    /// <summary>
+    /// The wand button: asks opencode to write a commit message from the staged diff
+    /// (plus the repo's recent subjects for tone) and drops it into the message box.
+    /// Needs the OpenCode integration enabled and the CLI resolvable.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanGenerateCommitMessage))]
+    private async Task GenerateCommitMessageAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo?.FolderPath is null) return;
+
+        IsGeneratingMessage = true;
+        try
+        {
+            var patch = await _gitStatusService.GetStagedPatchAsync(repo);
+            if (string.IsNullOrWhiteSpace(patch))
+            {
+                _notificationService.Show("Nothing staged yet — stage changes first", NotificationKind.Error);
+                return;
+            }
+
+            var prompt = BuildCommitMessagePrompt(patch);
+            var answer = await _openCodeRunService.RunAsync(
+                _reposSettings.OpenCodeExecutable, ResolveWandModel(), prompt);
+            var message = CleanGeneratedMessage(answer);
+            if (message is null)
+            {
+                _notificationService.Show("Could not generate a commit message", NotificationKind.Error);
+                return;
+            }
+
+            CommitMessage = message;
+        }
+        finally
+        {
+            IsGeneratingMessage = false;
+        }
+    }
+
+    /// <summary>
+    /// Builds the wand's prompt: fills the user-editable template's placeholders with
+    /// the staged file list, the (truncated) staged diff, and the repo's recent commit
+    /// subjects as free-form context (tone reference).
+    /// </summary>
+    private string BuildCommitMessagePrompt(string patch)
+    {
+        if (patch.Length > MaxPromptPatchLength)
+        {
+            patch = patch[..MaxPromptPatchLength] + "\n… (diff truncated)";
+        }
+
+        var fileList = string.Join(", ", StagedFiles.Select(f => f.Path));
+        var context = GitCommits.Count > 0
+            ? "Recent commit subjects for tone:\n" + string.Join('\n', GitCommits.Take(5).Select(c => c.Subject))
+            : string.Empty;
+        return _commitMessagePromptService.BuildPrompt(fileList, patch, context);
+    }
+
+    /// <summary>
+    /// Normalizes the model's answer into a commit message: strips code fences and
+    /// wrapping quotes, keeps the remaining lines (the template may emit subject +
+    /// body + footer), and caps the total length. Returns null when nothing usable
+    /// came back.
+    /// </summary>
+    private static string? CleanGeneratedMessage(string? answer)
+    {
+        if (string.IsNullOrWhiteSpace(answer)) return null;
+
+        var lines = answer.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal))
+            .Reverse().SkipWhile(l => l.StartsWith("```", StringComparison.Ordinal)).Reverse()
+            .ToList();
+        var message = string.Join('\n', lines).Trim().Trim('"', '`').Trim();
+        if (message.Length > 1500) message = message[..1500].TrimEnd();
+        return message.Length == 0 ? null : message;
+    }
+
     // --- Overview tab ---
 
     /// <summary>Static GitHub metadata for the sidebar (owner, created, language, …).</summary>
@@ -781,7 +1097,7 @@ public partial class BottomBarViewModel : ObservableObject
         SelectedRepoDetails = details;
     }
 
-    // --- Git tab ---
+    // --- Recent commits (the Changes tab's bottom section) ---
 
     /// <summary>The selected repo's recent commits, newest first.</summary>
     [ObservableProperty]
@@ -795,8 +1111,8 @@ public partial class BottomBarViewModel : ObservableObject
 
     partial void OnIsLoadingCommitsChanged(bool value) => OnPropertyChanged(nameof(ShowCommitsEmpty));
 
-    /// <summary>Loads the Git tab's data: the branch list plus the recent commit list.</summary>
-    private async Task LoadGitAsync()
+    /// <summary>Loads the recent commit list for the Changes tab's Recent Commits section.</summary>
+    private async Task LoadRecentCommitsAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
@@ -822,16 +1138,6 @@ public partial class BottomBarViewModel : ObservableObject
             IsLoadingCommits = false;
             OnPropertyChanged(nameof(ShowCommitsEmpty));
         }
-        _ = LoadBranchesAsync();
-    }
-
-    /// <summary>Checks a branch out from the Git tab's branch list (same path as the dropdown).</summary>
-    [RelayCommand]
-    private async Task CheckoutBranch(string? branch)
-    {
-        if (string.IsNullOrWhiteSpace(branch)) return;
-        await CheckoutAsync(branch);
-        _ = LoadGitAsync();
     }
 
     // --- GitHub tabs (pull requests + issues) ---
@@ -1136,6 +1442,31 @@ public partial class BottomBarViewModel : ObservableObject
     private ObservableCollection<string> _openCodeModels = new();
 
     /// <summary>
+    /// The Changes tab's wand writes commit messages through <c>opencode run</c> with
+    /// THIS model (a dedicated cheap/fast pick), falling back to the configured default
+    /// when unset. The picker's first entry is the "(use default model)" sentinel.
+    /// </summary>
+    public const string UseDefaultModelSentinel = "(use default model)";
+
+    /// <summary>The commit-model picker's entries: the sentinel + the model catalog.</summary>
+    [ObservableProperty]
+    private ObservableCollection<string> _openCodeCommitModelOptions = new([UseDefaultModelSentinel]);
+
+    /// <summary>The committed commit-model selection (sentinel or model id), OneWay-bound.</summary>
+    [ObservableProperty]
+    private string? _openCodeCommitModel = UseDefaultModelSentinel;
+
+    /// <summary>
+    /// The model the wand should run with: the dedicated commit model when set, else the
+    /// configured default (which may itself be empty — opencode then picks its own).
+    /// </summary>
+    public string? ResolveWandModel()
+    {
+        var configured = _openCodeSettings.CommitModel?.Trim();
+        return !string.IsNullOrEmpty(configured) ? configured : _openCodeSettings.DefaultModel;
+    }
+
+    /// <summary>
     /// The currently selected model. Bound OneWay to the tab's model picker so the box
     /// genuinely selects (highlights) the configured default; user picks are committed by
     /// the bar code-behind's SelectionChanged handler (see <see cref="CommitOpenCodeModel"/>),
@@ -1241,6 +1572,67 @@ public partial class BottomBarViewModel : ObservableObject
 
         OnPropertyChanged(nameof(OpenCodeHasModels));
         OnPropertyChanged(nameof(OpenCodeModelsEmpty));
+
+        ApplyOpenCodeCommitModelOptions(models);
+    }
+
+    /// <summary>
+    /// Rebuilds the commit-model picker's entries (sentinel + catalog) and re-selects the
+    /// configured commit model — or the sentinel when unset/stale. Called on the same
+    /// schedule as the default-model list refresh.
+    /// </summary>
+    private void ApplyOpenCodeCommitModelOptions(IReadOnlyList<string> models)
+    {
+        var options = new ObservableCollection<string> { UseDefaultModelSentinel };
+        foreach (var model in models)
+        {
+            options.Add(model);
+        }
+        OpenCodeCommitModelOptions = options;
+
+        // Show the configured value even when the catalog no longer lists it, so the
+        // picker always tells the truth about what the wand will use.
+        var configured = _openCodeSettings.CommitModel?.Trim();
+        OpenCodeCommitModel = string.IsNullOrEmpty(configured) || configured == UseDefaultModelSentinel
+            ? UseDefaultModelSentinel
+            : options.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase))
+                ?? configured;
+    }
+
+    /// <summary>
+    /// Commits a commit-model pick from the picker (called by the component's code-behind):
+    /// the sentinel clears the dedicated commit model (the wand then uses the default);
+    /// anything else persists the pick. Mirrors <see cref="CommitOpenCodeModelAsync"/>.
+    /// </summary>
+    public async Task CommitCommitModelAsync(string model)
+    {
+        var isSentinel = string.Equals(model, UseDefaultModelSentinel, StringComparison.Ordinal);
+        var desired = isSentinel ? null : model;
+
+        // Idempotent, like the default-model commit: the OneWay selection re-push after
+        // every option-list rebuild re-fires SelectionChanged with the shown value —
+        // persisting/notifying then would spam the user on each panel open.
+        if (string.Equals(_openCodeSettings.CommitModel, desired, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _openCodeSettings.CommitModel = desired;
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            settings.OpenCode ??= new OpenCodeSettings();
+            settings.OpenCode.CommitModel = _openCodeSettings.CommitModel;
+            await _settingsService.SaveSettingsAsync(settings);
+            _notificationService.Show(
+                isSentinel ? "Commit model cleared — wand uses the default model" : $"Commit model set to {model}",
+                NotificationKind.Success);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Failed to persist the OpenCode commit model");
+        }
     }
 
     /// <summary>
@@ -1571,7 +1963,7 @@ public partial class BottomBarViewModel : ObservableObject
     {
         SetTargetRepo(repo);
         ActiveTab = BottomBarTab.Changes;
-        _ = LoadChangedFilesAsync();
+        _ = LoadChangesTabAsync();
     }
 
     /// <summary>Opens the Pull Requests tab.</summary>
@@ -1596,14 +1988,6 @@ public partial class BottomBarViewModel : ObservableObject
         SetTargetRepo(repo);
         ActiveTab = BottomBarTab.Azure;
         _ = LoadAzureAsync();
-    }
-
-    /// <summary>Opens the Git tab (branches + recent commits).</summary>
-    public void OpenGit(Repo? repo = null)
-    {
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.Git;
-        _ = LoadGitAsync();
     }
 
     /// <summary>
@@ -1633,5 +2017,4 @@ public partial class BottomBarViewModel : ObservableObject
     [RelayCommand] private void TogglePullRequestsTab() { if (ActiveTab != BottomBarTab.PullRequests) OpenPullRequests(); }
     [RelayCommand] private void ToggleIssuesTab() { if (ActiveTab != BottomBarTab.Issues) OpenIssues(); }
     [RelayCommand] private void ToggleAzureTab() { if (ActiveTab != BottomBarTab.Azure) OpenAzure(); }
-    [RelayCommand] private void ToggleGitTab() { if (ActiveTab != BottomBarTab.Git) OpenGit(); }
 }

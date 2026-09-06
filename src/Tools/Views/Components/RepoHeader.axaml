@@ -138,6 +138,15 @@
                 </Button>
             </Grid>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <!--  Refresh: reloads the open panel's data.  -->
+                <Button Command="{Binding RefreshPanelCommand}" ToolTip.Tip="Refresh panel">
+                    <Path
+                        Width="14"
+                        Height="14"
+                        Data="{tools:SvgPath icon-refresh}"
+                        Fill="{DynamicResource BodyForegroundBrush}"
+                        Stretch="Uniform" />
+                </Button>
                 <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
                       the native theme hover highlights the whole surface. The kebab
                       carries the repo's GitHub entries; the Overview tab's Repository
@@ -229,9 +238,6 @@
                 Command="{Binding ToggleAzureTabCommand}"
                 IsVisible="{Binding IsAzureDevOpsEnabled}">
                 <TextBlock Classes="tab-label" Text="Pipelines" />
-            </Button>
-            <Button Classes="bar-tab" Classes.active="{Binding IsActiveGit}" Command="{Binding ToggleGitTabCommand}">
-                <TextBlock Classes="tab-label" Text="Git" />
             </Button>
         </StackPanel>
     </StackPanel>

@@ -94,4 +94,18 @@ public partial class OpenCodeComponent : UserControl
             box.IsDropDownOpen = true;
         }
     }
+
+    /// <summary>
+    /// Captures a pick from the plain commit-model ComboBox (the "(use default model)"
+    /// sentinel clears the dedicated setting; anything else persists the model id). The
+    /// selection is committed through the view model like the default model's, not a
+    /// TwoWay binding, so option-list rebuilds never write transients back.
+    /// </summary>
+    private void OnOpenCodeCommitModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { SelectedItem: string model } && ViewModel is { } vm)
+        {
+            _ = vm.CommitCommitModelAsync(model);
+        }
+    }
 }

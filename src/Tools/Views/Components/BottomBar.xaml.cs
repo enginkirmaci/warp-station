@@ -2,6 +2,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
@@ -82,5 +83,46 @@ public partial class BottomBar : UserControl
         {
             vm.SelectedBranch = branch;
         }
+    }
+
+    // --- Panel-top drag divider: resizes the expanded panel (per-tab height) ---
+
+    private bool _resizingPanel;
+    private double _lastDragY;
+
+    private void OnPanelResizerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Border border) return;
+        _resizingPanel = true;
+        // Fixed reference (this control doesn't move during the drag), so the raw
+        // delta is the pointer's travel.
+        _lastDragY = e.GetPosition(this).Y;
+        e.Pointer.Capture(border);
+        e.Handled = true;
+    }
+
+    private void OnPanelResizerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_resizingPanel || sender is Border { } border && !e.GetCurrentPoint(border).Properties.IsLeftButtonPressed)
+        {
+            _resizingPanel = false;
+            return;
+        }
+
+        var y = e.GetPosition(this).Y;
+        ViewModel?.AdjustPanelHeight(_lastDragY - y); // dragging up grows the panel
+        _lastDragY = y;
+        e.Handled = true;
+    }
+
+    private void OnPanelResizerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _resizingPanel = false;
+        if (sender is Border border)
+        {
+            e.Pointer.Capture(null);
+        }
+
+        e.Handled = true;
     }
 }

@@ -124,6 +124,13 @@
     <SolidColorBrush x:Key="GitHubIssueChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
     <!-- Translucent tint behind the changes column's count pill (matches the orange modified count) -->
     <SolidColorBrush x:Key="ChangesChipBrush" Color="{DynamicResource SukiWarningColor}" Opacity="0.16" />
+    <!-- The changes tab's per-file delta pills: additions green, deletions light red
+         (a softer red than the danger accent, so the pair reads +/- rather than error) -->
+    <Color x:Key="LightRedColor">#F87171</Color>
+    <SolidColorBrush x:Key="AddedCountBrush" Color="{DynamicResource SukiSuccessColor}" />
+    <SolidColorBrush x:Key="RemovedCountBrush" Color="{DynamicResource LightRedColor}" />
+    <SolidColorBrush x:Key="AddedCountChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="RemovedCountChipBrush" Color="{DynamicResource LightRedColor}" Opacity="0.16" />
     <!-- Translucent tints behind the Azure DevOps column's chips — PR / work item follow
          the GitHub coding (purple / green); pipeline states keep their own semantics -->
     <SolidColorBrush x:Key="AzureDevOpsPrChipBrush" Color="{DynamicResource PurpleBrandColor}" Opacity="0.16" />

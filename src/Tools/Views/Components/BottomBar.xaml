@@ -161,16 +161,47 @@
         <Style Selector="Button.bar-chip:pointerover /template/ ContentPresenter">
             <Setter Property="Opacity" Value="0.8" />
         </Style>
+        <!--
+            Commit-message wand: a bare icon floating over the message box's corner —
+            transparent so the TextBox shows through, dimming on hover like the other
+            quiet buttons.
+        -->
+        <Style Selector="Button.wand-btn">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.wand-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
     </UserControl.Styles>
 
     <!--  The bar sits inset from the page edges, aligned with the table card above.  -->
-    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto">
+    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto,Auto">
+
+        <!--  ============ Panel-top drag divider ====
+              A hairline between the repo table and the bar; dragging it resizes the
+              expanded panel (the table above shrinks/grows to match). Strip-only state
+              (no expanded panel) has nothing to resize, so the divider hides with it.  -->
+        <Border
+            Grid.Row="0"
+            Height="10"
+            Margin="0,0,0,2"
+            Background="Transparent"
+            Cursor="SizeNorthSouth"
+            IsVisible="{Binding IsPanelOpen}"
+            PointerMoved="OnPanelResizerMoved"
+            PointerPressed="OnPanelResizerPressed"
+            PointerReleased="OnPanelResizerReleased">
+            <Border Height="1" VerticalAlignment="Center" Background="{DynamicResource HairlineBrush}" />
+        </Border>
 
         <!--  ============ Expandable panel (repo header + active tab's content) ====
               Top half of the docked card: rounded top corners, hairline border on
               three sides (the strip's top hairline closes the card at the middle).  -->
         <Border
-            Grid.Row="0"
+            Grid.Row="1"
             Height="{Binding PanelHeight}"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource HairlineBrush}"
@@ -479,7 +510,7 @@
                                                                     HorizontalAlignment="Center"
                                                                     Classes="mono"
                                                                     Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                                                                    Text="{Binding StatusCode}" />
+                                                                    Text="{Binding DisplayStatusCode}" />
                                                             </Border>
                                                             <TextBlock
                                                                 Grid.Column="1"
@@ -488,13 +519,38 @@
                                                                 Foreground="{DynamicResource BodyForegroundBrush}"
                                                                 Text="{Binding Path}"
                                                                 TextTrimming="CharacterEllipsis" />
-                                                            <TextBlock
+                                                            <StackPanel
                                                                 Grid.Column="2"
+                                                                HorizontalAlignment="Right"
                                                                 VerticalAlignment="Center"
-                                                                Classes="mono"
-                                                                Foreground="{DynamicResource MutedForegroundBrush}"
                                                                 IsVisible="{Binding HasCounts}"
-                                                                Text="{Binding DeltaText}" />
+                                                                Orientation="Horizontal"
+                                                                Spacing="4">
+                                                                <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
+                                                                <Border
+                                                                    Padding="6,1"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="{DynamicResource AddedCountChipBrush}"
+                                                                    CornerRadius="{DynamicResource ChipRadius}"
+                                                                    IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                                    <TextBlock
+                                                                        Classes="mono"
+                                                                        Foreground="{DynamicResource AddedCountBrush}"
+                                                                        Text="{Binding AddedText}" />
+                                                                </Border>
+                                                                <!--  Deletions pill (light red)  -->
+                                                                <Border
+                                                                    Padding="6,1"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="{DynamicResource RemovedCountChipBrush}"
+                                                                    CornerRadius="{DynamicResource ChipRadius}"
+                                                                    IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                                    <TextBlock
+                                                                        Classes="mono"
+                                                                        Foreground="{DynamicResource RemovedCountBrush}"
+                                                                        Text="{Binding RemovedText}" />
+                                                                </Border>
+                                                            </StackPanel>
                                                         </Grid>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
@@ -832,73 +888,401 @@
                     </Border>
                 </Grid>
 
-                <!--  Changes tab  -->
+                <!--
+                    Changes tab (commit workspace, mockup): LEFT — the staged/unstaged
+                    tree as two sections, each with its own header (icon + name + count
+                    + Stage All / Unstage All) and one row per file with a status chip,
+                    per-side numstat and a + / − button; RIGHT — the commit message box
+                    with the wand button, Commit and the branch/Fetch row; BOTTOM —
+                    the repo's recent commits.
+                -->
                 <DockPanel Grid.Row="1" IsVisible="{Binding IsActiveChanges}">
-                    <Grid
-                        Margin="0,6,0,4"
-                        ColumnDefinitions="*,Auto"
-                        DockPanel.Dock="Top">
-                        <TextBlock
-                            Grid.Column="0"
-                            VerticalAlignment="Center"
-                            Classes="subtle"
-                            Text="{Binding ChangedFiles.Count, StringFormat='{}{0} changed files (working tree, untracked included)'}" />
-                        <TextBlock
-                            Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Classes="mono"
-                            Foreground="{DynamicResource StatusActiveBrush}"
-                            IsVisible="{Binding ChangesDeltaText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                            Text="{Binding ChangesDeltaText}" />
-                    </Grid>
-                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel Spacing="2">
+
+                    <!--  Bottom part: Recent Commits (full width, under a hairline)  -->
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Spacing="2">
+                        <Border Height="1" Margin="0,2,0,6" Background="{DynamicResource HairlineBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="2,0,0,4">
+                            <Path
+                                Width="13"
+                                Height="13"
+                                VerticalAlignment="Center"
+                                Data="{tools:SvgPath icon-clock}"
+                                Fill="{DynamicResource MutedForegroundBrush}"
+                                Stretch="Uniform" />
+                            <TextBlock Classes="ov-card-title" Text="Recent Commits" />
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
                                 Classes="subtle"
-                                IsVisible="{Binding ShowChangesEmpty}"
-                                Text="No changes — the working tree is clean" />
-                            <ItemsControl ItemsSource="{Binding ChangedFiles}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="entities:GitChangedFile">
-                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                            <Border
-                                                Grid.Column="0"
-                                                Width="30"
-                                                Padding="0,2"
-                                                HorizontalAlignment="Left"
-                                                VerticalAlignment="Center"
-                                                Background="{DynamicResource CardSubtleBackgroundBrush}"
-                                                BorderBrush="{DynamicResource HairlineBrush}"
-                                                BorderThickness="1"
-                                                CornerRadius="{DynamicResource ChipRadius}">
-                                                <TextBlock
-                                                    HorizontalAlignment="Center"
-                                                    Classes="mono"
-                                                    Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                                                    Text="{Binding StatusCode}" />
-                                            </Border>
-                                            <TextBlock
-                                                Grid.Column="1"
-                                                VerticalAlignment="Center"
-                                                Classes="mono"
-                                                Foreground="{DynamicResource BodyForegroundBrush}"
-                                                Text="{Binding Path}"
-                                                TextTrimming="CharacterEllipsis" />
-                                            <TextBlock
-                                                Grid.Column="2"
-                                                VerticalAlignment="Center"
-                                                Classes="mono"
-                                                Foreground="{DynamicResource MutedForegroundBrush}"
-                                                IsVisible="{Binding HasCounts}"
-                                                Text="{Binding DeltaText}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                Text="{Binding GitCommits.Count, StringFormat='({0})'}" />
                         </StackPanel>
-                    </ScrollViewer>
+                        <ScrollViewer
+                            MaxHeight="132"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                            <!--  Fixed hash/author columns: the rows are independent Grids,
+                                  so Auto columns would size per-row and author/time would
+                                  drift. Fixed widths (repo-table pattern) keep every row's
+                                  columns aligned; the subject star absorbs the slack.  -->
+                            <StackPanel Spacing="2" Margin="2,0,0,0">
+                                <TextBlock
+                                    Margin="0,10"
+                                    HorizontalAlignment="Center"
+                                    Classes="subtle"
+                                    IsVisible="{Binding ShowCommitsEmpty}"
+                                    Text="No commits yet" />
+                                <ItemsControl ItemsSource="{Binding GitCommits}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:GitCommitInfo">
+                                            <Grid ColumnSpacing="10">
+                                                <Grid.ColumnDefinitions>
+                                                    <!--  56: seven hex chars of the mono ShortHash  -->
+                                                    <ColumnDefinition Width="56" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <!--  130: caps long author names; right-aligned so
+                                                          the column reads as one right edge  -->
+                                                    <ColumnDefinition Width="130" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Grid.Column="0"
+                                                    VerticalAlignment="Center"
+                                                    Classes="mono"
+                                                    Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                    Text="{Binding ShortHash}" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Classes="mono"
+                                                    Foreground="{DynamicResource MutedForegroundBrush}"
+                                                    Text="•" />
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource BodyForegroundBrush}"
+                                                    Text="{Binding Subject}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <TextBlock
+                                                    Grid.Column="3"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center"
+                                                    Classes="subtle"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                    Text="{Binding Author}" />
+                                                <TextBlock
+                                                    Grid.Column="4"
+                                                    VerticalAlignment="Center"
+                                                    Classes="subtle"
+                                                    Text="{Binding RelativeTime}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <!--  Main row: staged/unstaged tree (left) + commit workspace (right)  -->
+                    <Grid ColumnDefinitions="58*,42*" ColumnSpacing="10">
+
+                        <!--  LEFT: the staged/unstaged tree  -->
+                        <Border Grid.Column="0" Classes="ov-card">
+                            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Spacing="2" Margin="4,4,4,4">
+                                    <TextBlock
+                                        Margin="0,20"
+                                        HorizontalAlignment="Center"
+                                        Classes="subtle"
+                                        IsVisible="{Binding ShowChangesTabEmpty}"
+                                        Text="No changes — the working tree is clean" />
+
+                                    <!--  Unstaged section  -->
+                                    <Grid
+                                        ColumnDefinitions="*,Auto"
+                                        Margin="2,2,2,2"
+                                        IsVisible="{Binding ShowUnstagedSection}">
+                                        <StackPanel
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal"
+                                            Spacing="6">
+                                            <Path
+                                                Width="13"
+                                                Height="13"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-source-branch}"
+                                                Fill="{DynamicResource WarningAccentBrush}"
+                                                Stretch="Uniform" />
+                                            <TextBlock Classes="ov-card-title" Text="Unstaged Changes" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Classes="subtle"
+                                                Text="{Binding UnstagedCount, StringFormat='({0})'}" />
+                                        </StackPanel>
+                                        <Button
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Classes="icon"
+                                            Command="{Binding StageAllCommand}"
+                                            ToolTip.Tip="Stage all unstaged changes (untracked files included)">
+                                            <Path
+                                                Width="14"
+                                                Height="14"
+                                                Data="{tools:SvgPath icon-plus}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        </Button>
+                                    </Grid>
+                                    <ItemsControl IsVisible="{Binding ShowUnstagedSection}" ItemsSource="{Binding UnstagedFiles}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="entities:GitChangedFile">
+                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                                    <Border
+                                                        Grid.Column="0"
+                                                        Width="30"
+                                                        Padding="0,2"
+                                                        VerticalAlignment="Center"
+                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                        <TextBlock
+                                                            HorizontalAlignment="Center"
+                                                            Classes="mono"
+                                                            Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
+                                                            Text="{Binding DisplayStatusCode}" />
+                                                    </Border>
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        Classes="mono"
+                                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                                        Text="{Binding Path}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel
+                                                        Grid.Column="2"
+                                                        HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center"
+                                                        IsVisible="{Binding HasCounts}"
+                                                        Orientation="Horizontal"
+                                                        Spacing="4">
+                                                        <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
+                                                        <Border
+                                                            Padding="6,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="{DynamicResource AddedCountChipBrush}"
+                                                            CornerRadius="{DynamicResource ChipRadius}"
+                                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                            <TextBlock
+                                                                Classes="mono"
+                                                                Foreground="{DynamicResource AddedCountBrush}"
+                                                                Text="{Binding AddedText}" />
+                                                        </Border>
+                                                        <!--  Deletions pill (light red)  -->
+                                                        <Border
+                                                            Padding="6,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="{DynamicResource RemovedCountChipBrush}"
+                                                            CornerRadius="{DynamicResource ChipRadius}"
+                                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                            <TextBlock
+                                                                Classes="mono"
+                                                                Foreground="{DynamicResource RemovedCountBrush}"
+                                                                Text="{Binding RemovedText}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <Button
+                                                        Grid.Column="3"
+                                                        VerticalAlignment="Center"
+                                                        Classes="icon"
+                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Stage this file">
+                                                        <Path
+                                                            Width="14"
+                                                            Height="14"
+                                                            Data="{tools:SvgPath icon-plus}"
+                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                            Stretch="Uniform" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!--  Staged section  -->
+                                    <Grid
+                                        ColumnDefinitions="*,Auto"
+                                        Margin="2,8,2,2"
+                                        IsVisible="{Binding ShowStagedSection}">
+                                        <StackPanel
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal"
+                                            Spacing="6">
+                                            <Path
+                                                Width="13"
+                                                Height="13"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-check}"
+                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                Stretch="Uniform" />
+                                            <TextBlock Classes="ov-card-title" Text="Staged Changes" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Classes="subtle"
+                                                Text="{Binding StagedCount, StringFormat='({0})'}" />
+                                        </StackPanel>
+                                        <Button
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Classes="icon"
+                                            Command="{Binding UnstageAllCommand}"
+                                            ToolTip.Tip="Unstage everything — the working tree keeps the changes">
+                                            <Path
+                                                Width="14"
+                                                Height="14"
+                                                Data="{tools:SvgPath icon-minus}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        </Button>
+                                    </Grid>
+                                    <ItemsControl IsVisible="{Binding ShowStagedSection}" ItemsSource="{Binding StagedFiles}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="entities:GitChangedFile">
+                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                                    <Border
+                                                        Grid.Column="0"
+                                                        Width="30"
+                                                        Padding="0,2"
+                                                        VerticalAlignment="Center"
+                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                        <TextBlock
+                                                            HorizontalAlignment="Center"
+                                                            Classes="mono"
+                                                            Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
+                                                            Text="{Binding DisplayStatusCode}" />
+                                                    </Border>
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        Classes="mono"
+                                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                                        Text="{Binding Path}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel
+                                                        Grid.Column="2"
+                                                        HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center"
+                                                        IsVisible="{Binding HasCounts}"
+                                                        Orientation="Horizontal"
+                                                        Spacing="4">
+                                                        <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
+                                                        <Border
+                                                            Padding="6,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="{DynamicResource AddedCountChipBrush}"
+                                                            CornerRadius="{DynamicResource ChipRadius}"
+                                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                            <TextBlock
+                                                                Classes="mono"
+                                                                Foreground="{DynamicResource AddedCountBrush}"
+                                                                Text="{Binding AddedText}" />
+                                                        </Border>
+                                                        <!--  Deletions pill (light red)  -->
+                                                        <Border
+                                                            Padding="6,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="{DynamicResource RemovedCountChipBrush}"
+                                                            CornerRadius="{DynamicResource ChipRadius}"
+                                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                                            <TextBlock
+                                                                Classes="mono"
+                                                                Foreground="{DynamicResource RemovedCountBrush}"
+                                                                Text="{Binding RemovedText}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <Button
+                                                        Grid.Column="3"
+                                                        VerticalAlignment="Center"
+                                                        Classes="icon"
+                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Unstage this file — the working tree keeps the change">
+                                                        <Path
+                                                            Width="14"
+                                                            Height="14"
+                                                            Data="{tools:SvgPath icon-minus}"
+                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                            Stretch="Uniform" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+
+                        <!--  RIGHT: the commit workspace  -->
+                        <Border Grid.Column="1" Classes="ov-card">
+                            <DockPanel>
+
+                                <TextBlock
+                                    Margin="0,0,0,6"
+                                    Classes="ov-card-title"
+                                    DockPanel.Dock="Top"
+                                    Text="Commit message" />
+
+
+                                <!--  Commit button  -->
+                                <Button
+                                    Margin="0,8,0,0"
+                                    HorizontalAlignment="Left"
+                                    Classes="Outlined"
+                                    Command="{Binding CommitCommand}"
+                                    DockPanel.Dock="Bottom"
+                                    ToolTip.Tip="Commit the staged changes">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            VerticalAlignment="Center"
+                                            Data="{tools:SvgPath icon-check}"
+                                            Stretch="Uniform" />
+                                        <TextBlock VerticalAlignment="Center" Text="Commit" />
+                                    </StackPanel>
+                                </Button>
+
+                                <!--  Message box; the wand sits over its bottom-right corner  -->
+                                <Grid>
+                                    <TextBox
+                                        AcceptsReturn="True"
+                                        Text="{Binding CommitMessage}"
+                                        TextWrapping="Wrap"
+                                        Watermark="Commit message (required)" />
+                                    <Button
+                                        Margin="0,0,4,4"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Classes="wand-btn"
+                                        Command="{Binding GenerateCommitMessageCommand}"
+                                        ToolTip.Tip="Generate a commit message from the staged diff (opencode)">
+                                        <Path
+                                            Width="16"
+                                            Height="16"
+                                            Data="{tools:SvgPath icon-wand}"
+                                            Fill="{DynamicResource AccentPrimaryBrush}"
+                                            Stretch="Uniform" />
+                                    </Button>
+                                </Grid>
+                            </DockPanel>
+                        </Border>
+                    </Grid>
                 </DockPanel>
 
                 <!--  Pull requests tab  -->
@@ -1425,104 +1809,6 @@
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
-
-                <!--  Git tab: local branches (click to check out) + recent commits  -->
-                <DockPanel Grid.Row="1" IsVisible="{Binding IsActiveGit}">
-                    <TextBlock
-                        Margin="0,6,0,4"
-                        VerticalAlignment="Center"
-                        Classes="subtle"
-                        DockPanel.Dock="Top"
-                        Text="Local branches (click to check out) and the last 10 commits" />
-                    <Grid ColumnDefinitions="Auto,17,*" ColumnSpacing="0">
-
-                        <!--  Branches  -->
-                        <ScrollViewer Grid.Column="0" Width="220">
-                            <StackPanel Spacing="2">
-                                <ItemsControl ItemsSource="{Binding Branches}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="x:String">
-                                            <Button
-                                                Padding="6,4"
-                                                Classes="bar-item"
-                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).CheckoutBranchCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="Check out this branch">
-                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                                    <Path
-                                                        Grid.Column="0"
-                                                        Width="12"
-                                                        Height="12"
-                                                        VerticalAlignment="Center"
-                                                        Data="{tools:SvgPath icon-source-branch}"
-                                                        Fill="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).SelectedBranch, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
-                                                        Stretch="Uniform" />
-                                                    <TextBlock
-                                                        Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        Classes="mono"
-                                                        Foreground="{DynamicResource BodyForegroundBrush}"
-                                                        Text="{Binding}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                                </Grid>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </ScrollViewer>
-
-                        <Border
-                            Grid.Column="1"
-                            Width="1"
-                            Margin="8,0"
-                            Background="{DynamicResource HairlineBrush}" />
-
-                        <!--  Recent commits  -->
-                        <ScrollViewer Grid.Column="2">
-                            <StackPanel Spacing="2">
-                                <TextBlock
-                                    Margin="0,16"
-                                    HorizontalAlignment="Center"
-                                    Classes="subtle"
-                                    IsVisible="{Binding ShowCommitsEmpty}"
-                                    Text="No commits found" />
-                                <ItemsControl ItemsSource="{Binding GitCommits}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="entities:GitCommitInfo">
-                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                                <TextBlock
-                                                    Grid.Column="0"
-                                                    VerticalAlignment="Center"
-                                                    Classes="mono"
-                                                    Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                    Text="{Binding ShortHash}" />
-                                                <TextBlock
-                                                    Grid.Column="1"
-                                                    VerticalAlignment="Center"
-                                                    Foreground="{DynamicResource BodyForegroundBrush}"
-                                                    Text="{Binding Subject}"
-                                                    TextTrimming="CharacterEllipsis" />
-                                                <TextBlock
-                                                    Grid.Column="2"
-                                                    VerticalAlignment="Center"
-                                                    Classes="subtle"
-                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                    Text="{Binding Author}" />
-                                                <TextBlock
-                                                    Grid.Column="3"
-                                                    VerticalAlignment="Center"
-                                                    Classes="subtle"
-                                                    IsVisible="{Binding RelativeTime, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                    Text="{Binding RelativeTime}" />
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Grid>
-                </DockPanel>
             </Grid>
         </Border>
 
@@ -1533,7 +1819,7 @@
               Fetch and last-fetched row breathing room — biased to the top so the row
               clears the panel's hairline above.  -->
         <Border
-            Grid.Row="1"
+            Grid.Row="2"
             Height="56"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource DividerBrush}"
@@ -1542,7 +1828,7 @@
             CornerRadius="{DynamicResource CardRadiusBottom}">
             <Grid
                 Margin="12,6,12,2"
-                ColumnDefinitions="Auto,Auto,*,Auto"
+                ColumnDefinitions="Auto,*,Auto"
                 ColumnSpacing="14">
 
                 <!--
@@ -1585,36 +1871,14 @@
                     </ComboBox.ItemTemplate>
                 </ComboBox>
 
-                <!--  Changes label — bare orange "N changes" (mockup); opens Changes.  -->
-                <Button
-                    Grid.Column="1"
-                    Classes="bar-chip"
-                    Command="{Binding ToggleChangesTabCommand}"
-                    IsVisible="{Binding ShowChangesBadge}"
-                    ToolTip.Tip="Working-tree changes — click to list them">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Path
-                            Width="12"
-                            Height="12"
-                            VerticalAlignment="Center"
-                            Data="{tools:SvgPath icon-source-branch}"
-                            Fill="{DynamicResource WarningAccentBrush}"
-                            Stretch="Uniform" />
-                        <TextBlock
-                            VerticalAlignment="Center"
-                            FontWeight="SemiBold"
-                            Foreground="{DynamicResource WarningAccentBrush}"
-                            Text="{Binding ChangesChipText}" />
-                    </StackPanel>
-                </Button>
-
+                
                 <!--
                     Fetch + last fetched (pinned right, mockup): outlined Fetch button
                     with a cloud-download icon, then the status dot + relative label.
                     (The tab row moved up into the RepoHeader.)
                 -->
                 <StackPanel
-                    Grid.Column="3"
+                    Grid.Column="2"
                     VerticalAlignment="Center"
                     IsVisible="{Binding HasSelectedRepo}"
                     Orientation="Horizontal"

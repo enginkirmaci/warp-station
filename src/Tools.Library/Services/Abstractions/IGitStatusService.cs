@@ -66,6 +66,54 @@ public interface IGitStatusService
     Task<IReadOnlyList<GitChangedFile>> GetChangedFilesAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same working-tree probe split by staging area: one list for the index
+    /// (staged) side and one for the worktree (unstaged) side of every change, each
+    /// with its own status letter and numstat line counts. A file modified in both
+    /// areas appears in both lists. Returns empty lists on any failure.
+    /// </summary>
+    Task<GitChangeGroups> GetChangeGroupsAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stages one file (<c>git add</c>) and refreshes the repo's status so the change
+    /// counts and the Changes tab agree. Returns false on any failure.
+    /// </summary>
+    Task<bool> StageAsync(Repo repo, string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stages everything (<c>git add -A</c>, deletions and untracked files included)
+    /// and refreshes the repo's status. Returns false on any failure.
+    /// </summary>
+    Task<bool> StageAllAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Unstages one file (<c>git reset HEAD --</c>) — the index entry returns to HEAD
+    /// while the working tree keeps the change — and refreshes the repo's status.
+    /// Returns false on any failure (including a repo with no commits yet, where HEAD
+    /// does not resolve).
+    /// </summary>
+    Task<bool> UnstageAsync(Repo repo, string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Unstages everything (<c>git reset HEAD</c>) — index back to HEAD, working tree
+    /// untouched — and refreshes the repo's status. Returns false on any failure.
+    /// </summary>
+    Task<bool> UnstageAllAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Commits the staged index (<c>git commit -F</c> with the message written to a
+    /// temp file, so any character survives) and refreshes the repo's status. Returns
+    /// the short hash on success, empty when it could not be parsed from git's output,
+    /// and null on any failure (nothing staged, hooks rejected, missing identity…).
+    /// </summary>
+    Task<string?> CommitAsync(Repo repo, string message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The staged diff as a patch (<c>git diff --cached</c>) — the input for an
+    /// AI-generated commit message. Empty when nothing is staged; null on any failure.
+    /// </summary>
+    Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lists the repo's most recent commits (<c>git log -10</c>), newest first, with
     /// short hash, subject, author and commit date. Returns an empty list on any failure.
     /// </summary>

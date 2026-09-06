@@ -199,6 +199,15 @@ public class OpenCodeSettings
     /// settings.json.
     /// </summary>
     public string? DefaultModel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the model id used ONLY by the Changes tab's commit-message wand
+    /// (<c>opencode run</c> one-shot), independent of <see cref="DefaultModel"/> — a
+    /// cheap/fast model can be dedicated to commit messages while interactive sessions
+    /// launch with the default. When empty, the wand falls back to
+    /// <see cref="DefaultModel"/>. Configured via the OpenCode panel or settings.json.
+    /// </summary>
+    public string? CommitModel { get; set; }
 }
 
 /// <summary>

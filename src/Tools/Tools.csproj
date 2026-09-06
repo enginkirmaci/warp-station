@@ -59,6 +59,10 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\opencode\templates\%(RecursiveDir)%(FileName)%(Extension)</Link>
 		</Content>
+		<Content Include="settings\commit-message.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Link>settings\commit-message.md</Link>
+		</Content>
 	</ItemGroup>
 
 </Project>
