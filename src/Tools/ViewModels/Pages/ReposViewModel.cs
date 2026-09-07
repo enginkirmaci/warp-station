@@ -215,63 +215,58 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _isAzureDevOpsColumnVisible;
 
-    // --- Launch shortcut availability (per PC) ---
+    // --- Launch shortcut visibility (settings-driven) ---
 
     /// <summary>
-    /// The launch buttons are only shown when their executable actually resolves on this
-    /// machine (see <see cref="ExecutableDefaults"/>): a button whose target is missing
-    /// would spawn a terminal "command not found" or nothing at all, so it is hidden
-    /// instead. Recomputed whenever settings load or are saved —
-    /// <see cref="RefreshShortcutAvailability"/>. This includes Windows: bare names are
-    /// probed against PATH with the shell's PATHEXT extensions, so e.g. the zcode button
-    /// stays hidden on PCs without a zcode install.
+    /// Whether the launch buttons show: purely the <c>Enable*</c> toggles in
+    /// <see cref="ReposSettings"/> — the machine is not probed, so the flags are
+    /// instant and deterministic. Recomputed whenever settings load or are saved (see
+    /// <see cref="RefreshShortcutAvailability"/>); a button whose executable cannot be
+    /// resolved reports that at launch time instead of hiding.
     /// </summary>
     [ObservableProperty]
     private bool _hasTerminal;
 
-    /// <summary>Whether the open-solution action can run. It is a Visual Studio action, so
-    /// it needs Visual Studio installed; a non-empty <see cref="ReposSettings.IdeExecutable"/>
-    /// overrides the check (Locate-verified on Linux) so e.g. Rider can be wired up
-    /// deliberately. Windows without VS and the .sln association re-pointed elsewhere
-    /// hides the button until an IDE is configured.</summary>
+    /// <summary>Whether the open-solution button shows. It is a Visual Studio action and
+    /// Visual Studio only exists on Windows, so it requires
+    /// <see cref="ReposSettings.EnableVisualStudio"/> <em>and</em> Windows — no
+    /// installation probe runs. A non-empty <see cref="ReposSettings.IdeExecutable"/>
+    /// still overrides the .sln shell association when launching.</summary>
     [ObservableProperty]
     private bool _hasIde;
 
+    /// <summary>Whether the VS Code button shows (<see cref="ReposSettings.EnableVSCode"/>).</summary>
     [ObservableProperty]
     private bool _hasVSCode;
 
+    /// <summary>Whether the zcode button shows (<see cref="ReposSettings.EnableZCode"/>).</summary>
     [ObservableProperty]
     private bool _hasZCode;
 
     /// <summary>
     /// Whether the per-repo OpenCode buttons show: the integration must be enabled in
-    /// settings <em>and</em> the configured opencode CLI must resolve on this machine.
+    /// settings (<see cref="OpenCodeSettings.EnableOpenCode"/>) — no installation probe.
     /// </summary>
     [ObservableProperty]
     private bool _hasOpenCode;
 
     /// <summary>
-    /// Re-evaluates the per-PC launch-shortcut availability flags from the current
-    /// settings. Called after settings load and after the settings dialog saves. The
-    /// underlying probes are memoized per process (see <see cref="ExecutableDefaults"/>),
-    /// so the filesystem/vswhere work happens once per executable — repeat calls only
-    /// re-run when a configured value actually changed.
+    /// Re-evaluates the launch-shortcut visibility flags from the current settings.
+    /// Called after settings load and after the settings dialog saves. Visibility is
+    /// settings-driven only (the Enable* toggles plus the Windows gate on Visual
+    /// Studio); nothing probes the machine.
     /// </summary>
     private void RefreshShortcutAvailability()
     {
-        HasTerminal = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable) is not null;
+        HasTerminal = _reposSettings.EnableTerminal;
 
-        // The open-solution button is a Visual Studio shortcut: only VS itself (or an
-        // explicitly configured stand-in IDE) makes it available — a detected editor like
-        // VS Code must not light it up, it has its own button.
-        var configuredIde = _reposSettings.IdeExecutable?.Trim();
-        HasIde = !string.IsNullOrEmpty(configuredIde)
-            ? ExecutableDefaults.Locate(configuredIde) is not null
-            : ExecutableDefaults.HasVisualStudio();
+        // The open-solution button is a Visual Studio shortcut and Visual Studio only
+        // exists on Windows: the toggle is OS-gated, and nothing detects an installation.
+        HasIde = OperatingSystem.IsWindows() && _reposSettings.EnableVisualStudio;
 
-        HasVSCode = ExecutableDefaults.Locate(_reposSettings.VSCodeExecutable) is not null;
-        HasZCode = ExecutableDefaults.Locate(_reposSettings.ZCodeExecutable) is not null;
-        HasOpenCode = IsOpenCodeEnabled && ExecutableDefaults.Locate(_reposSettings.OpenCodeExecutable) is not null;
+        HasVSCode = _reposSettings.EnableVSCode;
+        HasZCode = _reposSettings.EnableZCode;
+        HasOpenCode = IsOpenCodeEnabled;
     }
 
     public ReposViewModel(
@@ -317,7 +312,11 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private void OnBottomBarOpenCodeStateChanged()
     {
-        _openCodeSettings.EnableOpenCode = _bottomBar.IsOpenCodeEnabled;
+        // Mirror into the observable property, not just the settings snapshot: the
+        // refresh below and the launch guards read the property, and only it raises
+        // change notifications for the row buttons.
+        IsOpenCodeEnabled = _bottomBar.IsOpenCodeEnabled;
+        _openCodeSettings.EnableOpenCode = IsOpenCodeEnabled;
         RefreshShortcutAvailability();
     }
 
@@ -907,9 +906,10 @@ public partial class ReposViewModel : PageViewModelBase
     }
 
     /// <summary>
-    /// Opens the OpenCode bottom panel on the clicked row's repo: the model picker
-    /// (which persists the configured default model), instances, template, prompt and
-    /// the launch button — a full bottom panel that replaces the bar while open.
+    /// Opens the OpenCode settings drawer on the clicked row's repo: the model picker
+    /// (which persists the configured default model), commit model, instances, template,
+    /// prompt and the launch button — a right-sidebar overlay that leaves the page and
+    /// the bar untouched.
     /// </summary>
     [RelayCommand]
     private void OpenOpenCode(Repo? repo)

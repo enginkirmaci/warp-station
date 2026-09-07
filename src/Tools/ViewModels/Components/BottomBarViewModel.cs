@@ -31,13 +31,12 @@ public enum BottomBarTab
 
 /// <summary>
 /// Binding adapter for the Repos page's bottom panels. Owns the bar's selected repo (the
-/// git controls, GitHub/Azure panels and the OpenCode launch all target it), the
-/// expandable tab panels' data, and — relocated from the Repos page's overlay panel — the
-/// whole OpenCode launch surface, which the <see cref="Tools.Views.Components.OpenCodePanel"/>
-/// control shows as a full bottom panel of its own (the row options icon opens it; it
-/// replaces the bar, which comes back on the next row press or row chip). Unlike the
-/// transient page ViewModels this one is a singleton: it lives as long as the window, so
-/// the panels' state survives page navigation.
+/// git controls, GitHub/Azure panels all target it) and the expandable tab panels' data.
+/// The OpenCode launch UI lives in the tool drawer (<see cref="Tools.Views.Components.OpenCodeSettingsComponent"/>);
+/// this VM keeps only its integration flag/availability snapshot (which the row buttons,
+/// the wand and the drawer's own seeding read) and the entry point that opens the drawer.
+/// Unlike the transient drawer ViewModels this one is a singleton: it lives as long as
+/// the window, so the panels' state survives page navigation.
 /// <para>
 /// The bar stays hidden until a repo is selected from the table — a row press or any
 /// row chip routing to a tab (constructor-injected reference; every row chip that used
@@ -52,11 +51,7 @@ public partial class BottomBarViewModel : ObservableObject
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IProcessLauncher _processLauncher;
-    private readonly IOpenCodeModelService _openCodeModelService;
-    private readonly IOpenCodeTemplateService _openCodeTemplateService;
-    private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeRunService _openCodeRunService;
-    private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
     private readonly ICommitMessagePromptService _commitMessagePromptService;
     private readonly INotificationService _notificationService;
     private readonly IClipboardService _clipboardService;
@@ -84,11 +79,7 @@ public partial class BottomBarViewModel : ObservableObject
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
         IProcessLauncher processLauncher,
-        IOpenCodeModelService openCodeModelService,
-        IOpenCodeTemplateService openCodeTemplateService,
-        IOpenCodePromptService openCodePromptService,
         IOpenCodeRunService openCodeRunService,
-        IOpenCodeGridLauncher openCodeGridLauncher,
         ICommitMessagePromptService commitMessagePromptService,
         INotificationService notificationService,
         IClipboardService clipboardService,
@@ -100,11 +91,7 @@ public partial class BottomBarViewModel : ObservableObject
         _gitHubService = gitHubService;
         _azureDevOpsService = azureDevOpsService;
         _processLauncher = processLauncher;
-        _openCodeModelService = openCodeModelService;
-        _openCodeTemplateService = openCodeTemplateService;
-        _openCodePromptService = openCodePromptService;
         _openCodeRunService = openCodeRunService;
-        _openCodeGridLauncher = openCodeGridLauncher;
         _commitMessagePromptService = commitMessagePromptService;
         _notificationService = notificationService;
         _clipboardService = clipboardService;
@@ -125,11 +112,7 @@ public partial class BottomBarViewModel : ObservableObject
             IsGitHubEnabled = _reposSettings.EnableGitHub;
             IsAzureDevOpsEnabled = _reposSettings.EnableAzureDevOps;
             IsOpenCodeEnabled = _openCodeSettings.EnableOpenCode;
-            OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
             RefreshOpenCodeAvailability();
-
-            await LoadOpenCodeTemplatesAsync();
-            await LoadOpenCodePromptsAsync();
 
             // Same idempotent load call the Repos page makes: the session's background
             // scan starts without waiting for a page visit. No repo is selected here —
@@ -187,11 +170,9 @@ public partial class BottomBarViewModel : ObservableObject
             ReloadActiveTab();
 
             // CanExecute inputs the generator cannot hook (computed, not ObservableProperty).
-            ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
             FetchCommand.NotifyCanExecuteChanged();
             PullCommand.NotifyCanExecuteChanged();
             PushCommand.NotifyCanExecuteChanged();
-            LaunchOpenCodeCommand.NotifyCanExecuteChanged();
         }
 
         OnPropertyChanged(nameof(HasSelectedRepo));
@@ -352,7 +333,6 @@ public partial class BottomBarViewModel : ObservableObject
     private void Close()
     {
         ActiveTab = BottomBarTab.None;
-        IsOpenCodePanelVisible = false;
         SelectedRepo = null;
         IsBarVisible = false;
     }
@@ -394,7 +374,7 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>
     /// Applies freshly saved Repos settings (called by the Repos page after its settings
     /// dialog confirms): the GitHub/Azure tab visibility flags and the OpenCode
-    /// availability (the executable lives in Repos settings) re-resolve immediately.
+    /// availability (the EnableOpenCode toggle) re-resolve immediately.
     /// </summary>
     public void ApplySettings(ReposSettings edited)
     {
@@ -413,14 +393,6 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     private bool _isBarVisible;
-
-    /// <summary>
-    /// Whether the standalone OpenCode panel shows — the full bottom panel (same docked
-    /// card as the bar's panel, no tab row) that the repo row's options icon opens.
-    /// Mutually exclusive with the bar: opening either hides the other.
-    /// </summary>
-    [ObservableProperty]
-    private bool _isOpenCodePanelVisible;
 
     /// <summary>Selects a repo from a table row press and reveals the bar. The panel
     /// always opens on Overview — the repo view of the mockup — regardless of which tab
@@ -512,7 +484,6 @@ public partial class BottomBarViewModel : ObservableObject
     private void SetTargetRepo(Repo? repo)
     {
         if (repo is null) return;
-        IsOpenCodePanelVisible = false;
         IsBarVisible = true;
         if (!ReferenceEquals(repo, SelectedRepo))
         {
@@ -1778,20 +1749,21 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    // --- OpenCode panel (state shown by the OpenCodePanel control; relocated from the
-    //     Repos page overlay panel, then from the bar's tab row to a panel of its own) ---
+    // --- OpenCode (integration flag + settings snapshot; the launch UI lives in the
+    //     OpenCodeSettings drawer component, which seeds from and persists through this VM) ---
 
     /// <summary>
     /// Whether the OpenCode integration is enabled (mirrors and persists
-    /// <see cref="OpenCodeSettings.EnableOpenCode"/> — previously settings.json-only). Toggling
-    /// it here is live: the per-row buttons re-evaluate via <see cref="OpenCodeStateChanged"/>.
+    /// <see cref="OpenCodeSettings.EnableOpenCode"/>). Toggling it is live: the per-row
+    /// buttons re-evaluate via <see cref="OpenCodeStateChanged"/>.
     /// </summary>
     [ObservableProperty]
     private bool _isOpenCodeEnabled;
 
     /// <summary>
-    /// Whether the OpenCode launch UI is usable: the integration enabled <em>and</em> the
-    /// configured opencode CLI resolvable on this machine (see <see cref="ExecutableDefaults"/>).
+    /// Whether the OpenCode launch UI is usable: the integration enabled in settings
+    /// (<see cref="OpenCodeSettings.EnableOpenCode"/>). Visibility is settings-driven —
+    /// the configured opencode executable is resolved only at launch time.
     /// </summary>
     [ObservableProperty]
     private bool _hasOpenCode;
@@ -1809,39 +1781,7 @@ public partial class BottomBarViewModel : ObservableObject
 
     private void RefreshOpenCodeAvailability()
     {
-        HasOpenCode = IsOpenCodeEnabled && ExecutableDefaults.Locate(_reposSettings.OpenCodeExecutable) is not null;
-    }
-
-    /// <summary>
-    /// The models available in the OpenCode model selector, fetched by running
-    /// <c>opencode models</c> as a one-shot process. (Re)populated each time the OpenCode
-    /// tab opens; empty when the CLI fails or is missing.
-    /// </summary>
-    [ObservableProperty]
-    private ObservableCollection<string> _openCodeModels = new();
-
-    /// <summary>
-    /// The commit-model box's text buffer (the OpenCode panel's plain TextBox). Persisted
-    /// by <see cref="SaveCommitModelAsync"/> when the box loses focus — empty text means
-    /// "no dedicated commit model", and the wand then uses the default model.
-    /// </summary>
-    [ObservableProperty]
-    private string _openCodeCommitModelText = string.Empty;
-
-    /// <summary>
-    /// Persists the commit-model box: empty/whitespace clears the dedicated commit model
-    /// (the wand falls back to the configured default), anything else keeps the trimmed
-    /// id verbatim. No-op when the value didn't change.
-    /// </summary>
-    public async Task SaveCommitModelAsync()
-    {
-        var desired = string.IsNullOrWhiteSpace(OpenCodeCommitModelText)
-            ? null
-            : OpenCodeCommitModelText.Trim();
-        if (string.Equals(_openCodeSettings.CommitModel, desired, StringComparison.Ordinal)) return;
-
-        _openCodeSettings.CommitModel = desired;
-        await PersistOpenCodeSettingAsync(s => s.OpenCode.CommitModel = desired);
+        HasOpenCode = IsOpenCodeEnabled;
     }
 
     /// <summary>
@@ -1855,433 +1795,18 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The currently selected model. Bound OneWay to the tab's model picker so the box
-    /// genuinely selects (highlights) the configured default; user picks are committed by
-    /// the bar code-behind's SelectionChanged handler (see <see cref="CommitOpenCodeModel"/>),
-    /// not by a TwoWay binding — a TwoWay writeback would null the selection during the
-    /// in-place list rebuilds (see <see cref="RefreshOpenCodeFilteredModels"/>).
+    /// Refreshes this VM's OpenCode snapshot from a settings object the OpenCode settings
+    /// drawer just persisted (the drawer VM is transient and owns no shared state): the
+    /// wand, quick-open and the per-row buttons read this snapshot, so it must track the
+    /// file. Raises <see cref="OpenCodeStateChanged"/> so subscribers re-evaluate too.
     /// </summary>
-    [ObservableProperty]
-    private string _openCodeSelectedModel = string.Empty;
-
-    /// <summary>
-    /// The text the user is typing into the editable model ComboBox (the live search
-    /// term, kept separate from the committed selection).
-    /// </summary>
-    [ObservableProperty]
-    private string _openCodeModelFilter = string.Empty;
-
-    /// <summary>
-    /// The model list shown in the dropdown: <see cref="OpenCodeModels"/> filtered by
-    /// <see cref="OpenCodeModelFilter"/> (case-insensitive <c>Contains</c>).
-    /// </summary>
-    [ObservableProperty]
-    private ObservableCollection<string> _openCodeFilteredModels = new();
-
-    [ObservableProperty]
-    private ObservableCollection<OpenCodeTemplate> _openCodeTemplates = new() { OpenCodeTemplate.None };
-
-    [ObservableProperty]
-    private OpenCodeTemplate _openCodeSelectedTemplate = OpenCodeTemplate.None;
-
-    public string OpenCodeSelectedTemplateDescription => OpenCodeSelectedTemplate?.Description ?? string.Empty;
-
-    [ObservableProperty]
-    private ObservableCollection<OpenCodePromptEntry> _openCodePrompts = new() { OpenCodePromptEntry.None };
-
-    [ObservableProperty]
-    private OpenCodePromptEntry _openCodeSelectedPrompt = OpenCodePromptEntry.None;
-
-    [ObservableProperty]
-    private string _openCodePrompt = string.Empty;
-
-    [ObservableProperty]
-    private string _newPromptName = string.Empty;
-
-    [ObservableProperty]
-    private int _openCodeInstanceCount = 1;
-
-    /// <summary>
-    /// Whether to tile the launched opencode instances across the screen in a grid.
-    /// Off by default — instances open as plain terminal windows; checking it routes the
-    /// launch through <see cref="IOpenCodeGridLauncher"/>.
-    /// </summary>
-    [ObservableProperty]
-    private bool _openCodeArrangeIntoGrid;
-
-    /// <summary>
-    /// Whether the OpenCode tab offers the "Arrange into grid" checkbox. The grid launcher
-    /// positions windows through SnapIt's Win32 primitives, so the option only exists on
-    /// Windows; the tab hides it elsewhere. Runtime check, never the build-OS constant.
-    /// </summary>
-    public bool CanArrangeIntoGrid => OperatingSystem.IsWindows();
-
-    public bool OpenCodeHasModels => OpenCodeModels.Count > 0;
-    public bool OpenCodeModelsEmpty => OpenCodeModels.Count == 0;
-
-    /// <summary>
-    /// Loads the model list: the cached list shows immediately, then <c>opencode models</c>
-    /// runs and the fresh list replaces it. Called each time the OpenCode tab opens.
-    /// </summary>
-    private async Task LoadOpenCodeModelsAsync()
+    public void RefreshOpenCodeSnapshot(OpenCodeSettings fresh)
     {
-        // Guard spans the WHOLE load — including the await and the deferred
-        // SelectionChanged the ComboBox raises after its ItemsSource swap (a synchronous
-        // flag reset misses that, and the phantom sentinel pick persisted null over the
-        // configured CommitModel on every app start).
-        _syncingOpenCodePickers = true;
-        try
-        {
-            var cached = _openCodeModelService.GetCachedModels(_openCodeSettings.DefaultModel);
-            if (cached.Count > 0)
-                ApplyOpenCodeModels(cached);
-
-            var models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, _openCodeSettings.DefaultModel);
-            ApplyOpenCodeModels(models);
-        }
-        finally
-        {
-            Dispatcher.UIThread.Post(() => _syncingOpenCodePickers = false, DispatcherPriority.Background);
-        }
-    }
-
-    /// <summary>
-    /// True while <see cref="LoadOpenCodeModelsAsync"/> refreshes the model list: the
-    /// ItemsSource swap transiently re-selects entries and re-fires the default-model
-    /// picker's commit handler, which must not persist those phantom picks.
-    /// </summary>
-    private bool _syncingOpenCodePickers;
-
-    /// <summary>
-    /// Pushes <paramref name="models"/> into <see cref="OpenCodeModels"/>, selects the
-    /// configured default or first entry (or clears the selection when empty), and
-    /// refreshes the filter projection and the computed has/empty flags. A model the user
-    /// already picked survives the refresh when it is still present. Callers own the
-    /// <see cref="_syncingOpenCodePickers"/> guard — this runs inside it.
-    /// </summary>
-    private void ApplyOpenCodeModels(IReadOnlyList<string> models)
-    {
-        OpenCodeModels = new ObservableCollection<string>(models);
-
-        var previous = OpenCodeSelectedModel;
-        var previousStillListed = !string.IsNullOrWhiteSpace(previous) && OpenCodeModels.Contains(previous);
-        OpenCodeSelectedModel = previousStillListed
-            ? previous
-            : SelectConfiguredOrDefaultModel(OpenCodeModels);
-
-        OpenCodeModelFilter = OpenCodeSelectedModel;
-        RefreshOpenCodeFilteredModels();
-
-        // Re-raise so the OneWay SelectedItem binding re-resolves after the in-place list
-        // rebuild — including when the value did not change and ObservableProperty raised
-        // nothing. Safe from text clobbering: the filter was just mirrored to the same
-        // value, and the code-behind's commit handler re-commits equal values (no loop).
-        OnPropertyChanged(nameof(OpenCodeSelectedModel));
-
-        OnPropertyChanged(nameof(OpenCodeHasModels));
-        OnPropertyChanged(nameof(OpenCodeModelsEmpty));
-    }
-
-    /// <summary>
-    /// The model to preselect (and launch) when the user has not picked one: the
-    /// configured default when set and listed — matched case-insensitively and resolved
-    /// to the list's own casing — otherwise the first model.
-    /// </summary>
-    private string SelectConfiguredOrDefaultModel(IReadOnlyList<string> models)
-    {
-        var configured = _openCodeSettings.DefaultModel?.Trim();
-        if (!string.IsNullOrEmpty(configured))
-        {
-            var match = models.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
-                return match;
-        }
-
-        return models.FirstOrDefault() ?? string.Empty;
-    }
-
-    /// <summary>
-    /// The model to launch with, in priority order: an exact match for what the box
-    /// shows, the committed dropdown selection, and finally the configured default or
-    /// the first model.
-    /// </summary>
-    private string ResolveOpenCodeLaunchModel()
-    {
-        var typed = OpenCodeModelFilter?.Trim();
-        var typedMatch = string.IsNullOrWhiteSpace(typed)
-            ? null
-            : OpenCodeModels.FirstOrDefault(m => string.Equals(m, typed, StringComparison.OrdinalIgnoreCase));
-
-        if (typedMatch is not null)
-        {
-            return typedMatch;
-        }
-
-        return string.IsNullOrWhiteSpace(OpenCodeSelectedModel)
-            ? SelectConfiguredOrDefaultModel(OpenCodeModels)
-            : OpenCodeSelectedModel;
-    }
-
-    /// <summary>
-    /// Commits a model picked from the dropdown (called by the bar code-behind): updates
-    /// the selection and filter, and PERSISTS the pick as the configured default model —
-    /// the OpenCode tab is the settings surface for a value that previously could only be
-    /// edited by hand in settings.json.
-    /// </summary>
-    public async Task CommitOpenCodeModelAsync(string model)
-    {
-        if (!IsOpenCodePanelVisible) return; // phantom pick while the panel is hidden
-        if (_syncingOpenCodePickers) return; // phantom pick from an option-list rebuild
-        if (string.IsNullOrWhiteSpace(model)) return;
-        if (string.Equals(model, OpenCodeSelectedModel, StringComparison.Ordinal)
-            && string.Equals(_openCodeSettings.DefaultModel, model, StringComparison.Ordinal))
-        {
-            OpenCodeModelFilter = model;
-            return;
-        }
-
-        OpenCodeSelectedModel = model;
-        OpenCodeModelFilter = model;
-        _openCodeSettings.DefaultModel = model;
+        _openCodeSettings.DefaultModel = fresh.DefaultModel;
+        _openCodeSettings.CommitModel = fresh.CommitModel;
+        _openCodeSettings.EnableOpenCode = fresh.EnableOpenCode;
         OnPropertyChanged(nameof(OpenCodeDefaultModel));
-
-        try
-        {
-            var settings = await _settingsService.GetSettingsAsync();
-            settings.OpenCode ??= new OpenCodeSettings();
-            settings.OpenCode.DefaultModel = model;
-            await _settingsService.SaveSettingsAsync(settings);
-            _notificationService.Show($"Default model set to {model}", NotificationKind.Success);
-            OpenCodeStateChanged?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Warning(ex, "Failed to persist the OpenCode default model");
-        }
-    }
-
-    /// <summary>
-    /// Rebuilds <see cref="OpenCodeFilteredModels"/> from <see cref="OpenCodeModels"/>
-    /// using the current filter. Must not run synchronously from a filter writeback that
-    /// originates inside the ComboBox's own selection update — see
-    /// <see cref="ScheduleFilteredModelsRefresh"/>.
-    /// </summary>
-    private void RefreshOpenCodeFilteredModels()
-    {
-        var filter = OpenCodeModelFilter ?? string.Empty;
-        bool isFullSelection = string.IsNullOrEmpty(filter)
-            || string.Equals(filter, OpenCodeSelectedModel, StringComparison.Ordinal);
-        var source = (isFullSelection
-            ? OpenCodeModels
-            : OpenCodeModels.Where(m => m.Contains(filter, StringComparison.OrdinalIgnoreCase))).ToList();
-
-        // Rebuild in place rather than swapping in a new instance: the ComboBox's Text
-        // binding raises the filter change from inside the control's own selection
-        // update, and re-sourcing ItemsSource there throws "Cannot change source while
-        // update is in progress". Skip the rebuild entirely when the projection already
-        // matches — Clear() raises a Reset which drops the control-side selection even
-        // when the content is identical.
-        if (source.Count == OpenCodeFilteredModels.Count && source.SequenceEqual(OpenCodeFilteredModels))
-            return;
-
-        OpenCodeFilteredModels.Clear();
-        foreach (var model in source)
-            OpenCodeFilteredModels.Add(model);
-    }
-
-    /// <summary>Whether a deferred <see cref="RefreshOpenCodeFilteredModels"/> pass is queued.</summary>
-    private bool _filteredModelsRefreshScheduled;
-
-    partial void OnOpenCodeModelFilterChanged(string value) => ScheduleFilteredModelsRefresh();
-
-    /// <summary>
-    /// Schedules <see cref="RefreshOpenCodeFilteredModels"/> on the next dispatcher pass,
-    /// coalescing bursts into one rebuild. The deferral is load-bearing: mutating the
-    /// filtered list synchronously from the Text writeback raises CollectionChanged
-    /// re-entrantly inside the ComboBox's selection update and the selection model throws.
-    /// </summary>
-    private void ScheduleFilteredModelsRefresh()
-    {
-        if (_filteredModelsRefreshScheduled)
-        {
-            return;
-        }
-
-        _filteredModelsRefreshScheduled = true;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            _filteredModelsRefreshScheduled = false;
-
-            // Capture whether the box is supposed to be showing the committed selection
-            // before rebuilding — while a user search is in flight the filter differs.
-            bool boxShowsSelection = string.Equals(OpenCodeModelFilter, OpenCodeSelectedModel, StringComparison.Ordinal);
-            RefreshOpenCodeFilteredModels();
-
-            // A rebuild that actually runs drops the ComboBox's control-side selection;
-            // when the box was showing the committed selection, re-push it so the OneWay
-            // SelectedItem binding re-resolves and reselects the entry.
-            if (boxShowsSelection && !string.IsNullOrEmpty(OpenCodeSelectedModel))
-                OnPropertyChanged(nameof(OpenCodeSelectedModel));
-        });
-    }
-
-    partial void OnOpenCodeModelsChanged(ObservableCollection<string> value)
-        => ScheduleFilteredModelsRefresh();
-
-    private async Task LoadOpenCodeTemplatesAsync()
-    {
-        var templates = await _openCodeTemplateService.LoadAsync();
-        var collection = new ObservableCollection<OpenCodeTemplate> { OpenCodeTemplate.None };
-        foreach (var template in templates)
-            collection.Add(template);
-        OpenCodeTemplates = collection;
-    }
-
-    private async Task LoadOpenCodePromptsAsync()
-    {
-        var prompts = await _openCodePromptService.LoadAsync();
-        var collection = new ObservableCollection<OpenCodePromptEntry> { OpenCodePromptEntry.None };
-        foreach (var prompt in prompts)
-            collection.Add(prompt);
-        OpenCodePrompts = collection;
-    }
-
-    partial void OnOpenCodeSelectedPromptChanged(OpenCodePromptEntry value)
-    {
-        if (value is null || value.IsNone)
-            return;
-        OpenCodePrompt = value.Prompt;
-    }
-
-    /// <summary>
-    /// Saves the current Start prompt under the name in <see cref="NewPromptName"/>, reloads
-    /// the selector and selects the saved entry.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanSavePrompt))]
-    private async Task SavePromptAsync()
-    {
-        var name = (NewPromptName ?? string.Empty).Trim();
-        if (string.IsNullOrEmpty(name)) return;
-
-        await _openCodePromptService.SaveAsync(name, OpenCodePrompt ?? string.Empty);
-        NewPromptName = string.Empty;
-
-        await LoadOpenCodePromptsAsync();
-
-        OpenCodeSelectedPrompt = OpenCodePrompts.FirstOrDefault(p =>
-            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) ?? OpenCodePromptEntry.None;
-        _notificationService.Show("Prompt saved", NotificationKind.Success);
-    }
-
-    private bool CanSavePrompt()
-        => !string.IsNullOrWhiteSpace(NewPromptName) && !string.IsNullOrWhiteSpace(OpenCodePrompt);
-
-    partial void OnNewPromptNameChanged(string value) => SavePromptCommand.NotifyCanExecuteChanged();
-    partial void OnOpenCodePromptChanged(string value) => SavePromptCommand.NotifyCanExecuteChanged();
-
-    /// <summary>
-    /// Removes the selected repo's <c>.opencode</c> folder and re-copies the currently
-    /// selected template into it, without launching OpenCode.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanResetOpenCodeTemplate))]
-    private async Task ResetOpenCodeTemplateAsync()
-    {
-        var repo = SelectedRepo;
-        if (repo?.FolderPath is null || OpenCodeSelectedTemplate.IsNone)
-            return;
-
-        await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
-        _notificationService.Show("Template reset", NotificationKind.Success);
-    }
-
-    private bool CanResetOpenCodeTemplate()
-        => SelectedRepo?.FolderPath is not null && !OpenCodeSelectedTemplate.IsNone;
-
-    /// <summary>
-    /// Re-evaluate <see cref="ResetOpenCodeTemplateCommand"/>, refresh the computed
-    /// description binding, and coerce transient nulls (the ComboBox TwoWay binding pushes
-    /// null when <see cref="OpenCodeTemplates"/> is swapped) back to the None sentinel.
-    /// </summary>
-    partial void OnOpenCodeSelectedTemplateChanged(OpenCodeTemplate value)
-    {
-        if (value is null)
-        {
-            OpenCodeSelectedTemplate = OpenCodeTemplate.None;
-            return;
-        }
-        ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
-        OnPropertyChanged(nameof(OpenCodeSelectedTemplateDescription));
-    }
-
-    /// <summary>
-    /// Launches opencode in the selected repo with the current tab options (model,
-    /// instances, grid, template, prompt). Identical to the old panel launch, targeting
-    /// the bar's repo; the tab closes once the instances are on their way.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanLaunchOpenCode))]
-    private async Task LaunchOpenCodeAsync()
-    {
-        var repo = SelectedRepo;
-        if (repo?.FolderPath is null || !HasOpenCode) return;
-
-        // Copy the selected template (if any) to <repo>/.opencode before launching.
-        await _openCodeTemplateService.CopyToRepoAsync(OpenCodeSelectedTemplate, repo.FolderPath);
-
-        var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
-        if (terminalExe is null)
-        {
-            CloseOpenCodePanelToBar();
-            return;
-        }
-
-        var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
-        var prompt = OpenCodePrompt?.Trim();
-        var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
-        var model = ResolveOpenCodeLaunchModel();
-
-        if (OpenCodeArrangeIntoGrid)
-        {
-            await _openCodeGridLauncher.LaunchAsync(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
-        }
-        else
-        {
-            var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, prompt ?? string.Empty);
-            var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-            for (var i = 0; i < count; i++)
-            {
-                _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
-            }
-        }
-
-        CloseOpenCodePanelToBar();
-    }
-
-    private bool CanLaunchOpenCode() => HasOpenCode && HasSelectedRepo;
-
-    /// <summary>After a launch attempt (or a missing terminal): the OpenCode panel
-    /// closes and the bar returns on the repo view (Overview) — the closest surviving
-    /// equivalent of the old return to the strip, which no longer exists.</summary>
-    private void CloseOpenCodePanelToBar()
-    {
-        IsOpenCodePanelVisible = false;
-        IsBarVisible = true;
-        if (ActiveTab == BottomBarTab.None)
-        {
-            ActiveTab = BottomBarTab.Overview;
-            _ = LoadOverviewAsync();
-        }
-    }
-
-    /// <summary>
-    /// Resolves a CLI name for embedding in a terminal command line: the spawned terminal
-    /// inherits the app's often-minimal GUI PATH, so a bare name is expanded to its
-    /// absolute path; when unresolvable the bare name is kept so the terminal shows the
-    /// familiar "command not found" feedback.
-    /// </summary>
-    private static string ResolveCliForTerminal(string? configured, string fallback)
-    {
-        var resolved = ExecutableDefaults.Locate(configured) ?? configured ?? fallback;
-        return resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
+        OpenCodeStateChanged?.Invoke();
     }
 
     private async Task PersistOpenCodeSettingAsync(Action<AppSettings> mutate)
@@ -2344,20 +1869,21 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Opens the OpenCode panel — the full bottom panel that the repo row's options icon
-    /// opens: model picker (which persists the default), instances, template, prompt and
-    /// the launch button. A no-op while the integration is disabled. The panel REPLACES
-    /// the bar in the page's bottom slot (the bar hides); a row press or row chip brings
-    /// the bar back (and hides the panel via <see cref="SetTargetRepo"/>).
+    /// Opens the OpenCode settings drawer (the repo row's options icon, or the tools
+    /// dropdown with no repo) on the given repo — model picker (which persists the
+    /// default), instances, template, prompt and the launch button. A no-op while the
+    /// integration is disabled. The drawer overlays the page, so the bar's own state is
+    /// untouched; only the selected repo is updated when the call carries one.
     /// </summary>
     public void OpenOpenCode(Repo? repo = null)
     {
         if (!IsOpenCodeEnabled) return;
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.None;
-        IsBarVisible = false;
-        IsOpenCodePanelVisible = true;
-        _ = LoadOpenCodeModelsAsync();
+        repo ??= SelectedRepo;
+        if (repo is not null && !ReferenceEquals(repo, SelectedRepo))
+        {
+            SelectedRepo = repo; // reloads the bar's data for the target; visibility untouched
+        }
+        _toolDrawerService.Open(ToolComponentMapper.OpenCodeKey, new OpenCodeSettingsContext(repo));
     }
 
     /// <summary>

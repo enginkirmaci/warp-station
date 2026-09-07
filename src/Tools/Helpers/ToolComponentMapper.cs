@@ -23,6 +23,9 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the History commit-detail component (opened by a History row click).</summary>
     public const string CommitHistoryKey = "CommitHistoryDialog";
 
+    /// <summary>Drawer key of the OpenCode settings component (opened by the row options icon and the tools dropdown).</summary>
+    public const string OpenCodeKey = "OpenCodePage";
+
     private static readonly ToolDefinition[] _tools =
     [
         new ToolDefinition("NugetLocalPage", typeof(NugetLocalComponent), "NuGet Package Manager", "icon-package"),
@@ -30,6 +33,7 @@ public static class ToolComponentMapper
         new ToolDefinition("ClipboardPasswordPage", typeof(ClipboardPasswordComponent), "Clipboard Password", "icon-lock"),
         new ToolDefinition("CodeExecutePage", typeof(CodeExecuteComponent), "Code Execute", "icon-terminal-alt"),
         new ToolDefinition("SnapItSettingsPage", typeof(SnapItSettingsComponent), "SnapIt", "icon-grid"),
+        new ToolDefinition(OpenCodeKey, typeof(OpenCodeSettingsComponent), "OpenCode", "icon-opencode"),
         // Drawer-hosted dialogs: not in the tools dropdown, opened programmatically by
         // DialogService in place of the former modal windows.
         new ToolDefinition(AddRepositoriesKey, typeof(AddRepositoryComponent), "Add Repositories", "icon-plus"),

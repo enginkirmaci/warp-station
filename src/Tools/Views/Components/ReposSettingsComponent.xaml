@@ -95,6 +95,34 @@
                 <Border Classes="card">
                     <StackPanel Spacing="8">
                         <TextBlock Classes="card-title" Text="External Tools" />
+                        <!--
+                            Launch-button visibility: pure settings toggles — the app
+                            never probes whether an executable is installed. Visual
+                            Studio additionally only exists on Windows (enforced by the
+                            page, not here).
+                        -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="16" RowDefinitions="Auto,Auto">
+                            <CheckBox
+                                Grid.Row="0" Grid.Column="0"
+                                Content="Enable Visual Studio"
+                                IsChecked="{Binding EnableVisualStudio, Mode=TwoWay}"
+                                ToolTip.Tip="Show the open-solution button (Windows only)" />
+                            <CheckBox
+                                Grid.Row="0" Grid.Column="1"
+                                Content="Enable VS Code"
+                                IsChecked="{Binding EnableVSCode, Mode=TwoWay}"
+                                ToolTip.Tip="Show the VS Code button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="1" Grid.Column="0"
+                                Content="Enable Terminal"
+                                IsChecked="{Binding EnableTerminal, Mode=TwoWay}"
+                                ToolTip.Tip="Show the terminal button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="1" Grid.Column="1"
+                                Content="Enable ZCode"
+                                IsChecked="{Binding EnableZCode, Mode=TwoWay}"
+                                ToolTip.Tip="Show the zcode button on the repo rows" />
+                        </Grid>
                         <Grid
                             ColumnDefinitions="*,*"
                             ColumnSpacing="16"
@@ -125,8 +153,8 @@
                                 <TextBlock
                                     Classes="field-label"
                                     Text="IDE Executable"
-                                    ToolTip.Tip="IDE used to open solutions; auto-detected when empty" />
-                                <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Auto-detect" />
+                                    ToolTip.Tip="IDE used to open solutions; empty = .sln association (Windows)" />
+                                <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Empty = .sln association" />
                             </StackPanel>
                             <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
                                 <TextBlock

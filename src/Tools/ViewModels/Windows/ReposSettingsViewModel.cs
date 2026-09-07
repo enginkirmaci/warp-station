@@ -64,6 +64,23 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
     [ObservableProperty]
     private string _zCodeExecutable = DefaultZCode;
 
+    /// <summary>Whether the terminal launch button shows (no installation probing).</summary>
+    [ObservableProperty]
+    private bool _enableTerminal = true;
+
+    /// <summary>Whether the VS Code launch button shows (no installation probing).</summary>
+    [ObservableProperty]
+    private bool _enableVSCode = true;
+
+    /// <summary>Whether the Visual Studio (open solution) button shows — Windows only,
+    /// enforced by the page, so the checkbox hides nothing extra on other platforms.</summary>
+    [ObservableProperty]
+    private bool _enableVisualStudio = true;
+
+    /// <summary>Whether the zcode launch button shows (no installation probing).</summary>
+    [ObservableProperty]
+    private bool _enableZCode = true;
+
     [ObservableProperty]
     private bool _enableGitHub = true;
 
@@ -145,6 +162,10 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
             IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
             ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
+            EnableTerminal = EnableTerminal,
+            EnableVSCode = EnableVSCode,
+            EnableVisualStudio = EnableVisualStudio,
+            EnableZCode = EnableZCode,
             EnableGitHub = EnableGitHub,
             GitHubExecutable = WithDefault(GitHubExecutable, DefaultGitHub),
             EnableAzureDevOps = EnableAzureDevOps,
@@ -173,6 +194,10 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
         IdeExecutable = settings.IdeExecutable ?? string.Empty;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
         ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
+        EnableTerminal = settings.EnableTerminal;
+        EnableVSCode = settings.EnableVSCode;
+        EnableVisualStudio = settings.EnableVisualStudio;
+        EnableZCode = settings.EnableZCode;
         EnableGitHub = settings.EnableGitHub;
         GitHubExecutable = settings.GitHubExecutable ?? DefaultGitHub;
         EnableAzureDevOps = settings.EnableAzureDevOps;

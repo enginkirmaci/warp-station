@@ -19,7 +19,8 @@ namespace Tools.Views.Components;
 /// <see cref="BottomBarViewModel"/> (attached by ReposPage). The branch ComboBox commits
 /// its selection through a code-behind handler instead of a TwoWay binding so the
 /// in-place branch reload never writes a transient null back into the view model; the
-/// OpenCode panel's model ComboBox does the same inside <see cref="OpenCodeComponent"/>.
+/// OpenCode settings drawer's model ComboBox does the same inside
+/// <see cref="OpenCodeSettingsComponent"/>.
 /// </summary>
 public partial class BottomBar : UserControl
 {

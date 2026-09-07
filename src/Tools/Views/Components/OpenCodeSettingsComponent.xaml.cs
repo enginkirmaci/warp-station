@@ -1,19 +1,18 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Tools.ViewModels.Components;
+using Tools.ViewModels.Windows;
 
 namespace Tools.Views.Components;
 
 /// <summary>
-/// The OpenCode launch surface (settings + launch) shown inside the
-/// <see cref="OpenCodePanel"/>. Its DataContext is the singleton
-/// <see cref="BottomBarViewModel"/>, inherited from the panel. The editable model
-/// ComboBox commits its selection through code-behind handlers instead of a TwoWay
-/// binding so the in-place ItemsSource rebuilds (model list refresh) never write a
-/// transient null back into the view model.
+/// The OpenCode settings drawer component (model picker, commit model, launch options).
+/// Its DataContext is the transient <see cref="OpenCodeSettingsViewModel"/> resolved from
+/// DI per open. The editable model ComboBox commits its selection through code-behind
+/// handlers instead of a TwoWay binding so the in-place ItemsSource rebuilds (model list
+/// refresh) never write a transient null back into the view model.
 /// </summary>
-public partial class OpenCodeComponent : UserControl
+public partial class OpenCodeSettingsComponent : UserControl
 {
     /// <summary>
     /// Set while the editable model ComboBox is committing a selection so the auto-open-on-type
@@ -21,13 +20,22 @@ public partial class OpenCodeComponent : UserControl
     /// </summary>
     private bool _suppressAutoOpenModelDropdown;
 
-    public BottomBarViewModel? ViewModel => DataContext as BottomBarViewModel;
-
-    public OpenCodeComponent()
+    public OpenCodeSettingsComponent()
     {
         InitializeComponent();
         WireModelPicker();
     }
+
+    /// <summary>DI constructor: the transient drawer VM becomes the DataContext.</summary>
+    public OpenCodeSettingsComponent(OpenCodeSettingsViewModel viewModel)
+    {
+        ViewModel = viewModel;
+        DataContext = viewModel;
+        InitializeComponent();
+        WireModelPicker();
+    }
+
+    public OpenCodeSettingsViewModel? ViewModel { get; }
 
     private void InitializeComponent()
     {
@@ -50,13 +58,13 @@ public partial class OpenCodeComponent : UserControl
     /// <summary>
     /// Captures a model picked from the editable ComboBox's dropdown and persists it as
     /// the configured default model. The editable box is bound two-way to
-    /// <see cref="BottomBarViewModel.OpenCodeModelFilter"/> (the live search text), so
+    /// <see cref="OpenCodeSettingsViewModel.OpenCodeModelFilter"/> (the live search text), so
     /// the actual selection is committed here — the filter text is snapped back to the
     /// chosen model's full name inside the commit.
     /// </summary>
     private void OnOpenCodeModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is ComboBox { SelectedItem: string model } && ViewModel is { } vm)
+        if (sender is ComboBox { SelectedItem: string model } && DataContext is OpenCodeSettingsViewModel vm)
         {
             // The filter update inside the commit changes the box text and would otherwise
             // re-open the dropdown that the selection just closed; suppress that for this
@@ -65,7 +73,7 @@ public partial class OpenCodeComponent : UserControl
             try
             {
                 vm.OpenCodeModelFilter = model;
-                _ = vm.CommitOpenCodeModelAsync(model);
+                _ = vm.CommitModelAsync(model);
             }
             finally
             {
@@ -96,12 +104,6 @@ public partial class OpenCodeComponent : UserControl
     }
 
     /// <summary>
-    /// Captures a pick from the plain commit-model ComboBox (the "(use default model)"
-    /// sentinel clears the dedicated setting; anything else persists the model id). The
-    /// selection is committed through the view model like the default model's, not a
-    /// TwoWay binding, so option-list rebuilds never write transients back.
-    /// </summary>
-    /// <summary>
     /// Persists the commit-model box when it loses focus (click-away/Tab): empty text
     /// clears the dedicated commit model so the wand falls back to the default. A lost-
     /// focus commit replaces the old ComboBox's SelectionChanged plumbing — a TextBox
@@ -109,7 +111,7 @@ public partial class OpenCodeComponent : UserControl
     /// </summary>
     private void OnCommitModelLostFocus(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel is { } vm)
+        if (DataContext is OpenCodeSettingsViewModel vm)
         {
             _ = vm.SaveCommitModelAsync();
         }

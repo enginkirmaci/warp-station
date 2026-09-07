@@ -49,6 +49,30 @@ public partial class MainWindowViewModel : ViewModelBase
     public IAsyncRelayCommand ToggleNugetWatchCommand { get; }
 
     // ---- Tool drawer (floating right sidebar) ----
+
+    /// <summary>Clamps for the drawer card's resizable width: narrow enough to keep the
+    /// page behind usable, wide enough for the two-column settings grids.</summary>
+    private const double MinToolDrawerWidth = 420;
+    private const double MaxToolDrawerWidth = 800;
+
+    /// <summary>
+    /// The drawer card's width in logical pixels, resized via its left-edge grip (same
+    /// three-dots divider as the bottom panels, rotated vertical). Session-only —
+    /// matching the bottom panels' runtime-only heights.
+    /// </summary>
+    [ObservableProperty]
+    private double _toolDrawerWidth = 540;
+
+    /// <summary>Applies a drag delta (positive = wider) to the drawer width.</summary>
+    public void AdjustToolDrawerWidth(double delta)
+    {
+        // Whole logical pixels only: sub-pixel widths re-rasterize without a visible
+        // gain, and unchanged values must not trigger another layout pass (drag smoothness).
+        var value = Math.Clamp(Math.Round(ToolDrawerWidth + delta), MinToolDrawerWidth, MaxToolDrawerWidth);
+        if (Math.Abs(value - ToolDrawerWidth) < 0.5) return;
+        ToolDrawerWidth = value;
+    }
+
     /// <summary>Whether the tool drawer is currently shown over the page.</summary>
     [ObservableProperty]
     private bool _isToolDrawerOpen;
@@ -67,6 +91,14 @@ public partial class MainWindowViewModel : ViewModelBase
     /// disabled the tool stays reachable through its hotkey only.
     /// </summary>
     public bool ShowClipboardPassword { get; }
+
+    /// <summary>
+    /// Whether the OpenCode entry shows in the tools dropdown: the integration enabled
+    /// in settings (the same flag that reveals the row buttons). Opening it from here
+    /// targets the bar's selected repo; with none selected the drawer shows a disabled
+    /// note instead of a launch target.
+    /// </summary>
+    public bool ShowOpenCode { get; }
 
     /// <summary>
     /// SnapIt is Windows-only functionality (the engine is Win32-based), so every
@@ -93,6 +125,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // (Task.FromResult), so this never blocks on async work.
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
         ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
+        ShowOpenCode = appSettings.OpenCode?.EnableOpenCode == true;
 
         _toolDrawer.Changed += OnToolDrawerChanged;
 

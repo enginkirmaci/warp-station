@@ -125,6 +125,36 @@ public class ReposSettings
     public string? ZCodeExecutable { get; set; } = "zcode";
 
     /// <summary>
+    /// Gets or sets a value indicating whether the terminal launch button shows on repo
+    /// rows. Purely a visibility switch — the machine is not probed for the executable;
+    /// a configured-but-missing one is reported at launch time. Defaults to
+    /// <see langword="true"/>.
+    /// </summary>
+    public bool EnableTerminal { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the VS Code launch button shows on repo
+    /// rows. Purely a visibility switch — the machine is not probed for the executable.
+    /// Defaults to <see langword="true"/>.
+    /// </summary>
+    public bool EnableVSCode { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the Visual Studio (open solution) button
+    /// shows on repo rows. Visual Studio only exists on Windows, so the button hides on
+    /// other platforms regardless of this flag. No installation probe runs. Defaults to
+    /// <see langword="true"/>.
+    /// </summary>
+    public bool EnableVisualStudio { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the zcode launch button shows on repo
+    /// rows. Purely a visibility switch — the machine is not probed for the executable.
+    /// Defaults to <see langword="true"/>.
+    /// </summary>
+    public bool EnableZCode { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether the GitHub integration is enabled. When
     /// <see langword="false"/> the GitHub column/tab is hidden <em>and</em> the <c>gh</c>
     /// CLI is never queried, so disabling it costs nothing at runtime. Defaults to

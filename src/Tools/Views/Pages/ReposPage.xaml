@@ -496,8 +496,8 @@
                                                                                 </Button>
                                                                                 <!--
                                                                                         The open-solution button is a Visual Studio
-                                                                                        shortcut: HasIde requires VS to be installed,
-                                                                                        or an IDE explicitly configured in settings.
+                                                                                        shortcut: HasIde requires the EnableVisualStudio
+                                                                                        toggle and Windows (VS exists nowhere else).
                                                                                         The 40px slot stays reserved for repos without
                                                                                         a solution so the table columns stay aligned.
                                                                                 -->
@@ -1020,16 +1020,6 @@
                 -->
                 <Border Grid.Row="1">
                         <components:BottomBar x:Name="BottomBarControl" />
-                </Border>
-
-                <!--
-                        OpenCode panel: the repo row's options icon opens OpenCode as its
-                        own full bottom panel (same docked card as the bar's panel). It
-                        hides the bar while open; the same singleton ViewModel is
-                        attached in code-behind.
-                -->
-                <Border Grid.Row="1">
-                        <components:OpenCodePanel x:Name="OpenCodePanelControl" />
                 </Border>
 
         </Grid>

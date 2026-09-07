@@ -116,6 +116,7 @@ public partial class App : Application
         RegisterPageWithViewModel<CodeExecuteComponent, CodeExecuteViewModel>(services);
         RegisterPageWithViewModel<ClipboardPasswordComponent, ClipboardPasswordViewModel>(services);
         RegisterPageWithViewModel<SnapItSettingsComponent, SnapItSettingsViewModel>(services);
+        RegisterPageWithViewModel<OpenCodeSettingsComponent, OpenCodeSettingsViewModel>(services);
         // Drawer-hosted dialogs (opened by DialogService instead of modal windows)
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
         RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);

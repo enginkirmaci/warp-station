@@ -1,35 +1,35 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-    OpenCode launch surface: the model picker (a pick persists DefaultModel), instance
-    count, template + prompt and the launch button. Shown inside the OpenCodePanel —
-    the full bottom panel the repo row's OpenCode options icon opens. Its DataContext
-    is the singleton BottomBarViewModel, inherited from the panel (same as RepoHeader).
+    OpenCode settings drawer: the model picker (a pick persists DefaultModel), commit
+    model, instances, template + prompt and the launch button — the former OpenCode
+    bottom panel, restyled in the tool drawer's card vocabulary (same card/field-label
+    language as the Repo Settings component). Grouped into three cards: Model / Launch /
+    Start prompt.
 -->
 <UserControl
-    x:Class="Tools.Views.Components.OpenCodeComponent"
+    x:Class="Tools.Views.Components.OpenCodeSettingsComponent"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:vm="using:Tools.ViewModels.Components"
-    d:DesignHeight="300"
-    d:DesignWidth="1000"
+    xmlns:vm="using:Tools.ViewModels.Windows"
+    d:DesignHeight="700"
+    d:DesignWidth="540"
     x:CompileBindings="True"
-    x:DataType="vm:BottomBarViewModel"
+    x:DataType="vm:OpenCodeSettingsViewModel"
     mc:Ignorable="d">
 
-    <!--
-        Styled like the Changes tab: three ov-cards (Model / Launch / Start prompt) with
-        ov-card-title headers, mirroring the commit workspace's card language.
-    -->
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-        <Grid Margin="0,8,0,0" ColumnDefinitions="320,320,*" ColumnSpacing="10">
+        <StackPanel Margin="16,4,16,12" Spacing="12">
 
             <!--  Model defaults  -->
-            <Border Grid.Column="0" Classes="ov-card">
+            <Border Classes="card">
                 <StackPanel Spacing="8">
-                    <TextBlock Classes="ov-card-title" Text="Models" />
-                    <TextBlock Classes="field-label" Text="Model (default)" />
+                    <TextBlock Classes="card-title" Text="Models" />
+                    <TextBlock
+                        Classes="field-label"
+                        Text="Model (default)"
+                        ToolTip.Tip="Preselected on open and used by every launch; picking one persists it" />
                     <ComboBox
                         Name="OpenCodeModelPicker"
                         HorizontalAlignment="Stretch"
@@ -61,29 +61,51 @@
                 </StackPanel>
             </Border>
 
-            <!--  Instances + template + prompt  -->
-            <Border Grid.Column="1" Classes="ov-card">
+            <!--  Target + instances + template + prompt  -->
+            <Border Classes="card">
                 <StackPanel Spacing="8">
-                    <TextBlock Classes="ov-card-title" Text="Launch" />
+                    <TextBlock Classes="card-title" Text="Launch" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <StackPanel
+                            Grid.Column="0"
+                            Spacing="4"
+                            IsVisible="{Binding HasOpenCode}">
+                            <TextBlock Classes="field-label" Text="Repository" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                Text="{Binding TargetRepoName}" />
+                        </StackPanel>
+                        <TextBlock
+                            Grid.Column="0"
+                            Classes="subtle"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding !HasOpenCode}"
+                            Text="opencode is disabled in settings." />
+                        <StackPanel
+                            Grid.Column="1"
+                            Spacing="4"
+                            IsVisible="{Binding CanArrangeIntoGrid}">
+                            <TextBlock Classes="field-label" Text="Arrange" />
+                            <CheckBox
+                                Content="Into grid"
+                                IsChecked="{Binding OpenCodeArrangeIntoGrid, Mode=TwoWay}"
+                                ToolTip.Tip="Tile the launched instances across the screen in a grid" />
+                        </StackPanel>
+                    </Grid>
                     <TextBlock
                         Classes="field-label"
                         Text="Instances"
                         ToolTip.Tip="How many terminal windows to open, each running opencode" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <NumericUpDown
-                            Width="110"
-                            FormatString="0"
-                            Increment="1"
-                            Maximum="9"
-                            Minimum="1"
-                            ParsingNumberStyle="Integer"
-                            Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
-                        <CheckBox
-                            Content="Arrange into grid"
-                            IsChecked="{Binding OpenCodeArrangeIntoGrid, Mode=TwoWay}"
-                            IsVisible="{Binding CanArrangeIntoGrid}"
-                            ToolTip.Tip="Tile the launched instances across the screen in a grid" />
-                    </StackPanel>
+                    <NumericUpDown
+                        Width="110"
+                        HorizontalAlignment="Left"
+                        FormatString="0"
+                        Increment="1"
+                        Maximum="9"
+                        Minimum="1"
+                        ParsingNumberStyle="Integer"
+                        Value="{Binding OpenCodeInstanceCount, Mode=TwoWay}" />
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <TextBlock
                             Grid.Column="0"
@@ -103,6 +125,11 @@
                         HorizontalAlignment="Stretch"
                         ItemsSource="{Binding OpenCodeTemplates}"
                         SelectedItem="{Binding OpenCodeSelectedTemplate, Mode=TwoWay}" />
+                    <TextBlock
+                        Classes="subtle"
+                        IsVisible="{Binding OpenCodeSelectedTemplateDescription}"
+                        Text="{Binding OpenCodeSelectedTemplateDescription}"
+                        TextWrapping="Wrap" />
                     <TextBlock Classes="field-label" Text="Prompt (optional)" />
                     <ComboBox
                         HorizontalAlignment="Stretch"
@@ -112,12 +139,12 @@
             </Border>
 
             <!--  Start prompt + launch  -->
-            <Border Grid.Column="2" Classes="ov-card">
+            <Border Classes="card">
                 <StackPanel Spacing="8">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock
                             Grid.Column="0"
-                            Classes="ov-card-title"
+                            Classes="card-title"
                             VerticalAlignment="Center"
                             Text="Start prompt" />
                         <Button
@@ -154,13 +181,8 @@
                         Classes="Outlined"
                         Command="{Binding LaunchOpenCodeCommand}"
                         Content="Open opencode" />
-                    <TextBlock
-                        Classes="subtle"
-                        IsVisible="{Binding !HasOpenCode}"
-                        Text="opencode is disabled or its executable was not found on this machine."
-                        TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
-        </Grid>
+        </StackPanel>
     </ScrollViewer>
 </UserControl>

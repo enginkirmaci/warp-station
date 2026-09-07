@@ -14,8 +14,8 @@ namespace Tools.Library.Services;
 /// <para>
 /// Probe results are memoized per process: executables don't move while the app runs,
 /// and the lookups behind <see cref="Locate"/> (PATH/user-bin walks, desktop-entry and
-/// AppImage folder scans) and <see cref="HasVisualStudio"/> (a vswhere process) are not
-/// free — availability is checked once per name, not on every page visit or launch.
+/// AppImage folder scans) are not free — availability is checked once per name, not on
+/// every page visit or launch.
 /// A changed configured value probes afresh; uninstalled-mid-session tools are picked
 /// up on the next app start.
 /// </para>
@@ -67,9 +67,6 @@ public static class ExecutableDefaults
     /// <summary>Bare-name <see cref="Locate"/> resolutions, negative results included;
     /// AppImage/desktop-entry probes land here too.</summary>
     private static readonly ConcurrentDictionary<string, string?> LocatedByName = new(StringComparer.Ordinal);
-
-    /// <summary>Memoized <see cref="HasVisualStudio"/> probe (null = not probed yet).</summary>
-    private static bool? _hasVisualStudio;
 
     /// <summary>Memoized Linux terminal auto-detect; the Done flag distinguishes "not probed"
     /// from "probed and found nothing".</summary>
@@ -252,71 +249,6 @@ public static class ExecutableDefaults
         }
 
         return _detectedIde;
-    }
-
-    /// <summary>
-    /// Whether Visual Studio — a product edition that can open solutions — is installed.
-    /// Probes the <c>vswhere.exe</c> that ships with the Visual Studio installer for the
-    /// latest instance (default products: Community/Professional/Enterprise, previews
-    /// included; Build Tools excluded). On non-Windows platforms Visual Studio does not
-    /// exist, so this returns <see langword="false"/> without probing.
-    /// </summary>
-    public static bool HasVisualStudio()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return false;
-        }
-
-        if (_hasVisualStudio is { } cached)
-        {
-            return cached;
-        }
-
-        _hasVisualStudio = ProbeVisualStudio();
-        return _hasVisualStudio.Value;
-    }
-
-    /// <summary>Runs the vswhere probe once; callers memoize the outcome.</summary>
-    private static bool ProbeVisualStudio()
-    {
-        var vswhere = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Microsoft Visual Studio",
-            "Installer",
-            "vswhere.exe");
-        if (!File.Exists(vswhere))
-        {
-            return false;
-        }
-
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = vswhere,
-                Arguments = "-latest -prerelease -property installationPath -format value",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-
-            using var process = Process.Start(psi)!;
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(3000);
-
-            // A reported installation path is the presence proof; verify it still exists
-            // so a stale installer cache (uninstalled VS) does not count.
-            var installPath = output.Trim();
-            return !string.IsNullOrWhiteSpace(installPath) && Directory.Exists(installPath);
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Logger.Warning(ex, "ExecutableDefaults: vswhere probe failed; treating Visual Studio as not installed");
-            return false;
-        }
     }
 
     private static string? DetectOnPath(string[] candidates)

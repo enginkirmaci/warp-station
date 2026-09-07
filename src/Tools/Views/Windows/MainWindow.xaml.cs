@@ -12,6 +12,7 @@ using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
+using Tools.Views.Components;
 using Tools.Views.Pages;
 
 namespace Tools.Views.Windows;
@@ -81,6 +82,7 @@ public partial class MainWindow : SukiWindow
     // Named XAML elements
     private ContentControl ContentArea = null!;
     private ContentControl ToolDrawerHost = null!;
+    private Border ToolDrawerResizer = null!;
     private ItemsControl ToastHost = null!;
     private Button ToolsButton = null!;
 
@@ -89,6 +91,7 @@ public partial class MainWindow : SukiWindow
         AvaloniaXamlLoader.Load(this);
         ContentArea = this.FindControl<ContentControl>("ContentArea")!;
         ToolDrawerHost = this.FindControl<ContentControl>("ToolDrawerHost")!;
+        ToolDrawerResizer = this.FindControl<Border>("ToolDrawerResizer")!;
         ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
         ToolsButton = this.FindControl<Button>("ToolsButton")!;
     }
@@ -181,6 +184,14 @@ public partial class MainWindow : SukiWindow
 #endif
         _toolDrawer.Changed += OnToolDrawerChanged;
         Closed += OnWindowClosed;
+
+        // Drawer resize grip: a horizontal drag on the card's left-edge band widens or
+        // narrows the drawer (dragging left widens — the card is docked right).
+        PanelResizeController.Attach(
+            ToolDrawerResizer,
+            this,
+            delta => ViewModel.AdjustToolDrawerWidth(delta),
+            PanelResizeAxis.Horizontal);
 
         // Tools dropdown: opens on hover after the delay below. Closing is owned here
         // too: the flyout stays up while the pointer is over the button or the menu,
@@ -341,11 +352,13 @@ public partial class MainWindow : SukiWindow
 
         ToolDrawerHost.Content = view;
 
-        // Deliver the open's context (tools have none; dialogs seed their state here).
-        if (_toolDrawer.Context is { } context
-            && view.DataContext is IToolDrawerContextReceiver receiver)
+        // Deliver the open's context to the hosted component. Tools pass none — a
+        // context receiver still gets the (null) delivery so it can seed itself (the
+        // OpenCode settings drawer seeds from settings + the bar's selected repo); the
+        // dialog receivers ignore deliveries that aren't their own payload type.
+        if (view.DataContext is IToolDrawerContextReceiver receiver)
         {
-            receiver.OnDrawerContext(context);
+            receiver.OnDrawerContext(_toolDrawer.Context);
         }
 
         if (view.DataContext is PageViewModelBase incomingVm)
