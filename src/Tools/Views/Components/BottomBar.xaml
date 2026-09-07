@@ -1362,15 +1362,16 @@
                                     Classes="Outlined"
                                     Command="{Binding CommitCommand}"
                                     DockPanel.Dock="Bottom"
-                                    ToolTip.Tip="Commit the staged changes; with an empty message box, one is generated from the staged diff first (opencode)">
+                                    ToolTip.Tip="Commit staged changes; empty message auto-generates (opencode)">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <!--  wand while the box is empty, check once a message is typed;
-                                              Fill tracks the button's Foreground so hover turns it white with the text  -->
+                                              both give way to the spinning ring while the commit runs;
+                                              Fill/Stroke track the button's Foreground so hover turns it white with the text  -->
                                         <Path
                                             Width="13"
                                             Height="13"
                                             VerticalAlignment="Center"
-                                            IsVisible="{Binding CommitWillAutoGenerate}"
+                                            IsVisible="{Binding CommitShowsWand}"
                                             Data="{tools:SvgPath icon-wand}"
                                             Fill="{Binding $parent[Button].Foreground}"
                                             Stretch="Uniform" />
@@ -1378,10 +1379,40 @@
                                             Width="13"
                                             Height="13"
                                             VerticalAlignment="Center"
-                                            IsVisible="{Binding CommitWillAutoGenerate, Converter={StaticResource InverseBoolConverter}}"
+                                            IsVisible="{Binding CommitShowsCheck}"
                                             Data="{tools:SvgPath icon-check}"
                                             Fill="{Binding $parent[Button].Foreground}"
                                             Stretch="Uniform" />
+                                        <!--  same ring recipe as the wand button: element-space arc,
+                                              no Stretch, so the circle's center is exactly the
+                                              RenderTransformOrigin the rotation pivots on  -->
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsCommitting}"
+                                            RenderTransformOrigin="50%,50%"
+                                            Data="M 6.5 1 A 5.5 5.5 0 1 1 1 6.5"
+                                            Stroke="{Binding $parent[Button].Foreground}"
+                                            StrokeThickness="2">
+                                            <Path.RenderTransform>
+                                                <RotateTransform />
+                                            </Path.RenderTransform>
+                                            <Path.Styles>
+                                                <Style Selector="Path">
+                                                    <Style.Animations>
+                                                        <Animation Duration="0:0:0.9" IterationCount="Infinite">
+                                                            <KeyFrame Cue="0%">
+                                                                <Setter Property="RotateTransform.Angle" Value="0" />
+                                                            </KeyFrame>
+                                                            <KeyFrame Cue="100%">
+                                                                <Setter Property="RotateTransform.Angle" Value="360" />
+                                                            </KeyFrame>
+                                                        </Animation>
+                                                    </Style.Animations>
+                                                </Style>
+                                            </Path.Styles>
+                                        </Path>
                                         <TextBlock VerticalAlignment="Center" Text="{Binding CommitButtonText}" />
                                     </StackPanel>
                                 </Button>

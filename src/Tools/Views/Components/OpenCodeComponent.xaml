@@ -52,7 +52,7 @@
                     <TextBlock
                         Classes="field-label"
                         Text="Commit model (wand)"
-                        ToolTip.Tip="Model used only by the Changes tab's wand when it generates a commit message; empty = the default model" />
+                        ToolTip.Tip="Model for the Changes-tab commit wand; empty = default model" />
                     <TextBox
                         Name="CommitModelBox"
                         LostFocus="OnCommitModelLostFocus"
@@ -97,7 +97,7 @@
                             VerticalAlignment="Center"
                             Command="{Binding ResetOpenCodeTemplateCommand}"
                             Content="Reset"
-                            ToolTip.Tip="Remove the repo's .opencode folder and re-copy the selected template into it" />
+                            ToolTip.Tip="Reset the repo's .opencode folder to the selected template" />
                     </Grid>
                     <ComboBox
                         HorizontalAlignment="Stretch"
@@ -126,7 +126,7 @@
                             VerticalAlignment="Center"
                             Classes="Outlined"
                             Content="Save"
-                            ToolTip.Tip="Save the current prompt under a name so it can be reused from the Prompt selector">
+                            ToolTip.Tip="Save the current prompt to reuse it from the Prompt selector">
                             <Button.Flyout>
                                 <Flyout Placement="BottomEdgeAlignedRight">
                                     <StackPanel Width="220" Spacing="10">

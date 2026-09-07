@@ -70,14 +70,14 @@
                                 <TextBlock
                                     Classes="field-label"
                                     Text="Solution File Pattern"
-                                    ToolTip.Tip="Pattern(s) to search for solution files. Separate multiple patterns with commas or semicolons (e.g. *.sln,*.slnx)" />
+                                    ToolTip.Tip="Solution file patterns, comma-separated (e.g. *.sln,*.slnx)" />
                                 <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
                                 <TextBlock
                                     Classes="field-label"
                                     Text="Platform Folder Name"
-                                    ToolTip.Tip="Identifier for platform folders (auto-tags repos whose path contains it)" />
+                                    ToolTip.Tip="Path marker used to auto-tag platform repos" />
                                 <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
@@ -111,21 +111,21 @@
                                 <TextBlock
                                     Classes="field-label"
                                     Text="VS Code Profile"
-                                    ToolTip.Tip="VS Code profile to launch with (--profile). Leave empty to use the default profile" />
+                                    ToolTip.Tip="VS Code profile to launch with (--profile); empty = default" />
                                 <TextBox Text="{Binding VsCodeProfile, UpdateSourceTrigger=PropertyChanged}" Watermark="Leave empty for default profile" />
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
                                 <TextBlock
                                     Classes="field-label"
                                     Text="Terminal Executable"
-                                    ToolTip.Tip="Path or command for terminal. 'wt' (the default) auto-detects a native terminal on Linux" />
+                                    ToolTip.Tip="Terminal path/command; 'wt' (default) auto-detects on Linux" />
                                 <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
                             </StackPanel>
                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                                 <TextBlock
                                     Classes="field-label"
                                     Text="IDE Executable"
-                                    ToolTip.Tip="IDE used to open solutions. On Windows the .sln file association is used when empty; elsewhere a well-known IDE (e.g. Rider) is auto-detected" />
+                                    ToolTip.Tip="IDE used to open solutions; auto-detected when empty" />
                                 <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Auto-detect" />
                             </StackPanel>
                             <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
@@ -139,7 +139,7 @@
                                 <TextBlock
                                     Classes="field-label"
                                     Text="ZCode Executable"
-                                    ToolTip.Tip="Path or command for zcode. An AppImage (desktop package) opens directly on the repo; a standalone CLI runs in the terminal" />
+                                    ToolTip.Tip="Path or command for zcode; AppImage opens the desktop app" />
                                 <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
                             </StackPanel>
                         </Grid>
@@ -153,12 +153,12 @@
                         <CheckBox
                             Content="Show GitHub column"
                             IsChecked="{Binding ShowGitHubColumn, Mode=TwoWay}"
-                            ToolTip.Tip="Show the GitHub column (repo link, open pull requests and issues) on the Repos page. When off, the column is hidden and the gh CLI is not queried" />
+                            ToolTip.Tip="Show the GitHub column on the Repos page (uses the gh CLI)" />
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"
                                 Text="GitHub CLI Executable"
-                                ToolTip.Tip="Path or command for the gh CLI, used to query open pull requests and issues for the GitHub column" />
+                                ToolTip.Tip="Path or command for the gh CLI (GitHub column)" />
                             <TextBox
                                 IsEnabled="{Binding ShowGitHubColumn}"
                                 Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
@@ -167,12 +167,12 @@
                         <CheckBox
                             Content="Show Azure DevOps column"
                             IsChecked="{Binding ShowAzureDevOpsColumn, Mode=TwoWay}"
-                            ToolTip.Tip="Show the Azure DevOps column (repo link, active pull requests, open work items and the latest pipeline run) on the Repos page. When off, the column is hidden and no REST calls are sent" />
+                            ToolTip.Tip="Show the Azure DevOps column on the Repos page" />
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"
                                 Text="Azure DevOps Token"
-                                ToolTip.Tip="Personal access token used to query pull requests, work items and pipeline runs for the Azure DevOps column. Stored in settings.json; leave empty to use the AZURE_DEVOPS_PAT environment variable instead" />
+                                ToolTip.Tip="Azure DevOps PAT; empty = AZURE_DEVOPS_PAT env variable" />
                             <TextBox
                                 IsEnabled="{Binding ShowAzureDevOpsColumn}"
                                 PasswordChar="•"

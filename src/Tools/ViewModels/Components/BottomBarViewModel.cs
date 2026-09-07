@@ -904,7 +904,13 @@ public partial class BottomBarViewModel : ObservableObject
     /// picks the commit button's icon (wand vs check).</summary>
     public bool CommitWillAutoGenerate => string.IsNullOrWhiteSpace(CommitMessage);
 
-    /// <summary>True while the commit runs; disables the Commit button.</summary>
+    /// <summary>While the commit runs the button's static icon gives way to the spinning
+    /// ring — these two gate the wand and the check.</summary>
+    public bool CommitShowsWand => CommitWillAutoGenerate && !IsCommitting;
+    public bool CommitShowsCheck => !CommitWillAutoGenerate && !IsCommitting;
+
+    /// <summary>True while the commit runs (generate-then-commit); disables the Commit
+    /// button.</summary>
     [ObservableProperty]
     private bool _isCommitting;
 
@@ -917,9 +923,17 @@ public partial class BottomBarViewModel : ObservableObject
         CommitCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CommitButtonText));
         OnPropertyChanged(nameof(CommitWillAutoGenerate));
+        OnPropertyChanged(nameof(CommitShowsWand));
+        OnPropertyChanged(nameof(CommitShowsCheck));
     }
 
-    partial void OnIsCommittingChanged(bool value) => CommitCommand.NotifyCanExecuteChanged();
+    partial void OnIsCommittingChanged(bool value)
+    {
+        CommitCommand.NotifyCanExecuteChanged();
+        GenerateCommitMessageCommand.NotifyCanExecuteChanged(); // no second wand run mid-commit
+        OnPropertyChanged(nameof(CommitShowsWand));
+        OnPropertyChanged(nameof(CommitShowsCheck));
+    }
 
     /// <summary>Commits the staged index. With a typed message it commits that; with an
     /// empty box it first generates a message exactly like the wand (opencode over the
@@ -978,7 +992,7 @@ public partial class BottomBarViewModel : ObservableObject
     private const int MaxPromptPatchLength = 8000;
 
     private bool CanGenerateCommitMessage() => HasOpenCode && HasSelectedRepo
-        && StagedFiles.Count > 0 && !IsGeneratingMessage;
+        && StagedFiles.Count > 0 && !IsGeneratingMessage && !IsCommitting;
 
     partial void OnIsGeneratingMessageChanged(bool value)
     {

@@ -455,7 +455,7 @@
                                                                                                 Classes="icon"
                                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                ToolTip.Tip="Open the OpenCode panel in the bottom bar (model, instances, template, prompt)">
+                                                                                                ToolTip.Tip="Open the OpenCode panel (model, instances, template, prompt)">
                                                                                                 <Path
                                                                                                         Width="18"
                                                                                                         Height="18"
@@ -470,7 +470,7 @@
                                                                                         Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
                                                                                         CommandParameter="{Binding}"
                                                                                         IsVisible="{ReflectionBinding #Root.DataContext.HasZCode}"
-                                                                                        ToolTip.Tip="Open zcode on this repo — the AppImage opens the desktop app directly; a standalone CLI runs in the terminal">
+                                                                                        ToolTip.Tip="Open zcode on this repo (AppImage opens the desktop app)">
                                                                                         <Path
                                                                                                 Width="22"
                                                                                                 Height="22"
