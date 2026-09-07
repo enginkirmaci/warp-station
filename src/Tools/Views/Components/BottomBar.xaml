@@ -1052,41 +1052,44 @@
                                                 <Grid.ColumnDefinitions>
                                                     <!--  56: seven hex chars of the mono ShortHash  -->
                                                     <ColumnDefinition Width="56" />
-                                                    <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
-                                                    <!--  130: caps long author names; right-aligned so
-                                                          the column reads as one right edge  -->
+                                                    <!--  130: caps long author names; left-aligned so the
+                                                          name reads as its own column, apart from the
+                                                          time at the row's right edge  -->
                                                     <ColumnDefinition Width="130" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock
+                                                <!--  the hash is a quiet link: click copies the full SHA.
+                                                      Left-pinned in its column — the button template would
+                                                      otherwise center the text in the 56px cell  -->
+                                                <Button
                                                     Grid.Column="0"
+                                                    HorizontalAlignment="Left"
                                                     VerticalAlignment="Center"
-                                                    Classes="mono"
-                                                    Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                    Text="{Binding ShortHash}" />
+                                                    Classes="detail-link"
+                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).CopyCommitHashCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Copy commit hash">
+                                                    <TextBlock
+                                                        Classes="mono"
+                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                        Text="{Binding ShortHash}" />
+                                                </Button>
                                                 <TextBlock
                                                     Grid.Column="1"
-                                                    VerticalAlignment="Center"
-                                                    Classes="mono"
-                                                    Foreground="{DynamicResource MutedForegroundBrush}"
-                                                    Text="•" />
-                                                <TextBlock
-                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     Foreground="{DynamicResource BodyForegroundBrush}"
                                                     Text="{Binding Subject}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
-                                                    Grid.Column="3"
-                                                    HorizontalAlignment="Right"
+                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     Classes="subtle"
                                                     TextTrimming="CharacterEllipsis"
                                                     IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                     Text="{Binding Author}" />
                                                 <TextBlock
-                                                    Grid.Column="4"
+                                                    Grid.Column="3"
                                                     VerticalAlignment="Center"
                                                     Classes="subtle"
                                                     Text="{Binding RelativeTime}" />
@@ -1467,7 +1470,7 @@
                                                 Height="16"
                                                 IsVisible="{Binding !IsGeneratingMessage}"
                                                 Data="{tools:SvgPath icon-wand}"
-                                                Fill="{DynamicResource AccentPrimaryBrush}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
                                                 Stretch="Uniform" />
                                         </Grid>
                                     </Button>

@@ -510,7 +510,7 @@ public sealed class GitStatusService : IGitStatusService
 
         var output = await RunGitAsync(
             repo.FolderPath,
-            "log -10 --pretty=format:%h%x09%s%x09%an%x09%cI",
+            "log -10 --pretty=format:%H%x09%s%x09%an%x09%cI",
             cancellationToken);
         if (string.IsNullOrEmpty(output)) return Array.Empty<GitCommitInfo>();
 

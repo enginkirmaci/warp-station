@@ -1,15 +1,18 @@
 namespace Tools.Library.Entities;
 
 /// <summary>
-/// One recent commit of a repo, parsed from <c>git log</c> for the bottom bar's Git
-/// tab. Carries the display-ready short hash, subject, author and commit date.
+/// One recent commit of a repo, parsed from <c>git log</c> for the bottom bar's
+/// Changes tab. Carries the full hash (the commit-id click copies it) plus the
+/// display-ready subject, author and commit date.
 /// </summary>
 public sealed record GitCommitInfo(
-    string ShortHash,
+    string Hash,
     string Subject,
     string? Author,
     DateTimeOffset Date)
 {
+    /// <summary>Seven-char display form of the hash for the Recent Commits column.</summary>
+    public string ShortHash => Hash.Length <= 7 ? Hash : Hash[..7];
     /// <summary>Relative age label for the commit ("2h ago"); null when unparsable.</summary>
     public string? RelativeTime => FormatRelative(Date);
 

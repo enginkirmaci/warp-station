@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -979,6 +982,26 @@ public partial class BottomBarViewModel : ObservableObject
         finally
         {
             IsCommitting = false;
+        }
+    }
+
+    // --- Changes tab: recent commits ---
+
+    /// <summary>Clicking a commit's hash copies the full SHA-1 to the clipboard;
+    /// the row keeps showing the seven-char display form.</summary>
+    [RelayCommand]
+    private async Task CopyCommitHashAsync(GitCommitInfo? commit)
+    {
+        if (commit is null || string.IsNullOrEmpty(commit.Hash)) return;
+
+        if (Application.Current?.ApplicationLifetime
+            is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
+        {
+            // Avalonia 12: plain text goes through the data-transfer API (SetTextAsync is gone)
+            var transfer = new DataTransfer();
+            transfer.Add(DataTransferItem.CreateText(commit.Hash));
+            await window.Clipboard.SetDataAsync(transfer);
+            _notificationService.Show($"Copied {commit.ShortHash} to clipboard", NotificationKind.Success);
         }
     }
 
