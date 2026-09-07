@@ -1057,7 +1057,12 @@
                                                           name reads as its own column, apart from the
                                                           time at the row's right edge  -->
                                                     <ColumnDefinition Width="130" />
-                                                    <ColumnDefinition Width="Auto" />
+                                                    <!--  64 fixed: an Auto column here drifts per row (the
+                                                          rows are independent Grids — each sizes its own
+                                                          Auto to its own time), so the times' edges
+                                                          misalign; fixed width + right-aligned text keeps
+                                                          every row's time flush to the row's right edge  -->
+                                                    <ColumnDefinition Width="64" />
                                                 </Grid.ColumnDefinitions>
                                                 <!--  the hash is a quiet link: click copies the full SHA.
                                                       Left-pinned in its column — the button template would
@@ -1091,6 +1096,7 @@
                                                 <TextBlock
                                                     Grid.Column="3"
                                                     VerticalAlignment="Center"
+                                                    TextAlignment="Right"
                                                     Classes="subtle"
                                                     Text="{Binding RelativeTime}" />
                                             </Grid>
