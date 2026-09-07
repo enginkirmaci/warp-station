@@ -31,6 +31,22 @@
                 <x:Double x:Key="BranchTextBudget">188</x:Double>
         </UserControl.Resources>
 
+        <UserControl.Styles>
+                <!--
+                        The OpenCode quick-launch keeps the outlined-box look but in the
+                        plain foreground (white) instead of SukiUI's Outlined accent —
+                        the stock class paints border + content from compiled theme
+                        resources, so a white variant has to live here.
+                -->
+                <Style Selector="Button.outline-white">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource BodyForegroundBrush}" />
+                        <Setter Property="BorderThickness" Value="1" />
+                        <Setter Property="CornerRadius" Value="8" />
+                        <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+                </Style>
+        </UserControl.Styles>
+
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
                 <!--  Bottom margin 0: the bar's divider row owns the table↔bar gap (its
                       28px drag band centers the grip dots); the strip keeps its own
@@ -437,7 +453,7 @@
                                                                                                 Width="40"
                                                                                                 Height="40"
                                                                                                 Padding="0"
-                                                                                                Classes="Outlined"
+                                                                                                Classes="outline-white"
                                                                                                 Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 ToolTip.Tip="Launch one opencode instance with the default model">

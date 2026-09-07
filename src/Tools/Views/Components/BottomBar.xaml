@@ -161,12 +161,12 @@
               the dots) is the drag surface and resizes the expanded panel (the table
               above shrinks/grows to match). Visible whenever the bar is, so it always
               separates the table from the bar. The band is
-              28px and the dots sit dead-center (12.5 above / 12.5 below) — the page's
+              16px and the dots sit dead-center (6.5 above / 6.5 below) — the page's
               table margin no longer adds a top gap.  -->
         <Border
             Grid.Row="0"
             x:Name="PanelResizer"
-            Height="28"
+            Height="16"
             Background="Transparent"
             Cursor="SizeNorthSouth">
             <StackPanel
@@ -632,6 +632,50 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+
+                                            <!--  Azure DevOps pull requests preview  -->
+                                            <StackPanel IsVisible="{Binding HasAzurePullRequests}" Spacing="4">
+                                                <TextBlock
+                                                    Classes="field-label"
+                                                    Text="{Binding AzurePullRequests.Count, StringFormat='Azure DevOps ({0})'}" />
+                                                <ItemsControl ItemsSource="{Binding AzurePullRequestsPreview}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                                                            <Button
+                                                                Padding="4,5"
+                                                                Classes="bar-item"
+                                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="{Binding Url}">
+                                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                    <Grid
+                                                                        Grid.Column="0"
+                                                                        ColumnDefinitions="Auto,*"
+                                                                        ColumnSpacing="6">
+                                                                        <TextBlock
+                                                                            VerticalAlignment="Center"
+                                                                            FontWeight="SemiBold"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
+                                                                        <TextBlock
+                                                                            Grid.Column="1"
+                                                                            VerticalAlignment="Center"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Title}"
+                                                                            TextTrimming="CharacterEllipsis" />
+                                                                    </Grid>
+                                                                    <TextBlock
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Center"
+                                                                        Classes="subtle"
+                                                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                        Text="{Binding Author}" />
+                                                                </Grid>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>
@@ -718,6 +762,49 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+
+                                            <!--  Azure DevOps work items preview  -->
+                                            <StackPanel IsVisible="{Binding HasAzureWorkItems}" Spacing="4">
+                                                <TextBlock
+                                                    Classes="field-label"
+                                                    Text="{Binding AzureWorkItems.Count, StringFormat='Azure DevOps ({0})'}" />
+                                                <ItemsControl ItemsSource="{Binding AzureWorkItemsPreview}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                                                            <Button
+                                                                Padding="4,5"
+                                                                Classes="bar-item"
+                                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="{Binding Url}">
+                                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                    <Grid
+                                                                        Grid.Column="0"
+                                                                        ColumnDefinitions="Auto,*"
+                                                                        ColumnSpacing="6">
+                                                                        <TextBlock
+                                                                            VerticalAlignment="Center"
+                                                                            FontWeight="SemiBold"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
+                                                                        <TextBlock
+                                                                            Grid.Column="1"
+                                                                            VerticalAlignment="Center"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Title}"
+                                                                            TextTrimming="CharacterEllipsis" />
+                                                                    </Grid>
+                                                                    <TextBlock
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Center"
+                                                                        Classes="subtle"
+                                                                        Text="{Binding State}" />
+                                                                </Grid>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>
@@ -874,18 +961,18 @@
 
                 <!--
                     Changes tab (commit workspace, mockup): TOP — the branch dropdown +
-                    Fetch/last-fetched row (moved up from the old strip); LEFT — the
+                    Pull/Push/Fetch + last-fetched row (moved up from the old strip); LEFT — the
                     staged/unstaged tree as two sections, each with its own header (icon
                     + name + count + Stage All / Unstage All) and one row per file with
                     a status chip, per-side numstat and a + / − button; RIGHT — the
                     commit message box with the wand button and Commit; BOTTOM — the
-                    repo's recent commits, collapsed by default behind a header toggle.
+                    repo's history (recent commits), collapsed by default behind a header toggle.
                 -->
                 <DockPanel Grid.Row="1" IsVisible="{Binding IsActiveChanges}">
 
-                    <!--  Top toolbar: branch dropdown (pick to check out) + Fetch and
-                          last-fetched — moved up from the old bottom strip, which held
-                          nothing else and was removed with it.  -->
+                    <!--  Top toolbar: branch dropdown (pick to check out) + Pull/Push/
+                          Fetch and last-fetched — moved up from the old bottom strip,
+                          which held nothing else and was removed with it.  -->
                     <Grid
                         DockPanel.Dock="Top"
                         Margin="0,0,0,8"
@@ -932,8 +1019,8 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
 
-                        <!--  Fetch + last fetched (pinned right): outlined Fetch button
-                              with a cloud-download icon, then the status dot + relative
+                        <!--  Pull / Push / Fetch + last fetched (pinned right): plain
+                              buttons with arrow icons, then the status dot + relative
                               label.  -->
                         <StackPanel
                             Grid.Column="2"
@@ -941,7 +1028,29 @@
                             IsVisible="{Binding HasSelectedRepo}"
                             Orientation="Horizontal"
                             Spacing="10">
-                            <!--  Plain default button (Browse…-style native hover).  -->
+                            <!--  Plain default buttons (Browse…-style native hover).  -->
+                            <Button Command="{Binding PullCommand}" ToolTip.Tip="git pull for the selected repository">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Path
+                                        Width="13"
+                                        Height="13"
+                                        VerticalAlignment="Center"
+                                        Classes="icon"
+                                        Data="{tools:SvgPath icon-arrow-down}" />
+                                    <TextBlock VerticalAlignment="Center" Text="Pull" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding PushCommand}" ToolTip.Tip="git push for the selected repository">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Path
+                                        Width="13"
+                                        Height="13"
+                                        VerticalAlignment="Center"
+                                        Classes="icon"
+                                        Data="{tools:SvgPath icon-arrow-up}" />
+                                    <TextBlock VerticalAlignment="Center" Text="Push" />
+                                </StackPanel>
+                            </Button>
                             <Button Command="{Binding FetchCommand}" ToolTip.Tip="git fetch --prune for the selected repository">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Path
@@ -971,9 +1080,9 @@
                         </StackPanel>
                     </Grid>
 
-                    <!--  Bottom part: Recent Commits — collapsed by default; the header
-                          row is the toggle (chevron flips, hairline + list hide), and
-                          the history loads on first expand.  -->
+                    <!--  Bottom part: History (the repo's recent commits) — collapsed by
+                          default; the header row is the toggle (chevron flips, hairline +
+                          list hide), and the history loads on first expand.  -->
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Spacing="2">
                         <Border
                             Height="1"
@@ -984,7 +1093,7 @@
                             Padding="2,2,6,2"
                             Classes="bar-item"
                             Command="{Binding ToggleRecentCommitsCommand}"
-                            ToolTip.Tip="Show / hide this repository's recent commits">
+                            ToolTip.Tip="Show / hide this repository's history">
                             <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
                                 <Path
                                     Grid.Column="0"
@@ -998,7 +1107,7 @@
                                     Grid.Column="1"
                                     VerticalAlignment="Center"
                                     Classes="ov-card-title"
-                                    Text="Recent Commits" />
+                                    Text="History" />
                                 <!--  count only when expanded: collapsed, the list isn't
                                       loaded and "(0)" would read as "no commits"  -->
                                 <TextBlock
@@ -1030,14 +1139,15 @@
                             </Grid>
                         </Button>
                         <ScrollViewer
-                            MaxHeight="132"
+                            MaxHeight="220"
                             HorizontalScrollBarVisibility="Disabled"
                             VerticalScrollBarVisibility="Auto"
                             IsVisible="{Binding ShowRecentCommits}">
-                            <!--  Fixed hash/author columns: the rows are independent Grids,
-                                  so Auto columns would size per-row and author/time would
-                                  drift. Fixed widths (repo-table pattern) keep every row's
-                                  columns aligned; the subject star absorbs the slack.  -->
+                            <!--  One row per commit: initials avatar + two text lines
+                                  (subject, then the muted info line "author • time") with
+                                  the hash link and a chevron on the right — the hash sits
+                                  on the info line, so no cross-row columns exist and no
+                                  fixed-width alignment machinery is needed.  -->
                             <StackPanel Spacing="2" Margin="2,0,0,0">
                                 <TextBlock
                                     Margin="0,10"
@@ -1048,28 +1158,67 @@
                                 <ItemsControl ItemsSource="{Binding GitCommits}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitCommitInfo">
-                                            <Grid ColumnSpacing="10">
-                                                <Grid.ColumnDefinitions>
-                                                    <!--  56: seven hex chars of the mono ShortHash  -->
-                                                    <ColumnDefinition Width="56" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <!--  130: caps long author names; left-aligned so the
-                                                          name reads as its own column, apart from the
-                                                          time at the row's right edge  -->
-                                                    <ColumnDefinition Width="130" />
-                                                    <!--  64 fixed: an Auto column here drifts per row (the
-                                                          rows are independent Grids — each sizes its own
-                                                          Auto to its own time), so the times' edges
-                                                          misalign; fixed width + right-aligned text keeps
-                                                          every row's time flush to the row's right edge  -->
-                                                    <ColumnDefinition Width="64" />
-                                                </Grid.ColumnDefinitions>
-                                                <!--  the hash is a quiet link: click copies the full SHA.
-                                                      Left-pinned in its column — the button template would
-                                                      otherwise center the text in the 56px cell  -->
+                                            <Grid
+                                                Margin="0,4"
+                                                ColumnDefinitions="Auto,*,Auto,Auto"
+                                                ColumnSpacing="10"
+                                                RowDefinitions="Auto,Auto"
+                                                RowSpacing="3"
+                                                Tapped="OnHistoryRowTapped"
+                                                ToolTip.Tip="Open this commit's details">
+                                                <!--  Author-initials avatar: tinted circle (the
+                                                      tint is a nested layer so the initials
+                                                      keep full opacity).  -->
+                                                <Border
+                                                    Grid.RowSpan="2"
+                                                    Width="30"
+                                                    Height="30"
+                                                    VerticalAlignment="Center">
+                                                    <Grid>
+                                                        <Border
+                                                            Background="{DynamicResource MutedForegroundBrush}"
+                                                            CornerRadius="15"
+                                                            Opacity="0.24" />
+                                                        <TextBlock
+                                                            Classes="subtle"
+                                                            HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center"
+                                                            FontSize="11"
+                                                            FontWeight="SemiBold"
+                                                            Text="{Binding Initials}" />
+                                                    </Grid>
+                                                </Border>
+                                                <TextBlock
+                                                    Grid.Row="0"
+                                                    Grid.Column="1"
+                                                    Foreground="{DynamicResource BodyForegroundBrush}"
+                                                    Text="{Binding Subject}"
+                                                    MaxLines="2"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    TextWrapping="Wrap" />
+                                                <!--  The info line: author • relative time.  -->
+                                                <StackPanel
+                                                    Grid.Row="1"
+                                                    Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    Spacing="5">
+                                                    <TextBlock
+                                                        Classes="subtle"
+                                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                        Text="{Binding Author}" />
+                                                    <TextBlock
+                                                        Classes="subtle"
+                                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                        Text="•" />
+                                                    <TextBlock
+                                                        Classes="subtle"
+                                                        Text="{Binding RelativeTime}" />
+                                                </StackPanel>
+                                                <!--  the hash is a quiet link: click copies the full
+                                                      SHA; it rides the info line (Grid.Row 1)  -->
                                                 <Button
-                                                    Grid.Column="0"
-                                                    HorizontalAlignment="Left"
+                                                    Grid.Row="1"
+                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     Classes="detail-link"
                                                     Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).CopyCommitHashCommand}"
@@ -1077,28 +1226,19 @@
                                                     ToolTip.Tip="Copy commit hash">
                                                     <TextBlock
                                                         Classes="mono"
-                                                        Foreground="{DynamicResource AccentPrimaryBrush}"
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
                                                         Text="{Binding ShortHash}" />
                                                 </Button>
-                                                <TextBlock
-                                                    Grid.Column="1"
-                                                    VerticalAlignment="Center"
-                                                    Foreground="{DynamicResource BodyForegroundBrush}"
-                                                    Text="{Binding Subject}"
-                                                    TextTrimming="CharacterEllipsis" />
-                                                <TextBlock
-                                                    Grid.Column="2"
-                                                    VerticalAlignment="Center"
-                                                    Classes="subtle"
-                                                    TextTrimming="CharacterEllipsis"
-                                                    IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                    Text="{Binding Author}" />
-                                                <TextBlock
+                                                <!--  box sized to the chevron's ink aspect (12x7.4)  -->
+                                                <Path
+                                                    Grid.RowSpan="2"
                                                     Grid.Column="3"
+                                                    Width="12"
+                                                    Height="8"
                                                     VerticalAlignment="Center"
-                                                    TextAlignment="Right"
-                                                    Classes="subtle"
-                                                    Text="{Binding RelativeTime}" />
+                                                    Data="{tools:SvgPath icon-chevron-right}"
+                                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                                    Stretch="Uniform" />
                                             </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -1618,7 +1758,7 @@
                             Grid.Column="0"
                             VerticalAlignment="Center"
                             Classes="subtle"
-                            Text="{Binding GitHubPullRequests.Count, StringFormat='{}{0} open pull requests'}" />
+                            Text="{Binding OpenPullRequestCount, StringFormat='{}{0} open pull requests'}" />
                         <Button
                             Grid.Column="1"
                             VerticalAlignment="Center"
@@ -1766,6 +1906,61 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <!--  Azure DevOps pull requests, in the same tab as the GitHub list  -->
+                            <StackPanel IsVisible="{Binding HasAzurePullRequests}" Spacing="2">
+                                <TextBlock
+                                    Margin="0,10,0,0"
+                                    Classes="field-label"
+                                    Text="{Binding AzurePullRequests.Count, StringFormat='Azure DevOps Pull Requests ({0})'}" />
+                                <ItemsControl ItemsSource="{Binding AzurePullRequests}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                                            <Button
+                                                Classes="bar-item"
+                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip.Tip="{Binding Url}">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                                    <Path
+                                                        Grid.Column="0"
+                                                        Width="15"
+                                                        Height="15"
+                                                        VerticalAlignment="Center"
+                                                        Data="{tools:SvgPath icon-git-pull-request}"
+                                                        Fill="{DynamicResource PurpleAccentBrush}"
+                                                        Stretch="Uniform" />
+                                                    <Grid
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        ColumnDefinitions="Auto,*"
+                                                        ColumnSpacing="6">
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="13"
+                                                            FontWeight="SemiBold"
+                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                            Text="{Binding Number, StringFormat='#{0}'}" />
+                                                        <TextBlock
+                                                            Grid.Column="1"
+                                                            VerticalAlignment="Center"
+                                                            FontSize="13"
+                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                            Text="{Binding Title}"
+                                                            TextTrimming="CharacterEllipsis" />
+                                                    </Grid>
+                                                    <TextBlock
+                                                        Grid.Column="2"
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                        Text="{Binding Author}" />
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
@@ -1781,7 +1976,7 @@
                             Grid.Column="0"
                             VerticalAlignment="Center"
                             Classes="subtle"
-                            Text="{Binding GitHubIssues.Count, StringFormat='{}{0} open issues'}" />
+                            Text="{Binding OpenIssueCount, StringFormat='{}{0} open issues'}" />
                         <Button
                             Grid.Column="1"
                             VerticalAlignment="Center"
@@ -1907,6 +2102,67 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+
+                                            <!--  Azure DevOps work items, in the same tab as the GitHub list  -->
+                                            <StackPanel IsVisible="{Binding HasAzureWorkItems}" Spacing="2">
+                                                <TextBlock
+                                                    Margin="0,10,0,0"
+                                                    Classes="field-label"
+                                                    Text="{Binding AzureWorkItems.Count, StringFormat='Azure DevOps Work Items ({0})'}" />
+                                                <ItemsControl ItemsSource="{Binding AzureWorkItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                                                            <Button
+                                                                Classes="bar-item"
+                                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="{Binding Url}">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                                                    <Path
+                                                                        Grid.Column="0"
+                                                                        Width="15"
+                                                                        Height="15"
+                                                                        VerticalAlignment="Center"
+                                                                        Data="{tools:SvgPath icon-issue}"
+                                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                                        Stretch="Uniform" />
+                                                                    <Grid
+                                                                        Grid.Column="1"
+                                                                        VerticalAlignment="Center"
+                                                                        ColumnDefinitions="Auto,*"
+                                                                        ColumnSpacing="6">
+                                                                        <TextBlock
+                                                                            VerticalAlignment="Center"
+                                                                            FontSize="13"
+                                                                            FontWeight="SemiBold"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
+                                                                        <TextBlock
+                                                                            Grid.Column="1"
+                                                                            VerticalAlignment="Center"
+                                                                            FontSize="13"
+                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                            Text="{Binding Title}"
+                                                                            TextTrimming="CharacterEllipsis" />
+                                                                    </Grid>
+                                                                    <TextBlock
+                                                                        Grid.Column="2"
+                                                                        VerticalAlignment="Center"
+                                                                        Classes="subtle"
+                                                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                        Text="{Binding Author}" />
+                                                                    <TextBlock
+                                                                        Grid.Column="3"
+                                                                        VerticalAlignment="Center"
+                                                                        Classes="subtle"
+                                                                        IsVisible="{Binding State, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                                        Text="{Binding State}" />
+                                                                </Grid>
+                                                            </Button>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </DockPanel>

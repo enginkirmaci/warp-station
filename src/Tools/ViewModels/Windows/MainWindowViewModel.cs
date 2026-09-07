@@ -63,8 +63,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Whether the Clipboard Password tool may appear in the GUI. Mirrors the
-    /// HideFromGui setting used to filter the tools dropdown; when hidden the tool
-    /// stays reachable through its hotkey only.
+    /// EnableClipboardPassword setting used to filter the tools dropdown; when
+    /// disabled the tool stays reachable through its hotkey only.
     /// </summary>
     public bool ShowClipboardPassword { get; }
 
@@ -92,7 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
         // (Task.FromResult), so this never blocks on async work.
         var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
-        ShowClipboardPassword = appSettings.ClipboardPassword?.HideFromGui != true;
+        ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
 
         _toolDrawer.Changed += OnToolDrawerChanged;
 

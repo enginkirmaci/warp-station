@@ -40,6 +40,10 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IGitStatusService _gitStatusService;
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
+
+    /// <summary>Both provider services behind the common contract, so the settings'
+    /// Configure sweep is one loop (load and save).</summary>
+    private readonly IEnumerable<IRepoActivityService> _activityServices;
     private readonly IProcessLauncher _processLauncher;
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly INotificationService _notificationService;
@@ -123,7 +127,7 @@ public partial class ReposViewModel : PageViewModelBase
     // --- OpenCode panel (transient state) ---
 
     /// <summary>
-    /// Whether the OpenCode integration is enabled (mirrors <see cref="OpenCodeSettings.Enabled"/>).
+    /// Whether the OpenCode integration is enabled (mirrors <see cref="OpenCodeSettings.EnableOpenCode"/>).
     /// When false, the launch panel cannot open and all per-repo OpenCode UI is hidden.
     /// </summary>
     [ObservableProperty]
@@ -132,7 +136,7 @@ public partial class ReposViewModel : PageViewModelBase
     // --- GitHub column visibility ---
 
     /// <summary>
-    /// Whether the GitHub column shows (mirrors <see cref="ReposSettings.ShowGitHubColumn"/>).
+    /// Whether the GitHub column shows (mirrors <see cref="ReposSettings.EnableGitHub"/>).
     /// When false the whole column cell collapses — and the GitHub service is configured
     /// off too, so no <c>gh</c> processes are spawned for a column that is not visible.
     /// </summary>
@@ -204,7 +208,7 @@ public partial class ReposViewModel : PageViewModelBase
     // --- Azure DevOps column visibility ---
 
     /// <summary>
-    /// Whether the Azure DevOps column shows (mirrors <see cref="ReposSettings.ShowAzureDevOpsColumn"/>).
+    /// Whether the Azure DevOps column shows (mirrors <see cref="ReposSettings.EnableAzureDevOps"/>).
     /// When false the whole column cell collapses — and the Azure DevOps service is
     /// configured off too, so no REST calls are sent for a column that is not visible.
     /// </summary>
@@ -218,9 +222,9 @@ public partial class ReposViewModel : PageViewModelBase
     /// machine (see <see cref="ExecutableDefaults"/>): a button whose target is missing
     /// would spawn a terminal "command not found" or nothing at all, so it is hidden
     /// instead. Recomputed whenever settings load or are saved —
-    /// <see cref="RefreshShortcutAvailability"/>. Windows keeps the configured name
-    /// verbatim (CreateProcess resolves it), so there a configured executable is always
-    /// considered available and the buttons keep the pre-availability behavior.
+    /// <see cref="RefreshShortcutAvailability"/>. This includes Windows: bare names are
+    /// probed against PATH with the shell's PATHEXT extensions, so e.g. the zcode button
+    /// stays hidden on PCs without a zcode install.
     /// </summary>
     [ObservableProperty]
     private bool _hasTerminal;
@@ -278,6 +282,7 @@ public partial class ReposViewModel : PageViewModelBase
         IGitStatusService gitStatusService,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
+        IEnumerable<IRepoActivityService> activityServices,
         IProcessLauncher processLauncher,
         IOpenCodeModelService openCodeModelService,
         INotificationService notificationService,
@@ -290,6 +295,7 @@ public partial class ReposViewModel : PageViewModelBase
         _gitStatusService = gitStatusService;
         _gitHubService = gitHubService;
         _azureDevOpsService = azureDevOpsService;
+        _activityServices = activityServices;
         _processLauncher = processLauncher;
         _openCodeModelService = openCodeModelService;
         _notificationService = notificationService;
@@ -311,7 +317,7 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private void OnBottomBarOpenCodeStateChanged()
     {
-        _openCodeSettings.Enabled = _bottomBar.IsOpenCodeEnabled;
+        _openCodeSettings.EnableOpenCode = _bottomBar.IsOpenCodeEnabled;
         RefreshShortcutAvailability();
     }
 
@@ -352,16 +358,17 @@ public partial class ReposViewModel : PageViewModelBase
         // instance keeps the no-change path silent (no re-apply, no save round-trip);
         // a non-default mode raises the change here and re-orders the initial list.
         SelectedSortOption = SortOptions.FirstOrDefault(o => o.Mode == _reposSettings.SortMode) ?? SortOptions[0];
-        IsOpenCodeEnabled = _openCodeSettings.Enabled;
-        IsGitHubColumnVisible = _reposSettings.ShowGitHubColumn;
-        IsAzureDevOpsColumnVisible = _reposSettings.ShowAzureDevOpsColumn;
-        // Configure the GitHub service before loading repos: both the explicit kick below
-        // and the service's own scan-triggered refresh gate on this flag, so a disabled
-        // column never spawns gh even during the initial scan burst.
-        _gitHubService.Configure(_reposSettings);
-        // Same for the Azure DevOps service: the flag plus the configured token gate
-        // every REST call, so a disabled column sends no requests at all.
-        _azureDevOpsService.Configure(_reposSettings);
+        IsOpenCodeEnabled = _openCodeSettings.EnableOpenCode;
+        IsGitHubColumnVisible = _reposSettings.EnableGitHub;
+        IsAzureDevOpsColumnVisible = _reposSettings.EnableAzureDevOps;
+        // Configure the activity services before loading repos: the full-refresh kicks
+        // below and the services' own scan-triggered refreshes gate on these flags, so a
+        // disabled column never queries (gh spawns / REST calls) even during the
+        // initial scan burst.
+        foreach (var activityService in _activityServices)
+        {
+            activityService.Configure(_reposSettings);
+        }
         RefreshShortcutAvailability();
         await _repoService.EnsureLoadedAsync(_reposSettings);
         RebuildTagFilters();
@@ -871,7 +878,9 @@ public partial class ReposViewModel : PageViewModelBase
     /// default model (or the first model from the list when none is configured) — no options.
     /// The cached list answers instantly; on a cold start the CLI runs once and fills the
     /// cache. The default is read live from the bottom bar so a pick made there applies
-    /// immediately; the cached list always carries the default as its first entry.
+    /// immediately. The model list is only a fallback pool — its ordering is the catalog's,
+    /// never a preference, so the configured default is passed through directly rather than
+    /// read back as the list's first entry.
     /// </summary>
     [RelayCommand]
     private async Task QuickOpenOpenCodeAsync(Repo? repo)
@@ -883,11 +892,16 @@ public partial class ReposViewModel : PageViewModelBase
         if (models.Count == 0)
             models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, defaultModel);
 
+        var configured = defaultModel?.Trim();
+        var model = !string.IsNullOrEmpty(configured)
+            ? models.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase)) ?? configured
+            : models.FirstOrDefault() ?? string.Empty;
+
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null) return;
 
         var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
-        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, models.FirstOrDefault() ?? string.Empty, string.Empty);
+        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, string.Empty);
         var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
         _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
     }
@@ -1011,10 +1025,12 @@ public partial class ReposViewModel : PageViewModelBase
             await _settingsService.SaveSettingsAsync(settings);
 
             _reposSettings = edited;
-            IsGitHubColumnVisible = edited.ShowGitHubColumn;
-            _gitHubService.Configure(edited);
-            IsAzureDevOpsColumnVisible = edited.ShowAzureDevOpsColumn;
-            _azureDevOpsService.Configure(edited);
+            IsGitHubColumnVisible = edited.EnableGitHub;
+            IsAzureDevOpsColumnVisible = edited.EnableAzureDevOps;
+            foreach (var activityService in _activityServices)
+            {
+                activityService.Configure(edited);
+            }
             RefreshShortcutAvailability();
             // The bottom bar's tab visibility (GitHub/Azure) and OpenCode availability
             // follow the same save.

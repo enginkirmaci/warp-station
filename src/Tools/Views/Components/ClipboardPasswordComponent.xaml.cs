@@ -7,7 +7,7 @@ namespace Tools.Views.Components;
 /// <summary>
 /// Clipboard Password tool (store a password, paste via Ctrl+Shift+V), hosted in the
 /// main window's floating tool drawer. The tool itself can be hidden from the GUI via
-/// the HideFromGui setting; the drawer entry is filtered in the title-bar dropdown.
+/// the EnableClipboardPassword setting; the drawer entry is filtered in the title-bar dropdown.
 /// </summary>
 public partial class ClipboardPasswordComponent : UserControl
 {

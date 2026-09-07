@@ -12,7 +12,8 @@ namespace Tools.Library.Services.Abstractions;
 /// <para>
 /// Also backs the main window's bottom bar with per-repo actions: local branch listing
 /// and checkout, <c>git fetch</c> (which also stamps <see cref="Repo.GitLastFetchAt"/>),
-/// and the per-file change list for the Changes tab.
+/// <c>git pull</c>/<c>git push</c> of the checked-out branch, and the per-file change
+/// list for the Changes tab.
 /// </para>
 /// </summary>
 public interface IGitStatusService
@@ -56,6 +57,40 @@ public interface IGitStatusService
     /// failure (no network, missing credentials, timeout).
     /// </summary>
     Task<bool> FetchAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pulls the checked-out branch from its upstream (<c>git pull</c> — the user's
+    /// configured merge/rebase behavior applies) and refreshes the repo's status so the
+    /// ahead/behind counts update. Returns the outcome carrying git's actionable stderr
+    /// line on failure (diverged branches, conflicts, no network, timeout).
+    /// </summary>
+    Task<GitSyncResult> PullAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pushes the checked-out branch to its upstream (<c>git push</c>) and refreshes the
+    /// repo's status. Returns the outcome carrying git's actionable stderr line on
+    /// failure (no upstream, rejected non-fast-forward, missing credentials, timeout).
+    /// </summary>
+    Task<GitSyncResult> PushAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The full detail of one commit (<c>git show --numstat</c>): every changed file
+    /// with its added/deleted line counts. Returns an empty file list on any failure.
+    /// </summary>
+    Task<GitCommitDetails> GetCommitDetailsAsync(Repo repo, string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One commit's patch restricted to a single file (<c>git show &lt;hash&gt; -- &lt;path&gt;</c>),
+    /// for the History drawer's per-file expansion. Null on any failure.
+    /// </summary>
+    Task<string?> GetCommitFilePatchAsync(Repo repo, string hash, string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reverts one commit (<c>git revert --no-edit &lt;hash&gt;</c> — a new commit with
+    /// git's default message undoes the change) and refreshes the repo's status. Returns
+    /// false on any failure (conflict, dirty-tree stop, unresolvable commit).
+    /// </summary>
+    Task<bool> RevertCommitAsync(Repo repo, string hash, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lists the repo's working-tree changes file by file (modified, renamed, unmerged

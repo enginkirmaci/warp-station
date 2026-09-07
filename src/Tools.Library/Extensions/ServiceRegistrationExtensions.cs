@@ -32,12 +32,17 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IGitStatusService, GitStatusService>();
 
         // GitHub column: open pull requests/issues via the gh CLI (gated on the
-        // settings' Show GitHub column flag)
+        // settings' Enable GitHub flag)
         services.AddSingleton<IGitHubService, GitHubService>();
 
         // Azure DevOps column: pull requests / work items / pipeline runs via the REST
-        // API with a PAT (gated on the settings' Show Azure DevOps column flag + token)
+        // API with a PAT (gated on the settings' Enable Azure DevOps flag + token)
         services.AddSingleton<IAzureDevOpsService, AzureDevOpsService>();
+
+        // Both activity services behind their common contract, so consumers can
+        // configure them in one loop (the page does it on settings load and save)
+        services.AddSingleton<IRepoActivityService>(sp => sp.GetRequiredService<IGitHubService>());
+        services.AddSingleton<IRepoActivityService>(sp => sp.GetRequiredService<IAzureDevOpsService>());
 
         // Process launcher and DevTools client for IPC
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();

@@ -65,16 +65,19 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
     private string _zCodeExecutable = DefaultZCode;
 
     [ObservableProperty]
-    private bool _showGitHubColumn = true;
+    private bool _enableGitHub = true;
 
     [ObservableProperty]
     private string _gitHubExecutable = DefaultGitHub;
 
     [ObservableProperty]
-    private bool _showAzureDevOpsColumn = true;
+    private bool _enableAzureDevOps = true;
 
     [ObservableProperty]
     private string _azureDevOpsPat = string.Empty;
+
+    [ObservableProperty]
+    private string _azureDevOpsUrl = string.Empty;
 
     [ObservableProperty]
     private string _maxScanDepth = DefaultMaxScanDepth.ToString();
@@ -142,10 +145,11 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
             IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
             ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
-            ShowGitHubColumn = ShowGitHubColumn,
+            EnableGitHub = EnableGitHub,
             GitHubExecutable = WithDefault(GitHubExecutable, DefaultGitHub),
-            ShowAzureDevOpsColumn = ShowAzureDevOpsColumn,
+            EnableAzureDevOps = EnableAzureDevOps,
             AzureDevOpsPat = AzureDevOpsPat?.Trim() ?? string.Empty,
+            AzureDevOpsUrl = AzureDevOpsUrl?.Trim() ?? string.Empty,
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
         };
     }
@@ -169,10 +173,11 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
         IdeExecutable = settings.IdeExecutable ?? string.Empty;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
         ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
-        ShowGitHubColumn = settings.ShowGitHubColumn;
+        EnableGitHub = settings.EnableGitHub;
         GitHubExecutable = settings.GitHubExecutable ?? DefaultGitHub;
-        ShowAzureDevOpsColumn = settings.ShowAzureDevOpsColumn;
+        EnableAzureDevOps = settings.EnableAzureDevOps;
         AzureDevOpsPat = settings.AzureDevOpsPat ?? string.Empty;
+        AzureDevOpsUrl = settings.AzureDevOpsUrl ?? string.Empty;
         MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
     }
 

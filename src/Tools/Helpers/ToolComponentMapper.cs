@@ -20,6 +20,9 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the Repo Settings component (opened by DialogService).</summary>
     public const string RepoSettingsKey = "ReposSettingsDialog";
 
+    /// <summary>Drawer key of the History commit-detail component (opened by a History row click).</summary>
+    public const string CommitHistoryKey = "CommitHistoryDialog";
+
     private static readonly ToolDefinition[] _tools =
     [
         new ToolDefinition("NugetLocalPage", typeof(NugetLocalComponent), "NuGet Package Manager", "icon-package"),
@@ -31,6 +34,7 @@ public static class ToolComponentMapper
         // DialogService in place of the former modal windows.
         new ToolDefinition(AddRepositoriesKey, typeof(AddRepositoryComponent), "Add Repositories", "icon-plus"),
         new ToolDefinition(RepoSettingsKey, typeof(ReposSettingsComponent), "Repo Settings", "icon-cog"),
+        new ToolDefinition(CommitHistoryKey, typeof(CommitHistoryComponent), "History", "icon-clock"),
     ];
 
     /// <summary>All drawer-hostable tools in menu order.</summary>

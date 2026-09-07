@@ -5,11 +5,13 @@ using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
+using Tools.Helpers;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Formatters;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.ViewModels.Windows;
 using Tools.Services;
 using Tools.Services.Abstractions;
 
@@ -58,6 +60,7 @@ public partial class BottomBarViewModel : ObservableObject
     private readonly ICommitMessagePromptService _commitMessagePromptService;
     private readonly INotificationService _notificationService;
     private readonly IClipboardService _clipboardService;
+    private readonly IToolDrawerService _toolDrawerService;
 
     private ReposSettings _reposSettings = new();
     private OpenCodeSettings _openCodeSettings = new();
@@ -88,7 +91,8 @@ public partial class BottomBarViewModel : ObservableObject
         IOpenCodeGridLauncher openCodeGridLauncher,
         ICommitMessagePromptService commitMessagePromptService,
         INotificationService notificationService,
-        IClipboardService clipboardService)
+        IClipboardService clipboardService,
+        IToolDrawerService toolDrawerService)
     {
         _settingsService = settingsService;
         _repoService = repoService;
@@ -104,6 +108,7 @@ public partial class BottomBarViewModel : ObservableObject
         _commitMessagePromptService = commitMessagePromptService;
         _notificationService = notificationService;
         _clipboardService = clipboardService;
+        _toolDrawerService = toolDrawerService;
 
         _repoService.Changed += OnRepoServiceChanged;
         _ = InitializeAsync();
@@ -117,9 +122,9 @@ public partial class BottomBarViewModel : ObservableObject
             _reposSettings = settings.Repos ?? new ReposSettings();
             _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
 
-            IsGitHubEnabled = _reposSettings.ShowGitHubColumn;
-            IsAzureDevOpsEnabled = _reposSettings.ShowAzureDevOpsColumn;
-            IsOpenCodeEnabled = _openCodeSettings.Enabled;
+            IsGitHubEnabled = _reposSettings.EnableGitHub;
+            IsAzureDevOpsEnabled = _reposSettings.EnableAzureDevOps;
+            IsOpenCodeEnabled = _openCodeSettings.EnableOpenCode;
             OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
             RefreshOpenCodeAvailability();
 
@@ -155,6 +160,16 @@ public partial class BottomBarViewModel : ObservableObject
     {
         if (!ReferenceEquals(value, _observedRepo))
         {
+            // A rescan re-resolves the same repo to a fresh instance — not a switch.
+            // A real switch abandons the previous repo's staged set: an in-flight
+            // message generation for it is now pointless, and its message must not
+            // linger in the box where the next Commit would send it to the new repo.
+            if (!IsSameRepo(value, _observedRepo))
+            {
+                CancelCommitMessageGeneration();
+                CommitMessage = string.Empty;
+            }
+
             if (_observedRepo is not null)
             {
                 _observedRepo.PropertyChanged -= OnSelectedRepoPropertyChanged;
@@ -174,6 +189,8 @@ public partial class BottomBarViewModel : ObservableObject
             // CanExecute inputs the generator cannot hook (computed, not ObservableProperty).
             ResetOpenCodeTemplateCommand.NotifyCanExecuteChanged();
             FetchCommand.NotifyCanExecuteChanged();
+            PullCommand.NotifyCanExecuteChanged();
+            PushCommand.NotifyCanExecuteChanged();
             LaunchOpenCodeCommand.NotifyCanExecuteChanged();
         }
 
@@ -186,6 +203,17 @@ public partial class BottomBarViewModel : ObservableObject
     private Repo? _observedRepo;
 
     /// <summary>
+    /// Same repo across a rescan re-resolve (fresh instance, same folder) counts as
+    /// unchanged; only a genuine switch (different folder, or null) returns false.
+    /// </summary>
+    private static bool IsSameRepo(Repo? a, Repo? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return RepoPath.SamePath(a.FolderPath ?? string.Empty, b.FolderPath ?? string.Empty);
+    }
+
+    /// <summary>
     /// Forwards the selected repo's live git/GitHub counters onto the bar's computed
     /// bindings (tab badges, changes chip, last-fetched label). The git status service
     /// pushes these from background threads; Avalonia marshals the binding updates.
@@ -195,6 +223,8 @@ public partial class BottomBarViewModel : ObservableObject
         if (e.PropertyName is nameof(Repo.GitModifiedCount)
             or nameof(Repo.GitHubPrCount)
             or nameof(Repo.GitHubIssueCount)
+            or nameof(Repo.AzureDevOpsPrCount)
+            or nameof(Repo.AzureDevOpsWorkItemCount)
             or nameof(Repo.GitLastFetchAt)
             or nameof(Repo.GitBranchName)
             or nameof(Repo.GitHubRepoUrl))
@@ -224,11 +254,17 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool ShowChangesBadge => ChangesCount > 0;
 
-    public int PullRequestCount => SelectedRepo?.GitHubPrCount ?? 0;
+    /// <summary>Open pull requests of the selected repo (tab badge): GitHub plus Azure
+    /// DevOps — the Azure side is 0 while the column is disabled, since the service
+    /// never pushes counts then.</summary>
+    public int PullRequestCount => (SelectedRepo?.GitHubPrCount ?? 0)
+        + (SelectedRepo?.AzureDevOpsPrCount ?? 0);
 
     public bool ShowPullRequestBadge => PullRequestCount > 0;
 
-    public int IssueCount => SelectedRepo?.GitHubIssueCount ?? 0;
+    /// <summary>Open issues / work items of the selected repo (tab badge), same mix.</summary>
+    public int IssueCount => (SelectedRepo?.GitHubIssueCount ?? 0)
+        + (SelectedRepo?.AzureDevOpsWorkItemCount ?? 0);
 
     public bool ShowIssueBadge => IssueCount > 0;
 
@@ -363,8 +399,8 @@ public partial class BottomBarViewModel : ObservableObject
     public void ApplySettings(ReposSettings edited)
     {
         _reposSettings = edited;
-        IsGitHubEnabled = edited.ShowGitHubColumn;
-        IsAzureDevOpsEnabled = edited.ShowAzureDevOpsColumn;
+        IsGitHubEnabled = edited.EnableGitHub;
+        IsAzureDevOpsEnabled = edited.EnableAzureDevOps;
         RefreshOpenCodeAvailability();
     }
 
@@ -498,6 +534,7 @@ public partial class BottomBarViewModel : ObservableObject
             case BottomBarTab.PullRequests:
             case BottomBarTab.Issues:
                 _ = LoadGitHubAsync();
+                LoadAzureForSharedTabs();
                 break;
             case BottomBarTab.Azure:
                 _ = LoadAzureAsync();
@@ -525,6 +562,27 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>True while a fetch is running; disables the Fetch button.</summary>
     [ObservableProperty]
     private bool _isFetching;
+
+    /// <summary>True while a pull is running; disables the Pull button.</summary>
+    [ObservableProperty]
+    private bool _isPulling;
+
+    /// <summary>True while a push is running; disables the Push button.</summary>
+    [ObservableProperty]
+    private bool _isPushing;
+
+    /// <summary>Pull and push exclude each other — concurrent syncs of one repo interleave badly.</summary>
+    partial void OnIsPullingChanged(bool value)
+    {
+        PullCommand.NotifyCanExecuteChanged();
+        PushCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsPushingChanged(bool value)
+    {
+        PullCommand.NotifyCanExecuteChanged();
+        PushCommand.NotifyCanExecuteChanged();
+    }
 
     /// <summary>
     /// The branch dropdown is active: picking a branch checks it out in the selected
@@ -654,6 +712,65 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     private bool CanFetch() => !IsFetching && HasSelectedRepo;
+
+    [RelayCommand(CanExecute = nameof(CanPull))]
+    private async Task PullAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo is null) return;
+
+        IsPulling = true;
+        try
+        {
+            var result = await _gitStatusService.PullAsync(repo);
+            if (result.Success)
+            {
+                _notificationService.Show($"Pulled {repo.Name}", NotificationKind.Success);
+                SyncBranchSelection(repo);
+            }
+            else
+            {
+                _notificationService.Show(
+                    result.Error is { } error ? $"Pull failed for {repo.Name}: {error}" : $"Pull failed for {repo.Name}",
+                    NotificationKind.Error);
+            }
+        }
+        finally
+        {
+            IsPulling = false;
+        }
+    }
+
+    private bool CanPull() => !IsPulling && !IsPushing && HasSelectedRepo;
+
+    [RelayCommand(CanExecute = nameof(CanPush))]
+    private async Task PushAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo is null) return;
+
+        IsPushing = true;
+        try
+        {
+            var result = await _gitStatusService.PushAsync(repo);
+            if (result.Success)
+            {
+                _notificationService.Show($"Pushed {repo.Name}", NotificationKind.Success);
+            }
+            else
+            {
+                _notificationService.Show(
+                    result.Error is { } error ? $"Push failed for {repo.Name}: {error}" : $"Push failed for {repo.Name}",
+                    NotificationKind.Error);
+            }
+        }
+        finally
+        {
+            IsPushing = false;
+        }
+    }
+
+    private bool CanPush() => !IsPulling && !IsPushing && HasSelectedRepo;
 
     // --- Changes tab ---
 
@@ -955,7 +1072,25 @@ public partial class BottomBarViewModel : ObservableObject
         {
             if (message.Length == 0)
             {
-                var generated = await TryGenerateCommitMessageAsync();
+                var token = BeginCommitMessageGeneration();
+                string? generated;
+                try
+                {
+                    generated = await TryGenerateCommitMessageAsync(token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Repo switch or app shutdown mid-generation: abort quietly, the
+                    // opencode child is already dead and repo's box must stay clean.
+                    return;
+                }
+                finally
+                {
+                    EndCommitMessageGeneration();
+                }
+
+                if (!IsSameRepo(SelectedRepo, repo)) return; // repo switched while generating
+
                 if (generated is null)
                 {
                     _notificationService.Show("Could not generate a commit message", NotificationKind.Error);
@@ -1005,11 +1140,53 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    // --- Changes tab: commit-message wand ---
+    /// <summary>
+    /// Opens the History drawer on a clicked commit: subject, actions (checkout /
+    /// revert / copy SHA), the per-file change list and the web jump. The drawer
+    /// receives this bar's selected repo together with the clicked row's commit.
+    /// </summary>
+    [RelayCommand]
+    private void OpenCommitDetail(GitCommitInfo? commit)
+    {
+        var repo = SelectedRepo;
+        if (commit is null || repo is null) return;
+        _toolDrawerService.Open(ToolComponentMapper.CommitHistoryKey, new CommitHistoryContext(repo, commit));
+    }
 
+    // --- Changes tab: commit-message wand ---
     /// <summary>True while opencode writes the message; disables the wand button.</summary>
     [ObservableProperty]
     private bool _isGeneratingMessage;
+
+    /// <summary>
+    /// The in-flight message generation. The token rides into the run service, whose
+    /// kill-on-cancel handler terminates the opencode process tree the moment it fires —
+    /// on a repo switch (<see cref="OnSelectedRepoChanged"/>) or app shutdown, the CLI
+    /// must not keep running in the background.
+    /// </summary>
+    private CancellationTokenSource? _commitMessageCts;
+
+    /// <summary>Cancels any in-flight message generation. Safe to call anytime.</summary>
+    public void CancelCommitMessageGeneration()
+    {
+        try { _commitMessageCts?.Cancel(); }
+        catch (ObjectDisposedException) { /* the owning command already tore it down */ }
+    }
+
+    /// <summary>Supersedes any stray previous source and opens a new cancellation scope.</summary>
+    private CancellationToken BeginCommitMessageGeneration()
+    {
+        CancelCommitMessageGeneration();
+        _commitMessageCts?.Dispose();
+        _commitMessageCts = new CancellationTokenSource();
+        return _commitMessageCts.Token;
+    }
+
+    private void EndCommitMessageGeneration()
+    {
+        _commitMessageCts?.Dispose();
+        _commitMessageCts = null;
+    }
 
     /// <summary>Upper bound on the staged diff fed to the model, so the prompt stays sane.</summary>
     private const int MaxPromptPatchLength = 8000;
@@ -1037,12 +1214,15 @@ public partial class BottomBarViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanGenerateCommitMessage))]
     private async Task GenerateCommitMessageAsync()
     {
-        if (SelectedRepo?.FolderPath is null) return;
+        var repo = SelectedRepo;
+        if (repo?.FolderPath is null) return;
 
+        var token = BeginCommitMessageGeneration();
         IsGeneratingMessage = true;
         try
         {
-            var message = await TryGenerateCommitMessageAsync();
+            var message = await TryGenerateCommitMessageAsync(token);
+            if (!IsSameRepo(SelectedRepo, repo)) return; // repo switched while generating
             if (message is null)
             {
                 _notificationService.Show(
@@ -1053,8 +1233,14 @@ public partial class BottomBarViewModel : ObservableObject
 
             CommitMessage = message;
         }
+        catch (OperationCanceledException)
+        {
+            // Repo switch or app shutdown: the opencode child is already dead, the
+            // box must stay untouched — drop the run without an error toast.
+        }
         finally
         {
+            EndCommitMessageGeneration();
             IsGeneratingMessage = false;
         }
     }
@@ -1066,35 +1252,42 @@ public partial class BottomBarViewModel : ObservableObject
     /// when nothing is staged, the CLI fails, or nothing usable came back. The caller
     /// reports the failure.
     /// </summary>
-    private async Task<string?> TryGenerateCommitMessageAsync()
+    private async Task<string?> TryGenerateCommitMessageAsync(CancellationToken cancellationToken)
     {
         var repo = SelectedRepo;
         if (repo?.FolderPath is null) return null;
 
+        // Snapshot the prompt inputs before the first await: a repo switch mid-run
+        // reloads StagedFiles/GitCommits for the new repo, and the prompt must not end
+        // up mixing the old diff with the new repo's file list and tone context.
+        var stagedPaths = StagedFiles.Select(f => f.Path).ToArray();
+        var recentSubjects = GitCommits.Take(5).Select(c => c.Subject).ToArray();
+
         var patch = await _gitStatusService.GetStagedPatchAsync(repo);
         if (string.IsNullOrWhiteSpace(patch)) return null;
 
-        var prompt = BuildCommitMessagePrompt(patch);
+        var prompt = BuildCommitMessagePrompt(patch, stagedPaths, recentSubjects);
         var answer = await _openCodeRunService.RunAsync(
-            _reposSettings.OpenCodeExecutable, ResolveWandModel(), prompt);
+            _reposSettings.OpenCodeExecutable, ResolveWandModel(), prompt, cancellationToken);
         return CleanGeneratedMessage(answer);
     }
 
     /// <summary>
     /// Builds the wand's prompt: fills the user-editable template's placeholders with
     /// the staged file list, the (truncated) staged diff, and the repo's recent commit
-    /// subjects as free-form context (tone reference).
+    /// subjects as free-form context (tone reference). All three inputs are snapshots
+    /// taken before the run started, never the live collections.
     /// </summary>
-    private string BuildCommitMessagePrompt(string patch)
+    private string BuildCommitMessagePrompt(string patch, string[] stagedPaths, string[] recentSubjects)
     {
         if (patch.Length > MaxPromptPatchLength)
         {
             patch = patch[..MaxPromptPatchLength] + "\n… (diff truncated)";
         }
 
-        var fileList = string.Join(", ", StagedFiles.Select(f => f.Path));
-        var context = GitCommits.Count > 0
-            ? "Recent commit subjects for tone:\n" + string.Join('\n', GitCommits.Take(5).Select(c => c.Subject))
+        var fileList = string.Join(", ", stagedPaths);
+        var context = recentSubjects.Length > 0
+            ? "Recent commit subjects for tone:\n" + string.Join('\n', recentSubjects)
             : string.Empty;
         return _commitMessagePromptService.BuildPrompt(fileList, patch, context);
     }
@@ -1279,11 +1472,25 @@ public partial class BottomBarViewModel : ObservableObject
 
     public IEnumerable<GitHubItem> GitHubIssuesPreview => GitHubIssues.Take(5);
 
+    /// <summary>Tab header totals: GitHub items plus the Azure DevOps ones shown in the
+    /// same tabs' Azure sections.</summary>
+    public int OpenPullRequestCount => GitHubPullRequests.Count + AzurePullRequests.Count;
+
+    public int OpenIssueCount => GitHubIssues.Count + AzureWorkItems.Count;
+
     partial void OnGitHubPullRequestsChanged(ObservableCollection<GitHubItem> value)
-        => OnPropertyChanged(nameof(GitHubPullRequestsPreview));
+    {
+        OnPropertyChanged(nameof(GitHubPullRequestsPreview));
+        OnPropertyChanged(nameof(OpenPullRequestCount));
+        OnPropertyChanged(nameof(ShowPullRequestsEmpty));
+    }
 
     partial void OnGitHubIssuesChanged(ObservableCollection<GitHubItem> value)
-        => OnPropertyChanged(nameof(GitHubIssuesPreview));
+    {
+        OnPropertyChanged(nameof(GitHubIssuesPreview));
+        OnPropertyChanged(nameof(OpenIssueCount));
+        OnPropertyChanged(nameof(ShowIssuesEmpty));
+    }
 
     [ObservableProperty]
     private bool _isGitHubRefreshing;
@@ -1294,8 +1501,15 @@ public partial class BottomBarViewModel : ObservableObject
     [ObservableProperty]
     private bool _gitHubIsUnavailable;
 
-    public bool ShowPullRequestsEmpty => GitHubHasLoaded && !GitHubIsUnavailable && GitHubPullRequests.Count == 0;
-    public bool ShowIssuesEmpty => GitHubHasLoaded && !GitHubIsUnavailable && GitHubIssues.Count == 0;
+    /// <summary>Empty only when the GitHub list is empty AND the Azure section has
+    /// nothing to show either (settled: loaded, or the column being off) — otherwise
+    /// the note would sit above live Azure rows.</summary>
+    public bool ShowPullRequestsEmpty => GitHubHasLoaded && !GitHubIsUnavailable && GitHubPullRequests.Count == 0
+        && (!IsAzureDevOpsEnabled || (AzureHasLoaded && !HasAzurePullRequests));
+
+    public bool ShowIssuesEmpty => GitHubHasLoaded && !GitHubIsUnavailable && GitHubIssues.Count == 0
+        && (!IsAzureDevOpsEnabled || (AzureHasLoaded && !HasAzureWorkItems));
+
     public bool ShowGitHubUnavailable => GitHubHasLoaded && GitHubIsUnavailable;
 
     private async Task LoadGitHubAsync()
@@ -1425,6 +1639,27 @@ public partial class BottomBarViewModel : ObservableObject
     public bool HasAzurePullRequests => AzurePullRequests.Count > 0;
     public bool HasAzureWorkItems => AzureWorkItems.Count > 0;
     public bool HasAzurePipelineRuns => AzurePipelineRuns.Count > 0;
+
+    /// <summary>First three Azure items for the Overview cards' Azure sections.</summary>
+    public IEnumerable<AzureDevOpsItem> AzurePullRequestsPreview => AzurePullRequests.Take(3);
+
+    public IEnumerable<AzureDevOpsItem> AzureWorkItemsPreview => AzureWorkItems.Take(3);
+
+    partial void OnAzurePullRequestsChanged(ObservableCollection<AzureDevOpsItem> value)
+    {
+        OnPropertyChanged(nameof(HasAzurePullRequests));
+        OnPropertyChanged(nameof(AzurePullRequestsPreview));
+        OnPropertyChanged(nameof(OpenPullRequestCount));
+        OnPropertyChanged(nameof(ShowPullRequestsEmpty));
+    }
+
+    partial void OnAzureWorkItemsChanged(ObservableCollection<AzureDevOpsItem> value)
+    {
+        OnPropertyChanged(nameof(HasAzureWorkItems));
+        OnPropertyChanged(nameof(AzureWorkItemsPreview));
+        OnPropertyChanged(nameof(OpenIssueCount));
+        OnPropertyChanged(nameof(ShowIssuesEmpty));
+    }
     public bool ShowAzureEmpty => AzureHasLoaded && !AzureIsUnavailable
         && AzurePullRequests.Count == 0 && AzureWorkItems.Count == 0 && AzurePipelineRuns.Count == 0;
     public bool ShowAzureUnavailable => AzureHasLoaded && AzureIsUnavailable
@@ -1438,6 +1673,15 @@ public partial class BottomBarViewModel : ObservableObject
             AzurePullRequests.Clear();
             AzureWorkItems.Clear();
             AzurePipelineRuns.Clear();
+            OnPropertyChanged(nameof(HasAzurePullRequests));
+            OnPropertyChanged(nameof(HasAzureWorkItems));
+            OnPropertyChanged(nameof(HasAzurePipelineRuns));
+            OnPropertyChanged(nameof(AzurePullRequestsPreview));
+            OnPropertyChanged(nameof(AzureWorkItemsPreview));
+            OnPropertyChanged(nameof(OpenPullRequestCount));
+            OnPropertyChanged(nameof(OpenIssueCount));
+            OnPropertyChanged(nameof(ShowPullRequestsEmpty));
+            OnPropertyChanged(nameof(ShowIssuesEmpty));
             RaisePipelineStatus();
             return;
         }
@@ -1451,11 +1695,24 @@ public partial class BottomBarViewModel : ObservableObject
         await RefreshAzureAsync();
     }
 
+    /// <summary>
+    /// Kicks the Azure load alongside the GitHub tabs so their Azure sections fill even
+    /// when the tab was entered without passing Overview. No-op while the Azure column
+    /// is off or a load is already running (the running one writes the same collections).
+    /// </summary>
+    private void LoadAzureForSharedTabs()
+    {
+        if (IsAzureDevOpsEnabled && !IsAzureRefreshing)
+        {
+            _ = LoadAzureAsync();
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanRefreshAzure))]
     private async Task RefreshAzureAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null || IsAzureRefreshing) return;
 
         IsAzureRefreshing = true;
         try
@@ -1526,7 +1783,7 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>
     /// Whether the OpenCode integration is enabled (mirrors and persists
-    /// <see cref="OpenCodeSettings.Enabled"/> — previously settings.json-only). Toggling
+    /// <see cref="OpenCodeSettings.EnableOpenCode"/> — previously settings.json-only). Toggling
     /// it here is live: the per-row buttons re-evaluate via <see cref="OpenCodeStateChanged"/>.
     /// </summary>
     [ObservableProperty]
@@ -1544,9 +1801,9 @@ public partial class BottomBarViewModel : ObservableObject
 
     partial void OnIsOpenCodeEnabledChanged(bool value)
     {
-        _openCodeSettings.Enabled = value;
+        _openCodeSettings.EnableOpenCode = value;
         RefreshOpenCodeAvailability();
-        _ = PersistOpenCodeSettingAsync(s => s.OpenCode.Enabled = value);
+        _ = PersistOpenCodeSettingAsync(s => s.OpenCode.EnableOpenCode = value);
         OpenCodeStateChanged?.Invoke();
     }
 
@@ -2060,20 +2317,22 @@ public partial class BottomBarViewModel : ObservableObject
         _ = LoadChangesTabAsync();
     }
 
-    /// <summary>Opens the Pull Requests tab.</summary>
+    /// <summary>Opens the Pull Requests tab (GitHub list plus the Azure DevOps section).</summary>
     public void OpenPullRequests(Repo? repo = null)
     {
         SetTargetRepo(repo);
         ActiveTab = BottomBarTab.PullRequests;
         _ = LoadGitHubAsync();
+        LoadAzureForSharedTabs();
     }
 
-    /// <summary>Opens the Issues tab.</summary>
+    /// <summary>Opens the Issues tab (GitHub list plus the Azure work items section).</summary>
     public void OpenIssues(Repo? repo = null)
     {
         SetTargetRepo(repo);
         ActiveTab = BottomBarTab.Issues;
         _ = LoadGitHubAsync();
+        LoadAzureForSharedTabs();
     }
 
     /// <summary>Opens the Azure DevOps tab.</summary>

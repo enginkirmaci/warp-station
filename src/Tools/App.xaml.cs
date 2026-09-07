@@ -119,6 +119,7 @@ public partial class App : Application
         // Drawer-hosted dialogs (opened by DialogService instead of modal windows)
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
         RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
+        RegisterPageWithViewModel<CommitHistoryComponent, CommitHistoryViewModel>(services);
     }
 
     private static void RegisterPageWithViewModel<TPage, TViewModel>(IServiceCollection services)
@@ -157,6 +158,10 @@ public partial class App : Application
         var services = Host.Services;
         try
         {
+            // Cancelling makes the run service kill the opencode process tree on this
+            // thread — without it a mid-generation CLI outlives the closed app.
+            services.GetRequiredService<ViewModels.Components.BottomBarViewModel>()
+                .CancelCommitMessageGeneration();
             services.GetRequiredService<ISnapItService>().Stop();
             services.GetRequiredService<INugetLocalService>().Stop();
         }

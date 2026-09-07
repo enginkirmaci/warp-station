@@ -107,11 +107,12 @@ public class OpenCodeModelService : IOpenCodeModelService
     }
 
     /// <summary>
-    /// Ensures the configured default model is present in <paramref name="models"/>,
-    /// prepending it when missing (case-insensitive compare against the CLI's own casing)
-    /// so the default is the first entry — the preselection and every FirstOrDefault
-    /// fallback resolve to it. Returns <paramref name="models"/> unchanged when no default
-    /// is configured or it is already listed.
+    /// Ensures the configured default model is the FIRST entry of <paramref name="models"/>:
+    /// prepended when missing, rotated to the front when already listed further down (a cache
+    /// written before the default was picked would otherwise leave it buried and every
+    /// FirstOrDefault fallback would resolve to the catalog's own first entry). Matched
+    /// case-insensitively against the CLI's own casing. Returns <paramref name="models"/>
+    /// unchanged when no default is configured or it already leads the list.
     /// </summary>
     private static IReadOnlyList<string> MergeDefaultModel(IReadOnlyList<string> models, string? defaultModel)
     {
@@ -119,12 +120,33 @@ public class OpenCodeModelService : IOpenCodeModelService
         if (string.IsNullOrEmpty(model))
             return models;
 
-        if (models.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase)))
+        var index = -1;
+        for (var i = 0; i < models.Count; i++)
+        {
+            if (string.Equals(models[i], model, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            var merged = new List<string>(models.Count + 1) { model };
+            merged.AddRange(models);
+            return merged;
+        }
+
+        if (index == 0)
             return models;
 
-        var merged = new List<string>(models.Count + 1) { model };
-        merged.AddRange(models);
-        return merged;
+        var reordered = new List<string>(models.Count) { models[index] };
+        for (var i = 0; i < models.Count; i++)
+        {
+            if (i != index)
+                reordered.Add(models[i]);
+        }
+        return reordered;
     }
 
     /// <summary>Best-effort write of the model cache; never throws.</summary>

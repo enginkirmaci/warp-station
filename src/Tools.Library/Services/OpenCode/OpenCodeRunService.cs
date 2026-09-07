@@ -62,14 +62,26 @@ public class OpenCodeRunService : IOpenCodeRunService
             process.Start();
             process.StandardInput.Close();
 
+            // Killing on cancel must not depend on an async continuation noticing the
+            // token: the Register callback fires synchronously on whichever thread
+            // cancels (app shutdown, repo switch), so the Electron child — and the
+            // workers it spawns — dies even if this await never resumes again.
+            using var killOnCancel = cancellationToken.Register(
+                static p => { try { ((Process)p!).Kill(entireProcessTree: true); } catch { /* already exited */ } },
+                process);
+
             // stderr must be drained even when only stdout is used: an undrained pipe
             // fills, the child blocks writing its progress, and the run "times out".
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            // No token here: the drain has to survive teardown until the kill closes
+            // the pipes.
+            var outputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+            var errorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
             var completed = await Task.WhenAny(outputTask, errorTask, Task.Delay(CliTimeout, cancellationToken));
             if (completed != outputTask && completed != errorTask)
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                // A cancelled delay also lands here; surface it as cancellation (the
+                // kill already happened via killOnCancel) instead of a timeout.
+                await completed;
                 Log.Logger.Warning("OpenCodeRunService: '{Exe} run' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
                 return null;
             }

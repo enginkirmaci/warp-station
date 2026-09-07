@@ -18,20 +18,16 @@ namespace Tools.Library.Services;
 /// dialog. Results are pushed onto the <see cref="Repo"/> entities from background
 /// threads, exactly like <see cref="GitStatusService"/>.
 /// <para>
-/// All work is gated on <see cref="IsEnabled"/> (the settings' "Show GitHub column"
-/// flag): a disabled service spawns no processes at all, so hiding the column also
-/// stops the loading. A refresh is additionally kicked automatically when
-/// <see cref="IRepoService"/> raises <c>Changed</c> outside of a scan, mirroring the
-/// git status service.
+/// All work is gated on <see cref="IRepoActivityService.IsEnabled"/> (the settings'
+/// "Enable GitHub" flag plus a resolvable gh): a disabled service spawns no processes
+/// at all, so hiding the column also stops the loading — the gating, refresh
+/// coalescing and disabled-service guard come from <see cref="RepoActivityServiceBase{TActivity}"/>.
 /// </para>
 /// </summary>
-public sealed class GitHubService : IGitHubService
+public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGitHubService
 {
     /// <summary>Upper bound for a single gh invocation; a hung network call must not stall the pass.</summary>
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(20);
-
-    /// <summary>How many repos are probed concurrently; keeps API traffic polite.</summary>
-    private const int MaxParallelism = 3;
 
     /// <summary>Caps each list fetch (and therefore the chip counts).</summary>
     private const int ItemLimit = 50;
@@ -40,49 +36,34 @@ public sealed class GitHubService : IGitHubService
     private const string PrFields = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision,updatedAt";
     private const string IssueFields = "number,title,url,author,labels,updatedAt";
 
-    private readonly IRepoService _repoService;
-
-    /// <summary>Guards <see cref="_isRefreshing"/>/<see cref="_refreshPending"/>.</summary>
-    private readonly object _sync = new();
-
-    /// <summary>True while a refresh pass loop is running.</summary>
-    private bool _isRefreshing;
-
-    /// <summary>Set when a refresh is requested while one is running; runs another pass after.</summary>
-    private bool _refreshPending;
-
     /// <summary>Set once <c>gh</c> is missing; subsequent refreshes become no-ops.</summary>
     private volatile bool _ghUnavailable;
 
-    /// <summary>Volatile snapshot of the last Configure call (the VM reconfigures per navigation).</summary>
-    private volatile bool _enabled;
-
     /// <summary>Absolute gh path resolved at Configure time; <c>null</c> when not resolvable.</summary>
     private volatile string? _ghPath;
-
-    /// <summary>Last fetched item lists per repo folder, backing the details dialog's instant open.</summary>
-    private readonly ConcurrentDictionary<string, GitHubActivity> _activityByFolder = new(StringComparer.Ordinal);
 
     /// <summary>Static repo metadata per repo folder, backing the Overview sidebar's instant open.</summary>
     private readonly ConcurrentDictionary<string, GitHubRepoDetails?> _detailsByFolder = new(StringComparer.Ordinal);
 
     public GitHubService(IRepoService repoService)
+        : base(repoService)
     {
-        _repoService = repoService;
-        _repoService.Changed += OnRepoServiceChanged;
     }
 
-    /// <inheritdoc/>
-    public bool IsEnabled => _enabled && _ghPath is not null && !_ghUnavailable;
+    /// <summary>A disabled GitHub service means the column flag is off, gh is not
+    /// resolvable, or gh vanished between Configure and a spawn.</summary>
+    protected override bool IsProviderReady => _ghPath is not null && !_ghUnavailable;
 
-    /// <inheritdoc/>
-    public void Configure(ReposSettings settings)
+    protected override bool ResolveColumnFlag(ReposSettings settings) => settings.EnableGitHub;
+
+    protected override string ServiceName => "GitHub";
+
+    protected override void ConfigureProvider(ReposSettings settings)
     {
-        _enabled = settings.ShowGitHubColumn;
         // Resolve like every other configurable CLI: bare names walk PATH plus the
         // user-level bin directories a GUI session's PATH misses (memoized per name).
         _ghPath = ExecutableDefaults.Locate(settings.GitHubExecutable);
-        if (_enabled && _ghPath is null)
+        if (ColumnEnabled && _ghPath is null)
         {
             Log.Logger.Warning(
                 "GitHub column enabled but the gh CLI could not be located ({Configured}); set the GitHub CLI executable in Repos settings",
@@ -90,97 +71,16 @@ public sealed class GitHubService : IGitHubService
         }
     }
 
-    /// <summary>
-    /// Re-checks GitHub activity when fresh repo data arrives (cache load, completed
-    /// rescan). Skipped while a scan is in flight — the completion notification follows
-    /// right after — and while the column is disabled.
-    /// </summary>
-    private void OnRepoServiceChanged(object? sender, EventArgs e)
-    {
-        if (!_enabled || _repoService.IsBusy || _repoService.Repos.Count == 0) return;
-        _ = RefreshAllAsync();
-    }
+    /// <inheritdoc/>
+    protected override Task FetchRepoAsync(Repo repo, CancellationToken cancellationToken)
+        => RefreshRepoAsync(repo, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
-    {
-        if (!IsEnabled) return;
+    public Task<GitHubActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default)
+        => FetchGuardedAsync(repo, GitHubActivity.Empty, ct => RefreshRepoCoreAsync(repo, ct), cancellationToken);
 
-        // Coalesce concurrent triggers exactly like GitStatusService: while a pass runs,
-        // callers just flag a follow-up pass, and the loop drains pending flags.
-        lock (_sync)
-        {
-            if (_isRefreshing)
-            {
-                _refreshPending = true;
-                return;
-            }
-            _isRefreshing = true;
-        }
-
-        try
-        {
-            while (true)
-            {
-                lock (_sync)
-                {
-                    _refreshPending = false;
-                }
-
-                await RefreshCoreAsync(cancellationToken);
-
-                lock (_sync)
-                {
-                    if (!_refreshPending || cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-        finally
-        {
-            lock (_sync)
-            {
-                _isRefreshing = false;
-            }
-        }
-    }
-
-    private async Task RefreshCoreAsync(CancellationToken cancellationToken)
-    {
-        // Snapshot the list: a rescan may swap RepoService.Repos mid-refresh. Probing a
-        // repo that has since been removed is harmless — its entity is simply orphaned.
-        var repos = _repoService.Repos
-            .Where(r => !string.IsNullOrWhiteSpace(r.FolderPath))
-            .ToList();
-        if (repos.Count == 0) return;
-
-        try
-        {
-            using var throttle = new SemaphoreSlim(MaxParallelism);
-            var tasks = repos.Select(async repo =>
-            {
-                await throttle.WaitAsync(cancellationToken);
-                try
-                {
-                    await RefreshRepoAsync(repo, cancellationToken);
-                }
-                finally
-                {
-                    throttle.Release();
-                }
-            });
-            await Task.WhenAll(tasks);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Log.Logger.Debug(ex, "GitHub activity refresh pass failed");
-        }
-    }
-
-    /// <inheritdoc/>
-    public async Task<GitHubActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default)
+    /// <summary>The gh queries themselves; only run while the service is enabled.</summary>
+    private async Task<GitHubActivity> RefreshRepoCoreAsync(Repo repo, CancellationToken cancellationToken)
     {
         var ghPath = _ghPath;
         if (ghPath is null || repo.FolderPath is null)
@@ -219,10 +119,7 @@ public sealed class GitHubService : IGitHubService
             repo.GitHubLoaded = true;
 
             var activity = new GitHubActivity(pullRequests, issues);
-            if (repo.FolderPath is not null)
-            {
-                _activityByFolder[repo.FolderPath] = activity;
-            }
+            StoreActivity(repo, activity);
             return activity;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -234,10 +131,7 @@ public sealed class GitHubService : IGitHubService
     }
 
     /// <inheritdoc/>
-    public GitHubActivity? GetCachedActivity(Repo repo)
-        => repo.FolderPath is { } folder && _activityByFolder.TryGetValue(folder, out var activity)
-            ? activity
-            : null;
+    public GitHubActivity? GetCachedActivity(Repo repo) => CachedActivity(repo);
 
     /// <inheritdoc/>
     public async Task<GitHubRepoDetails?> GetRepoDetailsAsync(Repo repo, CancellationToken cancellationToken = default)
@@ -282,7 +176,7 @@ public sealed class GitHubService : IGitHubService
         }
     }
 
-    private static void MarkUnavailable(Repo repo)
+    protected override void MarkUnavailable(Repo repo)
     {
         repo.GitHubRepoUrl = null;
         repo.GitHubPrCount = 0;

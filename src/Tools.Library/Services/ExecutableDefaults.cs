@@ -152,11 +152,13 @@ public static class ExecutableDefaults
 
     /// <summary>
     /// Locates an executable for direct spawning. Paths (containing a separator) are
-    /// returned verbatim; bare names on Windows are left for CreateProcess to resolve
-    /// against PATH/PATHEXT; bare names on other platforms are resolved to an absolute
-    /// path by searching PATH plus the user-level bin directories rc files usually add,
-    /// and finally AppImage installs (desktop-entry integration, then common folders) —
-    /// an AppImage never appears on PATH as a bare executable.
+    /// returned verbatim; bare names are resolved against the machine so callers can
+    /// hide actions whose target is not installed: on Linux a bare name is searched in
+    /// PATH plus the user-level bin directories rc files usually add, and finally
+    /// AppImage installs (desktop-entry integration, then common folders) — an AppImage
+    /// never appears on PATH as a bare executable; on Windows the PATH directories are
+    /// probed with the shell's <c>PATHEXT</c> extensions (npm-style CLIs install as
+    /// <c>.cmd</c> shims). Returns null when a bare name could not be found anywhere.
     /// </summary>
     /// <param name="executable">The configured executable name or path.</param>
     /// <returns>The executable to spawn, or null when a bare name could not be found.</returns>
@@ -173,12 +175,59 @@ public static class ExecutableDefaults
             return trimmed;
         }
 
-        if (OperatingSystem.IsWindows())
+        return LocatedByName.GetOrAdd(trimmed, static name => OperatingSystem.IsWindows()
+            ? FindOnWindowsPath(name)
+            : FindExecutableFile(name) ?? FindAppImage(name));
+    }
+
+    /// <summary>
+    /// Windows counterpart of the Linux PATH probe: walks the PATH directories trying
+    /// the bare name plus every <c>PATHEXT</c> extension (defaulting to
+    /// <c>.com/.exe/.bat/.cmd</c> when the variable is unset) and returns the first
+    /// existing match, so an uninstalled tool resolves to null and its launch buttons
+    /// hide instead of spawning a failed process.
+    /// </summary>
+    private static string? FindOnWindowsPath(string name)
+    {
+        var extensions = GetWindowsPathExtensions();
+
+        foreach (var directory in EnumerateSearchDirectories())
         {
-            return trimmed;
+            foreach (var extension in extensions)
+            {
+                var candidate = Path.Combine(directory, name + extension);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
         }
 
-        return LocatedByName.GetOrAdd(trimmed, static name => FindExecutableFile(name) ?? FindAppImage(name));
+        return null;
+    }
+
+    /// <summary>The shell's resolvable extensions: the bare name itself, then PATHEXT
+    /// (or the standard default when unset/corrupt).</summary>
+    private static string[] GetWindowsPathExtensions()
+    {
+        // The empty extension first: covers a configured name that already carries its
+        // extension ("zcode.exe") without doubling it.
+        var extensions = new List<string> { string.Empty };
+        var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+        if (string.IsNullOrWhiteSpace(pathExt))
+        {
+            pathExt = ".com;.exe;.bat;.cmd";
+        }
+
+        foreach (var extension in pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (extension.Length > 0)
+            {
+                extensions.Add(extension.StartsWith('.') ? extension : $".{extension}");
+            }
+        }
+
+        return extensions.ToArray();
     }
 
     /// <summary>First-run probe of the well-known terminals, memoized for the process.</summary>

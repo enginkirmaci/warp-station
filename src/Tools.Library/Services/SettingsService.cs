@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
@@ -100,6 +101,7 @@ public class SettingsService : ISettingsService
             if (File.Exists(_settingsFilePath))
             {
                 var json = File.ReadAllText(_settingsFilePath);
+                json = MigrateLegacyEnableKeys(json);
                 _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json, ReadOptions) ?? new AppSettings();
                 _cachedSettingsJson = json;
             }
@@ -131,6 +133,56 @@ public class SettingsService : ISettingsService
         settings.SnapIt ??= new SnapItSettings();
         settings.OpenCode ??= new OpenCodeSettings();
         settings.General ??= new GeneralSettings();
+    }
+
+    /// <summary>
+    /// Maps the legacy per-tool toggle keys to the uniform <c>Enable&lt;Tool&gt;</c>
+    /// scheme (2026-09): <c>Repos.ShowGitHubColumn</c> → <c>Repos.EnableGitHub</c>,
+    /// <c>Repos.ShowAzureDevOpsColumn</c> → <c>Repos.EnableAzureDevOps</c>,
+    /// <c>OpenCode.Enabled</c> → <c>OpenCode.EnableOpenCode</c>, and the INVERTED
+    /// <c>ClipboardPassword.HideFromGui</c> → <c>ClipboardPassword.EnableClipboardPassword</c>
+    /// (!). Each mapping applies only when the new key is absent from the file, so a file
+    /// already carrying the new names (or a deliberate override) is untouched. Legacy
+    /// keys stay in the file until the next save rewrites it from the model. Runs on the
+    /// raw JSON so the parse cache and the model stay consistent; never throws.
+    /// </summary>
+    private static string MigrateLegacyEnableKeys(string json)
+    {
+        try
+        {
+            var node = JsonNode.Parse(json);
+            if (node is null)
+            {
+                return json;
+            }
+
+            CopyLegacyBool(node["Repos"], "ShowGitHubColumn", "EnableGitHub", inverted: false);
+            CopyLegacyBool(node["Repos"], "ShowAzureDevOpsColumn", "EnableAzureDevOps", inverted: false);
+            CopyLegacyBool(node["OpenCode"], "Enabled", "EnableOpenCode", inverted: false);
+            CopyLegacyBool(node["ClipboardPassword"], "HideFromGui", "EnableClipboardPassword", inverted: true);
+            return node.ToJsonString();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "settings.json legacy enable-key migration failed; continuing with the file as-is");
+            return json;
+        }
+    }
+
+    /// <summary>
+    /// Copies a legacy bool to its new name (optionally inverted), unless the new key
+    /// already exists. Does nothing when the section or the legacy key is missing.
+    /// </summary>
+    private static void CopyLegacyBool(JsonNode? section, string legacyName, string newName, bool inverted)
+    {
+        var legacy = section?[legacyName];
+        if (legacy is null || section![newName] is not null)
+        {
+            return;
+        }
+
+        var value = legacy.GetValue<bool>();
+        section[newName] = inverted ? !value : value;
     }
 
     /// <summary>

@@ -125,12 +125,12 @@ public class ReposSettings
     public string? ZCodeExecutable { get; set; } = "zcode";
 
     /// <summary>
-    /// Gets or sets a value indicating whether the GitHub column is shown on the Repos
-    /// page. When <see langword="false"/> the column is hidden <em>and</em> the <c>gh</c>
+    /// Gets or sets a value indicating whether the GitHub integration is enabled. When
+    /// <see langword="false"/> the GitHub column/tab is hidden <em>and</em> the <c>gh</c>
     /// CLI is never queried, so disabling it costs nothing at runtime. Defaults to
     /// <see langword="true"/>.
     /// </summary>
-    public bool ShowGitHubColumn { get; set; } = true;
+    public bool EnableGitHub { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the GitHub CLI (<c>gh</c>) executable path or command used to query
@@ -139,13 +139,13 @@ public class ReposSettings
     public string? GitHubExecutable { get; set; } = "gh";
 
     /// <summary>
-    /// Gets or sets a value indicating whether the Azure DevOps column is shown on the
-    /// Repos page. When <see langword="false"/> the column is hidden <em>and</em> the
-    /// Azure DevOps REST API is never called, so disabling it costs nothing at runtime.
+    /// Gets or sets a value indicating whether the Azure DevOps integration is enabled.
+    /// When <see langword="false"/> the column/tab is hidden <em>and</em> the Azure
+    /// DevOps REST API is never called, so disabling it costs nothing at runtime.
     /// Defaults to <see langword="true"/> (a column without a configured token stays
     /// empty rather than probing).
     /// </summary>
-    public bool ShowAzureDevOpsColumn { get; set; } = true;
+    public bool EnableAzureDevOps { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the Azure DevOps personal access token (PAT) used to query open pull
@@ -155,6 +155,15 @@ public class ReposSettings
     /// environment variables are consulted instead.
     /// </summary>
     public string? AzureDevOpsPat { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the base URL of a company-hosted Azure DevOps Server, e.g.
+    /// <c>https://devops.company.com</c> or <c>https://tfs.company.com/tfs</c>. Git
+    /// remotes under this host are recognized in addition to the public hosts
+    /// (<c>dev.azure.com</c>, <c>*.visualstudio.com</c>) and the REST API is called
+    /// against it. When empty, only the public hosts are matched.
+    /// </summary>
+    public string? AzureDevOpsUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the folders to exclude during scanning.
@@ -188,7 +197,7 @@ public class OpenCodeSettings
     /// OpenCode UI is hidden. Defaults to <see langword="false"/> (hidden). Configured
     /// manually via settings.json.
     /// </summary>
-    public bool Enabled { get; set; }
+    public bool EnableOpenCode { get; set; }
 
     /// <summary>
     /// Gets or sets the model id (<c>provider/model-id</c>, as printed by
@@ -221,12 +230,14 @@ public class ClipboardPasswordSettings
     public string? EncryptedPassword { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the Clipboard Password tool should be
-    /// hidden from the tools dropdown. When hidden, the stored password can still be
-    /// pasted via the Ctrl+Shift+V hotkey; only the GUI entry points are concealed.
-    /// Configured manually via settings.json.
+    /// Gets or sets a value indicating whether the Clipboard Password tool is enabled
+    /// (surfaced in the tools dropdown). When <see langword="false"/>, the stored
+    /// password can still be pasted via the Ctrl+Shift+V hotkey; only the GUI entry
+    /// points are concealed. Defaults to <see langword="false"/> (hidden). Configured
+    /// manually via settings.json. (Generalized from the legacy INVERTED
+    /// <c>HideFromGui</c> key; the loader migrates it.)
     /// </summary>
-    public bool HideFromGui { get; set; } = true;
+    public bool EnableClipboardPassword { get; set; }
 }
 
 /// <summary>

@@ -30,6 +30,12 @@ public sealed class GitStatusService : IGitStatusService
     /// <summary>Upper bound for a single git invocation; a hung repo must not stall the rest.</summary>
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Upper bound for pull/push: network transfers grow with the payload, unlike the
+    /// local probes the 10 s bound is tuned for.
+    /// </summary>
+    private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(60);
+
     /// <summary>How many repos are probed concurrently; keeps process storms off the UI machine.</summary>
     private const int MaxParallelism = 4;
 
@@ -216,6 +222,106 @@ public sealed class GitStatusService : IGitStatusService
         if (ok)
         {
             repo.GitLastFetchAt = DateTimeOffset.Now;
+            await RefreshRepoAsync(repo, cancellationToken);
+        }
+        return ok;
+    }
+
+    /// <inheritdoc/>
+    public async Task<GitSyncResult> PullAsync(Repo repo, CancellationToken cancellationToken = default)
+        => await SyncAsync(repo, "pull", cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<GitSyncResult> PushAsync(Repo repo, CancellationToken cancellationToken = default)
+        => await SyncAsync(repo, "push", cancellationToken);
+
+    /// <summary>
+    /// Runs one network sync command (pull/push) in the repo and refreshes its status
+    /// on success. Unlike the local git calls, a sync's failure reason matters to the
+    /// user (no upstream, rejected non-fast-forward, conflicts…), so stderr is captured
+    /// and summarized into the result. Transfers can legitimately run past the 10 s
+    /// probe timeout, so syncs get their own longer bound.
+    /// </summary>
+    private async Task<GitSyncResult> SyncAsync(Repo repo, string command, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
+
+        var stderr = new List<string>();
+        var output = await RunGitAsync(repo.FolderPath, command, cancellationToken, SyncTimeout, stderr);
+        if (output is not null)
+        {
+            await RefreshRepoAsync(repo, cancellationToken);
+            return GitSyncResult.Ok();
+        }
+
+        return new GitSyncResult(false, SummarizeSyncError(stderr));
+    }
+
+    /// <summary>
+    /// Picks the actionable line from git's stderr for a sync failure — the first
+    /// fatal/error/conflict/rejection line, falling back to the last non-empty line
+    /// (transfer chatter like "From origin" would otherwise fill the notification).
+    /// </summary>
+    private static string? SummarizeSyncError(List<string> lines)
+    {
+        string? fallback = null;
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (line.StartsWith("fatal: ", StringComparison.Ordinal)
+                || line.StartsWith("error: ", StringComparison.Ordinal)
+                || line.StartsWith("CONFLICT", StringComparison.Ordinal)
+                || line.StartsWith("! [", StringComparison.Ordinal))
+            {
+                return line;
+            }
+            fallback = line;
+        }
+        return fallback;
+    }
+
+    /// <inheritdoc/>
+    public async Task<GitCommitDetails> GetCommitDetailsAsync(Repo repo, string hash, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash))
+        {
+            return new GitCommitDetails(hash ?? string.Empty, Array.Empty<GitChangedFile>());
+        }
+
+        // "--format=" drops the commit header, leaving just "added\tdeleted\tpath"
+        // numstat lines (a rename's path renders as "old => new" — ParseNumstat takes
+        // the resolved tail, which is also the path the patch command needs).
+        var output = await RunGitAsync(repo.FolderPath, $"show --numstat --format= {Quote(hash)}", cancellationToken);
+        var counts = ParseNumstat(output);
+        var files = counts
+            .Select(entry => new GitChangedFile(entry.Key, string.Empty, entry.Value.Additions, entry.Value.Deletions))
+            .ToList();
+        return new GitCommitDetails(hash, files);
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> GetCommitFilePatchAsync(Repo repo, string hash, string path, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        return await RunGitAsync(
+            repo.FolderPath,
+            $"show --format= {Quote(hash)} -- {Quote(path)}",
+            cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> RevertCommitAsync(Repo repo, string hash, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash)) return false;
+
+        var ok = await RunGitAsync(repo.FolderPath, $"revert --no-edit {Quote(hash)}", cancellationToken) is not null;
+        if (ok)
+        {
             await RefreshRepoAsync(repo, cancellationToken);
         }
         return ok;
@@ -610,7 +716,12 @@ public sealed class GitStatusService : IGitStatusService
     /// not taken (<c>--no-optional-locks</c>) so probing never interferes with the user's
     /// own git operations.
     /// </summary>
-    private async Task<string?> RunGitAsync(string workingDir, string arguments, CancellationToken cancellationToken)
+    private async Task<string?> RunGitAsync(
+        string workingDir,
+        string arguments,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null,
+        ICollection<string>? stderrSink = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -641,7 +752,7 @@ public sealed class GitStatusService : IGitStatusService
         }
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(ProcessTimeout);
+        timeoutCts.CancelAfter(timeout ?? ProcessTimeout);
 
         try
         {
@@ -649,6 +760,13 @@ public sealed class GitStatusService : IGitStatusService
             var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
             await process.WaitForExitAsync(timeoutCts.Token);
             await Task.WhenAll(stdoutTask, stderrTask);
+            if (process.ExitCode != 0 && stderrSink is not null)
+            {
+                foreach (var line in stderrTask.Result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    stderrSink.Add(line);
+                }
+            }
             return process.ExitCode == 0 ? stdoutTask.Result : null;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

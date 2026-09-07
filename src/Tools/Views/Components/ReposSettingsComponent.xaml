@@ -152,7 +152,7 @@
                         <TextBlock Classes="card-title" Text="Columns" />
                         <CheckBox
                             Content="Show GitHub column"
-                            IsChecked="{Binding ShowGitHubColumn, Mode=TwoWay}"
+                            IsChecked="{Binding EnableGitHub, Mode=TwoWay}"
                             ToolTip.Tip="Show the GitHub column on the Repos page (uses the gh CLI)" />
                         <StackPanel Spacing="4">
                             <TextBlock
@@ -160,28 +160,38 @@
                                 Text="GitHub CLI Executable"
                                 ToolTip.Tip="Path or command for the gh CLI (GitHub column)" />
                             <TextBox
-                                IsEnabled="{Binding ShowGitHubColumn}"
+                                IsEnabled="{Binding EnableGitHub}"
                                 Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
                                 Watermark="gh" />
                         </StackPanel>
                         <CheckBox
                             Content="Show Azure DevOps column"
-                            IsChecked="{Binding ShowAzureDevOpsColumn, Mode=TwoWay}"
+                            IsChecked="{Binding EnableAzureDevOps, Mode=TwoWay}"
                             ToolTip.Tip="Show the Azure DevOps column on the Repos page" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Azure DevOps URL"
+                                ToolTip.Tip="Custom server URL, e.g. https://devops.company.com (empty = public)" />
+                            <TextBox
+                                IsEnabled="{Binding EnableAzureDevOps}"
+                                Text="{Binding AzureDevOpsUrl, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="https://devops.company.com/DefaultCollection" />
+                        </StackPanel>
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"
                                 Text="Azure DevOps Token"
                                 ToolTip.Tip="Azure DevOps PAT; empty = AZURE_DEVOPS_PAT env variable" />
                             <TextBox
-                                IsEnabled="{Binding ShowAzureDevOpsColumn}"
+                                IsEnabled="{Binding EnableAzureDevOps}"
                                 PasswordChar="•"
                                 Text="{Binding AzureDevOpsPat, UpdateSourceTrigger=PropertyChanged}"
                                 Watermark="personal access token" />
                         </StackPanel>
                         <TextBlock
                             Classes="subtle"
-                            Text="Repos are matched to Azure DevOps by their git remote; query the REST API with a personal access token (Build/Code/Work Items read scopes). Falls back to the AZURE_DEVOPS_PAT environment variable when empty."
+                            Text="Repos are matched to Azure DevOps by their git remote; query the REST API with a personal access token (Build/Code/Work Items read scopes). Company-hosted servers are matched too when a custom server URL is set. Falls back to the AZURE_DEVOPS_PAT environment variable when empty."
                             TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>

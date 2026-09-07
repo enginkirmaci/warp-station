@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    History commit-detail drawer component: opened by clicking a History row in the
+    Changes tab. Shows the clicked commit's subject, hash/author/time, the actions
+    (checkout, revert, copy SHA), the per-file changed list with expandable per-file
+    patches, and the "View Full Diff" jump to the commit's GitHub/Azure DevOps page.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.CommitHistoryComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Windows"
+    d:DesignHeight="620"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:CommitHistoryViewModel"
+    mc:Ignorable="d">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,4,16,12" Spacing="12">
+
+                <!--  Back link: returns from the commit detail to the History list  -->
+                <Button
+                    HorizontalAlignment="Left"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Classes="detail-link"
+                    Command="{Binding CloseCommand}"
+                    ToolTip.Tip="Back to the history list">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Path
+                            Width="12"
+                            Height="12"
+                            VerticalAlignment="Center"
+                            Data="{tools:SvgPath icon-arrow-left}"
+                            Fill="{Binding $parent[Button].Foreground}"
+                            Stretch="Uniform" />
+                        <TextBlock VerticalAlignment="Center" Text="History" />
+                    </StackPanel>
+                </Button>
+
+                <!--  Subject + meta line  -->
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        FontSize="15"
+                        FontWeight="SemiBold"
+                        Foreground="{DynamicResource BodyForegroundBrush}"
+                        Text="{Binding Commit.Subject}"
+                        TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <TextBlock Classes="mono" Classes.subtle="True" Text="{Binding Commit.ShortHash}" />
+                        <TextBlock Classes="subtle" Text="·" />
+                        <TextBlock
+                            Classes="subtle"
+                            IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                            Text="{Binding Commit.Author}" />
+                        <TextBlock
+                            Classes="subtle"
+                            IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                            Text="·" />
+                        <TextBlock Classes="subtle" Text="{Binding Commit.RelativeTime}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!--  Actions  -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button
+                        Command="{Binding CheckoutCommand}"
+                        Content="Checkout"
+                        IsEnabled="{Binding !IsBusy}"
+                        ToolTip.Tip="Check out this commit (detached HEAD)" />
+                    <Button
+                        Command="{Binding RevertCommand}"
+                        Content="Revert"
+                        IsEnabled="{Binding !IsBusy}"
+                        ToolTip.Tip="Revert this commit (a new commit undoes it)" />
+                    <Button
+                        Command="{Binding CopyShaCommand}"
+                        Content="Copy SHA"
+                        ToolTip.Tip="Copy the full commit hash" />
+                </StackPanel>
+
+                <!--  Files-changed summary  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="card-title" Text="Changes" />
+                        <TextBlock
+                            Classes="subtle"
+                            IsVisible="{Binding IsLoading}"
+                            Text="Loading files…" />
+                        <Grid
+                            ColumnDefinitions="*,Auto,Auto"
+                            ColumnSpacing="8"
+                            IsVisible="{Binding !IsLoading}">
+                            <TextBlock
+                                Grid.Column="0"
+                                Classes="subtle"
+                                Text="{Binding FilesChangedText}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                Classes="mono"
+                                Foreground="{DynamicResource AddedCountBrush}"
+                                IsVisible="{Binding TotalAdditions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                Text="{Binding TotalAdditions, StringFormat='+{0}'}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Classes="mono"
+                                Foreground="{DynamicResource RemovedCountBrush}"
+                                IsVisible="{Binding TotalDeletions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                Text="{Binding TotalDeletions, StringFormat='−{0}'}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!--  Per-file list with expandable patches  -->
+                <ItemsControl ItemsSource="{Binding Files}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CommitFileRowViewModel">
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Button
+                                        Grid.Column="0"
+                                        Padding="2,2,2,2"
+                                        VerticalAlignment="Center"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Command="{Binding ToggleCommand}"
+                                        ToolTip.Tip="Show / hide this file's patch">
+                                        <!--  boxes sized to the chevron's ink aspect (12x7.4)  -->
+                                        <Panel>
+                                            <Path
+                                                Width="12"
+                                                Height="8"
+                                                HorizontalAlignment="Center"
+                                                Data="{tools:SvgPath icon-chevron-right}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                IsVisible="{Binding !IsExpanded}"
+                                                Stretch="Uniform" />
+                                            <Path
+                                                Width="12"
+                                                Height="8"
+                                                HorizontalAlignment="Center"
+                                                Data="{tools:SvgPath icon-chevron-down}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                IsVisible="{Binding IsExpanded}"
+                                                Stretch="Uniform" />
+                                        </Panel>
+                                    </Button>
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Classes="mono"
+                                        Classes.subtle="True"
+                                        Text="{Binding Path}"
+                                        TextTrimming="CharacterEllipsis"
+                                        ToolTip.Tip="{Binding Path}" />
+                                    <StackPanel
+                                        Grid.Column="2"
+                                        HorizontalAlignment="Right"
+                                        Orientation="Horizontal"
+                                        Spacing="4">
+                                        <Border
+                                            Padding="6,1"
+                                            Background="{DynamicResource AddedCountChipBrush}"
+                                            CornerRadius="{DynamicResource ChipRadius}"
+                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                            <TextBlock
+                                                Classes="mono"
+                                                Foreground="{DynamicResource AddedCountBrush}"
+                                                Text="{Binding AddedText}" />
+                                        </Border>
+                                        <Border
+                                            Padding="6,1"
+                                            Background="{DynamicResource RemovedCountChipBrush}"
+                                            CornerRadius="{DynamicResource ChipRadius}"
+                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                            <TextBlock
+                                                Classes="mono"
+                                                Foreground="{DynamicResource RemovedCountBrush}"
+                                                Text="{Binding RemovedText}" />
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                                <!--  Expanded per-file patch  -->
+                                <StackPanel
+                                    Grid.Column="0"
+                                    Margin="20,0,0,0"
+                                    IsVisible="{Binding IsExpanded}">
+                                    <TextBox
+                                        Classes="mono"
+                                        Height="180"
+                                        HorizontalContentAlignment="Left"
+                                        IsReadOnly="True"
+                                        PlaceholderText="Patch unavailable"
+                                        Text="{Binding Patch, Mode=OneWay}"
+                                        TextWrapping="NoWrap"
+                                        VerticalContentAlignment="Top"
+                                        IsVisible="{Binding !IsLoadingPatch}" />
+                                    <TextBlock
+                                        Classes="subtle"
+                                        IsVisible="{Binding IsLoadingPatch}"
+                                        Text="Loading patch…" />
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock
+                    Classes="subtle"
+                    HorizontalAlignment="Center"
+                    IsVisible="{Binding ShowNoFilesNote}"
+                    Text="No file changes reported for this commit" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  Footer: jump to the commit's web page (GitHub or Azure DevOps)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16,8,16,12"
+            IsVisible="{Binding HasWebUrl}">
+            <Button HorizontalAlignment="Right" Command="{Binding OpenFullDiffCommand}" Content="View Full Diff" />
+        </Border>
+    </Grid>
+</UserControl>

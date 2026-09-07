@@ -191,7 +191,7 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<!--  Hidden along with the tool itself when HideFromGui is set  -->
+					<!--  Hidden along with the tool itself when the tool is disabled  -->
 					<MenuItem
 						Command="{Binding OpenToolCommand}"
 						CommandParameter="ClipboardPasswordPage"

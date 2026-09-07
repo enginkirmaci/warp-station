@@ -8,6 +8,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Tools.Library.Entities;
 using Tools.ViewModels.Components;
 
 namespace Tools.Views.Components;
@@ -89,6 +90,27 @@ public partial class BottomBar : UserControl
         if (e.AddedItems.Count > 0 && e.AddedItems[0] is string branch && ViewModel is { } vm)
         {
             vm.SelectedBranch = branch;
+        }
+    }
+
+    /// <summary>
+    /// A History row was tapped: open the commit-detail drawer on that commit. Taps on
+    /// the row's hash Button are skipped — that button's own command (copy the full
+    /// SHA) should not also open the drawer.
+    /// </summary>
+    private void OnHistoryRowTapped(object? sender, TappedEventArgs e)
+    {
+        for (StyledElement? source = e.Source as StyledElement; source is not null; source = source.Parent)
+        {
+            if (source is Button)
+            {
+                return;
+            }
+        }
+
+        if (sender is Control { DataContext: GitCommitInfo commit } && ViewModel is { } vm)
+        {
+            vm.OpenCommitDetailCommand.Execute(commit);
         }
     }
 }

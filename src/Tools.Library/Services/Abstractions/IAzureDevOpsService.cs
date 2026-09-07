@@ -10,40 +10,17 @@ namespace Tools.Library.Services.Abstractions;
 /// API with the configured personal access token, push the active pull-request, open
 /// work-item and latest-pipeline-run summary onto the <see cref="Repo"/> entities'
 /// runtime-only properties, and cache the fetched lists so the details dialog can open
-/// instantly.
+/// instantly. The shared enable/refresh contract comes from
+/// <see cref="IRepoActivityService"/>.
 /// </summary>
-public interface IAzureDevOpsService
+public interface IAzureDevOpsService : IRepoActivityService
 {
-    /// <summary>
-    /// Whether Azure DevOps querying is currently enabled (the column flag via
-    /// <see cref="Configure"/> <em>and</em> a usable token). When
-    /// <see langword="false"/>, all refreshes no-op — the column shows nothing and no
-    /// request is ever sent.
-    /// </summary>
-    bool IsEnabled { get; }
-
-    /// <summary>
-    /// Applies the current repo settings: the column's enabled flag and the configured
-    /// personal access token. Called by the page whenever settings load or are saved.
-    /// </summary>
-    void Configure(Configuration.ReposSettings settings);
-
-    /// <summary>
-    /// Refreshes the Azure DevOps activity of every known repo in the background.
-    /// Re-entrant: concurrent calls are coalesced the same way
-    /// <c>IGitStatusService</c> coalesces refreshes. Never throws; repos whose probe
-    /// fails are marked loaded and unavailable so the column cell settles to its empty
-    /// state. No-op (and sends nothing) while <see cref="IsEnabled"/> is
-    /// <see langword="false"/>.
-    /// </summary>
-    Task RefreshAllAsync(CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Re-probes a single repo and returns its open pull requests, open work items and
     /// recent pipeline runs (also pushed onto the <see cref="Repo"/> entity and cached).
     /// Used by the details dialog's Refresh button and as the per-repo worker of
-    /// <see cref="RefreshAllAsync"/>. Works even when the column is disabled, so a
-    /// dialog opened while disabled still refreshes on request.
+    /// <see cref="RefreshAllAsync"/>. While the service is disabled the repo settles
+    /// to its unavailable state and nothing is queried.
     /// </summary>
     Task<AzureDevOpsActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default);
 

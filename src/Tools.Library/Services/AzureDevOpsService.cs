@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -16,7 +15,8 @@ namespace Tools.Library.Services;
 /// Default <see cref="IAzureDevOpsService"/>. Unlike the GitHub column there is no
 /// Azure DevOps CLI to lean on, so each repo's organization/project/repository is parsed
 /// straight from the git remote (the <c>origin</c> URL in <c>.git/config</c> — HTTPS and
-/// SSH forms both supported) and the Azure DevOps REST API is called with the
+/// SSH forms both supported, on the public hosts plus the settings' custom server URL
+/// when one is configured) and the Azure DevOps REST API is called with the
 /// personal access token from the settings (env fallbacks: <c>AZURE_DEVOPS_PAT</c>,
 /// <c>AZURE_DEVOPS_EXT_PAT</c>). Per repo: one metadata call proves the repo lives on
 /// Azure DevOps and yields its id/web URL, then pull requests, open work items (the
@@ -25,21 +25,19 @@ namespace Tools.Library.Services;
 /// Results are pushed onto the <see cref="Repo"/> entities from background threads,
 /// exactly like <see cref="GitStatusService"/>.
 /// <para>
-/// All work is gated on <see cref="IsEnabled"/> (the settings' "Show Azure DevOps
-/// column" flag plus a usable token): a disabled service sends no requests at all. A
-/// refresh is additionally kicked automatically when <see cref="IRepoService"/> raises
-/// <c>Changed</c> outside of a scan, mirroring the git status service. A token the
-/// server rejects (401) short-circuits the rest of the pass instead of hammering the
-/// API once per repo.
+/// All work is gated on <see cref="IRepoActivityService.IsEnabled"/> (the settings'
+/// "Enable Azure DevOps" flag plus a usable token): a disabled service sends no
+/// requests at all. A refresh is additionally kicked automatically when
+/// <see cref="IRepoService"/> raises <c>Changed</c> outside of a scan, mirroring the
+/// git status service. A token the server rejects (401) short-circuits the rest of the
+/// pass instead of hammering the API once per repo. The gating, refresh coalescing and
+/// disabled-service guard come from <see cref="RepoActivityServiceBase{TActivity}"/>.
 /// </para>
 /// </summary>
-public sealed class AzureDevOpsService : IAzureDevOpsService
+public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActivity>, IAzureDevOpsService
 {
     /// <summary>Upper bound for a single REST call; a hung request must not stall the pass.</summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
-
-    /// <summary>How many repos are probed concurrently; keeps API traffic polite.</summary>
-    private const int MaxParallelism = 3;
 
     /// <summary>Caps each pull-request / work-item list fetch (and therefore the chip counts).</summary>
     private const int ItemLimit = 50;
@@ -63,142 +61,51 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-    private readonly IRepoService _repoService;
-
-    /// <summary>Guards <see cref="_isRefreshing"/>/<see cref="_refreshPending"/>.</summary>
-    private readonly object _sync = new();
-
-    /// <summary>True while a refresh pass loop is running.</summary>
-    private bool _isRefreshing;
-
-    /// <summary>Set when a refresh is requested while one is running; runs another pass after.</summary>
-    private bool _refreshPending;
-
-    /// <summary>Volatile snapshot of the last Configure call (the VM reconfigures per navigation).</summary>
-    private volatile bool _enabled;
-
     /// <summary>Personal access token from the last Configure; may be null (env fallback).</summary>
     private volatile string? _configuredPat;
+
+    /// <summary>Normalized custom server URL (a company-hosted Azure DevOps Server base)
+    /// from the last Configure; may be null (public hosts only).</summary>
+    private volatile string? _configuredUrl;
 
     /// <summary>Set when the API rejects the token (401); short-circuits repos until the next Configure.</summary>
     private volatile bool _authRejected;
 
-    /// <summary>Last fetched item lists per repo folder, backing the details dialog's instant open.</summary>
-    private readonly ConcurrentDictionary<string, AzureDevOpsActivity> _activityByFolder = new(StringComparer.Ordinal);
-
     public AzureDevOpsService(IRepoService repoService)
+        : base(repoService)
     {
-        _repoService = repoService;
-        _repoService.Changed += OnRepoServiceChanged;
     }
 
-    /// <inheritdoc/>
-    public bool IsEnabled => _enabled && ResolveToken(_configuredPat) is not null && !_authRejected;
+    /// <summary>A disabled Azure DevOps service means the column flag is off, no token
+    /// is resolvable, or the server rejected the token.</summary>
+    protected override bool IsProviderReady => ResolveToken(_configuredPat) is not null && !_authRejected;
 
-    /// <inheritdoc/>
-    public void Configure(ReposSettings settings)
+    protected override bool ResolveColumnFlag(ReposSettings settings) => settings.EnableAzureDevOps;
+
+    protected override string ServiceName => "Azure DevOps";
+
+    protected override void ConfigureProvider(ReposSettings settings)
     {
-        _enabled = settings.ShowAzureDevOpsColumn;
         _configuredPat = string.IsNullOrWhiteSpace(settings.AzureDevOpsPat) ? null : settings.AzureDevOpsPat.Trim();
+        _configuredUrl = NormalizeServerUrl(settings.AzureDevOpsUrl);
         _authRejected = false;
-        if (_enabled && ResolveToken(_configuredPat) is null)
+        if (ColumnEnabled && ResolveToken(_configuredPat) is null)
         {
             Log.Logger.Warning(
                 "Azure DevOps column enabled but no personal access token is configured; set one in Repos settings (or the AZURE_DEVOPS_PAT environment variable)");
         }
     }
 
-    /// <summary>
-    /// Re-checks Azure DevOps activity when fresh repo data arrives (cache load,
-    /// completed rescan). Skipped while a scan is in flight — the completion
-    /// notification follows right after — and while the column is disabled.
-    /// </summary>
-    private void OnRepoServiceChanged(object? sender, EventArgs e)
-    {
-        if (!_enabled || _repoService.IsBusy || _repoService.Repos.Count == 0) return;
-        _ = RefreshAllAsync();
-    }
+    /// <inheritdoc/>
+    protected override Task FetchRepoAsync(Repo repo, CancellationToken cancellationToken)
+        => RefreshRepoAsync(repo, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
-    {
-        if (!IsEnabled) return;
+    public Task<AzureDevOpsActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default)
+        => FetchGuardedAsync(repo, AzureDevOpsActivity.Empty, ct => RefreshRepoCoreAsync(repo, ct), cancellationToken);
 
-        // Coalesce concurrent triggers exactly like GitStatusService: while a pass runs,
-        // callers just flag a follow-up pass, and the loop drains pending flags.
-        lock (_sync)
-        {
-            if (_isRefreshing)
-            {
-                _refreshPending = true;
-                return;
-            }
-            _isRefreshing = true;
-        }
-
-        try
-        {
-            while (true)
-            {
-                lock (_sync)
-                {
-                    _refreshPending = false;
-                }
-
-                await RefreshCoreAsync(cancellationToken);
-
-                lock (_sync)
-                {
-                    if (!_refreshPending || cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-        finally
-        {
-            lock (_sync)
-            {
-                _isRefreshing = false;
-            }
-        }
-    }
-
-    private async Task RefreshCoreAsync(CancellationToken cancellationToken)
-    {
-        // Snapshot the list: a rescan may swap RepoService.Repos mid-refresh. Probing a
-        // repo that has since been removed is harmless — its entity is simply orphaned.
-        var repos = _repoService.Repos
-            .Where(r => !string.IsNullOrWhiteSpace(r.FolderPath))
-            .ToList();
-        if (repos.Count == 0) return;
-
-        try
-        {
-            using var throttle = new SemaphoreSlim(MaxParallelism);
-            var tasks = repos.Select(async repo =>
-            {
-                await throttle.WaitAsync(cancellationToken);
-                try
-                {
-                    await RefreshRepoAsync(repo, cancellationToken);
-                }
-                finally
-                {
-                    throttle.Release();
-                }
-            });
-            await Task.WhenAll(tasks);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Log.Logger.Debug(ex, "Azure DevOps activity refresh pass failed");
-        }
-    }
-
-    /// <inheritdoc/>
-    public async Task<AzureDevOpsActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default)
+    /// <summary>The REST queries themselves; only run while the service is enabled.</summary>
+    private async Task<AzureDevOpsActivity> RefreshRepoCoreAsync(Repo repo, CancellationToken cancellationToken)
     {
         if (repo.FolderPath is null)
         {
@@ -211,7 +118,8 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
             // No token (or a rejected one): settle the cell to its empty state so a
             // dialog opened from here shows the honest "no data" note instead of
             // spinning forever.
-            return MarkUnavailable(repo);
+            MarkUnavailable(repo);
+            return AzureDevOpsActivity.Empty;
         }
 
         // The remote decides everything: no Azure DevOps remote means the cell stays
@@ -219,7 +127,8 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
         var remote = ParseAzureDevOpsRemote(repo.FolderPath);
         if (remote is null)
         {
-            return MarkUnavailable(repo);
+            MarkUnavailable(repo);
+            return AzureDevOpsActivity.Empty;
         }
 
         try
@@ -237,7 +146,8 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
                         "Azure DevOps rejected the configured token (HTTP {Status}); Azure DevOps queries are paused until the next settings change",
                         (int)status);
                 }
-                return MarkUnavailable(repo);
+                MarkUnavailable(repo);
+                return AzureDevOpsActivity.Empty;
             }
 
             // Then fetch the three activity kinds. They are independent, so run them together.
@@ -258,26 +168,21 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
             repo.AzureDevOpsLoaded = true;
 
             var activity = new AzureDevOpsActivity(pullRequests, workItems, pipelineRuns);
-            if (repo.FolderPath is not null)
-            {
-                _activityByFolder[repo.FolderPath] = activity;
-            }
+            StoreActivity(repo, activity);
             return activity;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Logger.Debug(ex, "Azure DevOps activity failed for {FolderPath}", repo.FolderPath);
-            return MarkUnavailable(repo);
+            MarkUnavailable(repo);
+            return AzureDevOpsActivity.Empty;
         }
     }
 
     /// <inheritdoc/>
-    public AzureDevOpsActivity? GetCachedActivity(Repo repo)
-        => repo.FolderPath is { } folder && _activityByFolder.TryGetValue(folder, out var activity)
-            ? activity
-            : null;
+    public AzureDevOpsActivity? GetCachedActivity(Repo repo) => CachedActivity(repo);
 
-    private static AzureDevOpsActivity MarkUnavailable(Repo repo)
+    protected override void MarkUnavailable(Repo repo)
     {
         repo.AzureDevOpsRepoUrl = null;
         repo.AzureDevOpsPrCount = 0;
@@ -286,7 +191,6 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
         repo.AzureDevOpsPipelineInfo = null;
         repo.AzureDevOpsAvailable = false;
         repo.AzureDevOpsLoaded = true;
-        return AzureDevOpsActivity.Empty;
     }
 
     /// <summary>
@@ -359,14 +263,16 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
     /// Parses the repo's <c>.git/config</c> for a remote URL hosted on Azure DevOps —
     /// no git process needed, and a GUI session's minimal PATH cannot break it.
     /// Recognizes <c>https://dev.azure.com/{org}/{project}/_git/{repo}</c>,
-    /// the legacy <c>https://{org}.visualstudio.com/{project}/_git/{repo}</c> host and
-    /// the <c>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</c> SSH form. The
-    /// <c>origin</c> remote wins; otherwise the first remote with a URL is used.
+    /// the legacy <c>https://{org}.visualstudio.com/{project}/_git/{repo}</c> host,
+    /// the <c>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</c> SSH form and — when a
+    /// custom server URL is configured in the settings — remotes under that host too
+    /// (company-hosted Azure DevOps Server, with or without a collection/app-tier path).
+    /// The <c>origin</c> remote wins; otherwise the first remote with a URL is used.
     /// </summary>
-    internal static AzureDevOpsRemote? ParseAzureDevOpsRemote(string folderPath)
+    internal AzureDevOpsRemote? ParseAzureDevOpsRemote(string folderPath)
     {
         var url = ReadRemoteUrl(folderPath, "origin") ?? ReadRemoteUrl(folderPath, null);
-        return url is null ? null : ParseAzureDevOpsUrl(url);
+        return url is null ? null : ParseAzureDevOpsUrl(url, _configuredUrl);
     }
 
     /// <summary>
@@ -410,8 +316,24 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
         }
     }
 
-    /// <summary>Parses an Azure DevOps remote URL; <see langword="null"/> for other hosts.</summary>
-    internal static AzureDevOpsRemote? ParseAzureDevOpsUrl(string url)
+    /// <summary>
+    /// Trims the settings' custom server URL and adds the https scheme when it was
+    /// written bare (<c>devops.company.com</c>); <see langword="null"/> when empty.
+    /// </summary>
+    private static string? NormalizeServerUrl(string? value)
+    {
+        var trimmed = value?.Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(trimmed)) return null;
+        return trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : $"https://{trimmed}";
+    }
+
+    /// <summary>Parses an Azure DevOps remote URL; <see langword="null"/> for other hosts.
+    /// <paramref name="customBaseUrl"/> is the settings' custom server URL — when set, its
+    /// host is recognized like the built-in ones (company-hosted Azure DevOps Server).</summary>
+    internal static AzureDevOpsRemote? ParseAzureDevOpsUrl(string url, string? customBaseUrl = null)
     {
         // SSH: git@ssh.dev.azure.com:v3/{org}/{project}/{repo}
         var sshMarker = "ssh.dev.azure.com:v3/";
@@ -424,6 +346,26 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
                 $"https://dev.azure.com/{Uri.EscapeDataString(parts[0])}",
                 Uri.EscapeDataString(parts[1]),
                 Uri.EscapeDataString(StripDotGit(parts[2])));
+        }
+
+        var custom = TryParseCustomBase(customBaseUrl);
+
+        // SSH against the custom host: ssh://[user@]{host}[:port]/{collection}/{project}/_git/{repo}
+        if (url.StartsWith("ssh://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (custom is null) return null;
+            var authorityEnd = url.IndexOf('/', 6);
+            if (authorityEnd < 0) return null;
+            var authority = url[6..authorityEnd];
+            var at = authority.LastIndexOf('@');
+            if (at >= 0) authority = authority[(at + 1)..];
+            var colon = authority.LastIndexOf(':');
+            if (colon >= 0) authority = authority[..colon];
+            if (!authority.Equals(custom.Host, StringComparison.OrdinalIgnoreCase)) return null;
+            var sshSegments = Uri.UnescapeDataString(url[(authorityEnd + 1)..])
+                .Split('/', StringSplitOptions.RemoveEmptyEntries);
+            // The REST API lives on the configured base's scheme/port, not the SSH daemon's.
+            return FromGitSegments(custom.GetLeftPart(UriPartial.Authority), sshSegments);
         }
 
         if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
@@ -460,6 +402,45 @@ public sealed class AzureDevOpsService : IAzureDevOpsService
                 $"https://dev.azure.com/{Uri.EscapeDataString(org)}",
                 Uri.EscapeDataString(segments[0]),
                 Uri.EscapeDataString(StripDotGit(segments[2])));
+        }
+
+        // Custom server: https://{host}[/app-path]/{collection}/{project}/_git/{repo}
+        if (custom is not null && uri.Host.Equals(custom.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return FromGitSegments($"{uri.Scheme}://{uri.Authority}", segments);
+        }
+        return null;
+    }
+
+    /// <summary>Parses the settings' custom server URL; <see langword="null"/> when unset
+    /// or not an absolute http(s) URL. The host is the matching key, the authority the
+    /// REST base for custom-host SSH remotes.</summary>
+    private static Uri? TryParseCustomBase(string? customBaseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(customBaseUrl)) return null;
+        return Uri.TryCreate(customBaseUrl, UriKind.Absolute, out var uri)
+               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? uri
+            : null;
+    }
+
+    /// <summary>
+    /// Builds a remote from path segments shaped <c>[{orgPath}/]{project}/_git/{repo}</c>:
+    /// the project is the segment right before the <c>_git</c> marker, the repository the
+    /// one right after it, and anything before the project forms the API base's path
+    /// (organization and/or one or more collection segments). Returns
+    /// <see langword="null"/> when the segments do not have that shape.
+    /// </summary>
+    private static AzureDevOpsRemote? FromGitSegments(string baseWithoutPath, string[] segments)
+    {
+        for (var i = 1; i < segments.Length - 1; i++)
+        {
+            if (!segments[i].Equals("_git", StringComparison.OrdinalIgnoreCase)) continue;
+            var orgPath = string.Join("/", segments.Take(i - 1).Select(Uri.EscapeDataString));
+            return new AzureDevOpsRemote(
+                orgPath.Length > 0 ? $"{baseWithoutPath}/{orgPath}" : baseWithoutPath,
+                Uri.EscapeDataString(segments[i - 1]),
+                Uri.EscapeDataString(StripDotGit(segments[i + 1])));
         }
         return null;
     }
