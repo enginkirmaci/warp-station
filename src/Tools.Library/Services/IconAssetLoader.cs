@@ -63,6 +63,7 @@ public static class IconAssetLoader
         "icon-search",
         "icon-sln-box",
         "icon-source-branch",
+        "icon-spinner",
         "icon-stop",
         "icon-terminal",
         "icon-terminal-alt",
