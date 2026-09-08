@@ -120,9 +120,11 @@
 
         <!--  Staged/unstaged file row: status chip + path + numstat + the action
               button. The button's command, tooltip and icon come from the owning
-              list's class (ItemsControl.stage-actions / .unstage-actions styles).  -->
+              list's class (ItemsControl.stage-actions / .unstage-actions styles).
+              The numstat column is FIXED 104px (48 + 8 + 48) so the action button
+              holds its x on rows without counts (binary/untracked) too.  -->
         <DataTemplate x:Key="GitChangedFileRowTemplate" x:DataType="entities:GitChangedFile">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+            <Grid ColumnDefinitions="Auto,*,104,Auto" ColumnSpacing="8">
                 <Border
                     Grid.Column="0"
                     Width="30"
@@ -477,19 +479,6 @@
         <Style Selector="ItemsControl.unstage-actions Button.row-action Path">
             <Setter Property="Data" Value="{tools:SvgPath icon-minus}" />
         </Style>
-        <!--  Text variant of the icon (X) button: transparent, hover background,
-              compact muted label — the Changes headers' Stage/Unstage All actions.  -->
-        <Style Selector="Button.text-subtle">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="8,2" />
-            <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-        </Style>
-        <Style Selector="Button.text-subtle:pointerover">
-            <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
-        </Style>
     </UserControl.Styles>
 
     <!--  The bar sits inset from the page edges, aligned with the table card above.  -->
@@ -554,7 +543,8 @@
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleChangesTabCommand}"
                                 Content="{Binding}"
-                                ContentTemplate="{StaticResource StatCardChanges}" />
+                                ContentTemplate="{StaticResource StatCardChanges}"
+                                ToolTip.Tip="Open the Changes tab" />
                             <Button
                                 Grid.Column="1"
                                 Margin="0,0,10,0"
@@ -562,7 +552,8 @@
                                 Command="{Binding TogglePullRequestsTabCommand}"
                                 Content="{Binding}"
                                 ContentTemplate="{StaticResource StatCardPullRequests}"
-                                IsVisible="{Binding IsGitHubEnabled}" />
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Pull Requests tab" />
                             <Button
                                 Grid.Column="2"
                                 Margin="0,0,10,0"
@@ -570,7 +561,8 @@
                                 Command="{Binding ToggleIssuesTabCommand}"
                                 Content="{Binding}"
                                 ContentTemplate="{StaticResource StatCardIssues}"
-                                IsVisible="{Binding IsGitHubEnabled}" />
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Issues tab" />
                             <Button
                                 Grid.Column="3"
                                 Margin="0,0,10,0"
@@ -621,21 +613,24 @@
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleChangesTabCommand}"
                                 Content="{Binding}"
-                                ContentTemplate="{StaticResource StatCardChanges}" />
+                                ContentTemplate="{StaticResource StatCardChanges}"
+                                ToolTip.Tip="Open the Changes tab" />
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding TogglePullRequestsTabCommand}"
                                 Content="{Binding}"
                                 ContentTemplate="{StaticResource StatCardPullRequests}"
-                                IsVisible="{Binding IsGitHubEnabled}" />
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Pull Requests tab" />
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleIssuesTabCommand}"
                                 Content="{Binding}"
                                 ContentTemplate="{StaticResource StatCardIssues}"
-                                IsVisible="{Binding IsGitHubEnabled}" />
+                                IsVisible="{Binding IsGitHubEnabled}"
+                                ToolTip.Tip="Open the Issues tab" />
                         </UniformGrid>
 
                         <!--  Activity lists  -->
@@ -1527,6 +1522,7 @@
                                 <Grid>
                                     <TextBox
                                         AcceptsReturn="True"
+                                        Padding="0,0,26,0"
                                         VerticalContentAlignment="Top"
                                         Text="{Binding CommitMessage}"
                                         TextWrapping="Wrap"

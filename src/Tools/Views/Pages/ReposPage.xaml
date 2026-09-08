@@ -216,14 +216,10 @@
                                         </ComboBox>
                                         <Button
                                                 VerticalAlignment="Center"
-                                                Classes="icon"
+                                                Classes="text-subtle"
                                                 Command="{Binding ClearTagFiltersCommand}"
-                                                ToolTip.Tip="Clear selected tags">
-                                                <TextBlock
-                                                        VerticalAlignment="Center"
-                                                        Classes="subtle"
-                                                        Text="Clear" />
-                                        </Button>
+                                                Content="Clear"
+                                                ToolTip.Tip="Clear selected tags" />
                                         <Border Classes="vertical-divider" />
                                         <!--
                                                 Refresh: reloads the repo list and re-checks every git
@@ -1001,8 +997,8 @@
                                                                                                         IsVisible="{Binding IsAzureDevOpsPipelineFailed}"
                                                                                                         ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
                                                                                                         <Path
-                                                                                                                Width="12"
-                                                                                                                Height="12"
+                                                                                                                Width="13"
+                                                                                                                Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-close,
                                                                                                                                      Center=False}"
@@ -1020,8 +1016,8 @@
                                                                                                         IsVisible="{Binding IsAzureDevOpsPipelineRunning}"
                                                                                                         ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
                                                                                                         <Path
-                                                                                                                Width="11"
-                                                                                                                Height="11"
+                                                                                                                Width="13"
+                                                                                                                Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-play}"
                                                                                                                 Fill="{DynamicResource InfoAccentBrush}"

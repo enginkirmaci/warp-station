@@ -125,9 +125,11 @@
                                 <!--  The WHOLE row toggles the patch (OnFileRowTapped in the
                                       code-behind — a Button here would hug its content, and
                                       the chevron is only the state indicator). The delta
-                                      pills ride in FIXED-width 48px columns, right-aligned,
-                                      so the +/− numbers align down the list — an Auto pill
-                                      column drifts row to row with the path length.  -->
+                                      pills ride in FIXED-width 48px columns — additions
+                                      right-aligned, deletions left-aligned so the pair
+                                      hugs together, same geometry as the Changes tab's
+                                      numstat pills — an Auto pill column drifts row to
+                                      row with the path length.  -->
                                 <Grid
                                     ColumnDefinitions="Auto,*,48,48"
                                     ColumnSpacing="8"
@@ -180,7 +182,7 @@
                                     <Border
                                         Grid.Column="3"
                                         Padding="6,1"
-                                        HorizontalAlignment="Right"
+                                        HorizontalAlignment="Left"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource RemovedCountChipBrush}"
                                         CornerRadius="{DynamicResource ChipRadius}"
@@ -193,7 +195,6 @@
                                 </Grid>
                                 <!--  Expanded per-file patch  -->
                                 <StackPanel
-                                    Grid.Column="0"
                                     Margin="20,0,0,0"
                                     IsVisible="{Binding IsExpanded}">
                                     <TextBox
@@ -227,6 +228,8 @@
         <Border
             Grid.Row="1"
             Padding="16,8,16,12"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0"
             IsVisible="{Binding HasWebUrl}">
             <Button HorizontalAlignment="Right" Command="{Binding OpenFullDiffCommand}" Content="View Full Diff" />
         </Border>

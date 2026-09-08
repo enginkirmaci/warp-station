@@ -73,7 +73,7 @@
                                     ToolTip.Tip="Solution file patterns, comma-separated (e.g. *.sln,*.slnx)" />
                                 <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
                             </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
                                 <TextBlock
                                     Classes="field-label"
                                     Text="Platform Folder Name"

@@ -58,10 +58,10 @@ public partial class ReposPage : UserControl
     /// </summary>
     private void OnCardPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        e.Handled = true;
         if (sender is StyledElement { DataContext: Repo repo }
             && e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
         {
+            e.Handled = true;
             BottomBarViewModel.ToggleForRepo(repo);
 
             // Opening the panel shrinks the table's viewport, which can leave the row
