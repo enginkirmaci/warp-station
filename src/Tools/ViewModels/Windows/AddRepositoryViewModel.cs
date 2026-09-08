@@ -71,6 +71,8 @@ public partial class AddRepositoryViewModel :
     [ObservableProperty]
     private bool _isScanning;
 
+    partial void OnIsScanningChanged(bool value) => ConfirmCommand.NotifyCanExecuteChanged();
+
     [ObservableProperty]
     private bool _hasScanned;
 
@@ -143,10 +145,14 @@ public partial class AddRepositoryViewModel :
 
     /// <summary>
     /// Add: resolves the drawer context with the checked, not-yet-tracked repo paths
-    /// and closes the drawer (shared confirm plumbing on the base).
+    /// and closes the drawer (shared confirm plumbing on the base). Disabled while a
+    /// scan runs — a selection from the previous scan must not be confirmed against
+    /// results that are about to be replaced.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanConfirm))]
     private void Confirm() => ConfirmWith(GetSelectedPaths());
+
+    private bool CanConfirm() => HasSelection && !IsScanning;
 
     partial void OnFolderPathChanged(string value) => ScanCommand.NotifyCanExecuteChanged();
 
@@ -295,6 +301,7 @@ public partial class AddRepositoryViewModel :
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(AddButtonText));
         OnPropertyChanged(nameof(HasSelectable));
+        ConfirmCommand.NotifyCanExecuteChanged();
         UpdateAllSelectedFlag();
     }
 

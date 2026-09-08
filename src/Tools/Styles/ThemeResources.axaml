@@ -152,6 +152,9 @@
     <CornerRadius x:Key="CardRadiusBottom">0,0,10,10</CornerRadius>
     <CornerRadius x:Key="ControlRadius">8</CornerRadius>
     <CornerRadius x:Key="ChipRadius">6</CornerRadius>
+    <!--  Fully-rounded pill chrome (state chips, small badges) on tiny surfaces —
+          a small surface at CardRadius reads as a pill.  -->
+    <CornerRadius x:Key="PillRadius">10</CornerRadius>
 
     <!--
         ================================================================

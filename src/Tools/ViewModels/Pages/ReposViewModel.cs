@@ -782,6 +782,20 @@ public partial class ReposViewModel : PageViewModelBase
             .Select(t => t.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Empty-state overlays: "no repositories yet" vs "no matches" need to know
+        // whether the tracked set itself is empty and whether a filter is applied.
+        var noRepos = repos.Count == 0;
+        if (HasNoRepos != noRepos)
+        {
+            HasNoRepos = noRepos;
+        }
+
+        var filterActive = checkedTags.Count > 0 || !string.IsNullOrWhiteSpace(filter);
+        if (IsFilterActive != filterActive)
+        {
+            IsFilterActive = filterActive;
+        }
+
         IEnumerable<Repo> result = repos;
         if (checkedTags.Count > 0)
         {
@@ -826,31 +840,77 @@ public partial class ReposViewModel : PageViewModelBase
         FilteredRepos.Clear();
         foreach (var repo in ordered)
             FilteredRepos.Add(repo);
+
+        OnPropertyChanged(nameof(ShowReposEmptyNote));
     }
 
+    /// <summary>Whether the tracked-repo list is empty altogether — the empty-state
+    /// overlay's "no repositories yet" variant (vs "the filters hid everything").</summary>
+    [ObservableProperty]
+    private bool _hasNoRepos;
+
+    /// <summary>Whether a search term or checked tag filter is currently applied —
+    /// drives the empty-state overlay's "Clear filters" action.</summary>
+    [ObservableProperty]
+    private bool _isFilterActive;
+
+    /// <summary>Whether the table has no rows at all (overlay visibility); raised by
+    /// <see cref="ApplyFilter"/> after the projection sync.</summary>
+    public bool ShowReposEmptyNote => FilteredRepos.Count == 0;
+
     // --- Launch commands ---
+    // A double-click on a launch button would spawn two terminals/editors; a click on
+    // the same target within a short window is treated as a repeat and dropped. The
+    // window is per target (so launching repo A then repo B stays unaffected).
+
+    /// <summary>Minimum spacing between launches of the same target.</summary>
+    private static readonly TimeSpan LaunchRepeatWindow = TimeSpan.FromMilliseconds(750);
+
+    private readonly Dictionary<string, long> _lastLaunchTicks = new();
+
+    /// <summary>
+    /// Records a launch of <paramref name="target"/> and returns whether it may proceed:
+    /// false when the same target was launched within <see cref="LaunchRepeatWindow"/>.
+    /// Commands run on the UI thread, so the dictionary needs no locking.
+    /// </summary>
+    private bool TryBeginLaunch(string target)
+    {
+        var now = Environment.TickCount64;
+        if (_lastLaunchTicks.TryGetValue(target, out var last)
+            && now - last < LaunchRepeatWindow.TotalMilliseconds)
+        {
+            return false;
+        }
+
+        _lastLaunchTicks[target] = now;
+        return true;
+    }
 
     [RelayCommand]
     private void OpenVisualStudio(Repo? repo)
     {
-        if (repo?.SolutionPath is null) return;
+        if (repo?.SolutionPath is null || !TryBeginLaunch(repo.SolutionPath)) return;
         _terminalLauncher.OpenSolution(repo.SolutionPath, _reposSettings.IdeExecutable);
     }
 
     [RelayCommand]
-    private void OpenFolder(string? folderPath) => _terminalLauncher.OpenFolder(folderPath);
+    private void OpenFolder(string? folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !TryBeginLaunch(folderPath)) return;
+        _terminalLauncher.OpenFolder(folderPath);
+    }
 
     [RelayCommand]
     private async Task OpenWithVSCodeAsync(string? folderPath)
     {
-        if (string.IsNullOrWhiteSpace(folderPath)) return;
+        if (string.IsNullOrWhiteSpace(folderPath) || !TryBeginLaunch(folderPath)) return;
         await _terminalLauncher.OpenInVSCodeAsync(folderPath, _reposSettings.VSCodeExecutable, _reposSettings.VSCodeProfile);
     }
 
     [RelayCommand]
     private void OpenWithTerminal(string? folderPath)
     {
-        if (string.IsNullOrWhiteSpace(folderPath)) return;
+        if (string.IsNullOrWhiteSpace(folderPath) || !TryBeginLaunch(folderPath)) return;
         _terminalLauncher.OpenFolderInTerminal(folderPath, _reposSettings.TerminalExecutable);
     }
 
@@ -935,7 +995,7 @@ public partial class ReposViewModel : PageViewModelBase
     [RelayCommand]
     private void OpenWithZCode(Repo? repo)
     {
-        if (repo?.FolderPath is null) return;
+        if (repo?.FolderPath is null || !TryBeginLaunch(repo.FolderPath)) return;
         _terminalLauncher.OpenZCode(repo.FolderPath, _reposSettings.ZCodeExecutable, _reposSettings.TerminalExecutable);
     }
 
@@ -950,7 +1010,7 @@ public partial class ReposViewModel : PageViewModelBase
     [RelayCommand]
     private async Task QuickOpenOpenCodeAsync(Repo? repo)
     {
-        if (repo?.FolderPath is null || !IsOpenCodeEnabled) return;
+        if (repo?.FolderPath is null || !IsOpenCodeEnabled || !TryBeginLaunch(repo.FolderPath)) return;
 
         var settings = await _settingsService.GetSettingsAsync();
         var model = settings.OpenCode?.DefaultModel?.Trim();
@@ -1018,6 +1078,13 @@ public partial class ReposViewModel : PageViewModelBase
             RefreshSortListeners();
             RefreshHeaderTotals();
             ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            // An AsyncRelayCommand stashes a thrown exception in its unobserved
+            // ExecutionTask — the busy state would clear with no feedback at all.
+            Log.Logger.Error(ex, "Repos page refresh failed");
+            _notificationService.Show("Refresh failed — see the logs", NotificationKind.Error);
         }
         finally
         {

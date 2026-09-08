@@ -44,7 +44,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="10,7" />
-            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ChipRadius}" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
@@ -382,6 +382,12 @@
                     TextTrimming="CharacterEllipsis" />
             </Grid>
         </DataTemplate>
+        <!--  GitHub URL cap in the Overview sidebar's link row — coupled to the
+              sidebar's fixed 290px width + the 110px key column + paddings (the
+              value cell has ~130px). The cap must be explicit because the button's
+              content presenter hugs (SukiUI), so TextTrimming never sees a finite
+              measure width without it.  -->
+        <x:Double x:Key="GitHubUrlMaxWidth">126</x:Double>
     </UserControl.Resources>
 
     <UserControl.Styles>
@@ -395,17 +401,12 @@
         <Style Selector="Button.bar-item:pointerover">
             <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
-        <!--  Quiet accent link (like RepoHeader's header-link): transparent, no box —
-              the text plus the open-in-new glyph is the affordance.  -->
-        <Style Selector="Button.detail-link">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.detail-link:pointerover /template/ ContentPresenter">
-            <Setter Property="Opacity" Value="0.8" />
-        </Style>
+        <!--  The quiet accent link class (Button.detail-link — the History rows' hash
+              links and the commit-message wand) lives app-wide in AppStyles.axaml so
+              the History drawer's Back link, hosted outside this control's style
+              scope, resolves the same class.  -->
+        <!--  The History rows are focusable (Enter/Space open the drawer) but paint no
+              focus ring — matching the repos table, which nulls FocusAdorner too.  -->
         <!--
             Overview clickable card: the ov-card look on a Button using the same
             stretch template, so the WHOLE card routes to its tab and the hover tint
@@ -417,7 +418,7 @@
             <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
             <Setter Property="Padding" Value="12,8" />
             <Setter Property="VerticalContentAlignment" Value="Stretch" />
         </Style>
@@ -429,7 +430,7 @@
             <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
             <Setter Property="Padding" Value="12,8" />
         </Style>
         <Style Selector="TextBlock.ov-card-title">
@@ -446,7 +447,7 @@
               gap locally (they used to be a separate .label-pill style one Margin
               apart).  -->
         <Style Selector="Border.state-chip">
-            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="CornerRadius" Value="{DynamicResource PillRadius}" />
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -464,7 +465,11 @@
         <!--  Staged/unstaged file-row action: one shared row template
               (GitChangedFileRowTemplate) serves both lists; the +/− button's command,
               tooltip and icon come from the list's class — .stage-actions stages with
-              a plus, .unstage-actions unstages with a minus.  -->
+              a plus, .unstage-actions unstages with a minus. The lists are plain
+              ItemsControls on purpose: the card's own ScrollViewer is the ONLY
+              scroller (a virtualizing ListBox here would need its own bounded
+              viewport and a second scrollbar — rejected: "inner one is not
+              needed").  -->
         <Style Selector="ItemsControl.stage-actions Button.row-action">
             <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}" />
             <Setter Property="ToolTip.Tip" Value="Stage this file" />
@@ -667,10 +672,14 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="entities:GitChangedFile">
                                                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                            <!--  Same 30px status-code chip geometry as the
+                                                                  shared GitChangedFileRowTemplate; the darker
+                                                                  CardBackground tint keeps it distinct from the
+                                                                  ov-card surface behind it.  -->
                                                             <Border
                                                                 Grid.Column="0"
-                                                                Width="24"
-                                                                Padding="0,1"
+                                                                Width="30"
+                                                                Padding="0,2"
                                                                 VerticalAlignment="Center"
                                                                 Background="{DynamicResource CardBackgroundBrush}"
                                                                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -935,13 +944,17 @@
                                             HorizontalAlignment="Left"
                                             ToolTip.Tip="Open the repository's GitHub page">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <!--  The details sidebar is a fixed 290px column, so
-                                                      after the 110px key + paddings the value cell
-                                                      has ~130px: cap the URL explicitly (desired-
-                                                      sized presenter would otherwise overflow the
-                                                      card) and let the ellipsis take the rest.  -->
+                                                <!--  The cap is a named resource (see
+                                                      GitHubUrlMaxWidth above): the sidebar
+                                                      is a fixed 290px column, so after
+                                                      the 110px key + paddings the value
+                                                      cell has ~130px — the URL must be
+                                                      capped explicitly because the
+                                                      button's content presenter hugs
+                                                      (SukiUI) and TextTrimming never
+                                                      fires under infinite measure.  -->
                                                 <TextBlock
-                                                    MaxWidth="126"
+                                                    MaxWidth="{StaticResource GitHubUrlMaxWidth}"
                                                     VerticalAlignment="Center"
                                                     Classes="detail-value"
                                                     Text="{Binding SelectedRepoGitHubDisplayUrl}"
@@ -1136,12 +1149,27 @@
                                   hides while zero/not yet known.  -->
                             <Button Command="{Binding PullCommand}" ToolTip.Tip="git pull for the selected repository">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Path
-                                        Width="13"
-                                        Height="13"
-                                        VerticalAlignment="Center"
-                                        Classes="icon"
-                                        Data="{tools:SvgPath icon-arrow-down}" />
+                                    <Panel Width="13" Height="13" VerticalAlignment="Center">
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="icon"
+                                            Data="{tools:SvgPath icon-arrow-down}"
+                                            IsVisible="{Binding !IsPulling}" />
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="spinner"
+                                            Data="{tools:SvgPath icon-spinner, Center=False}"
+                                            IsVisible="{Binding IsPulling}"
+                                            RenderTransformOrigin="50%,50%"
+                                            Stroke="{DynamicResource MutedForegroundBrush}"
+                                            StrokeThickness="2">
+                                            <Path.RenderTransform>
+                                                <RotateTransform />
+                                            </Path.RenderTransform>
+                                        </Path>
+                                    </Panel>
                                     <TextBlock VerticalAlignment="Center" Text="Pull" />
                                     <TextBlock
                                         VerticalAlignment="Center"
@@ -1154,12 +1182,27 @@
                             </Button>
                             <Button Command="{Binding PushCommand}" ToolTip.Tip="git push for the selected repository">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Path
-                                        Width="13"
-                                        Height="13"
-                                        VerticalAlignment="Center"
-                                        Classes="icon"
-                                        Data="{tools:SvgPath icon-arrow-up}" />
+                                    <Panel Width="13" Height="13" VerticalAlignment="Center">
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="icon"
+                                            Data="{tools:SvgPath icon-arrow-up}"
+                                            IsVisible="{Binding !IsPushing}" />
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="spinner"
+                                            Data="{tools:SvgPath icon-spinner, Center=False}"
+                                            IsVisible="{Binding IsPushing}"
+                                            RenderTransformOrigin="50%,50%"
+                                            Stroke="{DynamicResource MutedForegroundBrush}"
+                                            StrokeThickness="2">
+                                            <Path.RenderTransform>
+                                                <RotateTransform />
+                                            </Path.RenderTransform>
+                                        </Path>
+                                    </Panel>
                                     <TextBlock VerticalAlignment="Center" Text="Push" />
                                     <TextBlock
                                         VerticalAlignment="Center"
@@ -1172,12 +1215,27 @@
                             </Button>
                             <Button Command="{Binding FetchCommand}" ToolTip.Tip="git fetch --prune for the selected repository">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Path
-                                        Width="13"
-                                        Height="13"
-                                        VerticalAlignment="Center"
-                                        Classes="icon"
-                                        Data="{tools:SvgPath icon-cloud-download}" />
+                                    <Panel Width="13" Height="13" VerticalAlignment="Center">
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="icon"
+                                            Data="{tools:SvgPath icon-cloud-download}"
+                                            IsVisible="{Binding !IsFetching}" />
+                                        <Path
+                                            Width="13"
+                                            Height="13"
+                                            Classes="spinner"
+                                            Data="{tools:SvgPath icon-spinner, Center=False}"
+                                            IsVisible="{Binding IsFetching}"
+                                            RenderTransformOrigin="50%,50%"
+                                            Stroke="{DynamicResource MutedForegroundBrush}"
+                                            StrokeThickness="2">
+                                            <Path.RenderTransform>
+                                                <RotateTransform />
+                                            </Path.RenderTransform>
+                                        </Path>
+                                    </Panel>
                                     <TextBlock VerticalAlignment="Center" Text="Fetch" />
                                 </StackPanel>
                             </Button>
@@ -1278,11 +1336,14 @@
                                         <DataTemplate x:DataType="entities:GitCommitInfo">
                                                 <Grid
                                                     Margin="0,4"
+                                                    Classes="history-row"
                                                     ColumnDefinitions="Auto,*,Auto,Auto"
                                                     ColumnSpacing="10"
                                                     RowDefinitions="Auto,Auto"
                                                     RowSpacing="3"
                                                     Cursor="Hand"
+                                                    Focusable="True"
+                                                    KeyDown="OnHistoryRowKeyDown"
                                                     Tapped="OnHistoryRowTapped"
                                                     ToolTip.Tip="Open this commit's details">
                                                 <!--  Author-initials avatar: tinted circle (the
@@ -1379,6 +1440,11 @@
                                         Classes="list-note subtle"
                                         IsVisible="{Binding ShowChangesTabEmpty}"
                                         Text="No changes — the working tree is clean" />
+                                    <TextBlock
+                                        Margin="0,20"
+                                        Classes="list-note subtle"
+                                        IsVisible="{Binding IsChangesTabLoading}"
+                                        Text="Loading changes…" />
 
                                     <!--  Unstaged section  -->
                                     <Grid
@@ -1446,7 +1512,7 @@
                                             Classes="text-subtle"
                                             Command="{Binding UnstageAllCommand}"
                                             Content="Unstage All"
-                                            ToolTip.Tip="Unstage all files" />
+                                            ToolTip.Tip="Unstage all files — the working tree keeps every change" />
                                     </Grid>
                                     <ItemsControl
                                         Classes="unstage-actions"
@@ -1518,10 +1584,13 @@
                                     </StackPanel>
                                 </Button>
 
-                                <!--  Message box; the wand sits over its bottom-right corner  -->
+                                <!--  Message box; the wand sits over its bottom-right corner.
+                                      Ctrl+Enter commits (OnCommitBoxKeyDown) — plain Enter keeps
+                                      its newline.  -->
                                 <Grid>
                                     <TextBox
                                         AcceptsReturn="True"
+                                        KeyDown="OnCommitBoxKeyDown"
                                         Padding="0,0,26,0"
                                         VerticalContentAlignment="Top"
                                         Text="{Binding CommitMessage}"
@@ -1592,7 +1661,25 @@
                             Command="{Binding RefreshGitHubCommand}"
                             IsEnabled="{Binding !IsGitHubRefreshing}"
                             ToolTip.Tip="Refresh">
-                            <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                            <Panel>
+                                <Path
+                                    Classes="icon"
+                                    Data="{tools:SvgPath icon-refresh}"
+                                    IsVisible="{Binding !IsGitHubRefreshing}" />
+                                <Path
+                                    Width="13"
+                                    Height="13"
+                                    Classes="spinner"
+                                    Data="{tools:SvgPath icon-spinner, Center=False}"
+                                    IsVisible="{Binding IsGitHubRefreshing}"
+                                    RenderTransformOrigin="50%,50%"
+                                    Stroke="{DynamicResource MutedForegroundBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Panel>
                         </Button>
                         <Button
                             Grid.Column="2"
@@ -1742,7 +1829,25 @@
                             Command="{Binding RefreshGitHubCommand}"
                             IsEnabled="{Binding !IsGitHubRefreshing}"
                             ToolTip.Tip="Refresh">
-                            <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                            <Panel>
+                                <Path
+                                    Classes="icon"
+                                    Data="{tools:SvgPath icon-refresh}"
+                                    IsVisible="{Binding !IsGitHubRefreshing}" />
+                                <Path
+                                    Width="13"
+                                    Height="13"
+                                    Classes="spinner"
+                                    Data="{tools:SvgPath icon-spinner, Center=False}"
+                                    IsVisible="{Binding IsGitHubRefreshing}"
+                                    RenderTransformOrigin="50%,50%"
+                                    Stroke="{DynamicResource MutedForegroundBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Panel>
                         </Button>
                         <Button
                             Grid.Column="2"
@@ -1899,7 +2004,25 @@
                             Command="{Binding RefreshAzureCommand}"
                             IsEnabled="{Binding !IsAzureRefreshing}"
                             ToolTip.Tip="Refresh">
-                            <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                            <Panel>
+                                <Path
+                                    Classes="icon"
+                                    Data="{tools:SvgPath icon-refresh}"
+                                    IsVisible="{Binding !IsAzureRefreshing}" />
+                                <Path
+                                    Width="13"
+                                    Height="13"
+                                    Classes="spinner"
+                                    Data="{tools:SvgPath icon-spinner, Center=False}"
+                                    IsVisible="{Binding IsAzureRefreshing}"
+                                    RenderTransformOrigin="50%,50%"
+                                    Stroke="{DynamicResource MutedForegroundBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Panel>
                         </Button>
                         <Button
                             Grid.Column="2"
@@ -1953,24 +2076,11 @@
                                                         Data="{tools:SvgPath icon-git-pull-request}"
                                                         Fill="{DynamicResource PurpleAccentBrush}"
                                                         Stretch="Uniform" />
-                                                    <StackPanel
+                                                    <ContentPresenter
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
-                                                        Orientation="Horizontal"
-                                                        Spacing="6">
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Title}"
-                                                            TextTrimming="CharacterEllipsis" />
-                                                    </StackPanel>
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource AzureTitleLine13}" />
                                                     <TextBlock
                                                         Grid.Column="2"
                                                         VerticalAlignment="Center"
@@ -1998,7 +2108,7 @@
                                                 Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="{Binding Url}">
-                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                                     <Path
                                                         Grid.Column="0"
                                                         Width="15"
@@ -2007,22 +2117,13 @@
                                                         Data="{tools:SvgPath icon-issue}"
                                                         Fill="{DynamicResource StatusActiveBrush}"
                                                         Stretch="Uniform" />
-                                                    <TextBlock
+                                                    <ContentPresenter
                                                         Grid.Column="1"
                                                         VerticalAlignment="Center"
-                                                        FontSize="13"
-                                                        FontWeight="SemiBold"
-                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                        Text="{Binding Number, StringFormat='#{0}'}" />
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource AzureTitleLine13}" />
                                                     <TextBlock
                                                         Grid.Column="2"
-                                                        VerticalAlignment="Center"
-                                                        FontSize="13"
-                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                        Text="{Binding Title}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock
-                                                        Grid.Column="3"
                                                         VerticalAlignment="Center"
                                                         Classes="subtle"
                                                         Text="{Binding State}" />

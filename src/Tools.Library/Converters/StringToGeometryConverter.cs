@@ -7,7 +7,10 @@ namespace Tools.Library.Converters;
 
 /// <summary>
 /// Converts an SVG path data string to an Avalonia Geometry object.
-/// Falls back to a simple filled circle if parsing fails.
+/// Falls back to a simple filled circle if parsing fails. Parsed geometries are
+/// memoized per input string — the drawer icon binding re-converts on every open,
+/// and Geometry.Parse + the design-grid centering pass are not cheap; geometries
+/// are immutable and safely shareable across consumers.
 /// </summary>
 public class StringToGeometryConverter : IValueConverter
 {
@@ -33,10 +36,19 @@ public class StringToGeometryConverter : IValueConverter
         }
     }
 
+    /// <summary>Parsed path data → geometry. UI-thread only in practice; a plain
+    /// dictionary is fine there and keeps the fast path allocation-free.</summary>
+    private static readonly Dictionary<string, Geometry> GeometryCache = new(StringComparer.Ordinal);
+
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         if (value is string pathData && !string.IsNullOrWhiteSpace(pathData))
         {
+            if (GeometryCache.TryGetValue(pathData, out var cached))
+            {
+                return cached;
+            }
+
             try
             {
                 // Replace commas with spaces for consistent Avalonia path parser behavior
@@ -45,7 +57,9 @@ public class StringToGeometryConverter : IValueConverter
                 // Verify the geometry is non-empty
                 if (geometry.Bounds.Width > 0 || geometry.Bounds.Height > 0)
                 {
-                    return IconGeometry.CenterOnDesignGrid(geometry);
+                    var centered = IconGeometry.CenterOnDesignGrid(geometry);
+                    GeometryCache[pathData] = centered;
+                    return centered;
                 }
             }
             catch

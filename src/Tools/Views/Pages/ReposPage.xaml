@@ -29,6 +29,16 @@
                 -->
                 <GridLength x:Key="BranchColumnWidth">240</GridLength>
                 <x:Double x:Key="BranchTextBudget">188</x:Double>
+                <!--
+                        Table column widths: the name column is the only star column;
+                        these four are fixed so every realized row resolves identical
+                        columns. The GitHub/Azure doubles size the cells' fixed Borders —
+                        change them with the row grid they feed (see the template below).
+                -->
+                <GridLength x:Key="ShortcutColumnWidth">175</GridLength>
+                <GridLength x:Key="ChangesColumnWidth">70</GridLength>
+                <x:Double x:Key="GitHubColumnWidth">140</x:Double>
+                <x:Double x:Key="AzureColumnWidth">200</x:Double>
         </UserControl.Resources>
 
         <UserControl.Styles>
@@ -110,10 +120,9 @@
                                         <Border Classes="vertical-divider" IsVisible="{Binding HasHeaderStats}" />
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <Border
-                                                        Padding="9,4"
+                                                        Classes="tint-chip"
                                                         VerticalAlignment="Center"
                                                         Background="{DynamicResource ChangesChipBrush}"
-                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                         IsVisible="{Binding HasChangesTotal}"
                                                         ToolTip.Tip="Uncommitted file changes across all repositories">
                                                         <TextBlock
@@ -124,10 +133,9 @@
                                                                 Text="{Binding GitTotalModifiedCount}" />
                                                 </Border>
                                                 <Border
-                                                        Padding="9,4"
+                                                        Classes="tint-chip"
                                                         VerticalAlignment="Center"
                                                         Background="{DynamicResource GitHubPrChipBrush}"
-                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                         IsVisible="{Binding HasGitHubTotals}"
                                                         ToolTip.Tip="Open pull requests across all GitHub repositories">
                                                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -147,10 +155,9 @@
                                                         </StackPanel>
                                                 </Border>
                                                 <Border
-                                                        Padding="9,4"
+                                                        Classes="tint-chip"
                                                         VerticalAlignment="Center"
                                                         Background="{DynamicResource GitHubIssueChipBrush}"
-                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                         IsVisible="{Binding HasGitHubTotals}"
                                                         ToolTip.Tip="Open issues across all GitHub repositories">
                                                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -190,7 +197,7 @@
                                                 <ItemsControl.ItemTemplate>
                                                         <DataTemplate x:DataType="entities:TagFilter">
                                                                 <CheckBox
-                                                                        Command="{ReflectionBinding #Root.DataContext.TagFilterChangedCommand}"
+                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).TagFilterChangedCommand}"
                                                                         Content="{Binding Name}"
                                                                         IsChecked="{Binding IsChecked, Mode=TwoWay}" />
                                                         </DataTemplate>
@@ -300,6 +307,7 @@
                                 Grid.Column="0"
                                 Padding="0"
                                 Classes="card">
+                                <Panel>
                                 <ListBox
                                         x:Name="ReposList"
                                         Padding="0"
@@ -360,6 +368,16 @@
                                                 -->
                                                 <Style Selector="Border.repo-row.selected">
                                                         <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+                                                </Style>
+                                                <!--
+                                                        Row affordance: the whole row press-toggles the bottom bar
+                                                        (OnCardPointerPressed in the code-behind) and the chips are
+                                                        buttons, so the hand cursor signals clickability across the
+                                                        row (Cursor is inherited). Hover paints nothing on purpose —
+                                                        the bar-selected tint above stays the row's only highlight.
+                                                -->
+                                                <Style Selector="Border.repo-row">
+                                                        <Setter Property="Cursor" Value="Hand" />
                                                 </Style>
                                                 <!--
                                                         SukiTheme's app-wide ListBoxItem ControlTheme replaces the item
@@ -441,10 +459,10 @@
                                                                                 <ColumnDefinition Width="*" MinWidth="130" />
                                                                                 <ColumnDefinition Width="Auto" />
                                                                                 <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
-                                                                                <ColumnDefinition Width="175" />
+                                                                                <ColumnDefinition Width="{StaticResource ShortcutColumnWidth}" />
                                                                                 <ColumnDefinition Width="Auto" />
                                                                                 <ColumnDefinition Width="Auto" />
-                                                                                <ColumnDefinition Width="70" />
+                                                                                <ColumnDefinition Width="{StaticResource ChangesColumnWidth}" />
                                                                         </Grid.ColumnDefinitions>
 
                                                                         <!--  Favorite star  -->
@@ -452,7 +470,7 @@
                                                                                 Grid.Column="0"
                                                                                 VerticalAlignment="Center"
                                                                                 Classes="icon"
-                                                                                Command="{ReflectionBinding #Root.DataContext.ToggleFavoriteCommand}"
+                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).ToggleFavoriteCommand}"
                                                                                 CommandParameter="{Binding}"
                                                                                 ToolTip.Tip="Toggle favorite">
                                                                                 <Path
@@ -488,12 +506,12 @@
                                                                                 Orientation="Horizontal"
                                                                                 Spacing="8">
                                                                                 <StackPanel
-                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasOpenCode}"
+                                                                                        IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).HasOpenCode}"
                                                                                         Orientation="Horizontal"
                                                                                         Spacing="8">
                                                                                         <Button
                                                                                                 Classes="tool-button"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).QuickOpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 ToolTip.Tip="Launch one opencode instance with the default model">
                                                                                                 <Path
@@ -504,11 +522,9 @@
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
                                                                                         <Button
-                                                                                                Width="40"
-                                                                                                Height="40"
                                                                                                 VerticalAlignment="Center"
-                                                                                                Classes="icon"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenOpenCodeCommand}"
+                                                                                                Classes="tool-button"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 ToolTip.Tip="Open the OpenCode panel (model, instances, template, prompt)">
                                                                                                 <Path
@@ -522,9 +538,9 @@
                                                                                 </StackPanel>
                                                                                 <Button
                                                                                         Classes="tool-button"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithZCodeCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenWithZCodeCommand}"
                                                                                         CommandParameter="{Binding}"
-                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasZCode}"
+                                                                                        IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).HasZCode}"
                                                                                         ToolTip.Tip="Open zcode on this repo (AppImage opens the desktop app)">
                                                                                         <Path
                                                                                                 Width="22"
@@ -540,10 +556,10 @@
                                                                                         The 40px slot stays reserved for repos without
                                                                                         a solution so the table columns stay aligned.
                                                                                 -->
-                                                                                <Border Width="40" IsVisible="{ReflectionBinding #Root.DataContext.HasIde}">
+                                                                                <Border Width="40" IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).HasIde}">
                                                                                         <Button
                                                                                                 Classes="tool-button"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenVisualStudioCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenVisualStudioCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding SolutionPath, Converter={StaticResource StringNotNullToBoolConverter}}"
                                                                                                 ToolTip.Tip="Open in Visual Studio">
@@ -557,9 +573,9 @@
                                                                                 </Border>
                                                                                 <Button
                                                                                         Classes="tool-button"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithVSCodeCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenWithVSCodeCommand}"
                                                                                         CommandParameter="{Binding FolderPath}"
-                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasVSCode}"
+                                                                                        IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).HasVSCode}"
                                                                                         ToolTip.Tip="Open in VS Code">
                                                                                         <Path
                                                                                                 Width="22"
@@ -570,7 +586,7 @@
                                                                                 </Button>
                                                                                 <Button
                                                                                         Classes="tool-button"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenFolderCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenFolderCommand}"
                                                                                         CommandParameter="{Binding FolderPath}"
                                                                                         ToolTip.Tip="Open folder">
                                                                                         <Path
@@ -582,9 +598,9 @@
                                                                                 </Button>
                                                                                 <Button
                                                                                         Classes="tool-button"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenWithTerminalCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenWithTerminalCommand}"
                                                                                         CommandParameter="{Binding FolderPath}"
-                                                                                        IsVisible="{ReflectionBinding #Root.DataContext.HasTerminal}"
+                                                                                        IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).HasTerminal}"
                                                                                         ToolTip.Tip="Open in Terminal">
                                                                                         <Path
                                                                                                 Width="22"
@@ -611,16 +627,13 @@
                                                                         -->
                                                                         <Grid Grid.Column="3" Margin="0,0,16,0">
                                                                                 <Button
-                                                                                        Padding="9,4"
+                                                                                        Classes="tint-chip chip-hover-dim"
                                                                                         HorizontalAlignment="Left"
                                                                                         VerticalAlignment="Center"
                                                                                         Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
-                                                                                        BorderThickness="0"
-                                                                                        Classes="chip-hover-dim"
                                                                                         ClipToBounds="True"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenChangesCommand}"
                                                                                         CommandParameter="{Binding}"
-                                                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                                                         Cursor="Hand"
                                                                                         IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                                                         ToolTip.Tip="{Binding GitBranchName}">
@@ -681,16 +694,15 @@
                                                                                         Background="Transparent"
                                                                                         BorderThickness="0"
                                                                                         Classes="chip-hover-dim"
-                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenChangesCommand}"
                                                                                         CommandParameter="{Binding}"
                                                                                         Cursor="Hand"
                                                                                         IsVisible="{Binding GitStatusLoaded}"
                                                                                         ToolTip.Tip="Open the changes panel">
                                                                                                 <Border
-                                                                                                        Padding="9,4"
+                                                                                                        Classes="tint-chip"
                                                                                                         VerticalAlignment="Center"
-                                                                                                        Background="{DynamicResource ChangesChipBrush}"
-                                                                                                        CornerRadius="{DynamicResource ChipRadius}">
+                                                                                                        Background="{DynamicResource ChangesChipBrush}">
                                                                                                         <TextBlock
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
@@ -787,23 +799,21 @@
                                                                         -->
                                                                         <Border
                                                                                 Grid.Column="5"
-                                                                                Width="140"
+                                                                                Width="{StaticResource GitHubColumnWidth}"
                                                                                 Margin="0,0,16,0"
                                                                                 HorizontalAlignment="Left"
                                                                                 ClipToBounds="True"
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.IsGitHubColumnVisible}">
+                                                                                IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).IsGitHubColumnVisible}">
                                                                                 <StackPanel
                                                                                         VerticalAlignment="Center"
                                                                                         Orientation="Horizontal"
                                                                                         Spacing="8">
                                                                                         <Button
-                                                                                                Padding="9,4"
+                                                                                                Classes="tint-chip"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="{DynamicResource GitHubPrChipBrush}"
-                                                                                                BorderThickness="0"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenPullRequestsCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenPullRequestsCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                CornerRadius="{DynamicResource ChipRadius}"
                                                                                                 IsVisible="{Binding HasGitHubPullRequests}"
                                                                                                 ToolTip.Tip="Open pull requests — click for details">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -823,13 +833,11 @@
                                                                                                 </StackPanel>
                                                                                         </Button>
                                                                                         <Button
-                                                                                                Padding="9,4"
+                                                                                                Classes="tint-chip"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="{DynamicResource GitHubIssueChipBrush}"
-                                                                                                BorderThickness="0"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenIssuesCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenIssuesCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                CornerRadius="{DynamicResource ChipRadius}"
                                                                                                 IsVisible="{Binding HasGitHubIssues}"
                                                                                                 ToolTip.Tip="Open issues — click for details">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -884,11 +892,11 @@
                                                                         -->
                                                                         <Border
                                                                                 Grid.Column="6"
-                                                                                Width="200"
+                                                                                Width="{StaticResource AzureColumnWidth}"
                                                                                 Margin="0,0,16,0"
                                                                                 HorizontalAlignment="Left"
                                                                                 ClipToBounds="True"
-                                                                                IsVisible="{ReflectionBinding #Root.DataContext.IsAzureDevOpsColumnVisible}">
+                                                                                IsVisible="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).IsAzureDevOpsColumnVisible}">
                                                                                 <StackPanel
                                                                                         VerticalAlignment="Center"
                                                                                         Orientation="Horizontal"
@@ -899,7 +907,7 @@
                                                                                                 Padding="7"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Classes="icon"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsRepoCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsRepoCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding AzureDevOpsRepoUrl, Converter={StaticResource StringNotNullToBoolConverter}}"
                                                                                                 ToolTip.Tip="Open in Azure DevOps">
@@ -911,15 +919,13 @@
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
                                                                                         <Button
-                                                                                                Padding="9,4"
+                                                                                                Classes="tint-chip"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="{DynamicResource AzureDevOpsPrChipBrush}"
-                                                                                                BorderThickness="0"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                CornerRadius="{DynamicResource ChipRadius}"
                                                                                                 IsVisible="{Binding HasAzureDevOpsPullRequests}"
-                                                                                                ToolTip.Tip="Active pull requests — click for details">
+                                                                                                ToolTip.Tip="Open pull requests — click for details">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                                                         <Path
                                                                                                                 Width="13"
@@ -937,13 +943,11 @@
                                                                                                 </StackPanel>
                                                                                         </Button>
                                                                                         <Button
-                                                                                                Padding="9,4"
+                                                                                                Classes="tint-chip"
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="{DynamicResource AzureDevOpsWorkItemChipBrush}"
-                                                                                                BorderThickness="0"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                 CommandParameter="{Binding}"
-                                                                                                CornerRadius="{DynamicResource ChipRadius}"
                                                                                                 IsVisible="{Binding HasAzureDevOpsWorkItems}"
                                                                                                 ToolTip.Tip="Open work items — click for details">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -968,13 +972,11 @@
                                                                                         -->
                                                                                         <Panel VerticalAlignment="Center">
                                                                                                 <Button
-                                                                                                        Padding="9,4"
+                                                                                                        Classes="tint-chip"
                                                                                                         VerticalAlignment="Center"
                                                                                                         Background="{DynamicResource AzureDevOpsPipelineOkChipBrush}"
-                                                                                                        BorderThickness="0"
-                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                         CommandParameter="{Binding}"
-                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                                                                         IsVisible="{Binding IsAzureDevOpsPipelineOk}"
                                                                                                         ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
                                                                                                         <Path
@@ -987,13 +989,11 @@
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                                 <Button
-                                                                                                        Padding="9,4"
+                                                                                                        Classes="tint-chip"
                                                                                                         VerticalAlignment="Center"
                                                                                                         Background="{DynamicResource AzureDevOpsPipelineFailedChipBrush}"
-                                                                                                        BorderThickness="0"
-                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                         CommandParameter="{Binding}"
-                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                                                                         IsVisible="{Binding IsAzureDevOpsPipelineFailed}"
                                                                                                         ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
                                                                                                         <Path
@@ -1006,13 +1006,11 @@
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                                 <Button
-                                                                                                        Padding="9,4"
+                                                                                                        Classes="tint-chip"
                                                                                                         VerticalAlignment="Center"
                                                                                                         Background="{DynamicResource AzureDevOpsPipelineRunningChipBrush}"
-                                                                                                        BorderThickness="0"
-                                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenAzureDevOpsDetailsCommand}"
+                                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                         CommandParameter="{Binding}"
-                                                                                                        CornerRadius="{DynamicResource ChipRadius}"
                                                                                                         IsVisible="{Binding IsAzureDevOpsPipelineRunning}"
                                                                                                         ToolTip.Tip="{Binding AzureDevOpsPipelineInfo}">
                                                                                                         <Path
@@ -1049,6 +1047,39 @@
                                                 </DataTemplate>
                                         </ListBox.ItemTemplate>
                                 </ListBox>
+
+                                <!--
+                                        Empty states: the table is empty either because no repo is tracked
+                                        at all (first run / nothing configured) or because the search/tag
+                                        filters exclude every one. The overlay sits above the ListBox, which
+                                        has no rows underneath, so nothing is obscured.
+                                -->
+                                <StackPanel
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        IsVisible="{Binding ShowReposEmptyNote}"
+                                        Spacing="4">
+                                        <TextBlock
+                                                Classes="list-note"
+                                                IsVisible="{Binding HasNoRepos}"
+                                                Text="No repositories yet" />
+                                        <TextBlock
+                                                Classes="subtle"
+                                                HorizontalAlignment="Center"
+                                                IsVisible="{Binding HasNoRepos}"
+                                                Text="Add Repository scans a folder for git repositories" />
+                                        <TextBlock
+                                                Classes="list-note"
+                                                IsVisible="{Binding !HasNoRepos}"
+                                                Text="No repositories match the current filters" />
+                                        <Button
+                                                HorizontalAlignment="Center"
+                                                Classes="text-subtle"
+                                                Command="{Binding ClearTagFiltersCommand}"
+                                                Content="Clear filters"
+                                                IsVisible="{Binding IsFilterActive}" />
+                                </StackPanel>
+                                </Panel>
                         </Border>
 
                 </Grid>

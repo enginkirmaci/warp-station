@@ -23,17 +23,9 @@
             picked from the table.
     -->
     <UserControl.Styles>
-        <!--  Quiet accent links on the branch line (branch view + repo URL): transparent,
-              no box — the accent text IS the affordance.  -->
-        <Style Selector="Button.header-link">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button.header-link:pointerover /template/ ContentPresenter">
-            <Setter Property="Opacity" Value="0.8" />
-        </Style>
+        <!--  Quiet accent links (the branch-line folder link) use the app-wide
+              Button.detail-link class from AppStyles.axaml — transparent, no box,
+              the accent text IS the affordance, dimming slightly on hover.  -->
         <!--  Action buttons are plain default SukiUI buttons (like the Add-Repository
               dialog's Browse…) — the native theme hover highlights the whole surface,
               so no custom hover styles here.  -->
@@ -116,7 +108,7 @@
                     Classes="vertical-divider" />
                 <Button
                     Grid.Column="3"
-                    Classes="header-link"
+                    Classes="detail-link"
                     Command="{Binding OpenRepoFolderCommand}"
                     HorizontalAlignment="Left"
                     ToolTip.Tip="Open the repository folder">
@@ -138,14 +130,32 @@
                 </Button>
             </Grid>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <!--  Refresh: reloads the open panel's data.  -->
+                <!--  Refresh: reloads the open panel's data. The icon swaps to the
+                      spinning ring while the reload runs (the command's CanExecute
+                      click-locks the button; the ring is the app-wide Path.spinner).  -->
                 <Button Command="{Binding RefreshPanelCommand}" ToolTip.Tip="Refresh panel">
-                    <Path
-                        Width="14"
-                        Height="14"
-                        Data="{tools:SvgPath icon-refresh}"
-                        Fill="{DynamicResource BodyForegroundBrush}"
-                        Stretch="Uniform" />
+                    <Panel>
+                        <Path
+                            Width="14"
+                            Height="14"
+                            Data="{tools:SvgPath icon-refresh}"
+                            Fill="{DynamicResource BodyForegroundBrush}"
+                            IsVisible="{Binding !IsPanelRefreshing}"
+                            Stretch="Uniform" />
+                        <Path
+                            Width="13"
+                            Height="13"
+                            Classes="spinner"
+                            Data="{tools:SvgPath icon-spinner, Center=False}"
+                            IsVisible="{Binding IsPanelRefreshing}"
+                            RenderTransformOrigin="50%,50%"
+                            Stroke="{DynamicResource MutedForegroundBrush}"
+                            StrokeThickness="2">
+                            <Path.RenderTransform>
+                                <RotateTransform />
+                            </Path.RenderTransform>
+                        </Path>
+                    </Panel>
                 </Button>
                 <!--  Plain default buttons (like the Add-Repository dialog's Browse…):
                       the native theme hover highlights the whole surface. The kebab
@@ -197,10 +207,10 @@
         <!--  Tabs: drive the bottom bar's panel; bottom margin keeps the active
               tab's underline off the tab content below.  -->
         <StackPanel Margin="0,0,0,8" Orientation="Horizontal" Spacing="36">
-            <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}">
+            <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}" ToolTip.Tip="Open the repository's overview">
                 <TextBlock Classes="tab-label" Text="Overview" />
             </Button>
-            <Button Classes="bar-tab" Classes.active="{Binding IsActiveChanges}" Command="{Binding ToggleChangesTabCommand}">
+            <Button Classes="bar-tab" Classes.active="{Binding IsActiveChanges}" Command="{Binding ToggleChangesTabCommand}" ToolTip.Tip="Working tree, staging and commit">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Classes="tab-label" Text="Changes" />
                     <Border Classes="tab-badge-chip" IsVisible="{Binding ShowChangesBadge}">
@@ -212,7 +222,8 @@
                 Classes="bar-tab"
                 Classes.active="{Binding IsActivePullRequests}"
                 Command="{Binding TogglePullRequestsTabCommand}"
-                IsVisible="{Binding IsGitHubEnabled}">
+                IsVisible="{Binding IsGitHubEnabled}"
+                ToolTip.Tip="Open pull requests">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Classes="tab-label" Text="Pull Requests" />
                     <Border Classes="tab-badge-chip" IsVisible="{Binding ShowPullRequestBadge}">
@@ -224,7 +235,8 @@
                 Classes="bar-tab"
                 Classes.active="{Binding IsActiveIssues}"
                 Command="{Binding ToggleIssuesTabCommand}"
-                IsVisible="{Binding IsGitHubEnabled}">
+                IsVisible="{Binding IsGitHubEnabled}"
+                ToolTip.Tip="Open issues">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Classes="tab-label" Text="Issues" />
                     <Border Classes="tab-badge-chip" IsVisible="{Binding ShowIssueBadge}">
@@ -236,7 +248,8 @@
                 Classes="bar-tab"
                 Classes.active="{Binding IsActiveAzure}"
                 Command="{Binding ToggleAzureTabCommand}"
-                IsVisible="{Binding IsAzureDevOpsEnabled}">
+                IsVisible="{Binding IsAzureDevOpsEnabled}"
+                ToolTip.Tip="Open pull requests, work items and pipeline runs">
                 <TextBlock Classes="tab-label" Text="Pipelines" />
             </Button>
         </StackPanel>

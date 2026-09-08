@@ -157,9 +157,9 @@
                                             -->
                                             <Border
                                                 Name="HeaderSearchBorder"
-                                                Width="440"
+                                                MaxWidth="440"
                                                 Height="38"
-                                                Margin="0,2,0,0"
+                                                Margin="170,2,170,0"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Center"
                                                 chrome:WindowDecorationProperties.ElementRole="User"

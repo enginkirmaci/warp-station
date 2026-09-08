@@ -141,12 +141,19 @@ public partial class Repo : ObservableObject
     /// <summary>
     /// The relative-age label shown in the Last Activity column ("2h ago", "3w ago"),
     /// derived from <see cref="GitLastCommitAt"/>. <c>null</c> when no commit date is
-    /// known. Refreshed only when a new value arrives, not on a timer — ages drift stale
-    /// until the next refresh pass.
+    /// known. Cached and re-derived only when a new commit date arrives (the change
+    /// hook drops the cache), not on a timer — ages drift stale until the next refresh
+    /// pass. Every realized row binds this on every layout pass.
     /// </summary>
-    public string? GitLastActivity => GitLastCommitAt is { } at ? FormatRelative(at) : null;
+    public string? GitLastActivity => GitLastCommitAt is { } at ? (_gitLastActivityLabel ??= FormatRelative(at)) : null;
 
-    partial void OnGitLastCommitAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastActivity));
+    private string? _gitLastActivityLabel;
+
+    partial void OnGitLastCommitAtChanged(DateTimeOffset? value)
+    {
+        _gitLastActivityLabel = null;
+        OnPropertyChanged(nameof(GitLastActivity));
+    }
 
     /// <summary>
     /// When the repo was last fetched (<c>git fetch</c>), either run from the app (the
@@ -160,10 +167,17 @@ public partial class Repo : ObservableObject
     /// <summary>
     /// The relative-age label shown beside the bottom bar's Fetch button ("2m ago"),
     /// derived from <see cref="GitLastFetchAt"/>. <c>null</c> when never fetched.
+    /// Cached like <see cref="GitLastActivity"/>; dropped when a fetch time lands.
     /// </summary>
-    public string? GitLastFetchLabel => GitLastFetchAt is { } at ? FormatRelative(at) : null;
+    public string? GitLastFetchLabel => GitLastFetchAt is { } at ? (_gitLastFetchLabel ??= FormatRelative(at)) : null;
 
-    partial void OnGitLastFetchAtChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(GitLastFetchLabel));
+    private string? _gitLastFetchLabel;
+
+    partial void OnGitLastFetchAtChanged(DateTimeOffset? value)
+    {
+        _gitLastFetchLabel = null;
+        OnPropertyChanged(nameof(GitLastFetchLabel));
+    }
 
     // --- GitHub column (runtime-only, pushed by IGitHubService) ---
 

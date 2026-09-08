@@ -102,9 +102,54 @@ public partial class BottomBar : UserControl
             }
         }
 
+        OpenHistoryRow(sender);
+    }
+
+    /// <summary>
+    /// Keyboard path for a History row: the row Grid is focusable, Enter/Space act as
+    /// a tap (an inner hash Button with focus handles its own key first, so its copy
+    /// action keeps priority).
+    /// </summary>
+    private void OnHistoryRowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Space))
+        {
+            return;
+        }
+
+        if (OpenHistoryRow(sender))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private bool OpenHistoryRow(object? sender)
+    {
         if (sender is Control { DataContext: GitCommitInfo commit } && ViewModel is { } vm)
         {
             vm.OpenCommitDetailCommand.Execute(commit);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Ctrl+Enter in the commit message box runs CommitCommand (plain Enter keeps its
+    /// newline — the box is multi-line). The command's CanExecute (staged files, no
+    /// in-flight commit) still gates it.
+    /// </summary>
+    private void OnCommitBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.Control)
+        {
+            return;
+        }
+
+        if (ViewModel?.CommitCommand is { } commit && commit.CanExecute(null))
+        {
+            commit.Execute(null);
+            e.Handled = true;
         }
     }
 }

@@ -140,6 +140,23 @@
         <Setter Property="Padding" Value="10,6" />
     </Style>
 
+    <!--
+        Tinted count chip — the repos page header's stat pills and the table's
+        activity chips: fully-rounded pill on one of the *ChipBrush tints, the
+        count text 12px SemiBold in the same hue. Background and the text
+        Foreground stay per instance. The Button variant is for the clickable
+        chips (routes to a bar tab; SukiUI's native hover still applies).
+    -->
+    <Style Selector="Border.tint-chip">
+        <Setter Property="Padding" Value="9,4" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ChipRadius}" />
+    </Style>
+    <Style Selector="Button.tint-chip">
+        <Setter Property="Padding" Value="9,4" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ChipRadius}" />
+    </Style>
+
     <!--  Standard root padding for a page (matches 16px gutters).  -->
     <Style Selector="Grid.page-root, StackPanel.page-root">
         <Setter Property="Margin" Value="16" />
@@ -195,6 +212,22 @@
     </Style>
     <Style Selector="Button.text-subtle:pointerover">
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+    </Style>
+
+    <!--
+        Quiet accent link (the History drawer's Back link, the commit-message wand,
+        RepoHeader's branch-line links): transparent, no box — the text/glyph IS the
+        affordance, dimming slightly on hover. Lives app-wide so surfaces outside the
+        defining control's tree (the tool-drawer host) resolve the class too.
+    -->
+    <Style Selector="Button.detail-link">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.detail-link:pointerover /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.8" />
     </Style>
 
     <!--  Standard icon path (18px, subtle gray).  -->
@@ -293,7 +326,7 @@
         icon on top of it (sibling inside a 36px Grid).
     -->
     <Style Selector="Border.stat-badge">
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
         <Setter Property="Opacity" Value="0.16" />
     </Style>
 

@@ -19,6 +19,22 @@
     x:DataType="vm:CommitHistoryViewModel"
     mc:Ignorable="d">
 
+    <UserControl.Styles>
+        <!--  Armed confirm state for the destructive actions (Checkout / Revert):
+              the first click arms — the button turns warning-colored and relabels to
+              the confirm verb; the second click executes (see the VM's arm flags).  -->
+        <Style Selector="Button.armed">
+            <Setter Property="Background" Value="{DynamicResource WarningAccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.armed:pointerover">
+            <Setter Property="Background" Value="{DynamicResource WarningAccentBrush}" />
+            <Setter Property="Opacity" Value="0.9" />
+        </Style>
+        <!--  The file rows are focusable (Enter/Space toggle the patch) but paint no
+              focus ring — matching the repos table, which nulls FocusAdorner too.  -->
+    </UserControl.Styles>
+
     <Grid RowDefinitions="*,Auto">
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="16,4,16,12" Spacing="12">
@@ -70,15 +86,17 @@
                 <!--  Actions  -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button
+                        Classes.armed="{Binding IsCheckoutArmed}"
                         Command="{Binding CheckoutCommand}"
-                        Content="Checkout"
+                        Content="{Binding CheckoutLabel}"
                         IsEnabled="{Binding !IsBusy}"
-                        ToolTip.Tip="Check out this commit (detached HEAD)" />
+                        ToolTip.Tip="{Binding CheckoutTooltip}" />
                     <Button
+                        Classes.armed="{Binding IsRevertArmed}"
                         Command="{Binding RevertCommand}"
-                        Content="Revert"
+                        Content="{Binding RevertLabel}"
                         IsEnabled="{Binding !IsBusy}"
-                        ToolTip.Tip="Revert this commit (a new commit undoes it)" />
+                        ToolTip.Tip="{Binding RevertTooltip}" />
                     <Button
                         Command="{Binding CopyShaCommand}"
                         Content="Copy SHA"
@@ -131,9 +149,12 @@
                                       numstat pills — an Auto pill column drifts row to
                                       row with the path length.  -->
                                 <Grid
+                                    Classes="file-row"
                                     ColumnDefinitions="Auto,*,48,48"
                                     ColumnSpacing="8"
                                     Cursor="Hand"
+                                    Focusable="True"
+                                    KeyDown="OnFileRowKeyDown"
                                     Tapped="OnFileRowTapped">
                                     <Panel
                                         Grid.Column="0"
@@ -221,6 +242,12 @@
                     HorizontalAlignment="Center"
                     IsVisible="{Binding ShowNoFilesNote}"
                     Text="No file changes reported for this commit" />
+                <TextBlock
+                    Classes="subtle"
+                    HorizontalAlignment="Center"
+                    Foreground="{DynamicResource WarningAccentBrush}"
+                    IsVisible="{Binding LoadFailed}"
+                    Text="Loading this commit's files failed — see the logs" />
             </StackPanel>
         </ScrollViewer>
 

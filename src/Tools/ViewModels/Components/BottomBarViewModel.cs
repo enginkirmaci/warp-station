@@ -535,9 +535,34 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    /// <summary>Refreshes the open panel's data (the header's refresh button).</summary>
-    [RelayCommand]
-    private void RefreshPanel() => ReloadActiveTab();
+    /// <summary>True while the header's refresh is reloading the open panel; gates
+    /// re-entrant refresh clicks (the tab loaders set their own flags underneath).</summary>
+    [ObservableProperty]
+    private bool _isPanelRefreshing;
+
+    partial void OnIsPanelRefreshingChanged(bool value) => RefreshPanelCommand.NotifyCanExecuteChanged();
+
+    private bool CanRefreshPanel() => !IsPanelRefreshing;
+
+    /// <summary>Refreshes the open panel's data (the header's refresh button): awaits
+    /// the active tab's loader under a gate so it can't be spammed into concurrent
+    /// reloads. The GitHub tabs' loader fans out internally and returns early — their
+    /// in-flight refreshes are guarded inside <see cref="RefreshProviderAsync{TActivity}"/>.</summary>
+    [RelayCommand(CanExecute = nameof(CanRefreshPanel))]
+    private async Task RefreshPanelAsync()
+    {
+        if (TabLoader(ActiveTab) is not { } load) return;
+
+        IsPanelRefreshing = true;
+        try
+        {
+            await load();
+        }
+        finally
+        {
+            IsPanelRefreshing = false;
+        }
+    }
 
     // --- Shared panel loader plumbing ---
     // Every panel load repeats the same mechanics: snapshot the selected repo, fetch,
@@ -572,13 +597,23 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>Runs a panel load under its busy flag: raises it up front, restores it
     /// in finally and pushes the flag-derived bindings — the try/finally shape every
-    /// loader repeated. Exceptions keep propagating, as before.</summary>
-    private async Task RunBusyAsync(Action<bool> setBusy, Func<Task> load, Action raiseSettled)
+    /// loader repeated. Exceptions are logged here (every call site discards the task
+    /// or hands it to a relay command, so a propagating exception would vanish
+    /// unobserved) and, when <paramref name="errorText"/> is given, toasted.</summary>
+    private async Task RunBusyAsync(Action<bool> setBusy, Func<Task> load, Action raiseSettled, Func<string>? errorText = null)
     {
         setBusy(true);
         try
         {
             await load();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Panel load failed for {FolderPath}", SelectedRepo?.FolderPath);
+            if (errorText?.Invoke() is { } error)
+            {
+                _notificationService.Show(error, NotificationKind.Error);
+            }
         }
         finally
         {
@@ -637,6 +672,7 @@ public partial class BottomBarViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "{Provider} panel refresh failed for {FolderPath}", providerLabel, repo.FolderPath);
+            _notificationService.Show($"{providerLabel} refresh failed", NotificationKind.Error);
         }
         finally
         {
@@ -654,7 +690,9 @@ public partial class BottomBarViewModel : ObservableObject
     /// has no busy flag), toasts <paramref name="successText"/> on success and
     /// <paramref name="errorText"/> on failure (null skips a toast; the error lambda runs
     /// after the action, so fetch/pull/push can embed git's stderr line) and invokes the
-    /// outcome hooks. Exceptions keep propagating, exactly as before.
+    /// outcome hooks. A thrown exception is treated as a failed outcome — logged and
+    /// toasted via <paramref name="errorText"/> — because every call site discards the
+    /// task or hands it to a relay command, which would leave it unobserved.
     /// </summary>
     private async Task RunGitActionAsync(
         Repo repo,
@@ -686,6 +724,16 @@ public partial class BottomBarViewModel : ObservableObject
 
                 onFailure?.Invoke();
             }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Git action failed for {FolderPath}", repo.FolderPath);
+            if (errorText() is { } error)
+            {
+                _notificationService.Show(error, NotificationKind.Error);
+            }
+
+            onFailure?.Invoke();
         }
         finally
         {
@@ -810,6 +858,7 @@ public partial class BottomBarViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Bottom bar branch load failed for {Path}", repo.FolderPath);
+            _notificationService.Show($"Could not load the branches of {repo.Name}", NotificationKind.Error);
         }
     }
 
@@ -941,6 +990,10 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool ShowChangesEmpty => !IsLoadingFiles && ChangedFiles.Count == 0;
 
+    /// <summary>Whether the Changes tab's lists are still loading (drives the card's
+    /// loading note, so the card shows feedback instead of a blank surface).</summary>
+    public bool IsChangesTabLoading => IsLoadingFiles || IsLoadingGroups;
+
     /// <summary>First five changed files for the Overview card (the Changes tab lists all).
     /// A cached slice — recomputed only when the list (re)fills, instead of re-enumerating
     /// <see cref="ChangedFiles"/> on every binding evaluation.</summary>
@@ -956,7 +1009,11 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(ChangedFilesPreview));
     }
 
-    partial void OnIsLoadingFilesChanged(bool value) => OnPropertyChanged(nameof(ShowChangesEmpty));
+    partial void OnIsLoadingFilesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowChangesEmpty));
+        OnPropertyChanged(nameof(IsChangesTabLoading));
+    }
 
     partial void OnChangesAdditionsChanged(int value) => OnPropertyChanged(nameof(ChangesDeltaText));
 
@@ -991,7 +1048,8 @@ public partial class BottomBarViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(ShowChangesEmpty));
                 RefreshChangedFilesPreview();
-            });
+            },
+            () => $"Could not load the changes of {repo.Name}");
     }
 
     /// <summary>
@@ -1049,6 +1107,7 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowStagedSection));
         OnPropertyChanged(nameof(ShowUnstagedSection));
         OnPropertyChanged(nameof(ShowChangesTabEmpty));
+        OnPropertyChanged(nameof(IsChangesTabLoading));
         CommitCommand.NotifyCanExecuteChanged();
         GenerateCommitMessageCommand.NotifyCanExecuteChanged();
     }
@@ -1074,11 +1133,35 @@ public partial class BottomBarViewModel : ObservableObject
                 ReplaceItems(StagedFiles, groups.Staged);
                 ReplaceItems(UnstagedFiles, groups.Unstaged);
             },
-            () => RaiseChangeGroupsDerived());
+            () => RaiseChangeGroupsDerived(),
+            () => $"Could not load the staged changes of {repo.Name}");
     }
 
+    // --- Changes tab: staging ---
+    // The four stage/unstage commands share one IsStaging busy flag (passed to
+    // RunGitActionAsync as setBusy) — the buttons disable through their commands'
+    // CanExecute while an index operation runs, so repeated clicks can't overlap
+    // concurrent `git add`/`git reset` runs. StageFile (+) and UnstageFile (−) are
+    // the per-row buttons; Stage All / Unstage All are the section headers' text buttons.
+
+    /// <summary>True while a stage/unstage (single file or all) is running.</summary>
+    [ObservableProperty]
+    private bool _isStaging;
+
+    partial void OnIsStagingChanged(bool value)
+    {
+        StageFileCommand.NotifyCanExecuteChanged();
+        UnstageFileCommand.NotifyCanExecuteChanged();
+        StageAllCommand.NotifyCanExecuteChanged();
+        UnstageAllCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanStageFile(GitChangedFile? file) => !IsStaging;
+
+    private bool CanStageAll() => !IsStaging;
+
     /// <summary>Stages one file (+ button on an unstaged row).</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStageFile))]
     private Task StageFileAsync(GitChangedFile? file)
     {
         var repo = SelectedRepo;
@@ -1086,7 +1169,7 @@ public partial class BottomBarViewModel : ObservableObject
 
         return RunGitActionAsync(
             repo,
-            setBusy: null,
+            busy => IsStaging = busy,
             r => _gitStatusService.StageAsync(r, file.Path),
             successText: null,
             errorText: () => $"Could not stage {file.Path}",
@@ -1094,7 +1177,7 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>Unstages one file (− button on a staged row); the working tree keeps the change.</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStageFile))]
     private Task UnstageFileAsync(GitChangedFile? file)
     {
         var repo = SelectedRepo;
@@ -1102,7 +1185,7 @@ public partial class BottomBarViewModel : ObservableObject
 
         return RunGitActionAsync(
             repo,
-            setBusy: null,
+            busy => IsStaging = busy,
             r => _gitStatusService.UnstageAsync(r, file.Path),
             successText: null,
             errorText: () => $"Could not unstage {file.Path}",
@@ -1110,7 +1193,7 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>Stages everything, untracked files and deletions included (Stage All).</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStageAll))]
     private Task StageAllAsync()
     {
         var repo = SelectedRepo;
@@ -1118,7 +1201,7 @@ public partial class BottomBarViewModel : ObservableObject
 
         return RunGitActionAsync(
             repo,
-            setBusy: null,
+            busy => IsStaging = busy,
             r => _gitStatusService.StageAllAsync(r),
             successText: null,
             errorText: () => $"Could not stage the changes of {repo.Name}",
@@ -1126,7 +1209,7 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>Unstages everything — index back to HEAD, working tree untouched (Unstage All).</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStageAll))]
     private Task UnstageAllAsync()
     {
         var repo = SelectedRepo;
@@ -1134,7 +1217,7 @@ public partial class BottomBarViewModel : ObservableObject
 
         return RunGitActionAsync(
             repo,
-            setBusy: null,
+            busy => IsStaging = busy,
             r => _gitStatusService.UnstageAllAsync(r),
             successText: null,
             errorText: () => $"Could not unstage the changes of {repo.Name}",
@@ -1509,9 +1592,18 @@ public partial class BottomBarViewModel : ObservableObject
             return;
         }
 
-        var details = await _gitHubService.GetRepoDetailsAsync(repo);
-        if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-        SelectedRepoDetails = details;
+        try
+        {
+            var details = await _gitHubService.GetRepoDetailsAsync(repo);
+            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
+            SelectedRepoDetails = details;
+        }
+        catch (Exception ex)
+        {
+            // Fire-and-forget from the Overview load — without this catch the failure
+            // vanishes into a discarded task and the details card just stays empty.
+            Log.Logger.Error(ex, "Repo details load failed for {FolderPath}", repo.FolderPath);
+        }
     }
 
     // --- Recent commits (the Changes tab's bottom section) ---
@@ -1567,7 +1659,8 @@ public partial class BottomBarViewModel : ObservableObject
                 if (commits is null) return;
                 ReplaceItems(GitCommits, commits);
             },
-            () => OnPropertyChanged(nameof(ShowCommitsEmpty)));
+            () => OnPropertyChanged(nameof(ShowCommitsEmpty)),
+            () => $"Could not load the recent commits of {repo.Name}");
     }
 
     // --- GitHub tabs (pull requests + issues) ---

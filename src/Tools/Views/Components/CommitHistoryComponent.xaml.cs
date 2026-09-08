@@ -35,11 +35,36 @@ public partial class CommitHistoryComponent : UserControl
     /// </summary>
     private void OnFileRowTapped(object? sender, TappedEventArgs e)
     {
+        ToggleFileRow(sender);
+    }
+
+    /// <summary>
+    /// Keyboard path for a file row: the row Grid is focusable, Enter/Space act as a
+    /// tap (Tapped covers pointer input only).
+    /// </summary>
+    private void OnFileRowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Space))
+        {
+            return;
+        }
+
+        if (ToggleFileRow(sender))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private bool ToggleFileRow(object? sender)
+    {
         if (sender is Control { DataContext: CommitFileRowViewModel row }
             && row.ToggleCommand.CanExecute(null))
         {
             row.ToggleCommand.Execute(null);
+            return true;
         }
+
+        return false;
     }
 
     private void InitializeComponent()

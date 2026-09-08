@@ -103,6 +103,20 @@ public partial class MainWindow : SukiWindow
     {
         base.OnApplyTemplate(e);
 
+        // Unsubscribe from the previous template parts first: a re-apply (theme
+        // switch, template invalidation) hands back NEW control instances and
+        // re-subscribing without dropping the old handlers would double-fire the
+        // search pushes.
+        if (HeaderSearchBox is not null)
+        {
+            HeaderSearchBox.TextChanged -= OnHeaderSearchTextChanged;
+            HeaderSearchBox.KeyDown -= OnHeaderSearchKeyDown;
+        }
+        if (SearchClearButton is not null)
+        {
+            SearchClearButton.Click -= OnSearchClearClick;
+        }
+
         HeaderSearchBox = e.NameScope.Find<TextBox>("HeaderSearchBox");
         SearchKbdHint = e.NameScope.Find<Border>("SearchKbdHint");
         SearchClearButton = e.NameScope.Find<Button>("SearchClearButton");
