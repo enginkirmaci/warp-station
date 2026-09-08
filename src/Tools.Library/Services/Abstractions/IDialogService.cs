@@ -3,6 +3,17 @@ using Tools.Library.Configuration;
 namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
+/// The Repo Settings drawer's confirmed result: the edited Repos section, the OpenCode
+/// model fields (moved there from the OpenCode drawer — the record carries only those;
+/// the caller merges them into the stored OpenCode section so flags the dialog doesn't
+/// show keep their values) and the NuGet enable flag (same story — merged into the
+/// stored NugetLocal section). One composite so the caller persists everything in a
+/// single <c>SaveSettingsAsync</c> — two separate saves on a pre-dialog snapshot would
+/// let the second overwrite the first's section.
+/// </summary>
+public sealed record ReposSettingsEditResult(ReposSettings Repos, OpenCodeSettings OpenCode, bool EnableNuget);
+
+/// <summary>
 /// Abstracts UI interactions (folder pickers, repo settings and Add Repositories flows)
 /// so that ViewModels do not depend on the application's <c>App.MainWindow</c> static or
 /// on Avalonia <see cref="Avalonia.Controls.TopLevel"/> directly. The two flows are
@@ -23,10 +34,12 @@ public interface IDialogService
     /// Shows the modal repo settings dialog for editing.
     /// </summary>
     /// <param name="current">The current repo settings to edit.</param>
+    /// <param name="openCode">The current OpenCode settings (models) to edit.</param>
+    /// <param name="nugetEnabled">The current NuGet enable flag to edit.</param>
     /// <returns>
-    /// The edited settings if the user confirmed, or <c>null</c> if the user cancelled.
+    /// The edited sections if the user confirmed, or <c>null</c> if the user cancelled.
     /// </returns>
-    Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current);
+    Task<ReposSettingsEditResult?> ShowReposSettingsDialogAsync(ReposSettings current, OpenCodeSettings openCode, bool nugetEnabled);
 
     /// <summary>
     /// Shows the modal Add Repositories dialog: the user picks or types a folder, the

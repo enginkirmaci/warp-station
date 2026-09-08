@@ -24,6 +24,13 @@ public interface INugetLocalService
     /// <summary>Gets the number of packages processed in the current interval window.</summary>
     int Count { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether the tool is enabled by settings
+    /// (<see cref="NugetLocalSettings.EnableNuget"/>). When false, StartAsync refuses to
+    /// watch and the GUI surfaces (tools dropdown entry, watch chip) hide.
+    /// </summary>
+    bool IsEnabled { get; }
+
     /// <summary>Gets the most recent activity log lines.</summary>
     IReadOnlyList<string> ActivityLog { get; }
 
@@ -32,6 +39,13 @@ public interface INugetLocalService
 
     /// <summary>Gets the persisted NuGet local settings.</summary>
     Task<NugetLocalSettings> GetSettingsAsync();
+
+    /// <summary>
+    /// Re-reads the NuGet section from settings, updates <see cref="IsEnabled"/> and
+    /// raises <see cref="StateChanged"/> so a save from the Repo Settings drawer takes
+    /// effect immediately (the menu entry and chip follow via their listeners).
+    /// </summary>
+    Task RefreshFromSettingsAsync();
 
     /// <summary>Persists the watch folder to settings and updates the computed copy folder.</summary>
     Task SetWatchFolderAsync(string? path);

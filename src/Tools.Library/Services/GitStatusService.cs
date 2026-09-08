@@ -446,7 +446,7 @@ public sealed class GitStatusService : IGitStatusService
             var unmergedPath = LastToken(rest[(unmergedCodeEnd + 1)..]);
             if (unmergedPath.Length > 0)
             {
-                statusFiles.Add(new GitChangedFile(rest[..unmergedCodeEnd], unmergedPath));
+                statusFiles.Add(new GitChangedFile(unmergedPath, rest[..unmergedCodeEnd]));
             }
             return;
         }
@@ -466,7 +466,9 @@ public sealed class GitStatusService : IGitStatusService
         }
         if (path.Length > 0)
         {
-            statusFiles.Add(new GitChangedFile(rest[..2], path));
+            // (Path, StatusCode) — the flat file list shows the path and the verbatim
+            // XY pair as its status.
+            statusFiles.Add(new GitChangedFile(path, rest[..2]));
         }
     }
 

@@ -97,15 +97,14 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _showClipboardPassword = true;
 
     /// <summary>
-    /// Whether the OpenCode entry shows in the tools dropdown: the integration enabled
-    /// in settings (the same flag that reveals the row buttons). Opening it from here
-    /// targets the bar's selected repo; with none selected the drawer shows a disabled
-    /// note instead of a launch target. Loaded asynchronously after construction (see
-    /// <see cref="LoadVisibilityFlagsAsync"/>); the default matches the value computed
-    /// from default settings (integration off).
+    /// Whether the NuGet Local tool shows in the GUI: the tools dropdown entry and the
+    /// title-bar watch chip mirror <see cref="NugetLocalSettings.EnableNuget"/>. Loaded
+    /// asynchronously after construction (see <see cref="LoadVisibilityFlagsAsync"/>)
+    /// and re-checked on every NuGet service StateChanged, so a save in the Repo
+    /// Settings drawer (which nudges the service) flips the surfaces live.
     /// </summary>
     [ObservableProperty]
-    private bool _showOpenCode;
+    private bool _showNuget = true;
 
     /// <summary>
     /// SnapIt is Windows-only functionality (the engine is Win32-based), so every
@@ -164,7 +163,7 @@ public partial class MainWindowViewModel : ViewModelBase
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
-                ShowOpenCode = appSettings.OpenCode?.EnableOpenCode == true;
+                ShowNuget = appSettings.NugetLocal?.EnableNuget != false;
             });
         }
         catch (Exception ex)
@@ -215,6 +214,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void UpdateNugetWatchStatus()
     {
+        // The enable flag rides along: the settings save nudges the service, whose
+        // StateChanged lands here, so the menu entry and chip follow the flag live.
+        ShowNuget = _nugetLocalService.IsEnabled;
         NugetWatchRunning = _nugetLocalService.IsWatching;
         NugetWatchCount = _nugetLocalService.Count;
         NugetWatchStatusText = _nugetLocalService.IsWatching

@@ -1171,7 +1171,10 @@
                             IsVisible="{Binding HasSelectedRepo}"
                             Orientation="Horizontal"
                             Spacing="10">
-                            <!--  Plain default buttons (Browse…-style native hover).  -->
+                            <!--  Plain default buttons (Browse…-style native hover). The
+                                  count after the label shows the ahead/behind commits
+                                  git reported (Repo.GitToPushCount/GitToPullCount) and
+                                  hides while zero/not yet known.  -->
                             <Button Command="{Binding PullCommand}" ToolTip.Tip="git pull for the selected repository">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Path
@@ -1181,6 +1184,13 @@
                                         Classes="icon"
                                         Data="{tools:SvgPath icon-arrow-down}" />
                                     <TextBlock VerticalAlignment="Center" Text="Pull" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource InfoAccentBrush}"
+                                        IsVisible="{Binding SelectedRepo.GitToPullCount, Converter={StaticResource PositiveCountToVisibilityConverter}}"
+                                        Text="{Binding SelectedRepo.GitToPullCount}" />
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding PushCommand}" ToolTip.Tip="git push for the selected repository">
@@ -1192,6 +1202,13 @@
                                         Classes="icon"
                                         Data="{tools:SvgPath icon-arrow-up}" />
                                     <TextBlock VerticalAlignment="Center" Text="Push" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource StatusActiveBrush}"
+                                        IsVisible="{Binding SelectedRepo.GitToPushCount, Converter={StaticResource PositiveCountToVisibilityConverter}}"
+                                        Text="{Binding SelectedRepo.GitToPushCount}" />
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding FetchCommand}" ToolTip.Tip="git fetch --prune for the selected repository">
@@ -1259,12 +1276,12 @@
                                     Classes="subtle"
                                     IsVisible="{Binding ShowRecentCommits}"
                                     Text="{Binding GitCommits.Count, StringFormat='({0})'}" />
-                                <!--  box sized to the chevron's ink aspect (12x7.4): a square
-                                      box under Stretch=Uniform rides the ink high  -->
+                                <!--  box sized to the chevron's ink aspect (12x7.4):
+                                      16x10 keeps it centered; 12x8 read as dead pixels  -->
                                 <Path
                                     Grid.Column="4"
-                                    Width="12"
-                                    Height="8"
+                                    Width="16"
+                                    Height="10"
                                     VerticalAlignment="Center"
                                     IsVisible="{Binding ShowRecentCommits}"
                                     Data="{tools:SvgPath icon-chevron-down}"
@@ -1272,8 +1289,8 @@
                                     Stretch="Uniform" />
                                 <Path
                                     Grid.Column="4"
-                                    Width="12"
-                                    Height="8"
+                                    Width="16"
+                                    Height="10"
                                     VerticalAlignment="Center"
                                     IsVisible="{Binding !ShowRecentCommits}"
                                     Data="{tools:SvgPath icon-chevron-right}"
@@ -1300,14 +1317,15 @@
                                 <ItemsControl ItemsSource="{Binding GitCommits}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitCommitInfo">
-                                            <Grid
-                                                Margin="0,4"
-                                                ColumnDefinitions="Auto,*,Auto,Auto"
-                                                ColumnSpacing="10"
-                                                RowDefinitions="Auto,Auto"
-                                                RowSpacing="3"
-                                                Tapped="OnHistoryRowTapped"
-                                                ToolTip.Tip="Open this commit's details">
+                                                <Grid
+                                                    Margin="0,4"
+                                                    ColumnDefinitions="Auto,*,Auto,Auto"
+                                                    ColumnSpacing="10"
+                                                    RowDefinitions="Auto,Auto"
+                                                    RowSpacing="3"
+                                                    Cursor="Hand"
+                                                    Tapped="OnHistoryRowTapped"
+                                                    ToolTip.Tip="Open this commit's details">
                                                 <!--  Author-initials avatar: tinted circle (the
                                                       tint is a nested layer so the initials
                                                       keep full opacity).  -->
@@ -1371,12 +1389,13 @@
                                                         Foreground="{DynamicResource MutedForegroundBrush}"
                                                         Text="{Binding ShortHash}" />
                                                 </Button>
-                                                <!--  box sized to the chevron's ink aspect (12x7.4)  -->
+                                                <!--  box sized to the chevron's ink aspect (12x7.4):
+                                                      16x10 keeps it centered  -->
                                                 <Path
                                                     Grid.RowSpan="2"
                                                     Grid.Column="3"
-                                                    Width="12"
-                                                    Height="8"
+                                                    Width="16"
+                                                    Height="10"
                                                     VerticalAlignment="Center"
                                                     Data="{tools:SvgPath icon-chevron-right}"
                                                     Fill="{DynamicResource MutedForegroundBrush}"

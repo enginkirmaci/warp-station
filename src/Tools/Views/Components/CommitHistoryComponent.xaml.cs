@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Windows;
 
@@ -24,6 +25,21 @@ public partial class CommitHistoryComponent : UserControl
         ViewModel = viewModel;
         DataContext = viewModel;
         InitializeComponent();
+    }
+
+    /// <summary>
+    /// The whole file row toggles its patch — the chevron is only a state indicator,
+    /// far too small to be the sole hit target. Bound per row via Tapped on the row
+    /// Grid (a wrapping Button would need a content-stretching ControlTheme to give a
+    /// full-width hit area).
+    /// </summary>
+    private void OnFileRowTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: CommitFileRowViewModel row }
+            && row.ToggleCommand.CanExecute(null))
+        {
+            row.ToggleCommand.Execute(null);
+        }
     }
 
     private void InitializeComponent()

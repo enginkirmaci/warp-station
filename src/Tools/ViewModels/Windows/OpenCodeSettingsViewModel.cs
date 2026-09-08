@@ -21,12 +21,13 @@ namespace Tools.ViewModels.Windows;
 public sealed record OpenCodeSettingsContext(Repo? Repo);
 
 /// <summary>
-/// The OpenCode settings drawer: model picker (a pick persists DefaultModel), commit
-/// model (the wand's model), instances, template, prompt and the launch button — the
-/// former OpenCode bottom panel, redesigned in the drawer's card vocabulary. Settings
-/// writes go through <see cref="BottomBarViewModel"/> (it owns the OpenCode snapshot the
-/// wand and quick-open read) via <see cref="BottomBarViewModel.RefreshOpenCodeSnapshot"/>;
-/// this VM is transient, so all UI state seeds per open through <see cref="OnDrawerContextAsync"/>.
+/// The OpenCode launch drawer: a per-launch model picker, instances, template, prompt
+/// and the launch button — the former OpenCode bottom panel, redesigned in the drawer's
+/// card vocabulary. Nothing here persists: the saved default model is edited in the
+/// Repo Settings drawer; the pick made here only selects the model for the instances
+/// this panel launches (seeded from the saved default on open). Settings are read
+/// fresh per open — this VM is transient, so all UI state seeds through
+/// <see cref="OnDrawerContextAsync"/>.
 /// <para>
 /// The editable model ComboBox commits its selection through the component's code-behind
 /// instead of a TwoWay binding so the in-place ItemsSource rebuilds (model list refresh)
@@ -89,7 +90,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// <summary>
     /// The currently selected model. Bound OneWay so the box genuinely highlights the
     /// configured default; user picks are committed by the component's SelectionChanged
-    /// handler (see <see cref="CommitModelAsync"/>), not by a TwoWay binding — a TwoWay
+    /// handler (see <see cref="CommitModelPick"/>), not by a TwoWay binding — a TwoWay
     /// writeback would null the selection during the in-place list rebuilds.
     /// </summary>
     [ObservableProperty]
@@ -102,11 +103,6 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// <summary>The dropdown list: <see cref="OpenCodeModels"/> filtered by <see cref="OpenCodeModelFilter"/>.</summary>
     [ObservableProperty]
     private ObservableCollection<string> _openCodeFilteredModels = new();
-
-    /// <summary>The commit-model box's text buffer; persisted on lost focus — empty means
-    /// "no dedicated commit model" and the wand then uses the default model.</summary>
-    [ObservableProperty]
-    private string _openCodeCommitModelText = string.Empty;
 
     public bool OpenCodeHasModels => OpenCodeModels.Count > 0;
     public bool OpenCodeModelsEmpty => OpenCodeModels.Count == 0;
@@ -212,70 +208,17 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
 
     /// <summary>
     /// Commits a model picked from the dropdown (called by the component's code-behind):
-    /// updates the selection and filter, and PERSISTS the pick as the configured default
-    /// model — this drawer is the settings surface for a value that previously could only
-    /// be edited by hand in settings.json.
+    /// updates the selection and filter so the next launch from this panel uses it. The
+    /// pick is deliberately NOT persisted — the saved default model is edited in the
+    /// Repo Settings drawer; this picker is launch-scoped.
     /// </summary>
-    public async Task CommitModelAsync(string model)
+    public void CommitModelPick(string model)
     {
         if (_syncingPickers) return; // phantom pick from an option-list rebuild
         if (string.IsNullOrWhiteSpace(model)) return;
-        if (string.Equals(model, OpenCodeSelectedModel, StringComparison.Ordinal)
-            && string.Equals(_openCodeSettings.DefaultModel, model, StringComparison.Ordinal))
-        {
-            OpenCodeModelFilter = model;
-            return;
-        }
 
         OpenCodeSelectedModel = model;
         OpenCodeModelFilter = model;
-
-        await PersistAsync(
-            s => s.DefaultModel = model,
-            $"Default model set to {model}");
-    }
-
-    /// <summary>
-    /// Persists the commit-model box: empty/whitespace clears the dedicated commit model
-    /// (the wand falls back to the configured default), anything else keeps the trimmed
-    /// id verbatim. No-op when the value didn't change.
-    /// </summary>
-    public async Task SaveCommitModelAsync()
-    {
-        var desired = string.IsNullOrWhiteSpace(OpenCodeCommitModelText)
-            ? null
-            : OpenCodeCommitModelText.Trim();
-        if (string.Equals(_openCodeSettings.CommitModel, desired, StringComparison.Ordinal)) return;
-
-        await PersistAsync(s => s.CommitModel = desired);
-    }
-
-    /// <summary>
-    /// Writes one OpenCode settings mutation to settings.json and refreshes the bottom
-    /// bar's snapshot, so the wand / quick-open / row buttons see the new value at once.
-    /// The local snapshot (<see cref="_openCodeSettings"/>) carries the saved values too,
-    /// keeping this open's comparisons consistent.
-    /// </summary>
-    private async Task PersistAsync(Action<OpenCodeSettings> mutate, string? successMessage = null)
-    {
-        try
-        {
-            var settings = await _settingsService.GetSettingsAsync();
-            settings.OpenCode ??= new OpenCodeSettings();
-            mutate(settings.OpenCode);
-            await _settingsService.SaveSettingsAsync(settings);
-
-            mutate(_openCodeSettings);
-            _bottomBar.RefreshOpenCodeSnapshot(settings.OpenCode);
-            if (successMessage is not null)
-            {
-                _notificationService.Show(successMessage, NotificationKind.Success);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Warning(ex, "Failed to persist the OpenCode settings");
-        }
     }
 
     // --- Launch options ---
@@ -531,7 +474,6 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
 
             HasOpenCode = _bottomBar.HasOpenCode;
             TargetRepoName = _repo?.Name ?? "No repository selected";
-            OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
 
             await LoadModelsAsync();
             await LoadTemplatesAsync();

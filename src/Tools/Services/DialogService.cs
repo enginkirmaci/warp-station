@@ -45,9 +45,9 @@ public class DialogService : IDialogService
     }
 
     /// <inheritdoc/>
-    public Task<ReposSettings?> ShowReposSettingsDialogAsync(ReposSettings current)
+    public Task<ReposSettingsEditResult?> ShowReposSettingsDialogAsync(ReposSettings current, OpenCodeSettings openCode, bool nugetEnabled)
     {
-        var context = new ReposSettingsDrawerContext(current);
+        var context = new ReposSettingsDrawerContext(current, openCode, nugetEnabled);
         return ShowDrawerComponentAsync(ToolComponentMapper.RepoSettingsKey, context, context.Completion);
     }
 

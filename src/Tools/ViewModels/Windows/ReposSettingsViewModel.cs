@@ -10,10 +10,13 @@ namespace Tools.ViewModels.Windows;
 /// ViewModel for the <see cref="Views.Components.ReposSettingsComponent"/> (the former
 /// Repo Settings modal dialog, now hosted in the floating tool drawer). Holds the
 /// editing state for <see cref="ReposSettings"/> (multi-line text for the array
-/// fields, plain strings for the rest) and translates between the two on load/save.
+/// fields, plain strings for the rest) and the OpenCode model fields (the default
+/// model the quick-launch passes verbatim and the wand's commit model — moved here
+/// from the OpenCode drawer, which is a per-launch surface now), translating between
+/// text and settings on load/save.
 /// </summary>
 public partial class ReposSettingsViewModel :
-    DrawerDialogViewModelBase<ReposSettingsDrawerContext, ReposSettings>
+    DrawerDialogViewModelBase<ReposSettingsDrawerContext, ReposSettingsEditResult>
 {
     // Canonical defaults live on ReposSettings itself (the per-field Default* constants
     // that also back ReposSettings.Defaults); no private duplicates are kept here.
@@ -48,6 +51,14 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _openCodeExecutable = ReposSettings.DefaultOpenCodeExecutable;
 
+    /// <summary>The default model quick-launch passes to opencode (provider/model id).</summary>
+    [ObservableProperty]
+    private string _openCodeDefaultModel = string.Empty;
+
+    /// <summary>The wand's model; empty means the wand falls back to the default model.</summary>
+    [ObservableProperty]
+    private string _openCodeCommitModel = string.Empty;
+
     [ObservableProperty]
     private string _zCodeExecutable = ReposSettings.DefaultZCodeExecutable;
 
@@ -77,6 +88,10 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private bool _enableAzureDevOps = true;
 
+    /// <summary>Whether the NuGet Local tool (tools menu entry, watch chip, watch) is enabled.</summary>
+    [ObservableProperty]
+    private bool _enableNuget = true;
+
     [ObservableProperty]
     private string _azureDevOpsPat = string.Empty;
 
@@ -96,19 +111,26 @@ public partial class ReposSettingsViewModel :
     }
 
     /// <summary>The open context's completion source the Save command resolves.</summary>
-    protected override TaskCompletionSource<ReposSettings?> GetCompletion(ReposSettingsDrawerContext context)
+    protected override TaskCompletionSource<ReposSettingsEditResult?> GetCompletion(ReposSettingsDrawerContext context)
         => context.Completion;
 
     /// <inheritdoc/>
     protected override void OnDrawerContext(ReposSettingsDrawerContext context)
-        => LoadFrom(context.Current ?? new ReposSettings());
+    {
+        LoadFrom(context.Current ?? new ReposSettings());
+
+        var openCode = context.OpenCode ?? new OpenCodeSettings();
+        OpenCodeDefaultModel = openCode.DefaultModel ?? string.Empty;
+        OpenCodeCommitModel = openCode.CommitModel ?? string.Empty;
+        EnableNuget = context.NugetEnabled;
+    }
 
     /// <summary>
     /// Save: resolves the drawer context with the edited settings and closes the drawer
     /// (shared confirm plumbing on the base).
     /// </summary>
     [RelayCommand]
-    private void Save() => ConfirmWith(BuildSettings());
+    private void Save() => ConfirmWith(new ReposSettingsEditResult(BuildSettings(), BuildOpenCodeSettings(), EnableNuget));
 
     /// <summary>
     /// Builds a <see cref="ReposSettings"/> from the edited values, applying
@@ -144,6 +166,19 @@ public partial class ReposSettingsViewModel :
             MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0
                 ? depth
                 : ReposSettings.DefaultMaxScanDepth
+        };
+    }
+
+    /// <summary>
+    /// Builds the edited OpenCode section: the model ids are kept trimmed verbatim (an
+    /// empty default is legal — quick-launch then alerts instead of guessing a model).
+    /// </summary>
+    public OpenCodeSettings BuildOpenCodeSettings()
+    {
+        return new OpenCodeSettings
+        {
+            DefaultModel = OpenCodeDefaultModel?.Trim() ?? string.Empty,
+            CommitModel = string.IsNullOrWhiteSpace(OpenCodeCommitModel) ? null : OpenCodeCommitModel.Trim()
         };
     }
 

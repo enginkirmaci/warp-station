@@ -1,12 +1,11 @@
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Windows;
 
 namespace Tools.Views.Components;
 
 /// <summary>
-/// The OpenCode settings drawer component (model picker, commit model, launch options).
+/// The OpenCode launch drawer component (per-launch model picker, launch options).
 /// Its DataContext is the transient <see cref="OpenCodeSettingsViewModel"/> resolved from
 /// DI per open. The editable model ComboBox commits its selection through code-behind
 /// handlers instead of a TwoWay binding so the in-place ItemsSource rebuilds (model list
@@ -56,8 +55,9 @@ public partial class OpenCodeSettingsComponent : UserControl
     }
 
     /// <summary>
-    /// Captures a model picked from the editable ComboBox's dropdown and persists it as
-    /// the configured default model. The editable box is bound two-way to
+    /// Captures a model picked from the editable ComboBox's dropdown as the launch model
+    /// (the pick is not persisted — the saved default lives in Repo Settings). The
+    /// editable box is bound two-way to
     /// <see cref="OpenCodeSettingsViewModel.OpenCodeModelFilter"/> (the live search text), so
     /// the actual selection is committed here — the filter text is snapped back to the
     /// chosen model's full name inside the commit.
@@ -72,8 +72,7 @@ public partial class OpenCodeSettingsComponent : UserControl
             _suppressAutoOpenModelDropdown = true;
             try
             {
-                vm.OpenCodeModelFilter = model;
-                _ = vm.CommitModelAsync(model);
+                vm.CommitModelPick(model);
             }
             finally
             {
@@ -100,20 +99,6 @@ public partial class OpenCodeSettingsComponent : UserControl
             && box.IsKeyboardFocusWithin)
         {
             box.IsDropDownOpen = true;
-        }
-    }
-
-    /// <summary>
-    /// Persists the commit-model box when it loses focus (click-away/Tab): empty text
-    /// clears the dedicated commit model so the wand falls back to the default. A lost-
-    /// focus commit replaces the old ComboBox's SelectionChanged plumbing — a TextBox
-    /// cannot fire phantom selection events during option-list rebuilds.
-    /// </summary>
-    private void OnCommitModelLostFocus(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is OpenCodeSettingsViewModel vm)
-        {
-            _ = vm.SaveCommitModelAsync();
         }
     }
 }

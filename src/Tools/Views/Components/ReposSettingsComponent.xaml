@@ -101,7 +101,11 @@
                             Studio additionally only exists on Windows (enforced by the
                             page, not here).
                         -->
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="16" RowDefinitions="Auto,Auto">
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="10">
                             <CheckBox
                                 Grid.Row="0" Grid.Column="0"
                                 Content="Enable Visual Studio"
@@ -122,11 +126,16 @@
                                 Content="Enable ZCode"
                                 IsChecked="{Binding EnableZCode, Mode=TwoWay}"
                                 ToolTip.Tip="Show the zcode button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="2" Grid.Column="0"
+                                Content="Enable NuGet"
+                                IsChecked="{Binding EnableNuget, Mode=TwoWay}"
+                                ToolTip.Tip="Show the NuGet package tool and allow its folder watch" />
                         </Grid>
                         <Grid
                             ColumnDefinitions="*,*"
                             ColumnSpacing="16"
-                            RowDefinitions="Auto,Auto,Auto"
+                            RowDefinitions="Auto,Auto,Auto,Auto"
                             RowSpacing="8">
                             <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                                 <TextBlock
@@ -169,6 +178,20 @@
                                     Text="ZCode Executable"
                                     ToolTip.Tip="Path or command for zcode; AppImage opens the desktop app" />
                                 <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="OpenCode Model (default)"
+                                    ToolTip.Tip="Model the opencode quick-launch button starts; passed verbatim" />
+                                <TextBox Text="{Binding OpenCodeDefaultModel, UpdateSourceTrigger=PropertyChanged}" Watermark="provider/model, e.g. opencode-go/glm-5.3-flash" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="OpenCode Commit Model (wand)"
+                                    ToolTip.Tip="Model for the commit-message wand; empty = default model" />
+                                <TextBox Text="{Binding OpenCodeCommitModel, UpdateSourceTrigger=PropertyChanged}" Watermark="(empty = default model)" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>

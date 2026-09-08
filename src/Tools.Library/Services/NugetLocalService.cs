@@ -56,6 +56,14 @@ public class NugetLocalService : INugetLocalService, IDisposable
     public bool IsWatching { get; private set; }
     public int Count { get; private set; }
 
+    /// <summary>
+    /// Whether the tool is settings-enabled (<see cref="NugetLocalSettings.EnableNuget"/>).
+    /// Defaults to true so a start racing the initialization still behaves like the
+    /// keyless default; InitializeAsync/RefreshFromSettingsAsync/StartAsync keep it
+    /// synced with the file.
+    /// </summary>
+    public bool IsEnabled { get; private set; } = true;
+
     // Backing collection is only ever mutated under _stateLock; a snapshot is handed out
     // for safe cross-thread enumeration.
     private readonly ObservableCollection<string> _activityLog = new();
@@ -83,12 +91,13 @@ public class NugetLocalService : INugetLocalService, IDisposable
         _isInitializing = true;
         try
         {
-            var settings = await _settingsService.GetSettingsAsync();
-            _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();
+        var settings = await _settingsService.GetSettingsAsync();
+        _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();
+        IsEnabled = _nugetSettings.EnableNuget;
 
-            WatchFolder = _nugetSettings.WatchFolder ?? string.Empty;
-            ComputedCopyFolder = ComputeCopyFolder(WatchFolder);
-            GlobalPackagesFolder = await GetGlobalPackagesFolderAsync();
+        WatchFolder = _nugetSettings.WatchFolder ?? string.Empty;
+        ComputedCopyFolder = ComputeCopyFolder(WatchFolder);
+        GlobalPackagesFolder = await GetGlobalPackagesFolderAsync();
         }
         finally
         {
@@ -101,6 +110,22 @@ public class NugetLocalService : INugetLocalService, IDisposable
     {
         var settings = await _settingsService.GetSettingsAsync();
         return settings.NugetLocal ?? new NugetLocalSettings();
+    }
+
+    /// <inheritdoc/>
+    public async Task RefreshFromSettingsAsync()
+    {
+        var settings = await _settingsService.GetSettingsAsync();
+        _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();
+        IsEnabled = _nugetSettings.EnableNuget;
+
+        // Disabling mid-watch tears the watcher down; Stop raises StateChanged itself.
+        if (!IsEnabled && IsWatching)
+        {
+            Stop();
+            return;
+        }
+        RaiseStateChanged();
     }
 
     public async Task SetWatchFolderAsync(string? path)
@@ -139,6 +164,19 @@ public class NugetLocalService : INugetLocalService, IDisposable
 
         // Ensure settings have been loaded before we try to start.
         await _initializationTask;
+
+        // Settings gate: re-read the section fresh (a cheap in-memory copy) so a flag
+        // flipped after this instance initialized — via the Repo Settings drawer or a
+        // hand edit of settings.json — is honored even here.
+        var settings = await _settingsService.GetSettingsAsync();
+        _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();
+        IsEnabled = _nugetSettings.EnableNuget;
+        if (!IsEnabled)
+        {
+            AddLog("✗ NuGet is disabled in settings (EnableNuget).");
+            RaiseStateChanged();
+            return false;
+        }
 
         if (string.IsNullOrEmpty(WatchFolder) || !Directory.Exists(WatchFolder))
         {

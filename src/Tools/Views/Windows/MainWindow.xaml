@@ -169,7 +169,11 @@
 						Icon rows ride in an explicit Header element: the XAML compiler
 						crashes resolving MenuFlyoutItem's implicit content property.
 					-->
-					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="{x:Static helpers:ToolComponentMapper.NugetLocalKey}">
+					<!--  Hidden along with the tool itself when the tool is disabled  -->
+					<MenuItem
+						Command="{Binding OpenToolCommand}"
+						CommandParameter="{x:Static helpers:ToolComponentMapper.NugetLocalKey}"
+						IsVisible="{Binding ShowNuget}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -242,23 +246,6 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<!--  OpenCode hides along with the row buttons when the integration is disabled  -->
-					<MenuItem
-						Command="{Binding OpenToolCommand}"
-						CommandParameter="{x:Static helpers:ToolComponentMapper.OpenCodeKey}"
-						IsVisible="{Binding ShowOpenCode}">
-						<MenuItem.Header>
-							<StackPanel Orientation="Horizontal" Spacing="10">
-								<Path
-									Width="16"
-									Height="16"
-									Data="{tools:SvgPath icon-opencode}"
-									Fill="{DynamicResource MutedForegroundBrush}"
-									Stretch="Uniform" />
-								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="OpenCode" />
-							</StackPanel>
-						</MenuItem.Header>
-					</MenuItem>
 				</MenuFlyout>
 			</Button.Flyout>
 		</Button>
@@ -278,6 +265,7 @@
 			Command="{Binding ToggleNugetWatchCommand}"
 			CornerRadius="{DynamicResource ChipRadius}"
 			Cursor="Hand"
+			IsVisible="{Binding ShowNuget}"
 			ToolTip.Tip="{Binding NugetWatchStatusText, StringFormat='NuGet watch: {0}'}">
 			<StackPanel Orientation="Horizontal" Spacing="7">
 				<Ellipse

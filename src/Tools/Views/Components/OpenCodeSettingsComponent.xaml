@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-    OpenCode settings drawer: the model picker (a pick persists DefaultModel), commit
-    model, instances, template + prompt and the launch button — the former OpenCode
-    bottom panel, restyled in the tool drawer's card vocabulary (same card/field-label
-    language as the Repo Settings component). Grouped into three cards: Model / Launch /
-    Start prompt.
+    OpenCode launch drawer: a per-launch model picker (the saved default model is edited
+    in the Repo Settings drawer), instances, template + prompt and the launch button —
+    the former OpenCode bottom panel, restyled in the tool drawer's card vocabulary
+    (same card/field-label language as the Repo Settings component). Grouped into three
+    cards: Model / Launch / Start prompt.
 -->
 <UserControl
     x:Class="Tools.Views.Components.OpenCodeSettingsComponent"
@@ -22,14 +22,14 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="16,4,16,12" Spacing="12">
 
-            <!--  Model defaults  -->
+            <!--  Per-launch model  -->
             <Border Classes="card">
                 <StackPanel Spacing="8">
-                    <TextBlock Classes="card-title" Text="Models" />
+                    <TextBlock Classes="card-title" Text="Model" />
                     <TextBlock
                         Classes="field-label"
-                        Text="Model (default)"
-                        ToolTip.Tip="Preselected on open and used by every launch; picking one persists it" />
+                        Text="Model"
+                        ToolTip.Tip="Model for the instances launched from this panel" />
                     <ComboBox
                         Name="OpenCodeModelPicker"
                         HorizontalAlignment="Stretch"
@@ -47,17 +47,8 @@
                         TextWrapping="Wrap" />
                     <TextBlock
                         Classes="subtle"
-                        Text="Picking a model persists it as the default (settings.json) and preselects it for every launch."
+                        Text="Preselected from the default model in Repo Settings; a pick here applies to the instances launched from this panel."
                         TextWrapping="Wrap" />
-                    <TextBlock
-                        Classes="field-label"
-                        Text="Commit model (wand)"
-                        ToolTip.Tip="Model for the Changes-tab commit wand; empty = default model" />
-                    <TextBox
-                        Name="CommitModelBox"
-                        LostFocus="OnCommitModelLostFocus"
-                        Text="{Binding OpenCodeCommitModelText, Mode=TwoWay}"
-                        Watermark="(empty = default model)" />
                 </StackPanel>
             </Border>
 

@@ -826,10 +826,23 @@ public partial class BottomBarViewModel : ObservableObject
             r => _gitStatusService.FetchAsync(r),
             $"Fetched {repo.Name}",
             () => $"Fetch failed for {repo.Name}",
-            onSuccess: () => SyncBranchSelection(repo));
+            onSuccess: () =>
+            {
+                SyncBranchSelection(repo);
+                RefreshGitCounts(repo);
+            });
     }
 
     private bool CanFetch() => !IsFetching && HasSelectedRepo;
+
+    /// <summary>
+    /// Re-probes the repo's git status right after a pull/push/fetch: the ahead/behind
+    /// counts the Pull/Push buttons display must reflect the operation that just ran
+    /// (pull clears behind, push clears ahead, fetch may reveal new upstream commits)
+    /// without waiting for the next full status pass. Fire-and-forget — the probe is
+    /// all-swallowing and updates the repo entity's observable counts.
+    /// </summary>
+    private void RefreshGitCounts(Repo repo) => _ = _gitStatusService.RefreshRepoAsync(repo);
 
     [RelayCommand(CanExecute = nameof(CanPull))]
     private Task PullAsync()
@@ -851,7 +864,11 @@ public partial class BottomBarViewModel : ObservableObject
             () => error is { } detail
                 ? $"Pull failed for {repo.Name}: {detail}"
                 : $"Pull failed for {repo.Name}",
-            onSuccess: () => SyncBranchSelection(repo));
+            onSuccess: () =>
+            {
+                SyncBranchSelection(repo);
+                RefreshGitCounts(repo);
+            });
     }
 
     private bool CanPull() => !IsPulling && !IsPushing && HasSelectedRepo;
@@ -875,7 +892,8 @@ public partial class BottomBarViewModel : ObservableObject
             $"Pushed {repo.Name}",
             () => error is { } detail
                 ? $"Push failed for {repo.Name}: {detail}"
-                : $"Push failed for {repo.Name}");
+                : $"Push failed for {repo.Name}",
+            onSuccess: () => RefreshGitCounts(repo));
     }
 
     private bool CanPush() => !IsPulling && !IsPushing && HasSelectedRepo;
@@ -1851,9 +1869,6 @@ public partial class BottomBarViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasOpenCode;
 
-    /// <summary>The configured default model, exposed for the Repos page's quick-open launch.</summary>
-    public string? OpenCodeDefaultModel => _openCodeSettings.DefaultModel;
-
     partial void OnIsOpenCodeEnabledChanged(bool value)
     {
         _openCodeSettings.EnableOpenCode = value;
@@ -1878,17 +1893,16 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Refreshes this VM's OpenCode snapshot from a settings object the OpenCode settings
-    /// drawer just persisted (the drawer VM is transient and owns no shared state): the
-    /// wand, quick-open and the per-row buttons read this snapshot, so it must track the
-    /// file. Raises <see cref="OpenCodeStateChanged"/> so subscribers re-evaluate too.
+    /// Refreshes this VM's OpenCode snapshot from a settings object the Repo Settings
+    /// drawer just persisted (the drawer VMs are transient and own no shared state): the
+    /// wand and the per-row buttons read this snapshot, so it must track the file.
+    /// Raises <see cref="OpenCodeStateChanged"/> so subscribers re-evaluate too.
     /// </summary>
     public void RefreshOpenCodeSnapshot(OpenCodeSettings fresh)
     {
         _openCodeSettings.DefaultModel = fresh.DefaultModel;
         _openCodeSettings.CommitModel = fresh.CommitModel;
         _openCodeSettings.EnableOpenCode = fresh.EnableOpenCode;
-        OnPropertyChanged(nameof(OpenCodeDefaultModel));
         OpenCodeStateChanged?.Invoke();
     }
 

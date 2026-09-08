@@ -42,6 +42,14 @@ public class AppSettings
 public class NugetLocalSettings
 {
     /// <summary>
+    /// Gets or sets a value indicating whether the NuGet Local tool is surfaced in the
+    /// GUI (the tools dropdown entry and the title-bar watch chip) and allowed to
+    /// start watching. Defaults to <see langword="true"/> so settings files without
+    /// the key keep the tool. Edited in the Repo Settings drawer.
+    /// </summary>
+    public bool EnableNuget { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the folder path to watch for new nuget packages.
     /// </summary>
     public string? WatchFolder { get; set; }
@@ -279,11 +287,10 @@ public class OpenCodeSettings
 
     /// <summary>
     /// Gets or sets the model id (<c>provider/model-id</c>, as printed by
-    /// <c>opencode models</c>) preselected when the OpenCode panel opens and launched by
-    /// Quick Open. The model catalog keeps this entry present (top of the list) even when
-    /// the CLI does not print it, so the preselection always resolves. When empty, the
-    /// first model from the CLI list is used, as before. Configured manually via
-    /// settings.json.
+    /// <c>opencode models</c>) the Repos page's quick-launch button passes to opencode
+    /// verbatim — the button never queries the CLI for the model catalog and shows an
+    /// error alert when this is empty. The OpenCode drawer's per-launch picker
+    /// preselects it too. Edited in the Repo Settings drawer or settings.json.
     /// </summary>
     public string? DefaultModel { get; set; } = string.Empty;
 
@@ -292,7 +299,7 @@ public class OpenCodeSettings
     /// (<c>opencode run</c> one-shot), independent of <see cref="DefaultModel"/> — a
     /// cheap/fast model can be dedicated to commit messages while interactive sessions
     /// launch with the default. When empty, the wand falls back to
-    /// <see cref="DefaultModel"/>. Configured via the OpenCode panel or settings.json.
+    /// <see cref="DefaultModel"/>. Edited in the Repo Settings drawer or settings.json.
     /// </summary>
     public string? CommitModel { get; set; }
 }

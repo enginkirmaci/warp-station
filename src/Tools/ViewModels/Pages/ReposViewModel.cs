@@ -39,13 +39,13 @@ public partial class ReposViewModel : PageViewModelBase
     private readonly IGitStatusService _gitStatusService;
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
+    private readonly INugetLocalService _nugetLocalService;
 
     /// <summary>Both provider services behind the common contract, so the settings'
     /// Configure sweep is one loop (load and save).</summary>
     private readonly IEnumerable<IRepoActivityService> _activityServices;
     private readonly IProcessLauncher _processLauncher;
     private readonly ITerminalLauncher _terminalLauncher;
-    private readonly IOpenCodeModelService _openCodeModelService;
     private readonly INotificationService _notificationService;
     private readonly BottomBarViewModel _bottomBar;
     private ReposSettings _reposSettings = new();
@@ -335,10 +335,10 @@ public partial class ReposViewModel : PageViewModelBase
         IGitStatusService gitStatusService,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
+        INugetLocalService nugetLocalService,
         IEnumerable<IRepoActivityService> activityServices,
         IProcessLauncher processLauncher,
         ITerminalLauncher terminalLauncher,
-        IOpenCodeModelService openCodeModelService,
         INotificationService notificationService,
         BottomBarViewModel bottomBar)
     {
@@ -348,10 +348,10 @@ public partial class ReposViewModel : PageViewModelBase
         _gitStatusService = gitStatusService;
         _gitHubService = gitHubService;
         _azureDevOpsService = azureDevOpsService;
+        _nugetLocalService = nugetLocalService;
         _activityServices = activityServices;
         _processLauncher = processLauncher;
         _terminalLauncher = terminalLauncher;
-        _openCodeModelService = openCodeModelService;
         _notificationService = notificationService;
         _bottomBar = bottomBar;
 
@@ -942,25 +942,23 @@ public partial class ReposViewModel : PageViewModelBase
     // --- OpenCode ---
 
     /// <summary>
-    /// Quick open: launches a single opencode instance in the repo folder with the configured
-    /// default model (or the first model from the list when none is configured) — no options.
-    /// The cached list answers instantly; on a cold start the CLI runs once and fills the
-    /// cache. The default is read live from the bottom bar so a pick made there applies
-    /// immediately. The model list is only a fallback pool — its ordering is the catalog's,
-    /// never a preference, so the configured default is passed through directly rather than
-    /// read back as the list's first entry.
+    /// Quick open: launches a single opencode instance in the repo folder with the
+    /// default model from settings — no options, and no opencode catalog query (the
+    /// button must not spawn the CLI to resolve a model). Without a configured default
+    /// there is nothing to launch with: an error alert points at Repo Settings.
     /// </summary>
     [RelayCommand]
     private async Task QuickOpenOpenCodeAsync(Repo? repo)
     {
         if (repo?.FolderPath is null || !IsOpenCodeEnabled) return;
 
-        var defaultModel = _bottomBar.OpenCodeDefaultModel;
-        var models = _openCodeModelService.GetCachedModels(defaultModel);
-        if (models.Count == 0)
-            models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, defaultModel);
-
-        var model = _openCodeModelService.ResolveLaunchModel(models, defaultModel);
+        var settings = await _settingsService.GetSettingsAsync();
+        var model = settings.OpenCode?.DefaultModel?.Trim();
+        if (string.IsNullOrEmpty(model))
+        {
+            _notificationService.Show("No default OpenCode model — set it in Repo Settings", NotificationKind.Error);
+            return;
+        }
 
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null) return;
@@ -1074,32 +1072,51 @@ public partial class ReposViewModel : PageViewModelBase
         try
         {
             var settings = await _settingsService.GetSettingsAsync();
-            var currentRepoSettings = settings.Repos ?? new ReposSettings();
 
-            var edited = await _dialogService.ShowReposSettingsDialogAsync(currentRepoSettings);
+            var edited = await _dialogService.ShowReposSettingsDialogAsync(
+                settings.Repos ?? new ReposSettings(),
+                settings.OpenCode ?? new OpenCodeSettings(),
+                settings.NugetLocal?.EnableNuget ?? true);
             if (edited == null)
             {
                 // User cancelled the dialog.
                 return;
             }
 
-            settings.Repos = edited;
+            // Both edited sections land in ONE save — the dialog returned a composite
+            // so this pre-dialog snapshot can't clobber either section. The OpenCode
+            // edit surface is the two model fields only: merge them into the existing
+            // section instead of replacing it, so flags the dialog doesn't show (e.g.
+            // EnableOpenCode) keep their stored values. Same merge discipline for the
+            // NuGet enable flag.
+            settings.Repos = edited.Repos;
+            settings.OpenCode ??= new OpenCodeSettings();
+            settings.OpenCode.DefaultModel = edited.OpenCode.DefaultModel;
+            settings.OpenCode.CommitModel = edited.OpenCode.CommitModel;
+            settings.NugetLocal ??= new NugetLocalSettings();
+            settings.NugetLocal.EnableNuget = edited.EnableNuget;
             // The settings dialog doesn't touch the sort mode, but it may hand back a
             // fresh instance — carry the live selection so the save doesn't revert it.
-            edited.SortMode = SelectedSortOption.Mode;
+            edited.Repos.SortMode = SelectedSortOption.Mode;
             await _settingsService.SaveSettingsAsync(settings);
 
-            _reposSettings = edited;
-            IsGitHubColumnVisible = edited.EnableGitHub;
-            IsAzureDevOpsColumnVisible = edited.EnableAzureDevOps;
+            _reposSettings = edited.Repos;
+            IsGitHubColumnVisible = edited.Repos.EnableGitHub;
+            IsAzureDevOpsColumnVisible = edited.Repos.EnableAzureDevOps;
             foreach (var activityService in _activityServices)
             {
-                activityService.Configure(edited);
+                activityService.Configure(edited.Repos);
             }
             RefreshShortcutAvailability();
-            // The bottom bar's tab visibility (GitHub/Azure) and OpenCode availability
-            // follow the same save.
-            _bottomBar.ApplySettings(edited);
+            // The bottom bar's tab visibility (GitHub/Azure) follows the same save, and
+            // its OpenCode snapshot (default/commit model for the wand) is refreshed so
+            // the next quick-launch/wand run sees the new models without a restart.
+            _bottomBar.ApplySettings(edited.Repos);
+            _bottomBar.RefreshOpenCodeSnapshot(edited.OpenCode);
+            // The NuGet service re-reads the enable flag (stopping a running watch when
+            // disabled) and raises StateChanged, which flips the title-bar chip and the
+            // tools-menu entry live.
+            await _nugetLocalService.RefreshFromSettingsAsync();
             await _repoService.RefreshAsync(_reposSettings);
             _notificationService.Show("Settings saved", NotificationKind.Success);
         }

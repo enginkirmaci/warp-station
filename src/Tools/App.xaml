@@ -34,6 +34,7 @@
 			<conv:GitHubStateChipBrushConverter x:Key="GitHubStateChipBrushConverter" />
 			<conv:GitHubLabelBrushConverter x:Key="GitHubLabelBrushConverter" />
 			<conv:NotificationKindToBrushConverter x:Key="NotificationKindToBrushConverter" />
+			<conv:PositiveCountToVisibilityConverter x:Key="PositiveCountToVisibilityConverter" />
 		</ResourceDictionary>
 	</Application.Resources>
 	<Application.Styles>
