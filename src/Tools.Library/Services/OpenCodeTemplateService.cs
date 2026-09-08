@@ -15,8 +15,6 @@ namespace Tools.Library.Services;
 /// </summary>
 public class OpenCodeTemplateService : IOpenCodeTemplateService
 {
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
-
     private const string TemplatesFolderName = ".opencode";
 
     /// <summary>Shipped defaults live under <c>&lt;install&gt;/settings/opencode/templates</c>.</summary>
@@ -107,7 +105,7 @@ public class OpenCodeTemplateService : IOpenCodeTemplateService
             }
 
             var json = File.ReadAllText(manifestPath);
-            var config = JsonSerializer.Deserialize<OpenCodeTemplateConfig>(json, ReadOptions);
+            var config = JsonSerializer.Deserialize<OpenCodeTemplateConfig>(json, JsonIO.ReadOptions);
             if (config is null)
                 return null;
 

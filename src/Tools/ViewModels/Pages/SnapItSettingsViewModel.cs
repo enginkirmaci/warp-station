@@ -93,9 +93,13 @@ public partial class SnapItSettingsViewModel : PageViewModelBase
 
     private async Task SaveAutoStartAsync(bool autoStart)
     {
-        var appSettings = await _settingsService.GetSettingsAsync();
-        appSettings.SnapIt ??= new SnapItSettings();
-        appSettings.SnapIt.AutoStart = autoStart;
-        await _settingsService.SaveSettingsAsync(appSettings);
+        // Single get → mutate → save transition (serialized under the settings
+        // service lock) instead of a Get/Save round trip that can clobber
+        // concurrent saves of other sections.
+        await _settingsService.UpdateAsync(s =>
+        {
+            s.SnapIt ??= new SnapItSettings();
+            s.SnapIt.AutoStart = autoStart;
+        });
     }
 }

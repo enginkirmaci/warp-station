@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Tools.Library.Media;
@@ -17,6 +18,13 @@ namespace Tools.Library.MarkupExtensions;
 public class SvgPathExtension : MarkupExtension
 {
     private static readonly Geometry EmptyGeometry = Geometry.Parse("M0,0");
+
+    // DataTemplates re-run ProvideValue on every container realization; parsing and
+    // centering the same icon thousands of times per scroll is wasted work. Geometry
+    // instances are immutable once parsed and safe to share across Path visuals
+    // (identical to StaticResource geometry reuse), so the fully-processed result is
+    // cached per (pathData, Center) and handed out on every subsequent realization.
+    private static readonly ConcurrentDictionary<(string PathData, bool Center), Geometry> GeometryCache = new();
 
     public SvgPathExtension()
     {
@@ -56,9 +64,11 @@ public class SvgPathExtension : MarkupExtension
 
         try
         {
-            var normalized = pathData.Replace(",", " ");
-            var geometry = Geometry.Parse(normalized);
-            return Center ? IconGeometry.CenterOnDesignGrid(geometry) : geometry;
+            return GeometryCache.GetOrAdd((pathData, Center), static key =>
+            {
+                var geometry = Geometry.Parse(key.PathData.Replace(",", " "));
+                return key.Center ? IconGeometry.CenterOnDesignGrid(geometry) : geometry;
+            });
         }
         catch
         {

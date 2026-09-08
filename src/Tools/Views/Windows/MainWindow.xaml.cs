@@ -10,6 +10,7 @@ using SukiUI.Controls;
 using Tools.Helpers;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
+using Tools.Services;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
 using Tools.Views.Components;
@@ -26,7 +27,7 @@ namespace Tools.Views.Windows;
 public partial class MainWindow : SukiWindow
 {
     private readonly IToolDrawerService _toolDrawer;
-    private readonly IServiceProvider _services;
+    private readonly ToolViewResolver _resolveToolView;
     private readonly IClipboardPasswordService _clipboardPasswordService;
     private readonly WindowMessageHandler _messageHandler;
     private readonly WindowConfigurator _windowConfigurator;
@@ -50,7 +51,8 @@ public partial class MainWindow : SukiWindow
     /// </summary>
     private const int ToolsFlyoutCloseDelayMs = 350;
 
-    private CancellationTokenSource? _searchDebounce;
+    /// <summary>Debounces the header search pushes (see <see cref="HeaderSearchDebounceMs"/>).</summary>
+    private readonly UiDebounce _searchDebounce = new(HeaderSearchDebounceMs);
 
     /// <summary>
     /// Open timer: fires while the pointer rests on the tools button. Close timer:
@@ -125,12 +127,13 @@ public partial class MainWindow : SukiWindow
     public MainWindow(
         MainWindowViewModel viewModel,
         IToolDrawerService toolDrawer,
-        IServiceProvider services,
+        ToolViewResolver resolveToolView,
+        ReposPage reposPage,
         IClipboardPasswordService clipboardPasswordService,
         INotificationService notificationService)
     {
         _toolDrawer = toolDrawer;
-        _services = services;
+        _resolveToolView = resolveToolView;
         _clipboardPasswordService = clipboardPasswordService;
 
         // Initialize helper classes (Dependency Inversion Principle)
@@ -145,15 +148,19 @@ public partial class MainWindow : SukiWindow
         // and its Toasts collection is the items source.
         ToastHost.DataContext = notificationService;
         ToastHost.ItemsSource = notificationService.Toasts;
+
+        // Host the permanent Repositories page content (runs its ViewModel lifecycle).
+        AttachRepositoriesPage(reposPage);
     }
 
     /// <summary>
-    /// Composition-root hook: hosts the Repositories page as the window's permanent
-    /// content. ReposPage transitively depends on this window (DialogService does), so
-    /// it cannot be a constructor dependency — the app resolves it after the window
-    /// exists and attaches it here. There is no navigation stack anymore.
+    /// Hosts the Repositories page as the window's permanent content and starts its
+    /// ViewModel lifecycle. The page is a plain constructor dependency: the original
+    /// reason for a composition-root hook (ReposPage → DialogService → MainWindow was
+    /// a DI cycle) is gone since DialogService reaches the window through
+    /// <see cref="IMainWindowProvider"/> at call time. There is no navigation stack.
     /// </summary>
-    public void AttachRepositoriesPage(ReposPage reposPage)
+    private void AttachRepositoriesPage(ReposPage reposPage)
     {
         ContentArea.Content = reposPage;
 
@@ -225,8 +232,7 @@ public partial class MainWindow : SukiWindow
             viewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
         }
         _toolDrawer.Changed -= OnToolDrawerChanged;
-        _searchDebounce?.Cancel();
-        _searchDebounce?.Dispose();
+        _searchDebounce.Dispose();
         // Background services (SnapIt, NuGet watch) are stopped during application
         // shutdown, not here, so the window does not own their lifecycle.
     }
@@ -344,7 +350,7 @@ public partial class MainWindow : SukiWindow
 
         if (!_toolDrawer.IsOpen
             || ToolComponentMapper.Find(_toolDrawer.SelectedToolKey) is not { } tool
-            || _services.GetService(tool.ViewType) is not Control view)
+            || _resolveToolView(tool.Key) is not Control view)
         {
             ToolDrawerHost.Content = null;
             return;
@@ -352,18 +358,55 @@ public partial class MainWindow : SukiWindow
 
         ToolDrawerHost.Content = view;
 
-        // Deliver the open's context to the hosted component. Tools pass none — a
-        // context receiver still gets the (null) delivery so it can seed itself (the
-        // OpenCode settings drawer seeds from settings + the bar's selected repo); the
-        // dialog receivers ignore deliveries that aren't their own payload type.
-        if (view.DataContext is IToolDrawerContextReceiver receiver)
-        {
-            receiver.OnDrawerContext(_toolDrawer.Context);
-        }
+        // Deliver the open's context to the hosted component. Tools pass none — the
+        // delivery still happens (as a null payload) so a receiver can seed itself (the
+        // OpenCode settings drawer seeds from settings + the bar's selected repo);
+        // payload-typed receivers treat such deliveries through their null tolerance.
+        _ = DeliverDrawerContextAsync(view.DataContext, _toolDrawer.Context);
 
         if (view.DataContext is PageViewModelBase incomingVm)
         {
             FireLifecycle(() => incomingVm.OnNavigatedToAsync());
+        }
+    }
+
+    /// <summary>
+    /// Delivers the drawer open's context to the hosted component's ViewModel, matched
+    /// against the receiver's declared payload type. A context of another kind — the
+    /// tools-dropdown opens carry none — delivers as <c>null</c>, so the receiver's own
+    /// null tolerance decides: the OpenCode drawer seeds anyway, the dialog receivers
+    /// no-op like their former type-guards did. Failures are logged rather than thrown
+    /// (fire-and-forget mirrors <see cref="FireLifecycle"/>); the synchronous prefix
+    /// still runs inline, keeping the per-open seeding ahead of the lifecycle hooks.
+    /// </summary>
+    private static async Task DeliverDrawerContextAsync(object? dataContext, object? context)
+    {
+        if (dataContext is not IToolDrawerContextReceiver receiver)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (receiver)
+            {
+                case IToolDrawerContextReceiver<AddRepositoriesDrawerContext> addRepositories:
+                    await addRepositories.OnDrawerContextAsync(context as AddRepositoriesDrawerContext);
+                    break;
+                case IToolDrawerContextReceiver<ReposSettingsDrawerContext> reposSettings:
+                    await reposSettings.OnDrawerContextAsync(context as ReposSettingsDrawerContext);
+                    break;
+                case IToolDrawerContextReceiver<CommitHistoryContext> commitHistory:
+                    await commitHistory.OnDrawerContextAsync(context as CommitHistoryContext);
+                    break;
+                case IToolDrawerContextReceiver<OpenCodeSettingsContext> openCodeSettings:
+                    await openCodeSettings.OnDrawerContextAsync(context as OpenCodeSettingsContext);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Error(ex, "Tool drawer context delivery threw");
         }
     }
 
@@ -423,23 +466,7 @@ public partial class MainWindow : SukiWindow
         UpdateHeaderSearchChrome();
         if (_syncingSearchText) return;
 
-        _searchDebounce?.Cancel();
-        _searchDebounce?.Dispose();
-        _searchDebounce = new CancellationTokenSource();
-        var token = _searchDebounce.Token;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(HeaderSearchDebounceMs, token);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (token.IsCancellationRequested) return;
-                    ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty);
-                });
-            }
-            catch (OperationCanceledException) { }
-        });
+        _searchDebounce.Debounce(() => ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty));
     }
 
     /// <summary>Enter applies the term immediately; Escape clears it.</summary>
@@ -447,7 +474,7 @@ public partial class MainWindow : SukiWindow
     {
         if (e.Key == Key.Enter)
         {
-            _searchDebounce?.Cancel();
+            _searchDebounce.Cancel();
             ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty);
             e.Handled = true;
         }

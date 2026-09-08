@@ -72,13 +72,6 @@ public partial class BottomBar : UserControl
         {
             presenter.CanHorizontallyScroll = false;
         }
-        Serilog.Log.Logger.Debug(
-            "BottomBar ScrollViewer diag: hsb={Hsb} presenter={Found} presenterCanH={CanH} svW={W} presenterW={PW}",
-            scrollViewer.HorizontalScrollBarVisibility,
-            presenter is not null,
-            presenter?.CanHorizontallyScroll,
-            scrollViewer.Bounds.Width,
-            presenter?.Bounds.Width);
     }
 
     /// <summary>

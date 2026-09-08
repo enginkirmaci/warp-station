@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Serilog;
 using Tools.Library.Configuration;
@@ -12,77 +11,73 @@ public class OpenCodeModelService : IOpenCodeModelService
     /// <summary>Upper bound for the <c>opencode models</c> call; a hung CLI must not stall the UI.</summary>
     private static readonly TimeSpan CliTimeout = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// How long the in-memory catalog is reused before the next call re-runs the CLI
+    /// (<see cref="GetModelsAsync"/>) or re-reads the cache file
+    /// (<see cref="GetCachedModels"/>). Repeated drawer opens and quick launches within
+    /// the window stop paying a process spawn / synchronous file read each.
+    /// </summary>
+    private static readonly TimeSpan CatalogLifetime = TimeSpan.FromMinutes(10);
+
     /// <summary>Cache file holding the model list from the last successful CLI call.</summary>
     private static readonly string CacheFilePath = UserPaths.GetUserDataFile("opencode", "models.cache.json");
+
+    /// <summary>Memoized raw <c>opencode models</c> catalog (before the default-model
+    /// merge) with the time it was taken; null until a CLI run first succeeds.</summary>
+    private IReadOnlyList<string>? _cliCatalog;
+    private DateTimeOffset _cliCatalogAt;
+
+    /// <summary>Memoized cache-file content with the time it was read. A successful CLI run
+    /// refreshes it directly (it just rewrote the file), so the memo mirrors the disk.</summary>
+    private IReadOnlyList<string> _fileCatalog = Array.Empty<string>();
+    private DateTimeOffset _fileCatalogAt;
 
     /// <inheritdoc/>
     public IReadOnlyList<string> GetCachedModels(string? defaultModel)
     {
-        try
-        {
-            if (!File.Exists(CacheFilePath))
-                return MergeDefaultModel(Array.Empty<string>(), defaultModel);
-
-            var cached = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(CacheFilePath))
-                ?? (IReadOnlyList<string>)Array.Empty<string>();
-            return MergeDefaultModel(cached, defaultModel);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Warning(ex, "OpenCodeModelService: failed to read the model cache");
-            return MergeDefaultModel(Array.Empty<string>(), defaultModel);
-        }
+        return MergeDefaultModel(ReadCacheCatalog(), defaultModel);
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<string>> GetModelsAsync(string? executable, string? defaultModel, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> GetModelsAsync(string? executable, string? defaultModel, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        var exe = string.IsNullOrWhiteSpace(executable) ? "opencode" : executable;
+        // TTL memoization: within the window the previous catalog answers without a
+        // process spawn (re-merged with the current default); only an expired catalog —
+        // or an explicit force refresh — runs the CLI again.
+        if (!forceRefresh
+            && _cliCatalog is not null
+            && DateTimeOffset.UtcNow - _cliCatalogAt < CatalogLifetime)
+        {
+            return MergeDefaultModel(_cliCatalog, defaultModel);
+        }
 
-        // The GUI process often runs with a minimal PATH (no shell rc files), so a bare
-        // name must also be looked up in the user-level install dirs; spawning needs
-        // the resolved absolute path either way.
-        var resolved = ExecutableDefaults.Locate(exe);
+        // The GUI process often runs with a minimal PATH; LocateCli (see ProcessRunner)
+        // resolves bare names against PATH plus the user-level install dirs.
+        var (exe, resolved) = ProcessRunner.LocateCli(executable, "opencode", "OpenCodeModelService");
         if (resolved is null)
         {
-            Log.Logger.Warning(
-                "OpenCodeModelService: '{Exe}' was not found on PATH or in the common user install folders (~/.local/bin, ~/.opencode/bin, …)",
-                exe);
             return MergeDefaultModel(Array.Empty<string>(), defaultModel);
         }
 
         try
         {
-            var psi = new ProcessStartInfo
+            var result = await ProcessRunner.RunAsync(new ProcessRunOptions
             {
                 FileName = resolved,
                 Arguments = "models",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
+                Timeout = CliTimeout,
+                StripElectronVariable = true,
+            }, cancellationToken);
 
-            // An Electron-hosted Tools (launched from VS Code & forks) leaks this variable
-            // into children; it would degrade an Electron-packaged opencode to plain Node.
-            psi.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");
-
-            using var process = new Process { StartInfo = psi };
-            process.Start();
-
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var completed = await Task.WhenAny(outputTask, Task.Delay(CliTimeout, cancellationToken));
-            if (completed != outputTask)
+            if (result.TimedOut)
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
                 Log.Logger.Warning("OpenCodeModelService: '{Exe} models' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
                 return MergeDefaultModel(Array.Empty<string>(), defaultModel);
             }
 
             // Model ids are printed one per line as provider/model-id; the '/' guard drops any
             // stray non-model lines (banners, warnings leaked to stdout).
-            var models = outputTask.Result
+            var models = result.StandardOutput
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(line => line.Contains('/'))
                 .Distinct(StringComparer.Ordinal)
@@ -91,7 +86,12 @@ public class OpenCodeModelService : IOpenCodeModelService
             // Persist only a non-empty result so a transient CLI failure never clobbers a good
             // cache; the persisted list already carries the default at the top (see below).
             if (models.Count > 0)
-                SaveCache(MergeDefaultModel(models, defaultModel));
+            {
+                var merged = MergeDefaultModel(models, defaultModel);
+                SaveCache(merged);
+                RememberCatalog(models, merged);
+                return merged;
+            }
 
             return MergeDefaultModel(models, defaultModel);
         }
@@ -104,6 +104,67 @@ public class OpenCodeModelService : IOpenCodeModelService
             Log.Logger.Warning(ex, "OpenCodeModelService: failed to list models via '{Exe} models'", exe);
             return MergeDefaultModel(Array.Empty<string>(), defaultModel);
         }
+    }
+
+    /// <inheritdoc/>
+    public string ResolveLaunchModel(IReadOnlyList<string> models, string? defaultModel)
+    {
+        var model = defaultModel?.Trim();
+        if (string.IsNullOrEmpty(model))
+            return models.FirstOrDefault() ?? string.Empty;
+
+        var match = models.FirstOrDefault(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
+        return match ?? model;
+    }
+
+    /// <summary>
+    /// Reads the model cache file, memoized for <see cref="CatalogLifetime"/> so repeated
+    /// calls don't pay the synchronous read + deserialize each. External writes to the
+    /// file become visible when the memo expires; a CLI run within this process refreshes
+    /// the memo directly (see <see cref="RememberCatalog"/>). Never throws.
+    /// </summary>
+    private IReadOnlyList<string> ReadCacheCatalog()
+    {
+        if (DateTimeOffset.UtcNow - _fileCatalogAt < CatalogLifetime)
+        {
+            return _fileCatalog;
+        }
+
+        try
+        {
+            if (!File.Exists(CacheFilePath))
+            {
+                _fileCatalog = Array.Empty<string>();
+            }
+            else
+            {
+                _fileCatalog = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(CacheFilePath))
+                    ?? (IReadOnlyList<string>)Array.Empty<string>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "OpenCodeModelService: failed to read the model cache");
+            _fileCatalog = Array.Empty<string>();
+        }
+
+        _fileCatalogAt = DateTimeOffset.UtcNow;
+        return _fileCatalog;
+    }
+
+    /// <summary>
+    /// Refreshes both memos after a successful CLI run: the raw catalog answers subsequent
+    /// <see cref="GetModelsAsync"/> calls within the TTL, and the merged list — exactly
+    /// what <see cref="SaveCache"/> just wrote — answers <see cref="GetCachedModels"/>
+    /// without re-reading the file.
+    /// </summary>
+    private void RememberCatalog(IReadOnlyList<string> cliCatalog, IReadOnlyList<string> mergedCatalog)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _cliCatalog = cliCatalog;
+        _cliCatalogAt = now;
+        _fileCatalog = mergedCatalog;
+        _fileCatalogAt = now;
     }
 
     /// <summary>

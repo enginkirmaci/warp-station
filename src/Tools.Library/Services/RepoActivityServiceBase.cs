@@ -20,14 +20,8 @@ public abstract class RepoActivityServiceBase<TActivity> : IRepoActivityService
 {
     private readonly IRepoService _repoService;
 
-    /// <summary>Guards the refresh-pass flags.</summary>
-    private readonly object _sync = new();
-
-    /// <summary>True while a refresh pass loop is running.</summary>
-    private bool _isRefreshing;
-
-    /// <summary>Set when a refresh is requested while one is running; runs another pass after.</summary>
-    private bool _refreshPending;
+    /// <summary>Owns the coalescing refresh loop and the throttled pass over every repo.</summary>
+    private readonly RefreshCoalescer _coalescer;
 
     /// <summary>Volatile snapshot of the last Configure's column flag (the VM reconfigures per navigation).</summary>
     private volatile bool _enabled;
@@ -38,6 +32,7 @@ public abstract class RepoActivityServiceBase<TActivity> : IRepoActivityService
     protected RepoActivityServiceBase(IRepoService repoService)
     {
         _repoService = repoService;
+        _coalescer = new RefreshCoalescer(repoService);
         _repoService.Changed += OnRepoServiceChanged;
     }
 
@@ -85,77 +80,20 @@ public abstract class RepoActivityServiceBase<TActivity> : IRepoActivityService
     public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
     {
         if (!IsEnabled) return;
-
-        // Coalesce concurrent triggers exactly like GitStatusService: while a pass runs,
-        // callers just flag a follow-up pass, and the loop drains pending flags.
-        lock (_sync)
-        {
-            if (_isRefreshing)
-            {
-                _refreshPending = true;
-                return;
-            }
-            _isRefreshing = true;
-        }
-
-        try
-        {
-            while (true)
-            {
-                lock (_sync)
-                {
-                    _refreshPending = false;
-                }
-
-                await RefreshPassAsync(cancellationToken);
-
-                lock (_sync)
-                {
-                    if (!_refreshPending || cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-        finally
-        {
-            lock (_sync)
-            {
-                _isRefreshing = false;
-            }
-        }
+        await _coalescer.RunCoalescedAsync(RefreshPassAsync, cancellationToken);
     }
 
     /// <summary>
-    /// One throttled pass over every known repo: the list is snapshotted first (a
-    /// rescan may swap RepoService.Repos mid-refresh; probing a since-removed repo is
-    /// harmless — its entity is simply orphaned), then the per-repo fetches run
-    /// bounded by <see cref="MaxParallelism"/>.
+    /// One throttled pass over every known repo — the snapshot and the
+    /// <see cref="MaxParallelism"/>-bounded fan-out come from
+    /// <see cref="RefreshCoalescer.RunThrottledPassAsync"/>; only the failure logging
+    /// stays here, so one bad pass can never crash the loop.
     /// </summary>
     protected virtual async Task RefreshPassAsync(CancellationToken cancellationToken)
     {
-        var repos = _repoService.Repos
-            .Where(r => !string.IsNullOrWhiteSpace(r.FolderPath))
-            .ToList();
-        if (repos.Count == 0) return;
-
         try
         {
-            using var throttle = new SemaphoreSlim(MaxParallelism);
-            var tasks = repos.Select(async repo =>
-            {
-                await throttle.WaitAsync(cancellationToken);
-                try
-                {
-                    await FetchRepoAsync(repo, cancellationToken);
-                }
-                finally
-                {
-                    throttle.Release();
-                }
-            });
-            await Task.WhenAll(tasks);
+            await _coalescer.RunThrottledPassAsync(MaxParallelism, FetchRepoAsync, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

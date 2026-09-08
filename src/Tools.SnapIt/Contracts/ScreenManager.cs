@@ -6,15 +6,13 @@ public class ScreenManager : IScreenManager
 {
     private const uint WM_DISPLAYCHANGE = 126;
     private const uint WM_SETTINGCHANGE = 26;
-    private static volatile bool screenChanged;
-
-    private ISnapManager? snapManager;
 
     public bool IsInitialized { get; private set; }
 
     public void SetSnapManager(ISnapManager snapManager)
     {
-        this.snapManager = snapManager;
+        // Kept to satisfy the IScreenManager contract (SnapManager registers itself
+        // during initialization), but nothing currently consumes the reference here.
     }
 
     public async Task InitializeAsync()
@@ -30,14 +28,5 @@ public class ScreenManager : IScreenManager
     public void Dispose()
     {
         IsInitialized = false;
-    }
-
-    private async void ScreenChangedTask()
-    {
-        if (screenChanged)
-        {
-            screenChanged = false;
-            snapManager?.ScreenChangedEvent();
-        }
     }
 }

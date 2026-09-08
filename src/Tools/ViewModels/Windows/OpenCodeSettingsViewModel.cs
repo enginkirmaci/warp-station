@@ -6,10 +6,8 @@ using Serilog;
 using Tools.Helpers;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
-using Tools.Library.Formatters;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
-using Tools.Services;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Components;
 
@@ -28,21 +26,21 @@ public sealed record OpenCodeSettingsContext(Repo? Repo);
 /// former OpenCode bottom panel, redesigned in the drawer's card vocabulary. Settings
 /// writes go through <see cref="BottomBarViewModel"/> (it owns the OpenCode snapshot the
 /// wand and quick-open read) via <see cref="BottomBarViewModel.RefreshOpenCodeSnapshot"/>;
-/// this VM is transient, so all UI state seeds per open through <see cref="OnDrawerContext"/>.
+/// this VM is transient, so all UI state seeds per open through <see cref="OnDrawerContextAsync"/>.
 /// <para>
 /// The editable model ComboBox commits its selection through the component's code-behind
 /// instead of a TwoWay binding so the in-place ItemsSource rebuilds (model list refresh)
 /// never write a transient null back into this VM.
 /// </para>
 /// </summary>
-public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerContextReceiver
+public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerContextReceiver<OpenCodeSettingsContext>
 {
     private readonly ISettingsService _settingsService;
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly IOpenCodeTemplateService _openCodeTemplateService;
     private readonly IOpenCodePromptService _openCodePromptService;
     private readonly IOpenCodeGridLauncher _openCodeGridLauncher;
-    private readonly IProcessLauncher _processLauncher;
+    private readonly ITerminalLauncher _terminalLauncher;
     private readonly INotificationService _notificationService;
     private readonly IToolDrawerService _toolDrawer;
     private readonly BottomBarViewModel _bottomBar;
@@ -58,7 +56,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
         IOpenCodeTemplateService openCodeTemplateService,
         IOpenCodePromptService openCodePromptService,
         IOpenCodeGridLauncher openCodeGridLauncher,
-        IProcessLauncher processLauncher,
+        ITerminalLauncher terminalLauncher,
         INotificationService notificationService,
         IToolDrawerService toolDrawer,
         BottomBarViewModel bottomBar)
@@ -68,7 +66,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
         _openCodeTemplateService = openCodeTemplateService;
         _openCodePromptService = openCodePromptService;
         _openCodeGridLauncher = openCodeGridLauncher;
-        _processLauncher = processLauncher;
+        _terminalLauncher = terminalLauncher;
         _notificationService = notificationService;
         _toolDrawer = toolDrawer;
         _bottomBar = bottomBar;
@@ -114,8 +112,10 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     public bool OpenCodeModelsEmpty => OpenCodeModels.Count == 0;
 
     /// <summary>
-    /// Loads the model list: the cached list shows immediately, then <c>opencode models</c>
-    /// runs and the fresh list replaces it. Called on every drawer open.
+    /// Loads the model list: the cached list shows immediately, then the catalog refreshes —
+    /// the <c>opencode models</c> CLI only re-runs when the service's in-memory catalog is
+    /// staler than its TTL, so repeated drawer opens don't respawn the process. Called on
+    /// every drawer open.
     /// </summary>
     private async Task LoadModelsAsync()
     {
@@ -182,20 +182,11 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// <summary>
     /// The model to preselect (and launch) when the user has not picked one: the
     /// configured default when set and listed — matched case-insensitively and resolved
-    /// to the list's own casing — otherwise the first model.
+    /// to the list's own casing — otherwise the first model. Delegates to the model
+    /// service, which owns the rule (and applies it to the catalog's ordering too).
     /// </summary>
     private string SelectConfiguredOrDefaultModel(IReadOnlyList<string> models)
-    {
-        var configured = _openCodeSettings.DefaultModel?.Trim();
-        if (!string.IsNullOrEmpty(configured))
-        {
-            var match = models.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
-                return match;
-        }
-
-        return models.FirstOrDefault() ?? string.Empty;
-    }
+        => _openCodeModelService.ResolveLaunchModel(models, _openCodeSettings.DefaultModel);
 
     /// <summary>
     /// The model to launch with, in priority order: an exact match for what the box
@@ -406,6 +397,9 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// <summary>
     /// Launches opencode in the target repo with the current options (model, instances,
     /// grid, template, prompt) and closes the drawer once the instances are on their way.
+    /// The plain-window launch path (and the command-line assembly it shares with the
+    /// grid) lives in <see cref="ITerminalLauncher"/>; this VM keeps only the terminal
+    /// guard — the grid branch still needs the resolved executables.
     /// </summary>
     [RelayCommand]
     private async Task LaunchOpenCodeAsync()
@@ -424,7 +418,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
             return;
         }
 
-        var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
+        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
         var model = ResolveLaunchModel();
@@ -435,27 +429,10 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
         }
         else
         {
-            var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, prompt ?? string.Empty);
-            var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-            for (var i = 0; i < count; i++)
-            {
-                _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
-            }
+            _terminalLauncher.LaunchOpenCode(terminalExe, openCodeExe, repo.FolderPath, model, prompt ?? string.Empty, count);
         }
 
         _toolDrawer.Close();
-    }
-
-    /// <summary>
-    /// Resolves a CLI name for embedding in a terminal command line: the spawned terminal
-    /// inherits the app's often-minimal GUI PATH, so a bare name is expanded to its
-    /// absolute path; when unresolvable the bare name is kept so the terminal shows the
-    /// familiar "command not found" feedback.
-    /// </summary>
-    private static string ResolveCliForTerminal(string? configured, string fallback)
-    {
-        var resolved = ExecutableDefaults.Locate(configured) ?? configured ?? fallback;
-        return resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
     }
 
     /// <summary>
@@ -535,35 +512,34 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
         OpenCodeTemplates = collection;
     }
 
-    /// <inheritdoc/>
-    public async void OnDrawerContext(object context)
+    /// <summary>
+    /// Drawer open payload: the repo the settings/launch act on (null when the open
+    /// carried none — the tools-dropdown opens seed from the bar's selection instead).
+    /// Every delivery reloads the fresh settings, models, templates and prompts.
+    /// </summary>
+    public async Task OnDrawerContextAsync(OpenCodeSettingsContext? context)
     {
         try
         {
-            await OnDrawerContextCoreAsync(context);
+            _repo = context?.Repo;
+
+            // Fresh, authoritative values: GetSettingsAsync returns a copy, so the previous
+            // open's edits are visible here even though this VM instance is brand new.
+            var settings = await _settingsService.GetSettingsAsync();
+            _reposSettings = settings.Repos ?? new ReposSettings();
+            _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
+
+            HasOpenCode = _bottomBar.HasOpenCode;
+            TargetRepoName = _repo?.Name ?? "No repository selected";
+            OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
+
+            await LoadModelsAsync();
+            await LoadTemplatesAsync();
+            await LoadPromptsAsync();
         }
         catch (Exception ex)
         {
             Log.Logger.Warning(ex, "OpenCode settings drawer: seeding failed");
         }
-    }
-
-    private async Task OnDrawerContextCoreAsync(object context)
-    {
-        _repo = context is OpenCodeSettingsContext payload ? payload.Repo : null;
-
-        // Fresh, authoritative values: GetSettingsAsync returns a copy, so the previous
-        // open's edits are visible here even though this VM instance is brand new.
-        var settings = await _settingsService.GetSettingsAsync();
-        _reposSettings = settings.Repos ?? new ReposSettings();
-        _openCodeSettings = settings.OpenCode ?? new OpenCodeSettings();
-
-        HasOpenCode = _bottomBar.HasOpenCode;
-        TargetRepoName = _repo?.Name ?? "No repository selected";
-        OpenCodeCommitModelText = _openCodeSettings.CommitModel ?? string.Empty;
-
-        await LoadModelsAsync();
-        await LoadTemplatesAsync();
-        await LoadPromptsAsync();
     }
 }

@@ -45,6 +45,17 @@
                         <Setter Property="CornerRadius" Value="8" />
                         <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
                 </Style>
+                <!--
+                        Hover feedback for the table row's clickable chips (the
+                        branch pill and the changes-count pill): a plain opacity
+                        dip on pointerover. Was duplicated as an identical inline
+                        Button.Styles block on each button; one class-scoped page
+                        style now covers both, and only buttons carrying the
+                        class are dimmed.
+                -->
+                <Style Selector="Button.chip-hover-dim:pointerover">
+                        <Setter Property="Opacity" Value="0.85" />
+                </Style>
         </UserControl.Styles>
 
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
@@ -577,6 +588,7 @@
                                                                                         VerticalAlignment="Center"
                                                                                         Background="{Binding GitBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
                                                                                         BorderThickness="0"
+                                                                                        Classes="chip-hover-dim"
                                                                                         ClipToBounds="True"
                                                                                         Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
                                                                                         CommandParameter="{Binding}"
@@ -584,11 +596,6 @@
                                                                                         Cursor="Hand"
                                                                                         IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                                                         ToolTip.Tip="Open the changes panel">
-                                                                                        <Button.Styles>
-                                                                                                <Style Selector="Button:pointerover">
-                                                                                                        <Setter Property="Opacity" Value="0.85" />
-                                                                                                </Style>
-                                                                                        </Button.Styles>
                                                                                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                                                                 <Path
                                                                                                         Grid.Column="0"
@@ -618,7 +625,7 @@
                                                                                         HorizontalAlignment="Left"
                                                                                         VerticalAlignment="Center"
                                                                                         Classes="subtle"
-                                                                                        IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
+                                                                                        IsVisible="{Binding !GitStatusLoaded}"
                                                                                         Text="checking…" />
                                                                         </Grid>
 
@@ -643,15 +650,11 @@
                                                                                                 VerticalAlignment="Center"
                                                                                                 Background="Transparent"
                                                                                                 BorderThickness="0"
+                                                                                                Classes="chip-hover-dim"
                                                                                                 Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 Cursor="Hand"
                                                                                                 ToolTip.Tip="Open the changes panel">
-                                                                                                <Button.Styles>
-                                                                                                        <Style Selector="Button:pointerover">
-                                                                                                                <Setter Property="Opacity" Value="0.85" />
-                                                                                                        </Style>
-                                                                                                </Button.Styles>
                                                                                                 <Border
                                                                                                         Padding="9,4"
                                                                                                         VerticalAlignment="Center"
@@ -718,7 +721,7 @@
                                                                                 <TextBlock
                                                                                         HorizontalAlignment="Left"
                                                                                         Classes="subtle"
-                                                                                        IsVisible="{Binding GitStatusLoaded, Converter={StaticResource InverseBoolConverter}}"
+                                                                                        IsVisible="{Binding !GitStatusLoaded}"
                                                                                         Text="checking…" />
                                                                         </StackPanel>
 
@@ -1015,11 +1018,17 @@
                         Bottom bar: this page's footer (repo context, tabs, expandable
                         panel), flush with the window bottom like the mockup. Hidden until
                         a repo is selected from the table (the bar binds IsBarVisible and
-                        paints its own hairlines); the singleton ViewModel is attached in
-                        code-behind.
+                        paints its own hairlines). Its DataContext binds to the page's
+                        BottomBarViewModel singleton property (assigned before
+                        InitializeComponent) instead of being attached in code-behind, so
+                        the bar never inherits ReposViewModel — its compiled bindings
+                        (declared against BottomBarViewModel) can never cast-fail, no
+                        matter when the page's own DataContext is assigned.
                 -->
                 <Border Grid.Row="1">
-                        <components:BottomBar x:Name="BottomBarControl" />
+                        <components:BottomBar
+                                x:Name="BottomBarControl"
+                                DataContext="{Binding #Root.BottomBarViewModel}" />
                 </Border>
 
         </Grid>

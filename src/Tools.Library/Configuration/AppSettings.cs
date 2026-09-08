@@ -67,6 +67,54 @@ public class NugetLocalSettings
 /// </summary>
 public class ReposSettings
 {
+    /// <summary>Canonical default for <see cref="GitFolderPattern"/>.</summary>
+    public const string DefaultGitFolderPattern = "*.git";
+
+    /// <summary>Canonical default for <see cref="SolutionFilePattern"/>.</summary>
+    public const string DefaultSolutionFilePattern = "*.sln,*.slnx";
+
+    /// <summary>Canonical default for <see cref="PlatformFolderName"/>.</summary>
+    public const string DefaultPlatformFolderName = "platform";
+
+    /// <summary>Canonical default for <see cref="VSCodeExecutable"/>.</summary>
+    public const string DefaultVSCodeExecutable = "code";
+
+    /// <summary>Canonical default for <see cref="TerminalExecutable"/>.</summary>
+    public const string DefaultTerminalExecutable = "wt";
+
+    /// <summary>Canonical default for <see cref="OpenCodeExecutable"/>.</summary>
+    public const string DefaultOpenCodeExecutable = "opencode";
+
+    /// <summary>Canonical default for <see cref="ZCodeExecutable"/>.</summary>
+    public const string DefaultZCodeExecutable = "zcode";
+
+    /// <summary>Canonical default for <see cref="GitHubExecutable"/>.</summary>
+    public const string DefaultGitHubExecutable = "gh";
+
+    /// <summary>Canonical default for <see cref="MaxScanDepth"/>.</summary>
+    public const int DefaultMaxScanDepth = 3;
+
+    /// <summary>
+    /// Gets a fresh <see cref="ReposSettings"/> carrying the canonical defaults. The
+    /// per-field constants above are the single source of truth — the per-property
+    /// initializers and this instance both draw from them, so <c>new ReposSettings()</c>
+    /// and <see cref="Defaults"/> always agree. Callers wanting a single field should read
+    /// the constant directly (e.g. <c>ReposSettings.DefaultMaxScanDepth</c>) to avoid the
+    /// allocation.
+    /// </summary>
+    public static ReposSettings Defaults => new()
+    {
+        GitFolderPattern = DefaultGitFolderPattern,
+        SolutionFilePattern = DefaultSolutionFilePattern,
+        PlatformFolderName = DefaultPlatformFolderName,
+        VSCodeExecutable = DefaultVSCodeExecutable,
+        TerminalExecutable = DefaultTerminalExecutable,
+        OpenCodeExecutable = DefaultOpenCodeExecutable,
+        ZCodeExecutable = DefaultZCodeExecutable,
+        GitHubExecutable = DefaultGitHubExecutable,
+        MaxScanDepth = DefaultMaxScanDepth
+    };
+
     /// <summary>
     /// Gets or sets the folders to scan for repositories.
     /// </summary>
@@ -75,25 +123,25 @@ public class ReposSettings
     /// <summary>
     /// Gets or sets the git folder pattern to search for.
     /// </summary>
-    public string? GitFolderPattern { get; set; } = "*.git";
+    public string? GitFolderPattern { get; set; } = DefaultGitFolderPattern;
 
     /// <summary>
     /// Gets or sets the solution file pattern(s) to search for. Multiple patterns may be
     /// comma- or semicolon-separated (e.g. <c>"*.sln,*.slnx"</c>) so both classic and
     /// XML-based solution formats are discovered. Defaults to <c>"*.sln,*.slnx"</c>.
     /// </summary>
-    public string? SolutionFilePattern { get; set; } = "*.sln,*.slnx";
+    public string? SolutionFilePattern { get; set; } = DefaultSolutionFilePattern;
 
     /// <summary>
     /// Gets or sets the platform folder name identifier. A repo whose path contains
     /// this substring is auto-tagged <c>platform</c>.
     /// </summary>
-    public string? PlatformFolderName { get; set; } = "platform";
+    public string? PlatformFolderName { get; set; } = DefaultPlatformFolderName;
 
     /// <summary>
     /// Gets or sets the VS Code executable path or command.
     /// </summary>
-    public string? VSCodeExecutable { get; set; } = "code";
+    public string? VSCodeExecutable { get; set; } = DefaultVSCodeExecutable;
 
     /// <summary>
     /// Gets or sets the VS Code profile name to launch with (passed as
@@ -104,7 +152,7 @@ public class ReposSettings
     /// <summary>
     /// Gets or sets the terminal executable path or command.
     /// </summary>
-    public string? TerminalExecutable { get; set; } = "wt";
+    public string? TerminalExecutable { get; set; } = DefaultTerminalExecutable;
 
     /// <summary>
     /// Gets or sets the IDE executable used to open solutions. On Windows the .sln shell
@@ -116,13 +164,13 @@ public class ReposSettings
     /// <summary>
     /// Gets or sets the OpenCode executable path or command.
     /// </summary>
-    public string? OpenCodeExecutable { get; set; } = "opencode";
+    public string? OpenCodeExecutable { get; set; } = DefaultOpenCodeExecutable;
 
     /// <summary>
     /// Gets or sets the ZCode CLI executable path or command, launched in a repo folder
     /// via the configured terminal.
     /// </summary>
-    public string? ZCodeExecutable { get; set; } = "zcode";
+    public string? ZCodeExecutable { get; set; } = DefaultZCodeExecutable;
 
     /// <summary>
     /// Gets or sets a value indicating whether the terminal launch button shows on repo
@@ -166,7 +214,7 @@ public class ReposSettings
     /// Gets or sets the GitHub CLI (<c>gh</c>) executable path or command used to query
     /// open pull requests and issues for the GitHub column.
     /// </summary>
-    public string? GitHubExecutable { get; set; } = "gh";
+    public string? GitHubExecutable { get; set; } = DefaultGitHubExecutable;
 
     /// <summary>
     /// Gets or sets a value indicating whether the Azure DevOps integration is enabled.
@@ -212,7 +260,7 @@ public class ReposSettings
     /// A value of 1 scans only the root scan folder, 2 includes its immediate
     /// subfolders, and so on. Defaults to 3.
     /// </summary>
-    public int MaxScanDepth { get; set; } = 3;
+    public int MaxScanDepth { get; set; } = DefaultMaxScanDepth;
 }
 
 /// <summary>

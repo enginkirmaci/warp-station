@@ -178,6 +178,22 @@ public static class ExecutableDefaults
     }
 
     /// <summary>
+    /// Resolves a CLI name for embedding in a terminal command line. The spawned terminal
+    /// inherits the app's often-minimal GUI PATH, so a bare name is expanded to its
+    /// absolute path via <see cref="Locate"/>; when unresolvable the bare name is kept so
+    /// the terminal shows the familiar "command not found" feedback. A resolved value
+    /// containing spaces is double-quoted.
+    /// </summary>
+    /// <param name="configured">The configured CLI executable, if any.</param>
+    /// <param name="fallback">The bare command name to use when nothing is configured.</param>
+    /// <returns>The command-line token for the CLI, quoted when it contains spaces.</returns>
+    public static string ResolveCliForTerminal(string? configured, string fallback)
+    {
+        var resolved = Locate(configured) ?? configured ?? fallback;
+        return resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
+    }
+
+    /// <summary>
     /// Windows counterpart of the Linux PATH probe: walks the PATH directories trying
     /// the bare name plus every <c>PATHEXT</c> extension (defaulting to
     /// <c>.com/.exe/.bat/.cmd</c> when the variable is unset) and returns the first

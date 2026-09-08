@@ -88,17 +88,24 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Whether the Clipboard Password tool may appear in the GUI. Mirrors the
     /// EnableClipboardPassword setting used to filter the tools dropdown; when
-    /// disabled the tool stays reachable through its hotkey only.
+    /// disabled the tool stays reachable through its hotkey only. Loaded
+    /// asynchronously after construction (see <see cref="LoadVisibilityFlagsAsync"/>);
+    /// the default matches the value computed from default settings, so the menu
+    /// item only ever settles, never flips, for default configurations.
     /// </summary>
-    public bool ShowClipboardPassword { get; }
+    [ObservableProperty]
+    private bool _showClipboardPassword = true;
 
     /// <summary>
     /// Whether the OpenCode entry shows in the tools dropdown: the integration enabled
     /// in settings (the same flag that reveals the row buttons). Opening it from here
     /// targets the bar's selected repo; with none selected the drawer shows a disabled
-    /// note instead of a launch target.
+    /// note instead of a launch target. Loaded asynchronously after construction (see
+    /// <see cref="LoadVisibilityFlagsAsync"/>); the default matches the value computed
+    /// from default settings (integration off).
     /// </summary>
-    public bool ShowOpenCode { get; }
+    [ObservableProperty]
+    private bool _showOpenCode;
 
     /// <summary>
     /// SnapIt is Windows-only functionality (the engine is Win32-based), so every
@@ -121,11 +128,13 @@ public partial class MainWindowViewModel : ViewModelBase
         _processLauncher = processLauncher;
         _toolDrawer = toolDrawer;
 
-        // Read the hide flag synchronously: GetSettingsAsync is an in-memory cached read
-        // (Task.FromResult), so this never blocks on async work.
-        var appSettings = settingsService.GetSettingsAsync().GetAwaiter().GetResult();
-        ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
-        ShowOpenCode = appSettings.OpenCode?.EnableOpenCode == true;
+        // Load the dropdown visibility flags off the constructor path: the FIRST
+        // GetSettingsAsync() call runs EnsureLoaded inline (seed copy, File.ReadAllText,
+        // legacy-key migration and a full JSON deserialize), which used to block window
+        // construction on disk I/O. The flags only feed IsVisible bindings on the tools
+        // dropdown, so the bindings pick the real values up the moment the load
+        // completes — worst case an entry shows its default state for a few milliseconds.
+        _ = LoadVisibilityFlagsAsync();
 
         _toolDrawer.Changed += OnToolDrawerChanged;
 
@@ -137,6 +146,31 @@ public partial class MainWindowViewModel : ViewModelBase
 
         UpdateSnapItStatus(_snapItService.IsRunning);
         UpdateNugetWatchStatus();
+    }
+
+    /// <summary>
+    /// Reads the settings-driven dropdown visibility flags without blocking construction:
+    /// the awaited load completes off the UI thread if the constructor ran before the UI
+    /// <c>SynchronizationContext</c> existed, so the observable writes are marshaled
+    /// through the dispatcher (same discipline as the service event handlers above).
+    /// Fire-and-forget from the constructor; failures keep the defaults rather than
+    /// crashing startup.
+    /// </summary>
+    private async Task LoadVisibilityFlagsAsync()
+    {
+        try
+        {
+            var appSettings = await _settingsService.GetSettingsAsync();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
+                ShowOpenCode = appSettings.OpenCode?.EnableOpenCode == true;
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Error(ex, "Failed to load settings for the main window visibility flags");
+        }
     }
 
     private async Task OnToggleSnapItAsync()

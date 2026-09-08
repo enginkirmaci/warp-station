@@ -12,9 +12,6 @@ namespace Tools.Library.Services;
 /// </summary>
 public class OpenCodePromptService : IOpenCodePromptService
 {
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
-    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
-
     /// <summary>Shipped defaults live under <c>&lt;install&gt;/settings/opencode/prompts.json</c>.</summary>
     private const string ShippedRelPath = "opencode\\prompts.json";
 
@@ -42,7 +39,7 @@ public class OpenCodePromptService : IOpenCodePromptService
                 return Array.Empty<OpenCodePromptEntry>();
 
             var json = await File.ReadAllTextAsync(_promptsFilePath);
-            var config = JsonSerializer.Deserialize<OpenCodePromptConfig>(json, ReadOptions);
+            var config = JsonSerializer.Deserialize<OpenCodePromptConfig>(json, JsonIO.ReadOptions);
             if (config?.Prompts is null)
                 return Array.Empty<OpenCodePromptEntry>();
 
@@ -96,16 +93,11 @@ public class OpenCodePromptService : IOpenCodePromptService
             config.Prompts.Sort((a, b) =>
                 string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
-            var json = JsonSerializer.Serialize(config, WriteOptions);
+            var json = JsonSerializer.Serialize(config, JsonIO.WriteOptions);
 
-            // Atomic write: serialize to a temp file then replace the target so a crash
-            // mid-write never leaves a truncated prompts.json.
-            var tempPath = _promptsFilePath + ".tmp";
-            await File.WriteAllTextAsync(tempPath, json);
-            if (File.Exists(_promptsFilePath))
-                File.Replace(tempPath, _promptsFilePath, destinationBackupFileName: null);
-            else
-                File.Move(tempPath, _promptsFilePath);
+            // Atomic write: temp file + replace the target so a crash mid-write never
+            // leaves a truncated prompts.json (shared with settings.json).
+            await JsonIO.WriteAtomicallyAsync(_promptsFilePath, json);
         }
         catch (Exception ex)
         {
@@ -123,6 +115,6 @@ public class OpenCodePromptService : IOpenCodePromptService
             return new OpenCodePromptConfig();
 
         var json = File.ReadAllText(_promptsFilePath);
-        return JsonSerializer.Deserialize<OpenCodePromptConfig>(json, ReadOptions) ?? new OpenCodePromptConfig();
+        return JsonSerializer.Deserialize<OpenCodePromptConfig>(json, JsonIO.ReadOptions) ?? new OpenCodePromptConfig();
     }
 }

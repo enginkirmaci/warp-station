@@ -1,5 +1,6 @@
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Helpers;
 using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.SnapIt.Contracts;
@@ -127,6 +128,9 @@ public class SnapManager : ISnapManager
 	{
 		settingService.ReInitialize();
 
+		// NOTE: known race — the fire-and-forget re-initialization below can run while a
+		// drag is still in flight, Dispose()ing services the drag is using. Intentionally
+		// left as-is; a redesign is out of scope.
 		if (IsRunning)
 		{
 			Dispose();
@@ -146,19 +150,7 @@ public class SnapManager : ISnapManager
 
 				if (!withMargin.IsEmpty)
 				{
-					var marginHorizontal = (currentWindow.Boundry.Width - withMargin.Width) / 2;
-					var systemMargin = new Rectangle
-					{
-						Left = marginHorizontal,
-						Right = marginHorizontal,
-						Top = 0,
-						Bottom = currentWindow.Boundry.Height - withMargin.Height
-					};
-
-					rectangle.Left -= systemMargin.Left;
-					rectangle.Top -= systemMargin.Top;
-					rectangle.Right += systemMargin.Right;
-					rectangle.Bottom += systemMargin.Bottom;
+					WindowPlacement.ExpandByFrameMargins(rectangle, currentWindow.Boundry, withMargin);
 				}
 
 				if (isLeftClick)

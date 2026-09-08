@@ -3,7 +3,9 @@
 	x:Class="Tools.Views.Windows.MainWindow"
 	xmlns="https://github.com/avaloniaui"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:controls="using:Tools.Controls"
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:helpers="using:Tools.Helpers"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 	xmlns:suki="https://github.com/kikipoulet/SukiUI"
 	xmlns:tools="using:Tools.Library.MarkupExtensions"
@@ -158,14 +160,16 @@
 			<Button.Flyout>
 				<!--
 					Right-aligned: the button sits at the window's right edge, so a
-					left-aligned flyout would overflow off the window.
+					left-aligned flyout would overflow off the window. CommandParameters
+					are x:Static references to ToolComponentMapper key constants, so the
+					menu keys are compile-checked against the mapper.
 				-->
 				<MenuFlyout Placement="BottomEdgeAlignedRight">
 					<!--
 						Icon rows ride in an explicit Header element: the XAML compiler
 						crashes resolving MenuFlyoutItem's implicit content property.
 					-->
-					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="NugetLocalPage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="{x:Static helpers:ToolComponentMapper.NugetLocalKey}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -178,7 +182,7 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="FormattersPage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="{x:Static helpers:ToolComponentMapper.FormattersKey}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -194,7 +198,7 @@
 					<!--  Hidden along with the tool itself when the tool is disabled  -->
 					<MenuItem
 						Command="{Binding OpenToolCommand}"
-						CommandParameter="ClipboardPasswordPage"
+						CommandParameter="{x:Static helpers:ToolComponentMapper.ClipboardPasswordKey}"
 						IsVisible="{Binding ShowClipboardPassword}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
@@ -208,7 +212,7 @@
 							</StackPanel>
 						</MenuItem.Header>
 					</MenuItem>
-					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="CodeExecutePage">
+					<MenuItem Command="{Binding OpenToolCommand}" CommandParameter="{x:Static helpers:ToolComponentMapper.CodeExecuteKey}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
 								<Path
@@ -224,7 +228,7 @@
 					<!--  SnapIt is Windows-only: the entry hides on other platforms  -->
 					<MenuItem
 						Command="{Binding OpenToolCommand}"
-						CommandParameter="SnapItSettingsPage"
+						CommandParameter="{x:Static helpers:ToolComponentMapper.SnapItSettingsKey}"
 						IsVisible="{Binding ShowSnapIt}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
@@ -241,7 +245,7 @@
 					<!--  OpenCode hides along with the row buttons when the integration is disabled  -->
 					<MenuItem
 						Command="{Binding OpenToolCommand}"
-						CommandParameter="OpenCodePage"
+						CommandParameter="{x:Static helpers:ToolComponentMapper.OpenCodeKey}"
 						IsVisible="{Binding ShowOpenCode}">
 						<MenuItem.Header>
 							<StackPanel Orientation="Horizontal" Spacing="10">
@@ -389,28 +393,18 @@
 					</Grid>
 					<!--
 						Left-edge resize grip: the bottom panels' three-dots divider rotated
-						vertical. The whole 16px band is the drag surface (wired in
-						code-behind via PanelResizeController, horizontal axis); it overlays
-						only the card's gutter — every drawer component keeps a 16px content
-						margin, so nothing interactive sits underneath.
+						vertical (shared controls:ResizeGrip). The whole 16px band is the
+						drag surface (wired in code-behind via PanelResizeController,
+						horizontal axis); it overlays only the card's gutter — every drawer
+						component keeps a 16px content margin, so nothing interactive sits
+						underneath.
 					-->
-					<Border
+					<controls:ResizeGrip
 						x:Name="ToolDrawerResizer"
 						Width="16"
 						HorizontalAlignment="Left"
 						VerticalAlignment="Stretch"
-						Background="Transparent"
-						Cursor="SizeWestEast">
-						<StackPanel
-							HorizontalAlignment="Center"
-							VerticalAlignment="Center"
-							Orientation="Vertical"
-							Spacing="3">
-							<Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-							<Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-							<Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-						</StackPanel>
-					</Border>
+						Orientation="Horizontal" />
 				</Grid>
 			</Border>
 		</Panel>

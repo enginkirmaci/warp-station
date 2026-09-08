@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Serilog;
 using SukiUI;
+using Tools.Helpers;
 using Tools.Library.Extensions;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
@@ -98,6 +99,10 @@ public partial class App : Application
         services.AddSingleton<ISnapItService, SnapItService>();
         // Register application services
         services.AddSingleton<IToolDrawerService, ToolDrawerService>();
+        // Main-window access for services (clipboard, folder picker): resolves the
+        // desktop lifetime's MainWindow at call time, so services never depend on the
+        // window view and the DI graph stays cycle-free.
+        services.AddSingleton<IMainWindowProvider, MainWindowProvider>();
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<INotificationService, NotificationService>();
@@ -121,6 +126,14 @@ public partial class App : Application
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
         RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
         RegisterPageWithViewModel<CommitHistoryComponent, CommitHistoryViewModel>(services);
+        // Drawer-component factory: MainWindow resolves drawer views through this
+        // intention-revealing delegate instead of holding the service container.
+        // Resolution matches the former GetService(ViewType) exactly — a fresh
+        // transient view (with its transient ViewModel) per drawer open.
+        services.AddSingleton<ToolViewResolver>(sp => key =>
+            ToolComponentMapper.Find(key)?.ViewType is { } viewType
+                ? sp.GetService(viewType) as Control
+                : null);
     }
 
     private static void RegisterPageWithViewModel<TPage, TViewModel>(IServiceCollection services)
@@ -137,10 +150,6 @@ public partial class App : Application
         {
             var services = Host.Services;
             _mainWindow = services.GetRequiredService<MainWindow>();
-            // The Repositories page is the window's permanent content. It depends on the
-            // window transitively (DialogService), so it is resolved and attached AFTER
-            // the window exists instead of being a constructor dependency of it.
-            _mainWindow.AttachRepositoriesPage(services.GetRequiredService<ReposPage>());
             desktop.MainWindow = _mainWindow;
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             // Stop background services and dispose the host on application shutdown,

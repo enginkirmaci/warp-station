@@ -37,35 +37,50 @@ public partial class AddRepositoryComponent : UserControl
 
     /// <summary>
     /// Browse: opens the platform folder picker and scans the picked folder right away,
-    /// so the usual flow is Browse → results without a separate Scan click.
+    /// so the usual flow is Browse → results without a separate Scan click. Failures
+    /// (picker, scan) are logged — an async void handler would crash the process.
     /// </summary>
     private async void OnBrowseClick(object? sender, RoutedEventArgs e)
     {
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-
-        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        try
         {
-            Title = "Choose a folder to scan for repositories",
-            AllowMultiple = false
-        });
-        if (folders.Count == 0) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
 
-        ViewModel.FolderPath = folders[0].Path.LocalPath;
-        if (ViewModel.ScanCommand.CanExecute(null))
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Choose a folder to scan for repositories",
+                AllowMultiple = false
+            });
+            if (folders.Count == 0) return;
+
+            ViewModel.FolderPath = folders[0].Path.LocalPath;
+            if (ViewModel.ScanCommand.CanExecute(null))
+            {
+                await ViewModel.ScanCommand.ExecuteAsync(null);
+            }
+        }
+        catch (Exception ex)
         {
-            await ViewModel.ScanCommand.ExecuteAsync(null);
+            Serilog.Log.Logger.Error(ex, "Add Repositories: browse-and-scan failed");
         }
     }
 
-    /// <summary>Enter in the path box runs the scan.</summary>
+    /// <summary>Enter in the path box runs the scan; failures are logged, not thrown.</summary>
     private async void OnPathKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter) return;
-        if (ViewModel.ScanCommand.CanExecute(null))
+        try
         {
-            await ViewModel.ScanCommand.ExecuteAsync(null);
+            if (e.Key != Key.Enter) return;
+            if (ViewModel.ScanCommand.CanExecute(null))
+            {
+                await ViewModel.ScanCommand.ExecuteAsync(null);
+            }
+            e.Handled = true;
         }
-        e.Handled = true;
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Error(ex, "Add Repositories: scan failed");
+        }
     }
 }

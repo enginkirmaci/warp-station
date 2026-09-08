@@ -48,6 +48,10 @@ public static class ServiceRegistrationExtensions
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<IDevToolsClient, DevToolsClient>();
 
+        // Intent-level launch decisions (repo buttons, OpenCode launches): executable
+        // resolution, argument shapes and the pipe-with-fallback launch behind one service
+        services.AddSingleton<ITerminalLauncher, TerminalLauncher>();
+
         // opencode model list (one-shot 'opencode models' CLI runner)
         services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
 

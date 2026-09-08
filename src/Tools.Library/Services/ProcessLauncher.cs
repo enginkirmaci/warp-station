@@ -6,11 +6,6 @@ namespace Tools.Library.Services;
 
 public class ProcessLauncher : IProcessLauncher
 {
-    // Set by Electron hosts (VS Code & forks, some IDE terminals) that Tools may have
-    // been launched from; it leaks into every child and turns Electron-packaged CLIs
-    // (e.g. an AppImage of zcode) into bare Node processes.
-    private const string ElectronRunAsNodeVariable = "ELECTRON_RUN_AS_NODE";
-
     public void StartProcess(string fileName, string? arguments = null, bool hidden = false, bool stripElectronEnvironment = false)
     {
         if (string.IsNullOrWhiteSpace(fileName))
@@ -33,7 +28,7 @@ public class ProcessLauncher : IProcessLauncher
 
             if (stripElectronEnvironment)
             {
-                startInfo.EnvironmentVariables.Remove(ElectronRunAsNodeVariable);
+                startInfo.EnvironmentVariables.Remove(ProcessRunner.ElectronRunAsNodeVariable);
             }
 
             // Process.Start returns an IDisposable wrapper around an OS handle.

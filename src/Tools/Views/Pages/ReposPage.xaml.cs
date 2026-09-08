@@ -6,7 +6,6 @@ using Avalonia.Styling;
 using Tools.Library.Entities;
 using Tools.ViewModels.Components;
 using Tools.ViewModels.Pages;
-using Tools.Views.Components;
 
 namespace Tools.Views.Pages;
 
@@ -26,18 +25,19 @@ public partial class ReposPage : UserControl
 
     public ReposPage(ReposViewModel viewModel, BottomBarViewModel bottomBarViewModel)
     {
+        // Both ViewModels are assigned before InitializeComponent: the bottom bar's
+        // DataContext binds to BottomBarViewModel in XAML ({Binding
+        // #Root.BottomBarViewModel}), so it must already be set when the bar's
+        // bindings initialize during load. The bar never inherits the page
+        // DataContext, so the assignment below cannot cast-fail the bar's compiled
+        // bindings regardless of order.
         ViewModel = viewModel;
         BottomBarViewModel = bottomBarViewModel;
         InitializeComponent();
-        // The bottom bar owns its singleton ViewModel (repo context, repo header, tabs);
-        // the rest of the page binds to ReposViewModel. The OpenCode settings drawer
-        // seeds from the same singleton when it opens.
-        this.FindControl<BottomBar>("BottomBarControl")!.DataContext = bottomBarViewModel;
         _reposList = this.FindControl<ListBox>("ReposList");
-        // Must stay after the bar's DataContext: while InitializeComponent runs the bar
-        // inherits a null page DataContext and its compiled bindings stay dormant. If the
-        // page VM is visible to the bar first, every compiled binding cast-fails against
-        // ReposViewModel and floods the log on page open.
+        // The bar owns its singleton ViewModel (repo context, repo header, tabs);
+        // the rest of the page binds to ReposViewModel. The OpenCode settings
+        // drawer seeds from the same singleton when it opens.
         DataContext = viewModel;
     }
 

@@ -4,6 +4,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:components="using:Tools.Views.Components"
+    xmlns:controls="using:Tools.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -64,6 +65,314 @@
                 </ControlTemplate>
             </Setter>
         </ControlTheme>
+
+        <!--
+            Shared row/card bodies. The bar repeats the same markup across the Overview
+            previews and the Changes / Pull Requests / Issues / Azure tabs; these keyed
+            templates hold the shared pieces. They are applied explicitly via
+            ContentTemplate / ItemTemplate (not by DataType): several rows share one CLR
+            type but need different commands per site, and two type-keyed templates for
+            the same type cannot coexist.
+        -->
+
+        <!--  Git numstat: the +/− pills of a GitChangedFile row (hidden for binary /
+              untracked files, which have no counts).  -->
+        <DataTemplate x:Key="NumstatPillsTemplate" x:DataType="entities:GitChangedFile">
+            <StackPanel
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                IsVisible="{Binding HasCounts}"
+                Orientation="Horizontal"
+                Spacing="4">
+                <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
+                <Border
+                    Padding="6,1"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource AddedCountChipBrush}"
+                    CornerRadius="{DynamicResource ChipRadius}"
+                    IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                    <TextBlock
+                        Classes="mono"
+                        Foreground="{DynamicResource AddedCountBrush}"
+                        Text="{Binding AddedText}" />
+                </Border>
+                <!--  Deletions pill (light red)  -->
+                <Border
+                    Padding="6,1"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource RemovedCountChipBrush}"
+                    CornerRadius="{DynamicResource ChipRadius}"
+                    IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                    <TextBlock
+                        Classes="mono"
+                        Foreground="{DynamicResource RemovedCountBrush}"
+                        Text="{Binding RemovedText}" />
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+
+        <!--  Staged/unstaged file row: status chip + path + numstat + the action
+              button. The button's command, tooltip and icon come from the owning
+              list's class (ItemsControl.stage-actions / .unstage-actions styles).  -->
+        <DataTemplate x:Key="GitChangedFileRowTemplate" x:DataType="entities:GitChangedFile">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <Border
+                    Grid.Column="0"
+                    Width="30"
+                    Padding="0,2"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource CardSubtleBackgroundBrush}"
+                    BorderBrush="{DynamicResource HairlineBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource ChipRadius}">
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Classes="mono"
+                        Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
+                        Text="{Binding DisplayStatusCode}" />
+                </Border>
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Classes="mono"
+                    Foreground="{DynamicResource BodyForegroundBrush}"
+                    Text="{Binding Path}"
+                    TextTrimming="CharacterEllipsis" />
+                <ContentControl
+                    Grid.Column="2"
+                    Content="{Binding}"
+                    ContentTemplate="{StaticResource NumstatPillsTemplate}" />
+                <Button
+                    Grid.Column="3"
+                    VerticalAlignment="Center"
+                    Classes="icon row-action"
+                    CommandParameter="{Binding}">
+                    <Path
+                        Width="14"
+                        Height="14"
+                        Fill="{DynamicResource MutedForegroundBrush}"
+                        Stretch="Uniform" />
+                </Button>
+            </Grid>
+        </DataTemplate>
+
+        <!--  Overview stat-card bodies. The cards are written twice (4-column grid with
+              the Pipelines slot, 3-column without it); only the Button's command /
+              visibility differ per site, so the bodies live here. The icon badge is
+              Border.stat-badge, the count rides the card's title brush.  -->
+        <DataTemplate x:Key="StatCardChanges" x:DataType="vm:BottomBarViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Grid
+                    Width="36"
+                    Height="36"
+                    VerticalAlignment="Top">
+                    <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
+                    <Path
+                        Width="18"
+                        Height="18"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-source-branch}"
+                        Fill="{DynamicResource WarningAccentBrush}"
+                        Stretch="Uniform" />
+                </Grid>
+                <StackPanel Spacing="2">
+                    <TextBlock
+                        FontSize="22"
+                        FontWeight="Bold"
+                        Foreground="{DynamicResource TitleForegroundBrush}"
+                        Text="{Binding ChangesCount}" />
+                    <TextBlock Classes="subtle" Text="Local Changes" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="StatCardPullRequests" x:DataType="vm:BottomBarViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Grid
+                    Width="36"
+                    Height="36"
+                    VerticalAlignment="Top">
+                    <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
+                    <Path
+                        Width="18"
+                        Height="18"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-git-pull-request}"
+                        Fill="{DynamicResource PurpleAccentBrush}"
+                        Stretch="Uniform" />
+                </Grid>
+                <StackPanel Spacing="2">
+                    <TextBlock
+                        FontSize="22"
+                        FontWeight="Bold"
+                        Foreground="{DynamicResource TitleForegroundBrush}"
+                        Text="{Binding PullRequestCount}" />
+                    <TextBlock Classes="subtle" Text="Open Pull Requests" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="StatCardIssues" x:DataType="vm:BottomBarViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Grid
+                    Width="36"
+                    Height="36"
+                    VerticalAlignment="Top">
+                    <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
+                    <Path
+                        Width="18"
+                        Height="18"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-issue}"
+                        Fill="{DynamicResource StatusActiveBrush}"
+                        Stretch="Uniform" />
+                </Grid>
+                <StackPanel Spacing="2">
+                    <TextBlock
+                        FontSize="22"
+                        FontWeight="Bold"
+                        Foreground="{DynamicResource TitleForegroundBrush}"
+                        Text="{Binding IssueCount}" />
+                    <TextBlock Classes="subtle" Text="Open Issues" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!--  GitHub label pill: same pill chrome as the state chips
+              (Border.state-chip) plus a local right gap; tinted by
+              GitHubLabelBrushConverter ("bg" param for the pill, default for text).  -->
+        <DataTemplate x:Key="LabelPillTemplate" x:DataType="x:String">
+            <Border
+                Margin="0,0,6,0"
+                Classes="state-chip"
+                Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
+                ToolTip.Tip="{Binding}">
+                <TextBlock
+                    Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
+                    Text="{Binding}" />
+            </Border>
+        </DataTemplate>
+
+        <!--  GitHub labels row: pill flow (WrapPanel), shown only when the item has
+              labels.  -->
+        <DataTemplate x:Key="GitHubLabelsFlow" x:DataType="entities:GitHubItem">
+            <ItemsControl
+                IsVisible="{Binding HasLabels}"
+                ItemTemplate="{StaticResource LabelPillTemplate}"
+                ItemsSource="{Binding Labels}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DataTemplate>
+
+        <!--  GitHub PR branch line: head → base (hidden when there is no summary).  -->
+        <DataTemplate x:Key="BranchSummaryTemplate" x:DataType="entities:GitHubItem">
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="6"
+                IsVisible="{Binding BranchSummary, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                <TextBlock
+                    Classes="mono"
+                    Foreground="{DynamicResource MutedForegroundBrush}"
+                    Text="{Binding HeadRef}" />
+                <TextBlock
+                    Classes="mono"
+                    Foreground="{DynamicResource AccentPrimaryBrush}"
+                    Text="→" />
+                <TextBlock
+                    Classes="mono"
+                    Foreground="{DynamicResource MutedForegroundBrush}"
+                    Text="{Binding BaseRef, TargetNullValue=main}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!--  Pull-request state chip (Draft / Approved / Review): tinted by
+              GitHubStateChipBrushConverter ("bg" param for the pill, default for the
+              text).  -->
+        <DataTemplate x:Key="StateChipTemplate" x:DataType="entities:GitHubItem">
+            <Border
+                Classes="state-chip"
+                Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
+                ToolTip.Tip="{Binding StateChip}">
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}}"
+                    Text="{Binding StateChip}" />
+            </Border>
+        </DataTemplate>
+
+        <!--  GitHub/Azure item title line: "#N title" in a star cell, so a long title
+              trims instead of painting over the trailing columns. Tab lists use the
+              13px variants.  -->
+        <DataTemplate x:Key="GitHubTitleLine" x:DataType="entities:GitHubItem">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                <TextBlock
+                    FontWeight="SemiBold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Number, StringFormat='#{0}'}" />
+                <TextBlock
+                    Grid.Column="1"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Title}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="GitHubTitleLine13" x:DataType="entities:GitHubItem">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    FontWeight="SemiBold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Number, StringFormat='#{0}'}" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Title}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="AzureTitleLine" x:DataType="entities:AzureDevOpsItem">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontWeight="SemiBold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Number, StringFormat='#{0}'}" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Title}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="AzureTitleLine13" x:DataType="entities:AzureDevOpsItem">
+            <Grid
+                VerticalAlignment="Center"
+                ColumnDefinitions="Auto,*"
+                ColumnSpacing="6">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    FontWeight="SemiBold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Number, StringFormat='#{0}'}" />
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    FontSize="13"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding Title}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
     </UserControl.Resources>
 
     <UserControl.Styles>
@@ -122,34 +431,120 @@
             Overview stat-card icon badge (Border.stat-badge) lives app-wide in
             AppStyles.axaml so pages share the same vocabulary.
         -->
-        <!--  Pull-request state pill (Draft / Approved / Review): fully-rounded tinted
-              pill — the Border's Background comes from GitHubStateChipBrushConverter
-              ("bg" param) on each row.  -->
+        <!--  Pill chrome (state chips + label pills): fully-rounded tinted pill. The
+              Border's Background comes per row from GitHubStateChipBrushConverter
+              ("bg" param) or GitHubLabelBrushConverter; label pills add their right
+              gap locally (they used to be a separate .label-pill style one Margin
+              apart).  -->
         <Style Selector="Border.state-chip">
             <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Padding" Value="8,2" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <!--  GitHub label pill: same pill shape, tinted by GitHubLabelBrushConverter.  -->
-        <Style Selector="Border.label-pill">
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="8,2" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Margin" Value="0,0,6,0" />
-        </Style>
         <!--
-            Commit-message wand: a bare icon floating over the message box's corner —
-            transparent so the TextBox shows through, dimming on hover like the other
-            quiet buttons.
+            Stepped spinner ring (commit button + commit-message wand): the arc is
+            drawn at final size in element coordinates — NO Stretch, no StrokeLineCap
+            setters — so the circle's center is exactly the RenderTransformOrigin
+            (50%,50%) the rotation pivots on; keep those on each Path instance. Stroke
+            stays per-instance too: the commit ring tracks the button Foreground, the
+            wand ring is accent-colored. [IsVisible=True] stops the animation (and its
+            clock work) once the ring hides. The spin is stepped on purpose: during
+            each hold nothing invalidates and the compositor idles — a smooth
+            per-frame sweep measured ~20% of a core on this 165Hz display, the stepped
+            form ~2% (synthetic A/B).
         -->
-        <Style Selector="Button.wand-btn">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="4" />
-            <Setter Property="Cursor" Value="Hand" />
+        <Style Selector="Path.spinner[IsVisible=True]">
+            <Style.Animations>
+                <Animation Duration="0:0:0.9" IterationCount="Infinite">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="RotateTransform.Angle" Value="0" />
+                    </KeyFrame>
+                    <KeyFrame Cue="8.3%">
+                        <Setter Property="RotateTransform.Angle" Value="0" />
+                    </KeyFrame>
+                    <KeyFrame Cue="10%">
+                        <Setter Property="RotateTransform.Angle" Value="36" />
+                    </KeyFrame>
+                    <KeyFrame Cue="18.3%">
+                        <Setter Property="RotateTransform.Angle" Value="36" />
+                    </KeyFrame>
+                    <KeyFrame Cue="20%">
+                        <Setter Property="RotateTransform.Angle" Value="72" />
+                    </KeyFrame>
+                    <KeyFrame Cue="28.3%">
+                        <Setter Property="RotateTransform.Angle" Value="72" />
+                    </KeyFrame>
+                    <KeyFrame Cue="30%">
+                        <Setter Property="RotateTransform.Angle" Value="108" />
+                    </KeyFrame>
+                    <KeyFrame Cue="38.3%">
+                        <Setter Property="RotateTransform.Angle" Value="108" />
+                    </KeyFrame>
+                    <KeyFrame Cue="40%">
+                        <Setter Property="RotateTransform.Angle" Value="144" />
+                    </KeyFrame>
+                    <KeyFrame Cue="48.3%">
+                        <Setter Property="RotateTransform.Angle" Value="144" />
+                    </KeyFrame>
+                    <KeyFrame Cue="50%">
+                        <Setter Property="RotateTransform.Angle" Value="180" />
+                    </KeyFrame>
+                    <KeyFrame Cue="58.3%">
+                        <Setter Property="RotateTransform.Angle" Value="180" />
+                    </KeyFrame>
+                    <KeyFrame Cue="60%">
+                        <Setter Property="RotateTransform.Angle" Value="216" />
+                    </KeyFrame>
+                    <KeyFrame Cue="68.3%">
+                        <Setter Property="RotateTransform.Angle" Value="216" />
+                    </KeyFrame>
+                    <KeyFrame Cue="70%">
+                        <Setter Property="RotateTransform.Angle" Value="252" />
+                    </KeyFrame>
+                    <KeyFrame Cue="78.3%">
+                        <Setter Property="RotateTransform.Angle" Value="252" />
+                    </KeyFrame>
+                    <KeyFrame Cue="80%">
+                        <Setter Property="RotateTransform.Angle" Value="288" />
+                    </KeyFrame>
+                    <KeyFrame Cue="88.3%">
+                        <Setter Property="RotateTransform.Angle" Value="288" />
+                    </KeyFrame>
+                    <KeyFrame Cue="90%">
+                        <Setter Property="RotateTransform.Angle" Value="324" />
+                    </KeyFrame>
+                    <KeyFrame Cue="98.3%">
+                        <Setter Property="RotateTransform.Angle" Value="324" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="RotateTransform.Angle" Value="360" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
         </Style>
-        <Style Selector="Button.wand-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Opacity" Value="0.8" />
+        <!--  Centered muted list message ("Loading…", empty states); sites that sit
+              tighter override Margin locally.  -->
+        <Style Selector="TextBlock.list-note">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,24" />
+        </Style>
+        <!--  Staged/unstaged file-row action: one shared row template
+              (GitChangedFileRowTemplate) serves both lists; the +/− button's command,
+              tooltip and icon come from the list's class — .stage-actions stages with
+              a plus, .unstage-actions unstages with a minus.  -->
+        <Style Selector="ItemsControl.stage-actions Button.row-action">
+            <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}" />
+            <Setter Property="ToolTip.Tip" Value="Stage this file" />
+        </Style>
+        <Style Selector="ItemsControl.stage-actions Button.row-action Path">
+            <Setter Property="Data" Value="{tools:SvgPath icon-plus}" />
+        </Style>
+        <Style Selector="ItemsControl.unstage-actions Button.row-action">
+            <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}" />
+            <Setter Property="ToolTip.Tip" Value="Unstage this file — the working tree keeps the change" />
+        </Style>
+        <Style Selector="ItemsControl.unstage-actions Button.row-action Path">
+            <Setter Property="Data" Value="{tools:SvgPath icon-minus}" />
         </Style>
     </UserControl.Styles>
 
@@ -162,23 +557,14 @@
               above shrinks/grows to match). Visible whenever the bar is, so it always
               separates the table from the bar. The band is
               16px and the dots sit dead-center (6.5 above / 6.5 below) — the page's
-              table margin no longer adds a top gap.  -->
-        <Border
+              table margin no longer adds a top gap. The dots, cursor and hit
+              background live in the shared controls:ResizeGrip (same markup as the
+              tool drawer's left-edge grip).  -->
+        <controls:ResizeGrip
             Grid.Row="0"
             x:Name="PanelResizer"
             Height="16"
-            Background="Transparent"
-            Cursor="SizeNorthSouth">
-            <StackPanel
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Orientation="Horizontal"
-                Spacing="3">
-                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-                <Ellipse Width="3" Height="3" Fill="{DynamicResource MutedForegroundBrush}" />
-            </StackPanel>
-        </Border>
+            Orientation="Vertical" />
 
         <!--  ============ Expandable panel (repo header + active tab's content) ====
               The whole docked card (the old strip is gone — its branch/Fetch row
@@ -222,94 +608,25 @@
                                 Grid.Column="0"
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleChangesTabCommand}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-source-branch}"
-                                            Fill="{DynamicResource WarningAccentBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding ChangesCount}" />
-                                        <TextBlock Classes="subtle" Text="Local Changes" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Command="{Binding ToggleChangesTabCommand}"
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardChanges}" />
                             <Button
                                 Grid.Column="1"
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding TogglePullRequestsTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-git-pull-request}"
-                                            Fill="{DynamicResource PurpleAccentBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding PullRequestCount}" />
-                                        <TextBlock Classes="subtle" Text="Open Pull Requests" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardPullRequests}"
+                                IsVisible="{Binding IsGitHubEnabled}" />
                             <Button
                                 Grid.Column="2"
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleIssuesTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-issue}"
-                                            Fill="{DynamicResource StatusActiveBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding IssueCount}" />
-                                        <TextBlock Classes="subtle" Text="Open Issues" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardIssues}"
+                                IsVisible="{Binding IsGitHubEnabled}" />
                             <Button
                                 Grid.Column="3"
                                 Margin="0,0,10,0"
@@ -358,92 +675,23 @@
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
-                                Command="{Binding ToggleChangesTabCommand}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-source-branch}"
-                                            Fill="{DynamicResource WarningAccentBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding ChangesCount}" />
-                                        <TextBlock Classes="subtle" Text="Local Changes" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Command="{Binding ToggleChangesTabCommand}"
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardChanges}" />
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding TogglePullRequestsTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-git-pull-request}"
-                                            Fill="{DynamicResource PurpleAccentBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding PullRequestCount}" />
-                                        <TextBlock Classes="subtle" Text="Open Pull Requests" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardPullRequests}"
+                                IsVisible="{Binding IsGitHubEnabled}" />
                             <Button
                                 Margin="0,0,10,0"
                                 Classes="ov-card-btn"
                                 Command="{Binding ToggleIssuesTabCommand}"
-                                IsVisible="{Binding IsGitHubEnabled}">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <Grid
-                                        Width="36"
-                                        Height="36"
-                                        VerticalAlignment="Top">
-                                        <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Data="{tools:SvgPath icon-issue}"
-                                            Fill="{DynamicResource StatusActiveBrush}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock
-                                            FontSize="22"
-                                            FontWeight="Bold"
-                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                            Text="{Binding IssueCount}" />
-                                        <TextBlock Classes="subtle" Text="Open Issues" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Button>
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource StatCardIssues}"
+                                IsVisible="{Binding IsGitHubEnabled}" />
                         </UniformGrid>
 
                         <!--  Activity lists  -->
@@ -473,8 +721,7 @@
                                         <StackPanel Spacing="10">
                                             <TextBlock
                                                 Margin="0,16"
-                                                HorizontalAlignment="Center"
-                                                Classes="subtle"
+                                                Classes="list-note subtle"
                                                 IsVisible="{Binding ShowChangesEmpty}"
                                                 Text="Working tree is clean" />
                                             <ItemsControl ItemsSource="{Binding ChangedFilesPreview}">
@@ -503,38 +750,10 @@
                                                                 Foreground="{DynamicResource BodyForegroundBrush}"
                                                                 Text="{Binding Path}"
                                                                 TextTrimming="CharacterEllipsis" />
-                                                            <StackPanel
+                                                            <ContentControl
                                                                 Grid.Column="2"
-                                                                HorizontalAlignment="Right"
-                                                                VerticalAlignment="Center"
-                                                                IsVisible="{Binding HasCounts}"
-                                                                Orientation="Horizontal"
-                                                                Spacing="4">
-                                                                <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
-                                                                <Border
-                                                                    Padding="6,1"
-                                                                    VerticalAlignment="Center"
-                                                                    Background="{DynamicResource AddedCountChipBrush}"
-                                                                    CornerRadius="{DynamicResource ChipRadius}"
-                                                                    IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                                    <TextBlock
-                                                                        Classes="mono"
-                                                                        Foreground="{DynamicResource AddedCountBrush}"
-                                                                        Text="{Binding AddedText}" />
-                                                                </Border>
-                                                                <!--  Deletions pill (light red)  -->
-                                                                <Border
-                                                                    Padding="6,1"
-                                                                    VerticalAlignment="Center"
-                                                                    Background="{DynamicResource RemovedCountChipBrush}"
-                                                                    CornerRadius="{DynamicResource ChipRadius}"
-                                                                    IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                                    <TextBlock
-                                                                        Classes="mono"
-                                                                        Foreground="{DynamicResource RemovedCountBrush}"
-                                                                        Text="{Binding RemovedText}" />
-                                                                </Border>
-                                                            </StackPanel>
+                                                                Content="{Binding}"
+                                                                ContentTemplate="{StaticResource NumstatPillsTemplate}" />
                                                         </Grid>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
@@ -559,8 +778,7 @@
                                         <StackPanel Spacing="10">
                                             <TextBlock
                                                 Margin="0,16"
-                                                HorizontalAlignment="Center"
-                                                Classes="subtle"
+                                                Classes="list-note subtle"
                                                 IsVisible="{Binding ShowPullRequestsEmpty}"
                                                 Text="No open pull requests" />
                                             <ItemsControl ItemsSource="{Binding GitHubPullRequestsPreview}">
@@ -574,37 +792,16 @@
                                                             ToolTip.Tip="{Binding Url}">
                                                             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                                                                 <StackPanel Grid.Column="0" Spacing="1">
-                                                                    <!--  Star cell constrains the title so it trims
-                                                                          instead of painting over the trailing
-                                                                          author/age columns.  -->
-                                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                                                        <TextBlock
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Title}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </Grid>
-                                                                    <StackPanel
-                                                                        Orientation="Horizontal"
-                                                                        Spacing="6"
-                                                                        IsVisible="{Binding BranchSummary, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                                        <TextBlock
-                                                                            Classes="mono"
-                                                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                            Text="{Binding HeadRef}" />
-                                                                        <TextBlock
-                                                                            Classes="mono"
-                                                                            Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                                            Text="→" />
-                                                                        <TextBlock
-                                                                            Classes="mono"
-                                                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                                                            Text="{Binding BaseRef, TargetNullValue=main}" />
-                                                                    </StackPanel>
+                                                                    <!--  Title + branch lines are shared templates;
+                                                                          the star cell constrains the title so it
+                                                                          trims instead of painting over the
+                                                                          trailing author/age columns.  -->
+                                                                    <ContentControl
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource GitHubTitleLine}" />
+                                                                    <ContentControl
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource BranchSummaryTemplate}" />
                                                                 </StackPanel>
                                                                 <TextBlock
                                                                     Grid.Column="1"
@@ -617,16 +814,10 @@
                                                                     VerticalAlignment="Center"
                                                                     Classes="subtle"
                                                                     Text="{Binding AgeText}" />
-                                                                <Border
+                                                                <ContentControl
                                                                     Grid.Column="3"
-                                                                    Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
-                                                                    Classes="state-chip"
-                                                                    ToolTip.Tip="{Binding StateChip}">
-                                                                    <TextBlock
-                                                                        FontWeight="SemiBold"
-                                                                        Foreground="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}}"
-                                                                        Text="{Binding StateChip}" />
-                                                                </Border>
+                                                                    Content="{Binding}"
+                                                                    ContentTemplate="{StaticResource StateChipTemplate}" />
                                                             </Grid>
                                                         </Button>
                                                     </DataTemplate>
@@ -648,22 +839,10 @@
                                                                 CommandParameter="{Binding}"
                                                                 ToolTip.Tip="{Binding Url}">
                                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                                    <Grid
+                                                                    <ContentControl
                                                                         Grid.Column="0"
-                                                                        ColumnDefinitions="Auto,*"
-                                                                        ColumnSpacing="6">
-                                                                        <TextBlock
-                                                                            VerticalAlignment="Center"
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            VerticalAlignment="Center"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Title}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </Grid>
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource AzureTitleLine}" />
                                                                     <TextBlock
                                                                         Grid.Column="1"
                                                                         VerticalAlignment="Center"
@@ -696,8 +875,7 @@
                                         <StackPanel Spacing="10">
                                             <TextBlock
                                                 Margin="0,16"
-                                                HorizontalAlignment="Center"
-                                                Classes="subtle"
+                                                Classes="list-note subtle"
                                                 IsVisible="{Binding ShowIssuesEmpty}"
                                                 Text="No open issues" />
                                             <ItemsControl ItemsSource="{Binding GitHubIssuesPreview}">
@@ -711,39 +889,16 @@
                                                             ToolTip.Tip="{Binding Url}">
                                                             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                                                 <StackPanel Grid.Column="0" Spacing="1">
-                                                                    <!--  Star cell constrains the title so it trims
-                                                                          instead of painting over the trailing
-                                                                          author/age columns.  -->
-                                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                                                        <TextBlock
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Title}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </Grid>
-                                                                    <ItemsControl IsVisible="{Binding HasLabels}" ItemsSource="{Binding Labels}">
-                                                                        <ItemsControl.ItemsPanel>
-                                                                            <ItemsPanelTemplate>
-                                                                                <WrapPanel Orientation="Horizontal" />
-                                                                            </ItemsPanelTemplate>
-                                                                        </ItemsControl.ItemsPanel>
-                                                                        <ItemsControl.ItemTemplate>
-                                                                            <DataTemplate x:DataType="x:String">
-                                                                                <Border
-                                                                                    Classes="label-pill"
-                                                                                    Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
-                                                                                    ToolTip.Tip="{Binding}">
-                                                                                    <TextBlock
-                                                                                        Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
-                                                                                        Text="{Binding}" />
-                                                                                </Border>
-                                                                            </DataTemplate>
-                                                                        </ItemsControl.ItemTemplate>
-                                                                    </ItemsControl>
+                                                                    <!--  Title line + label pills are shared
+                                                                          templates; the star cell constrains the
+                                                                          title so it trims instead of painting
+                                                                          over the trailing author/age columns.  -->
+                                                                    <ContentControl
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource GitHubTitleLine}" />
+                                                                    <ContentControl
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource GitHubLabelsFlow}" />
                                                                 </StackPanel>
                                                                 <TextBlock
                                                                     Grid.Column="1"
@@ -778,22 +933,10 @@
                                                                 CommandParameter="{Binding}"
                                                                 ToolTip.Tip="{Binding Url}">
                                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                                                    <Grid
+                                                                    <ContentControl
                                                                         Grid.Column="0"
-                                                                        ColumnDefinitions="Auto,*"
-                                                                        ColumnSpacing="6">
-                                                                        <TextBlock
-                                                                            VerticalAlignment="Center"
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            VerticalAlignment="Center"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Title}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </Grid>
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource AzureTitleLine}" />
                                                                     <TextBlock
                                                                         Grid.Column="1"
                                                                         VerticalAlignment="Center"
@@ -1149,12 +1292,11 @@
                                   on the info line, so no cross-row columns exist and no
                                   fixed-width alignment machinery is needed.  -->
                             <StackPanel Spacing="2" Margin="2,0,0,0">
-                                <TextBlock
-                                    Margin="0,10"
-                                    HorizontalAlignment="Center"
-                                    Classes="subtle"
-                                    IsVisible="{Binding ShowCommitsEmpty}"
-                                    Text="No commits yet" />
+                                                <TextBlock
+                                                    Margin="0,10"
+                                                    Classes="list-note subtle"
+                                                    IsVisible="{Binding ShowCommitsEmpty}"
+                                                    Text="No commits yet" />
                                 <ItemsControl ItemsSource="{Binding GitCommits}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitCommitInfo">
@@ -1256,8 +1398,7 @@
                                 <StackPanel Spacing="2" Margin="4,4,4,4">
                                     <TextBlock
                                         Margin="0,20"
-                                        HorizontalAlignment="Center"
-                                        Classes="subtle"
+                                        Classes="list-note subtle"
                                         IsVisible="{Binding ShowChangesTabEmpty}"
                                         Text="No changes — the working tree is clean" />
 
@@ -1298,82 +1439,11 @@
                                                 Stretch="Uniform" />
                                         </Button>
                                     </Grid>
-                                    <ItemsControl IsVisible="{Binding ShowUnstagedSection}" ItemsSource="{Binding UnstagedFiles}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="entities:GitChangedFile">
-                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                                    <Border
-                                                        Grid.Column="0"
-                                                        Width="30"
-                                                        Padding="0,2"
-                                                        VerticalAlignment="Center"
-                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
-                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="{DynamicResource ChipRadius}">
-                                                        <TextBlock
-                                                            HorizontalAlignment="Center"
-                                                            Classes="mono"
-                                                            Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                                                            Text="{Binding DisplayStatusCode}" />
-                                                    </Border>
-                                                    <TextBlock
-                                                        Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        Classes="mono"
-                                                        Foreground="{DynamicResource BodyForegroundBrush}"
-                                                        Text="{Binding Path}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                                    <StackPanel
-                                                        Grid.Column="2"
-                                                        HorizontalAlignment="Right"
-                                                        VerticalAlignment="Center"
-                                                        IsVisible="{Binding HasCounts}"
-                                                        Orientation="Horizontal"
-                                                        Spacing="4">
-                                                        <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
-                                                        <Border
-                                                            Padding="6,1"
-                                                            VerticalAlignment="Center"
-                                                            Background="{DynamicResource AddedCountChipBrush}"
-                                                            CornerRadius="{DynamicResource ChipRadius}"
-                                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                            <TextBlock
-                                                                Classes="mono"
-                                                                Foreground="{DynamicResource AddedCountBrush}"
-                                                                Text="{Binding AddedText}" />
-                                                        </Border>
-                                                        <!--  Deletions pill (light red)  -->
-                                                        <Border
-                                                            Padding="6,1"
-                                                            VerticalAlignment="Center"
-                                                            Background="{DynamicResource RemovedCountChipBrush}"
-                                                            CornerRadius="{DynamicResource ChipRadius}"
-                                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                            <TextBlock
-                                                                Classes="mono"
-                                                                Foreground="{DynamicResource RemovedCountBrush}"
-                                                                Text="{Binding RemovedText}" />
-                                                        </Border>
-                                                    </StackPanel>
-                                                    <Button
-                                                        Grid.Column="3"
-                                                        VerticalAlignment="Center"
-                                                        Classes="icon"
-                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Stage this file">
-                                                        <Path
-                                                            Width="14"
-                                                            Height="14"
-                                                            Data="{tools:SvgPath icon-plus}"
-                                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                                            Stretch="Uniform" />
-                                                    </Button>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                    <ItemsControl
+                                        Classes="stage-actions"
+                                        IsVisible="{Binding ShowUnstagedSection}"
+                                        ItemTemplate="{StaticResource GitChangedFileRowTemplate}"
+                                        ItemsSource="{Binding UnstagedFiles}" />
 
                                     <!--  Staged section  -->
                                     <Grid
@@ -1412,82 +1482,11 @@
                                                 Stretch="Uniform" />
                                         </Button>
                                     </Grid>
-                                    <ItemsControl IsVisible="{Binding ShowStagedSection}" ItemsSource="{Binding StagedFiles}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="entities:GitChangedFile">
-                                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                                    <Border
-                                                        Grid.Column="0"
-                                                        Width="30"
-                                                        Padding="0,2"
-                                                        VerticalAlignment="Center"
-                                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
-                                                        BorderBrush="{DynamicResource HairlineBrush}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="{DynamicResource ChipRadius}">
-                                                        <TextBlock
-                                                            HorizontalAlignment="Center"
-                                                            Classes="mono"
-                                                            Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                                                            Text="{Binding DisplayStatusCode}" />
-                                                    </Border>
-                                                    <TextBlock
-                                                        Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        Classes="mono"
-                                                        Foreground="{DynamicResource BodyForegroundBrush}"
-                                                        Text="{Binding Path}"
-                                                        TextTrimming="CharacterEllipsis" />
-                                                    <StackPanel
-                                                        Grid.Column="2"
-                                                        HorizontalAlignment="Right"
-                                                        VerticalAlignment="Center"
-                                                        IsVisible="{Binding HasCounts}"
-                                                        Orientation="Horizontal"
-                                                        Spacing="4">
-                                                        <!--  Additions pill (green) — hidden for binary/untracked (no counts)  -->
-                                                        <Border
-                                                            Padding="6,1"
-                                                            VerticalAlignment="Center"
-                                                            Background="{DynamicResource AddedCountChipBrush}"
-                                                            CornerRadius="{DynamicResource ChipRadius}"
-                                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                            <TextBlock
-                                                                Classes="mono"
-                                                                Foreground="{DynamicResource AddedCountBrush}"
-                                                                Text="{Binding AddedText}" />
-                                                        </Border>
-                                                        <!--  Deletions pill (light red)  -->
-                                                        <Border
-                                                            Padding="6,1"
-                                                            VerticalAlignment="Center"
-                                                            Background="{DynamicResource RemovedCountChipBrush}"
-                                                            CornerRadius="{DynamicResource ChipRadius}"
-                                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                            <TextBlock
-                                                                Classes="mono"
-                                                                Foreground="{DynamicResource RemovedCountBrush}"
-                                                                Text="{Binding RemovedText}" />
-                                                        </Border>
-                                                    </StackPanel>
-                                                    <Button
-                                                        Grid.Column="3"
-                                                        VerticalAlignment="Center"
-                                                        Classes="icon"
-                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}"
-                                                        CommandParameter="{Binding}"
-                                                        ToolTip.Tip="Unstage this file — the working tree keeps the change">
-                                                        <Path
-                                                            Width="14"
-                                                            Height="14"
-                                                            Data="{tools:SvgPath icon-minus}"
-                                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                                            Stretch="Uniform" />
-                                                    </Button>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                    <ItemsControl
+                                        Classes="unstage-actions"
+                                        IsVisible="{Binding ShowStagedSection}"
+                                        ItemTemplate="{StaticResource GitChangedFileRowTemplate}"
+                                        ItemsSource="{Binding StagedFiles}" />
                                 </StackPanel>
                             </ScrollViewer>
                         </Border>
@@ -1540,6 +1539,7 @@
                                             Height="13"
                                             VerticalAlignment="Center"
                                             IsVisible="{Binding IsCommitting}"
+                                            Classes="spinner"
                                             RenderTransformOrigin="50%,50%"
                                             Data="{tools:SvgPath icon-spinner, Center=False}"
                                             Stroke="{Binding $parent[Button].Foreground}"
@@ -1547,82 +1547,6 @@
                                             <Path.RenderTransform>
                                                 <RotateTransform />
                                             </Path.RenderTransform>
-                                            <Path.Styles>
-                                                <!--  [IsVisible=True] stops the animation (and its clock work)
-                                                      once the ring hides. The spin is stepped on purpose: during
-                                                      each hold nothing invalidates and the compositor idles —
-                                                      a smooth per-frame sweep measured ~20% of a core on this
-                                                      165Hz display, the stepped form ~2% (synthetic A/B).  -->
-                                                <Style Selector="Path[IsVisible=True]">
-                                                    <Style.Animations>
-                                                        <Animation Duration="0:0:0.9" IterationCount="Infinite">
-                                                            <KeyFrame Cue="0%">
-                                                                <Setter Property="RotateTransform.Angle" Value="0" />
-                                                            </KeyFrame>                                                          
-                                                            <KeyFrame Cue="8.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="0" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="10%">
-                                                                <Setter Property="RotateTransform.Angle" Value="36" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="18.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="36" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="20%">
-                                                                <Setter Property="RotateTransform.Angle" Value="72" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="28.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="72" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="30%">
-                                                                <Setter Property="RotateTransform.Angle" Value="108" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="38.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="108" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="40%">
-                                                                <Setter Property="RotateTransform.Angle" Value="144" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="48.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="144" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="50%">
-                                                                <Setter Property="RotateTransform.Angle" Value="180" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="58.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="180" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="60%">
-                                                                <Setter Property="RotateTransform.Angle" Value="216" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="68.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="216" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="70%">
-                                                                <Setter Property="RotateTransform.Angle" Value="252" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="78.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="252" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="80%">
-                                                                <Setter Property="RotateTransform.Angle" Value="288" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="88.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="288" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="90%">
-                                                                <Setter Property="RotateTransform.Angle" Value="324" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="98.3%">
-                                                                <Setter Property="RotateTransform.Angle" Value="324" />
-                                                            </KeyFrame>
-                                                            <KeyFrame Cue="100%">
-                                                                <Setter Property="RotateTransform.Angle" Value="360" />
-                                                            </KeyFrame>
-                                                        </Animation>
-                                                    </Style.Animations>
-                                                </Style>
-                                            </Path.Styles>
                                         </Path>
                                         <TextBlock VerticalAlignment="Center" Text="{Binding CommitButtonText}" />
                                     </StackPanel>
@@ -1636,21 +1560,29 @@
                                         Text="{Binding CommitMessage}"
                                         TextWrapping="Wrap"
                                         Watermark="Commit message (empty = auto-generate)" />
+                                    <!--
+                                        Commit-message wand: a bare icon floating over the message
+                                        box's corner — a detail-link (transparent, dims on hover)
+                                        with its own padding, so the TextBox shows through.
+                                    -->
                                     <Button
                                         Margin="0,0,4,4"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Bottom"
-                                        Classes="wand-btn"
+                                        Padding="4"
+                                        Classes="detail-link"
                                         Command="{Binding GenerateCommitMessageCommand}"
                                         ToolTip.Tip="Generate a commit message from the staged diff (opencode)">
                                             <Grid>
                                                 <!--  spinning arc while the generation runs; drawn at final size
                                                       in element coordinates (no Stretch) so the circle's center
-                                                      is exactly the RenderTransformOrigin the rotation pivots on  -->
+                                                      is exactly the RenderTransformOrigin the rotation pivots on;
+                                                      the ring is the Path.spinner shared style  -->
                                                 <Path
                                                     Width="16"
                                                     Height="16"
                                                     IsVisible="{Binding IsGeneratingMessage}"
+                                                    Classes="spinner"
                                                     RenderTransformOrigin="50%,50%"
                                                     Data="M 8 1 A 7 7 0 1 1 1 8"
                                                     Stroke="{DynamicResource AccentPrimaryBrush}"
@@ -1658,79 +1590,6 @@
                                                     <Path.RenderTransform>
                                                         <RotateTransform />
                                                     </Path.RenderTransform>
-                                                    <Path.Styles>
-                                                        <!--  same stepped hold-sweep spin + IsVisible gate as the
-                                                              commit button's ring (smooth sweep = ~20% of a core)  -->
-                                                        <Style Selector="Path[IsVisible=True]">
-                                                            <Style.Animations>
-                                                                <Animation Duration="0:0:0.9" IterationCount="Infinite">
-                                                                    <KeyFrame Cue="0%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="0" />
-                                                                    </KeyFrame>                                                                    
-                                                                    <KeyFrame Cue="8.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="0" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="10%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="36" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="18.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="36" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="20%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="72" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="28.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="72" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="30%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="108" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="38.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="108" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="40%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="144" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="48.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="144" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="50%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="180" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="58.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="180" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="60%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="216" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="68.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="216" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="70%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="252" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="78.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="252" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="80%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="288" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="88.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="288" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="90%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="324" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="98.3%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="324" />
-                                                                    </KeyFrame>
-                                                                    <KeyFrame Cue="100%">
-                                                                        <Setter Property="RotateTransform.Angle" Value="360" />
-                                                                    </KeyFrame>
-                                                                </Animation>
-                                                            </Style.Animations>
-                                                        </Style>
-                                                    </Path.Styles>
                                                 </Path>
                                             <Path
                                                 Width="16"
@@ -1785,21 +1644,15 @@
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Spacing="2">
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding !GitHubHasLoaded}"
                                 Text="Loading…" />
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding ShowPullRequestsEmpty}"
                                 Text="No open pull requests" />
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding ShowGitHubUnavailable}"
                                 Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
                             <ItemsControl ItemsSource="{Binding GitHubPullRequests}">
@@ -1824,61 +1677,20 @@
                                                     VerticalAlignment="Center"
                                                     Orientation="Vertical"
                                                     Spacing="2">
-                                                    <!--  Title line: star cell constrains the title so it
-                                                          trims instead of painting over the trailing
+                                                    <!--  Title / branch / label lines are shared templates;
+                                                          the star cell constrains the title so it trims
+                                                          instead of painting over the trailing
                                                           author/age/chip columns.  -->
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                        <TextBlock
-                                                            Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Title}"
-                                                            TextTrimming="CharacterEllipsis" />
-                                                    </Grid>
-                                                    <StackPanel
-                                                        Orientation="Horizontal"
-                                                        Spacing="6"
-                                                        IsVisible="{Binding BranchSummary, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                                        <TextBlock
-                                                            Classes="mono"
-                                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                                            Text="{Binding HeadRef}" />
-                                                        <TextBlock
-                                                            Classes="mono"
-                                                            Foreground="{DynamicResource AccentPrimaryBrush}"
-                                                            Text="→" />
-                                                        <TextBlock
-                                                            Classes="mono"
-                                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                                            Text="{Binding BaseRef, TargetNullValue=main}" />
+                                                    <ContentControl
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource GitHubTitleLine13}" />
+                                                    <ContentControl
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource BranchSummaryTemplate}" />
+                                                    <ContentControl
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource GitHubLabelsFlow}" />
                                                     </StackPanel>
-                                                    <ItemsControl IsVisible="{Binding HasLabels}" ItemsSource="{Binding Labels}">
-                                                        <ItemsControl.ItemsPanel>
-                                                            <ItemsPanelTemplate>
-                                                                <WrapPanel Orientation="Horizontal" />
-                                                            </ItemsPanelTemplate>
-                                                        </ItemsControl.ItemsPanel>
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate x:DataType="x:String">
-                                                                <Border
-                                                                    Classes="label-pill"
-                                                                    Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
-                                                                    ToolTip.Tip="{Binding}">
-                                                                    <TextBlock
-                                                                        Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
-                                                                        Text="{Binding}" />
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </StackPanel>
                                                 <TextBlock
                                                     Grid.Column="2"
                                                     VerticalAlignment="Center"
@@ -1891,16 +1703,10 @@
                                                     Classes="subtle"
                                                     IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                                     Text="{Binding AgeText}" />
-                                                <Border
-                                                    Grid.Column="4"
-                                                    Classes="state-chip"
-                                                    Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
-                                                    ToolTip.Tip="{Binding StateChip}">
-                                                    <TextBlock
-                                                        FontWeight="SemiBold"
-                                                        Foreground="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}}"
-                                                        Text="{Binding StateChip}" />
-                                                </Border>
+                                                    <ContentControl
+                                                        Grid.Column="4"
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource StateChipTemplate}" />
                                             </Grid>
                                         </Button>
                                     </DataTemplate>
@@ -1930,25 +1736,10 @@
                                                         Data="{tools:SvgPath icon-git-pull-request}"
                                                         Fill="{DynamicResource PurpleAccentBrush}"
                                                         Stretch="Uniform" />
-                                                    <Grid
+                                                    <ContentControl
                                                         Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        ColumnDefinitions="Auto,*"
-                                                        ColumnSpacing="6">
-                                                        <TextBlock
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                        <TextBlock
-                                                            Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="13"
-                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                            Text="{Binding Title}"
-                                                            TextTrimming="CharacterEllipsis" />
-                                                    </Grid>
+                                                        Content="{Binding}"
+                                                        ContentTemplate="{StaticResource AzureTitleLine13}" />
                                                     <TextBlock
                                                         Grid.Column="2"
                                                         VerticalAlignment="Center"
@@ -2002,24 +1793,18 @@
                     </Grid>
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Spacing="2">
-                            <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
-                                IsVisible="{Binding !GitHubHasLoaded}"
-                                Text="Loading…" />
-                            <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
-                                IsVisible="{Binding ShowIssuesEmpty}"
-                                Text="No open issues" />
-                            <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
-                                IsVisible="{Binding ShowGitHubUnavailable}"
-                                Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
+                                            <TextBlock
+                                                Classes="list-note subtle"
+                                                IsVisible="{Binding !GitHubHasLoaded}"
+                                                Text="Loading…" />
+                                            <TextBlock
+                                                Classes="list-note subtle"
+                                                IsVisible="{Binding ShowIssuesEmpty}"
+                                                Text="No open issues" />
+                                            <TextBlock
+                                                Classes="list-note subtle"
+                                                IsVisible="{Binding ShowGitHubUnavailable}"
+                                                Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
                                             <ItemsControl ItemsSource="{Binding GitHubIssues}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="entities:GitHubItem">
@@ -2039,32 +1824,20 @@
                                                                     Stretch="Uniform" />
                                                                 <!--  One line: number + title, then the tag
                                                                       pills, the author and the relative age.
-                                                                      The title lives in a star grid cell (not a
-                                                                      horizontal StackPanel, which measures at
-                                                                      infinite width and would never trim).  -->
-                                                                <Grid
+                                                                      The title (shared template) lives in a
+                                                                      star grid cell (not a horizontal
+                                                                      StackPanel, which measures at infinite
+                                                                      width and would never trim).  -->
+                                                                <ContentControl
                                                                     Grid.Column="1"
-                                                                    ColumnDefinitions="Auto,*"
-                                                                    ColumnSpacing="6">
-                                                                    <TextBlock
-                                                                        VerticalAlignment="Center"
-                                                                        FontSize="13"
-                                                                        FontWeight="SemiBold"
-                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                        Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                    <TextBlock
-                                                                        Grid.Column="1"
-                                                                        VerticalAlignment="Center"
-                                                                        FontSize="13"
-                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                        Text="{Binding Title}"
-                                                                        TextTrimming="CharacterEllipsis" />
-                                                                </Grid>
+                                                                    Content="{Binding}"
+                                                                    ContentTemplate="{StaticResource GitHubTitleLine13}" />
                                                                 <ItemsControl
                                                                     Grid.Column="2"
                                                                     VerticalAlignment="Center"
                                                                     ClipToBounds="True"
                                                                     IsVisible="{Binding HasLabels}"
+                                                                    ItemTemplate="{StaticResource LabelPillTemplate}"
                                                                     ItemsSource="{Binding Labels}"
                                                                     MaxWidth="260">
                                                                     <ItemsControl.ItemsPanel>
@@ -2072,18 +1845,6 @@
                                                                             <StackPanel Orientation="Horizontal" />
                                                                         </ItemsPanelTemplate>
                                                                     </ItemsControl.ItemsPanel>
-                                                                    <ItemsControl.ItemTemplate>
-                                                                        <DataTemplate x:DataType="x:String">
-                                                                            <Border
-                                                                                Classes="label-pill"
-                                                                                Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
-                                                                                ToolTip.Tip="{Binding}">
-                                                                                <TextBlock
-                                                                                    Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
-                                                                                    Text="{Binding}" />
-                                                                            </Border>
-                                                                        </DataTemplate>
-                                                                    </ItemsControl.ItemTemplate>
                                                                 </ItemsControl>
                                                                 <TextBlock
                                                                     Grid.Column="3"
@@ -2126,25 +1887,10 @@
                                                                         Data="{tools:SvgPath icon-issue}"
                                                                         Fill="{DynamicResource StatusActiveBrush}"
                                                                         Stretch="Uniform" />
-                                                                    <Grid
+                                                                    <ContentControl
                                                                         Grid.Column="1"
-                                                                        VerticalAlignment="Center"
-                                                                        ColumnDefinitions="Auto,*"
-                                                                        ColumnSpacing="6">
-                                                                        <TextBlock
-                                                                            VerticalAlignment="Center"
-                                                                            FontSize="13"
-                                                                            FontWeight="SemiBold"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Number, StringFormat='#{0}'}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            VerticalAlignment="Center"
-                                                                            FontSize="13"
-                                                                            Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                            Text="{Binding Title}"
-                                                                            TextTrimming="CharacterEllipsis" />
-                                                                    </Grid>
+                                                                        Content="{Binding}"
+                                                                        ContentTemplate="{StaticResource AzureTitleLine13}" />
                                                                     <TextBlock
                                                                         Grid.Column="2"
                                                                         VerticalAlignment="Center"
@@ -2205,21 +1951,15 @@
                     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Spacing="2">
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding !AzureHasLoaded}"
                                 Text="Loading…" />
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding ShowAzureEmpty}"
                                 Text="Nothing open — no pull requests, work items or pipeline runs" />
                             <TextBlock
-                                Margin="0,24"
-                                HorizontalAlignment="Center"
-                                Classes="subtle"
+                                Classes="list-note subtle"
                                 IsVisible="{Binding ShowAzureUnavailable}"
                                 Text="No Azure DevOps data for this repository (is it hosted on Azure DevOps, and is a token configured?)" />
 

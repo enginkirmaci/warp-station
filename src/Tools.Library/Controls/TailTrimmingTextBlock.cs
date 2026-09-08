@@ -15,6 +15,12 @@ namespace Tools.Library.Controls;
 /// through implicitly unreliable (its own content is measured unconstrained),
 /// so the XAML caps this control with an explicit MaxWidth — which also keeps
 /// short pills hugging their text, since MaxWidth caps without forcing width.
+///
+/// Computing the trim is expensive (a full-width layout plus an O(log n)
+/// search of probe layouts, each a full shaping pass), so the result is cached
+/// per (text, font, width bucket). Measure passes that repeat the same inputs
+/// — row re-realization, window resize, resizer drags — then run no shaping
+/// and allocate nothing.
 /// </summary>
 public class TailTrimmingTextBlock : TextBlock
 {
@@ -37,28 +43,69 @@ public class TailTrimmingTextBlock : TextBlock
         set => SetValue(FullTextProperty, value);
     }
 
+    // Last computed trim result plus every input it was derived from. The key
+    // is complete (text, font family/face/size, bucketed width), so a hit
+    // guarantees the identical output — no explicit invalidation hooks are
+    // needed: every property that can change the result is measure-affecting
+    // (FullText here, the font properties via TextBlock), so any change re-runs
+    // MeasureOverride and the key comparison recomputes. Foreground is
+    // deliberately not part of the key: it never influences measured widths.
+    private bool _trimCacheValid;
+    private string? _trimKeyText;
+    private FontFamily? _trimKeyFontFamily;
+    private FontStyle _trimKeyFontStyle;
+    private FontWeight _trimKeyFontWeight;
+    private FontStretch _trimKeyFontStretch;
+    private double _trimKeyFontSize;
+    private double _trimKeyWidthBucket;
+    private string _trimResult = string.Empty;
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var full = FullText ?? string.Empty;
 
         if (double.IsInfinity(availableSize.Width) || full.Length == 0 || !IsVisible)
         {
+            // Unconstrained/no content: show everything. Deliberately keeps the
+            // trim cache intact — a pass here does not change any trim input.
             SetTextIfChanged(full);
             return base.MeasureOverride(availableSize);
         }
 
-        var typeface = new Typeface(FontFamily, FontStyle, FontWeight, FontStretch);
-        double fullWidth = CreateLayout(typeface, full).WidthIncludingTrailingWhitespace;
-        var budget = Math.Max(availableSize.Width - FitSlack, 0);
+        // Bucket the constraint to whole pixels, rounding UP: ceil(w) - FitSlack
+        // stays strictly below w, so a fitted string still can never spill past
+        // the real constraint, while sub-pixel constraint churn (resizer drags,
+        // re-measures) lands in the same bucket and becomes a cache hit.
+        var widthBucket = Math.Ceiling(availableSize.Width);
 
-        SetTextIfChanged(fullWidth <= budget ? full : FitTail(typeface, full, budget));
+        if (!IsTrimCacheHit(full, widthBucket))
+        {
+            var typeface = new Typeface(FontFamily, FontStyle, FontWeight, FontStretch);
+            var budget = Math.Max(widthBucket - FitSlack, 0);
+
+            double fullWidth;
+            using (var layout = CreateLayout(typeface, full))
+            {
+                fullWidth = layout.WidthIncludingTrailingWhitespace;
+            }
+
+            _trimResult = fullWidth <= budget ? full : FitTail(typeface, full, budget);
+            StoreTrimCache(full, widthBucket);
+        }
+
+        SetTextIfChanged(_trimResult);
         return base.MeasureOverride(availableSize);
     }
 
     /// <summary>
     /// Binary search for the longest suffix of <paramref name="full"/> that fits
-    /// <paramref name="budget"/> behind the leading dots. Branch names are short,
-    /// so the log-time probing with throwaway layouts is negligible.
+    /// <paramref name="budget"/> behind the leading dots. Kept as a search over
+    /// standalone suffix layouts rather than hit-testing a single layout of the
+    /// full string: shaping a standalone suffix can differ by fractions of a
+    /// pixel from shaping the same characters in longer context (kerning,
+    /// ligatures), so hit-testing could pick a different character count — the
+    /// search preserves the previous output exactly. Only runs on cache misses,
+    /// and every probe layout is disposed before the next iteration.
     /// </summary>
     private string FitTail(Typeface typeface, string full, double budget)
     {
@@ -67,7 +114,8 @@ public class TailTrimmingTextBlock : TextBlock
         while (lo <= hi)
         {
             var mid = (lo + hi) / 2;
-            var layout = CreateLayout(typeface, LeadingDots + full[^mid..]);
+
+            using var layout = CreateLayout(typeface, LeadingDots + full[^mid..]);
 
             if (layout.WidthIncludingTrailingWhitespace <= budget)
             {
@@ -91,6 +139,28 @@ public class TailTrimmingTextBlock : TextBlock
         FontSize,
         Foreground,
         maxWidth: double.PositiveInfinity);
+
+    private bool IsTrimCacheHit(string full, double widthBucket) =>
+        _trimCacheValid
+        && string.Equals(_trimKeyText, full, StringComparison.Ordinal)
+        && Equals(_trimKeyFontFamily, FontFamily)
+        && _trimKeyFontStyle == FontStyle
+        && _trimKeyFontWeight.Equals(FontWeight)
+        && _trimKeyFontStretch == FontStretch
+        && _trimKeyFontSize.Equals(FontSize)
+        && _trimKeyWidthBucket.Equals(widthBucket);
+
+    private void StoreTrimCache(string full, double widthBucket)
+    {
+        _trimCacheValid = true;
+        _trimKeyText = full;
+        _trimKeyFontFamily = FontFamily;
+        _trimKeyFontStyle = FontStyle;
+        _trimKeyFontWeight = FontWeight;
+        _trimKeyFontStretch = FontStretch;
+        _trimKeyFontSize = FontSize;
+        _trimKeyWidthBucket = widthBucket;
+    }
 
     private void SetTextIfChanged(string value)
     {

@@ -5,7 +5,6 @@ using Tools.Helpers;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
-using Tools.Views.Windows;
 
 namespace Tools.Services;
 
@@ -20,19 +19,19 @@ namespace Tools.Services;
 /// </summary>
 public class DialogService : IDialogService
 {
-    private readonly MainWindow _mainWindow;
+    private readonly IMainWindowProvider _mainWindowProvider;
     private readonly IToolDrawerService _toolDrawer;
 
-    public DialogService(MainWindow mainWindow, IToolDrawerService toolDrawer)
+    public DialogService(IMainWindowProvider mainWindowProvider, IToolDrawerService toolDrawer)
     {
-        _mainWindow = mainWindow;
+        _mainWindowProvider = mainWindowProvider;
         _toolDrawer = toolDrawer;
     }
 
     /// <inheritdoc/>
     public async Task<string?> PickFolderAsync(string title)
     {
-        var topLevel = TopLevel.GetTopLevel(_mainWindow);
+        var topLevel = _mainWindowProvider.TopLevel;
         if (topLevel == null)
             return null;
 

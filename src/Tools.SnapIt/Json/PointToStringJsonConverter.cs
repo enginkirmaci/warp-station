@@ -1,23 +1,16 @@
-using System.Globalization;
-using System.Text.Json;
 using Point = Tools.SnapIt.Graphics.Point;
 
 namespace Tools.SnapIt.Json;
 
-public class PointToStringJsonConverter : JsonConverter<Point>
+public class PointToStringJsonConverter : FloatPairJsonConverter<Point>
 {
-    public override Point? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        string[] parts = reader.GetString().Split(',');
-        return new Point
-        {
-            X = float.Parse(parts[0], CultureInfo.InvariantCulture),
-            Y = float.Parse(parts[1], CultureInfo.InvariantCulture)
-        };
-    }
+    protected override Point Create() => new Point();
 
-    public override void Write(Utf8JsonWriter writer, Point value, JsonSerializerOptions options)
-    {
-        writer.WriteStringValue(FormattableString.Invariant($"{value.X},{value.Y}"));
-    }
+    protected override float GetFirst(Point value) => value.X;
+
+    protected override float GetSecond(Point value) => value.Y;
+
+    protected override void SetFirst(Point value, float first) => value.X = first;
+
+    protected override void SetSecond(Point value, float second) => value.Y = second;
 }

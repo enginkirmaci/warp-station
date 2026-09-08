@@ -14,6 +14,12 @@ public sealed record GitChangedFile(
     int? Additions = null,
     int? Deletions = null)
 {
+    // The delta strings below are rendered on every repo row, so they are cached:
+    // the counts are positional (get-only, fixed at construction), a lazily built
+    // string never goes stale and needs no invalidation.
+    private string? _addedText;
+    private string? _removedText;
+
     /// <summary>Whether the file carries numstat line counts (untracked/binary do not).</summary>
     public bool HasCounts => Additions is not null || Deletions is not null;
 
@@ -23,9 +29,9 @@ public sealed record GitChangedFile(
     /// </summary>
     public string DisplayStatusCode => StatusCode == "?" ? "U" : StatusCode;
 
-    /// <summary>The "+N" additions half of the delta; null without counts.</summary>
-    public string? AddedText => Additions is null ? null : $"+{Additions}";
+    /// <summary>The "+N" additions half of the delta; null without counts. Cached.</summary>
+    public string? AddedText => _addedText ??= Additions is null ? null : $"+{Additions}";
 
-    /// <summary>The "−N" deletions half of the delta; null without counts.</summary>
-    public string? RemovedText => Deletions is null ? null : $"−{Deletions}";
+    /// <summary>The "−N" deletions half of the delta; null without counts. Cached.</summary>
+    public string? RemovedText => _removedText ??= Deletions is null ? null : $"−{Deletions}";
 }

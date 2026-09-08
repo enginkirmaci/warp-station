@@ -47,19 +47,13 @@ public partial class FoundRepository : ObservableObject
 /// for selection. The component resolves its drawer context with the selected folder
 /// paths; merging them into the persisted scan folders is the caller's job.
 /// </summary>
-public partial class AddRepositoryViewModel : ObservableObject, IToolDrawerContextReceiver
+public partial class AddRepositoryViewModel :
+    DrawerDialogViewModelBase<AddRepositoriesDrawerContext, IReadOnlyList<string>>
 {
     private readonly IRepoScanner _scanner;
-    private readonly IToolDrawerService _toolDrawer;
 
     private ReposSettings _settings = new();
     private HashSet<string> _trackedPaths = new(RepoPath.Comparer);
-
-    /// <summary>
-    /// The context completion source while this instance is the drawer's open component;
-    /// resolved with the selected paths on Add.
-    /// </summary>
-    private TaskCompletionSource<IReadOnlyList<string>?>? _completion;
 
     [ObservableProperty]
     private string _folderPath = string.Empty;
@@ -101,26 +95,18 @@ public partial class AddRepositoryViewModel : ObservableObject, IToolDrawerConte
         : "Add";
 
     public AddRepositoryViewModel(IRepoScanner scanner, IToolDrawerService toolDrawer)
+        : base(toolDrawer)
     {
         _scanner = scanner;
-        _toolDrawer = toolDrawer;
     }
 
-    /// <summary>
-    /// Drawer open payload: the request's settings and tracked repos, plus the
-    /// completion source the Add command resolves. Resets any previous scan state so
-    /// every open starts from a clean sheet.
-    /// </summary>
-    public void OnDrawerContext(object context)
-    {
-        if (context is not AddRepositoriesDrawerContext drawerContext)
-        {
-            return;
-        }
+    /// <summary>The open context's completion source the Add command resolves.</summary>
+    protected override TaskCompletionSource<IReadOnlyList<string>?> GetCompletion(AddRepositoriesDrawerContext context)
+        => context.Completion;
 
-        _completion = drawerContext.Completion;
-        Load(drawerContext.Settings, drawerContext.TrackedRepos);
-    }
+    /// <inheritdoc/>
+    protected override void OnDrawerContext(AddRepositoriesDrawerContext context)
+        => Load(context.Settings, context.TrackedRepos);
 
     /// <summary>Seeds the tracked set and resets the folder/scan state for a fresh open.</summary>
     private void Load(ReposSettings settings, IReadOnlyList<Repo> trackedRepos)
@@ -141,21 +127,12 @@ public partial class AddRepositoryViewModel : ObservableObject, IToolDrawerConte
         RaiseSelectionBindings();
     }
 
-    /// <summary>Cancel/close: resolves the context with null (DialogService semantics).</summary>
-    [RelayCommand]
-    private void Cancel() => _toolDrawer.Close();
-
     /// <summary>
-    /// Add: resolves the drawer context with the checked, not-yet-tracked repo paths and
-    /// closes the drawer. Closing raises the drawer's Changed event, which DialogService
-    /// treats as a cancel — a no-op here because the completion is already set.
+    /// Add: resolves the drawer context with the checked, not-yet-tracked repo paths
+    /// and closes the drawer (shared confirm plumbing on the base).
     /// </summary>
     [RelayCommand]
-    private void Confirm()
-    {
-        _completion?.TrySetResult(GetSelectedPaths());
-        _toolDrawer.Close();
-    }
+    private void Confirm() => ConfirmWith(GetSelectedPaths());
 
     partial void OnFolderPathChanged(string value) => ScanCommand.NotifyCanExecuteChanged();
 

@@ -1,23 +1,16 @@
-using System.Globalization;
-using System.Text.Json;
 using Size = Tools.SnapIt.Graphics.Size;
 
 namespace Tools.SnapIt.Json;
 
-public class SizeToStringJsonConverter : JsonConverter<Size>
+public class SizeToStringJsonConverter : FloatPairJsonConverter<Size>
 {
-    public override Size? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        string[] parts = reader.GetString().Split(',');
-        return new Size
-        {
-            Width = float.Parse(parts[0], CultureInfo.InvariantCulture),
-            Height = float.Parse(parts[1], CultureInfo.InvariantCulture)
-        };
-    }
+    protected override Size Create() => new Size();
 
-    public override void Write(Utf8JsonWriter writer, Size value, JsonSerializerOptions options)
-    {
-        writer.WriteStringValue(FormattableString.Invariant($"{value.Width},{value.Height}"));
-    }
+    protected override float GetFirst(Size value) => value.Width;
+
+    protected override float GetSecond(Size value) => value.Height;
+
+    protected override void SetFirst(Size value, float first) => value.Width = first;
+
+    protected override void SetSecond(Size value, float second) => value.Height = second;
 }

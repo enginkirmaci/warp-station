@@ -1,19 +1,23 @@
-using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Tools.Library.Configuration;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.ViewModels.Pages;
 
 /// <summary>
-/// ViewModel for the Clipboard Password page.
-/// Manages password storage with Base64 encoding for clipboard hotkey functionality.
+/// ViewModel for the Clipboard Password page. Manages password storage with Base64
+/// encoding for clipboard hotkey functionality (the encode + persist live in
+/// <see cref="IClipboardPasswordService.SetPasswordAsync"/>; clearing persists through
+/// <see cref="ISettingsService.UpdateAsync{TSection}"/> — both single-lock updates. This
+/// VM only orchestrates the UI state around them).
 /// </summary>
 public partial class ClipboardPasswordViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
     private readonly INotificationService _notificationService;
+    private readonly IClipboardPasswordService _clipboardPasswordService;
 
     [ObservableProperty]
     private string _password = string.Empty;
@@ -24,10 +28,12 @@ public partial class ClipboardPasswordViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _hasStoredPassword;
 
-    public ClipboardPasswordViewModel(ISettingsService settingsService, INotificationService notificationService)
+    public ClipboardPasswordViewModel(ISettingsService settingsService, INotificationService notificationService,
+        IClipboardPasswordService clipboardPasswordService)
     {
         _settingsService = settingsService;
         _notificationService = notificationService;
+        _clipboardPasswordService = clipboardPasswordService;
     }
 
     /// <inheritdoc/>
@@ -59,17 +65,8 @@ public partial class ClipboardPasswordViewModel : PageViewModelBase
                 StatusMessage = "Please enter a password";
                 return;
             }
-            // Encode password to Base64
-            var bytes = Encoding.UTF8.GetBytes(Password);
-            var base64Password = Convert.ToBase64String(bytes);
-            // Save to settings
-            var settings = await _settingsService.GetSettingsAsync();
-            if (settings.ClipboardPassword == null)
-            {
-                settings.ClipboardPassword = new();
-            }
-            settings.ClipboardPassword.EncryptedPassword = base64Password;
-            await _settingsService.SaveSettingsAsync(settings);
+            // The service encodes (Base64 over UTF-8) and persists the password
+            await _clipboardPasswordService.SetPasswordAsync(Password);
             // Clear password field
             Password = string.Empty;
             HasStoredPassword = true;
@@ -88,12 +85,11 @@ public partial class ClipboardPasswordViewModel : PageViewModelBase
     {
         try
         {
-            var settings = await _settingsService.GetSettingsAsync();
-            if (settings.ClipboardPassword != null)
-            {
-                settings.ClipboardPassword.EncryptedPassword = null;
-                await _settingsService.SaveSettingsAsync(settings);
-            }
+            // Single-lock update: clears EncryptedPassword on the persisted graph without
+            // a hand-rolled get → mutate → save round trip (the section is guaranteed
+            // non-null by the settings service).
+            await _settingsService.UpdateAsync<ClipboardPasswordSettings>(
+                cp => cp.EncryptedPassword = null);
             Password = string.Empty;
             HasStoredPassword = false;
             StatusMessage = "Password cleared";

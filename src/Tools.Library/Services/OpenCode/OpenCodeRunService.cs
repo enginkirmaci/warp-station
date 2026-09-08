@@ -18,14 +18,14 @@ public class OpenCodeRunService : IOpenCodeRunService
     /// <inheritdoc/>
     public async Task<string?> RunAsync(string? executable, string? model, string prompt, CancellationToken cancellationToken = default)
     {
-        var exe = string.IsNullOrWhiteSpace(executable) ? "opencode" : executable;
-
-        // Same lookup as the model service: the GUI process runs with a minimal PATH,
-        // so a bare name needs the user-level install dirs to resolve.
-        var resolved = ExecutableDefaults.Locate(exe);
+        // Not on the shared ProcessRunner (yet): this run's semantics are load-bearing and
+        // differ from the runner's — on timeout the child must be left alive (only an
+        // external cancel kills it, synchronously via token Register), completion is the
+        // first pipe to close rather than process exit plus a full drain, and the drains
+        // ride CancellationToken.None to survive teardown.
+        var (exe, resolved) = ProcessRunner.LocateCli(executable, "opencode", "OpenCodeRunService", warnWhenMissing: false);
         if (resolved is null)
         {
-            Log.Logger.Debug("OpenCodeRunService: '{Exe}' not found on PATH or in the user install folders", exe);
             return null;
         }
 
@@ -55,8 +55,8 @@ public class OpenCodeRunService : IOpenCodeRunService
             }
             psi.ArgumentList.Add(prompt);
 
-            // Same Electron leak guard as the model service.
-            psi.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");
+            // Same Electron leak guard as the model service (constant hoisted on the runner).
+            psi.EnvironmentVariables.Remove(ProcessRunner.ElectronRunAsNodeVariable);
 
             using var process = new Process { StartInfo = psi };
             process.Start();

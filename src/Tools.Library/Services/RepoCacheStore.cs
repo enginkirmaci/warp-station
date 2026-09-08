@@ -12,9 +12,6 @@ namespace Tools.Library.Services;
 /// </summary>
 public class RepoCacheStore : IRepoCacheStore
 {
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
-    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
-
     private readonly string _cacheFilePath;
 
     public RepoCacheStore()
@@ -33,7 +30,7 @@ public class RepoCacheStore : IRepoCacheStore
                 return null;
 
             var json = await File.ReadAllTextAsync(_cacheFilePath);
-            return JsonSerializer.Deserialize<RepoCache>(json, ReadOptions);
+            return JsonSerializer.Deserialize<RepoCache>(json, JsonIO.ReadOptions);
         }
         catch (Exception ex)
         {
@@ -47,8 +44,8 @@ public class RepoCacheStore : IRepoCacheStore
     {
         try
         {
-            var json = JsonSerializer.Serialize(cache, WriteOptions);
-            await File.WriteAllTextAsync(_cacheFilePath, json);
+            var json = JsonSerializer.Serialize(cache, JsonIO.WriteOptions);
+            await JsonIO.WriteAtomicallyAsync(_cacheFilePath, json);
         }
         catch (Exception ex)
         {

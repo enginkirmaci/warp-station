@@ -16,11 +16,6 @@ public partial class SnapControl : UserControl
 	private readonly SnapBorder rightBorder;
 
 	private double overlayMargin = 0;
-	private bool firstLoad = true;
-	private string currentName;
-	private int currentAreaPadding;
-	private List<Line> currentLayoutLines;
-	private List<LayoutOverlay> currentLayoutOverlays;
 
 	public static readonly StyledProperty<int> AreaPaddingProperty =
 		AvaloniaProperty.Register<SnapControl, int>(
@@ -85,18 +80,17 @@ public partial class SnapControl : UserControl
 	{
 		AreaPaddingProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
 		{
-			snapControl.AreaPadding = e.NewValue is int v ? v : 0;
+			var areaPadding = e.NewValue is int v ? v : 0;
 			var snapAreas = snapControl.FindChildren<SnapArea>();
 			foreach (var snapArea in snapAreas)
 			{
-				snapArea.AreaPadding = new Thickness(snapControl.AreaPadding);
+				snapArea.AreaPadding = new Thickness(areaPadding);
 			}
 		});
 
 		IsOverlayVisibleProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
 		{
-			snapControl.IsOverlayVisible = e.NewValue is bool b && b;
-			snapControl.MainOverlay.IsVisible = snapControl.IsOverlayVisible;
+			snapControl.MainOverlay.IsVisible = e.NewValue is bool b && b;
 		});
 
 		SnapThemeProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
@@ -127,11 +121,6 @@ public partial class SnapControl : UserControl
 					snapFullOverlay.SnapTheme = snapControl.SnapTheme;
 				}
 			}
-		});
-
-		IsPreviewProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
-		{
-			snapControl.IsPreview = e.NewValue is bool b && b;
 		});
 
 		LayoutProperty.Changed.AddClassHandler<SnapControl>((snapControl, e) =>
@@ -170,16 +159,6 @@ public partial class SnapControl : UserControl
 
 	public void LoadLayout(Layout layout)
 	{
-		if (firstLoad)
-		{
-			firstLoad = false;
-			currentName = layout.Name;
-			currentAreaPadding = layout.AreaPadding;
-			currentLayoutLines = new List<Line>(layout.LayoutLines);
-			currentLayoutOverlays = new List<LayoutOverlay>(layout.LayoutOverlays);
-		}
-		;
-
 		MainGrid.Children.Clear();
 		MainFullOverlay.Children.Clear();
 		MainOverlay.Children.Clear();
@@ -193,6 +172,8 @@ public partial class SnapControl : UserControl
 		{
 			AreaPadding = layout.AreaPadding;
 
+			// Add all borders first, then rebuild the snap areas once — the trailing
+			// AdoptToScreen() below performs that single GenerateSnapAreas() pass.
 			foreach (var layoutLine in layout.LayoutLines)
 			{
 				var snapBorder = new SnapBorder(this, SnapTheme)
@@ -200,7 +181,7 @@ public partial class SnapControl : UserControl
 					LayoutLine = layoutLine
 				};
 
-				AddBorder(snapBorder);
+				MainGrid.Children.Add(snapBorder);
 			}
 
 			if (layout.LayoutOverlays != null)

@@ -12,24 +12,11 @@ namespace Tools.ViewModels.Windows;
 /// editing state for <see cref="ReposSettings"/> (multi-line text for the array
 /// fields, plain strings for the rest) and translates between the two on load/save.
 /// </summary>
-public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerContextReceiver
+public partial class ReposSettingsViewModel :
+    DrawerDialogViewModelBase<ReposSettingsDrawerContext, ReposSettings>
 {
-    private readonly IToolDrawerService _toolDrawer;
-
-    /// <summary>
-    /// The context completion source while this instance is the drawer's open component;
-    /// resolved with the edited settings on Save.
-    /// </summary>
-    private TaskCompletionSource<ReposSettings?>? _completion;
-    private const string DefaultGitPattern = "*.git";
-    private const string DefaultSolutionPattern = "*.sln,*.slnx";
-    private const string DefaultPlatformName = "platform";
-    private const string DefaultVSCode = "code";
-    private const string DefaultTerminal = "wt";
-    private const string DefaultOpenCode = "opencode";
-    private const string DefaultZCode = "zcode";
-    private const string DefaultGitHub = "gh";
-    private const int DefaultMaxScanDepth = 3;
+    // Canonical defaults live on ReposSettings itself (the per-field Default* constants
+    // that also back ReposSettings.Defaults); no private duplicates are kept here.
 
     [ObservableProperty]
     private string _repoScanFoldersText = string.Empty;
@@ -38,31 +25,31 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
     private string _excludedFoldersText = string.Empty;
 
     [ObservableProperty]
-    private string _gitFolderPattern = DefaultGitPattern;
+    private string _gitFolderPattern = ReposSettings.DefaultGitFolderPattern;
 
     [ObservableProperty]
-    private string _solutionFilePattern = DefaultSolutionPattern;
+    private string _solutionFilePattern = ReposSettings.DefaultSolutionFilePattern;
 
     [ObservableProperty]
-    private string _platformFolderName = DefaultPlatformName;
+    private string _platformFolderName = ReposSettings.DefaultPlatformFolderName;
 
     [ObservableProperty]
-    private string _vsCodeExecutable = DefaultVSCode;
+    private string _vsCodeExecutable = ReposSettings.DefaultVSCodeExecutable;
 
     [ObservableProperty]
     private string _vsCodeProfile = string.Empty;
 
     [ObservableProperty]
-    private string _terminalExecutable = DefaultTerminal;
+    private string _terminalExecutable = ReposSettings.DefaultTerminalExecutable;
 
     [ObservableProperty]
     private string _ideExecutable = string.Empty;
 
     [ObservableProperty]
-    private string _openCodeExecutable = DefaultOpenCode;
+    private string _openCodeExecutable = ReposSettings.DefaultOpenCodeExecutable;
 
     [ObservableProperty]
-    private string _zCodeExecutable = DefaultZCode;
+    private string _zCodeExecutable = ReposSettings.DefaultZCodeExecutable;
 
     /// <summary>Whether the terminal launch button shows (no installation probing).</summary>
     [ObservableProperty]
@@ -85,7 +72,7 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
     private bool _enableGitHub = true;
 
     [ObservableProperty]
-    private string _gitHubExecutable = DefaultGitHub;
+    private string _gitHubExecutable = ReposSettings.DefaultGitHubExecutable;
 
     [ObservableProperty]
     private bool _enableAzureDevOps = true;
@@ -97,48 +84,31 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
     private string _azureDevOpsUrl = string.Empty;
 
     [ObservableProperty]
-    private string _maxScanDepth = DefaultMaxScanDepth.ToString();
+    private string _maxScanDepth = ReposSettings.DefaultMaxScanDepth.ToString();
 
     /// <summary>
     /// Initializes a new instance. Editing state is seeded per open through
-    /// <see cref="OnDrawerContext"/> (the component is resolved fresh from DI each time).
+    /// <see cref="OnDrawerContextAsync"/> (the component is resolved fresh from DI each time).
     /// </summary>
     public ReposSettingsViewModel(IToolDrawerService toolDrawer)
+        : base(toolDrawer)
     {
-        _toolDrawer = toolDrawer;
     }
+
+    /// <summary>The open context's completion source the Save command resolves.</summary>
+    protected override TaskCompletionSource<ReposSettings?> GetCompletion(ReposSettingsDrawerContext context)
+        => context.Completion;
+
+    /// <inheritdoc/>
+    protected override void OnDrawerContext(ReposSettingsDrawerContext context)
+        => LoadFrom(context.Current ?? new ReposSettings());
 
     /// <summary>
-    /// Drawer open payload: the settings instance to edit plus the completion source the
-    /// Save command resolves. Re-loads the fields so every open starts from the caller's
-    /// current settings.
-    /// </summary>
-    public void OnDrawerContext(object context)
-    {
-        if (context is not ReposSettingsDrawerContext drawerContext)
-        {
-            return;
-        }
-
-        _completion = drawerContext.Completion;
-        LoadFrom(drawerContext.Current ?? new ReposSettings());
-    }
-
-    /// <summary>Cancel/close: resolves the context with null (DialogService semantics).</summary>
-    [RelayCommand]
-    private void Cancel() => _toolDrawer.Close();
-
-    /// <summary>
-    /// Save: resolves the drawer context with the edited settings and closes the drawer.
-    /// Closing raises the drawer's Changed event, which DialogService treats as a cancel
-    /// — a no-op here because the completion is already set.
+    /// Save: resolves the drawer context with the edited settings and closes the drawer
+    /// (shared confirm plumbing on the base).
     /// </summary>
     [RelayCommand]
-    private void Save()
-    {
-        _completion?.TrySetResult(BuildSettings());
-        _toolDrawer.Close();
-    }
+    private void Save() => ConfirmWith(BuildSettings());
 
     /// <summary>
     /// Builds a <see cref="ReposSettings"/> from the edited values, applying
@@ -151,27 +121,29 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
         {
             RepoScanFolders = ToLines(RepoScanFoldersText),
             ExcludedFolders = ToLines(ExcludedFoldersText),
-            GitFolderPattern = WithDefault(GitFolderPattern, DefaultGitPattern),
-            SolutionFilePattern = WithDefault(SolutionFilePattern, DefaultSolutionPattern),
-            PlatformFolderName = WithDefault(PlatformFolderName, DefaultPlatformName),
-            VSCodeExecutable = WithDefault(VsCodeExecutable, DefaultVSCode),
+            GitFolderPattern = WithDefault(GitFolderPattern, ReposSettings.DefaultGitFolderPattern),
+            SolutionFilePattern = WithDefault(SolutionFilePattern, ReposSettings.DefaultSolutionFilePattern),
+            PlatformFolderName = WithDefault(PlatformFolderName, ReposSettings.DefaultPlatformFolderName),
+            VSCodeExecutable = WithDefault(VsCodeExecutable, ReposSettings.DefaultVSCodeExecutable),
             // No default: empty means "open VS Code with the default profile".
             VSCodeProfile = VsCodeProfile?.Trim() ?? string.Empty,
-            TerminalExecutable = WithDefault(TerminalExecutable, DefaultTerminal),
+            TerminalExecutable = WithDefault(TerminalExecutable, ReposSettings.DefaultTerminalExecutable),
             // No default: empty means "auto-detect the IDE" (or use the .sln association on Windows).
             IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
-            OpenCodeExecutable = WithDefault(OpenCodeExecutable, DefaultOpenCode),
-            ZCodeExecutable = WithDefault(ZCodeExecutable, DefaultZCode),
+            OpenCodeExecutable = WithDefault(OpenCodeExecutable, ReposSettings.DefaultOpenCodeExecutable),
+            ZCodeExecutable = WithDefault(ZCodeExecutable, ReposSettings.DefaultZCodeExecutable),
             EnableTerminal = EnableTerminal,
             EnableVSCode = EnableVSCode,
             EnableVisualStudio = EnableVisualStudio,
             EnableZCode = EnableZCode,
             EnableGitHub = EnableGitHub,
-            GitHubExecutable = WithDefault(GitHubExecutable, DefaultGitHub),
+            GitHubExecutable = WithDefault(GitHubExecutable, ReposSettings.DefaultGitHubExecutable),
             EnableAzureDevOps = EnableAzureDevOps,
             AzureDevOpsPat = AzureDevOpsPat?.Trim() ?? string.Empty,
             AzureDevOpsUrl = AzureDevOpsUrl?.Trim() ?? string.Empty,
-            MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0 ? depth : DefaultMaxScanDepth
+            MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0
+                ? depth
+                : ReposSettings.DefaultMaxScanDepth
         };
     }
 
@@ -185,25 +157,27 @@ public partial class ReposSettingsViewModel : ObservableObject, IToolDrawerConte
             ? string.Join(Environment.NewLine, settings.ExcludedFolders)
             : string.Empty;
 
-        GitFolderPattern = settings.GitFolderPattern ?? DefaultGitPattern;
-        SolutionFilePattern = settings.SolutionFilePattern ?? DefaultSolutionPattern;
-        PlatformFolderName = settings.PlatformFolderName ?? DefaultPlatformName;
-        VsCodeExecutable = settings.VSCodeExecutable ?? DefaultVSCode;
+        GitFolderPattern = settings.GitFolderPattern ?? ReposSettings.DefaultGitFolderPattern;
+        SolutionFilePattern = settings.SolutionFilePattern ?? ReposSettings.DefaultSolutionFilePattern;
+        PlatformFolderName = settings.PlatformFolderName ?? ReposSettings.DefaultPlatformFolderName;
+        VsCodeExecutable = settings.VSCodeExecutable ?? ReposSettings.DefaultVSCodeExecutable;
         VsCodeProfile = settings.VSCodeProfile ?? string.Empty;
-        TerminalExecutable = settings.TerminalExecutable ?? DefaultTerminal;
+        TerminalExecutable = settings.TerminalExecutable ?? ReposSettings.DefaultTerminalExecutable;
         IdeExecutable = settings.IdeExecutable ?? string.Empty;
-        OpenCodeExecutable = settings.OpenCodeExecutable ?? DefaultOpenCode;
-        ZCodeExecutable = settings.ZCodeExecutable ?? DefaultZCode;
+        OpenCodeExecutable = settings.OpenCodeExecutable ?? ReposSettings.DefaultOpenCodeExecutable;
+        ZCodeExecutable = settings.ZCodeExecutable ?? ReposSettings.DefaultZCodeExecutable;
         EnableTerminal = settings.EnableTerminal;
         EnableVSCode = settings.EnableVSCode;
         EnableVisualStudio = settings.EnableVisualStudio;
         EnableZCode = settings.EnableZCode;
         EnableGitHub = settings.EnableGitHub;
-        GitHubExecutable = settings.GitHubExecutable ?? DefaultGitHub;
+        GitHubExecutable = settings.GitHubExecutable ?? ReposSettings.DefaultGitHubExecutable;
         EnableAzureDevOps = settings.EnableAzureDevOps;
         AzureDevOpsPat = settings.AzureDevOpsPat ?? string.Empty;
         AzureDevOpsUrl = settings.AzureDevOpsUrl ?? string.Empty;
-        MaxScanDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth.ToString() : DefaultMaxScanDepth.ToString();
+        MaxScanDepth = settings.MaxScanDepth > 0
+            ? settings.MaxScanDepth.ToString()
+            : ReposSettings.DefaultMaxScanDepth.ToString();
     }
 
     private static string[] ToLines(string? text)

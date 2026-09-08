@@ -37,7 +37,7 @@ public class RepoScanner : IRepoScanner
         var gitPattern = settings.GitFolderPattern ?? ".git";
         var platformPattern = settings.PlatformFolderName ?? PlatformTag;
         var slnPatterns = ParseSolutionPatterns(settings.SolutionFilePattern);
-        var maxDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth : 3;
+        var maxDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth : ReposSettings.Defaults.MaxScanDepth;
 
         foreach (var folderPath in scanFolders)
         {

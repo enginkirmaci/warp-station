@@ -3,13 +3,12 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
+using Tools.Helpers;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
-using Tools.Library.Formatters;
 using Tools.Library.Mvvm;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
-using Tools.Services;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Components;
 
@@ -24,8 +23,9 @@ public sealed record RepoSortOption(RepoSortMode Mode, string Label);
 
 /// <summary>
 /// Binding adapter for the Repos page. Delegates scanning, caching, and the shared
-/// repo state to <see cref="IRepoService"/> (singleton), process launching to
-/// <see cref="IProcessLauncher"/>, and tag persistence back through the service.
+/// repo state to <see cref="IRepoService"/> (singleton), launching to
+/// <see cref="ITerminalLauncher"/> (executable resolution, argument shapes and fallback
+/// decisions), and tag persistence back through the service.
 /// Holds only view-specific state: the text + tag filters, the sort selection and the
 /// filtered projection. The OpenCode launch panel moved to the window's bottom bar
 /// (<see cref="Components.BottomBarViewModel"/>); this page keeps the per-row quick
@@ -34,7 +34,6 @@ public sealed record RepoSortOption(RepoSortMode Mode, string Label);
 public partial class ReposViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
-    private readonly IDevToolsClient _devToolsClient;
     private readonly IDialogService _dialogService;
     private readonly IRepoService _repoService;
     private readonly IGitStatusService _gitStatusService;
@@ -45,6 +44,7 @@ public partial class ReposViewModel : PageViewModelBase
     /// Configure sweep is one loop (load and save).</summary>
     private readonly IEnumerable<IRepoActivityService> _activityServices;
     private readonly IProcessLauncher _processLauncher;
+    private readonly ITerminalLauncher _terminalLauncher;
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly INotificationService _notificationService;
     private readonly BottomBarViewModel _bottomBar;
@@ -57,8 +57,8 @@ public partial class ReposViewModel : PageViewModelBase
     /// callback and restart the window, so only one in-place <see cref="ApplyFilter"/> runs
     /// per burst instead of tearing down the list per keystroke / per event.
     /// </summary>
-    private CancellationTokenSource? _filterDebounce;
-    private CancellationTokenSource? _changedDebounce;
+    private readonly UiDebounce _filterDebounce = new(FilterDebounceMs);
+    private readonly UiDebounce _changedDebounce = new(ChangedDebounceMs);
 
     /// <summary>Idle window for the search-box filter before the list is re-synced.</summary>
     private const int FilterDebounceMs = 150;
@@ -146,15 +146,46 @@ public partial class ReposViewModel : PageViewModelBase
     // --- GitHub totals (page-header summary) ---
 
     /// <summary>
-    /// Total open pull requests across all known repos — the at-a-glance summary beside
-    /// the page title. Unloaded and non-GitHub repos contribute zero. Refreshed when a
-    /// repo's GitHub counts change (see <see cref="OnRepoPropertyChanged"/>) and after a
-    /// scan replaces the repo set (see <see cref="RefreshGitHubTotals"/>).
+    /// Running header totals. A repo count change folds its delta in (see
+    /// <see cref="AdjustTotal"/>) instead of re-summing every repo per event — a full
+    /// probe pass used to cost O(N²) enumerations of the repo set. Recomputed from
+    /// scratch and re-seeded whenever the repo set may have been replaced (see
+    /// <see cref="RefreshHeaderTotals"/>), so list membership changes cannot drift them.
     /// </summary>
-    public int GitHubTotalPrCount => _repoService.Repos.Sum(r => r.GitHubPrCount);
+    private int _totalPrCount;
+    private int _totalIssueCount;
+    private int _totalModifiedCount;
+
+    /// <summary>
+    /// Per-repo last-known contributions to the totals above: the incremental fold needs
+    /// the previous value to subtract and <see cref="PropertyChangedEventArgs"/> carries
+    /// none. Keyed by instance (repos are shared references, no value equality); cleared
+    /// and re-seeded together with the totals.
+    /// </summary>
+    private readonly Dictionary<Repo, int> _prTotalContributions = new();
+    private readonly Dictionary<Repo, int> _issueTotalContributions = new();
+    private readonly Dictionary<Repo, int> _modifiedTotalContributions = new();
+
+    /// <summary>
+    /// Guards the totals and their contribution dictionaries: the git/GitHub probes push
+    /// counts from background continuations, and a read-modify-write fold must not
+    /// interleave. Getters read plain ints (atomic), so the worst case under a concurrent
+    /// fold is a one-frame-stale total — which the previous per-event re-sum could show
+    /// just the same.
+    /// </summary>
+    private readonly object _totalsLock = new();
+
+    /// <summary>
+    /// Total open pull requests across all known repos — the at-a-glance summary beside
+    /// the page title. Unloaded and non-GitHub repos contribute zero. Incrementally
+    /// updated when a repo's GitHub counts change (see <see
+    /// cref="OnRepoPropertyChanged"/>) and recomputed after a scan replaces the repo set
+    /// (see <see cref="RefreshHeaderTotals"/>).
+    /// </summary>
+    public int GitHubTotalPrCount => _totalPrCount;
 
     /// <summary>Total open issues across all known repos. See <see cref="GitHubTotalPrCount"/>.</summary>
-    public int GitHubTotalIssueCount => _repoService.Repos.Sum(r => r.GitHubIssueCount);
+    public int GitHubTotalIssueCount => _totalIssueCount;
 
     /// <summary>
     /// Whether the header summary shows at all: the GitHub column must be enabled and at
@@ -173,9 +204,10 @@ public partial class ReposViewModel : PageViewModelBase
     /// <summary>
     /// Total uncommitted file changes across all known repos — the red third of the
     /// header stat row. Starts at zero and fills in as the background git status probes
-    /// push their counts onto the entities (see <see cref="OnRepoPropertyChanged"/>).
+    /// push their counts onto the entities (see <see cref="AdjustTotal"/>, wired from
+    /// <see cref="OnRepoPropertyChanged"/>).
     /// </summary>
-    public int GitTotalModifiedCount => _repoService.Repos.Sum(r => r.GitModifiedCount);
+    public int GitTotalModifiedCount => _totalModifiedCount;
 
     /// <summary>
     /// Whether the changes stat shows: a red zero is pure noise, so unlike the GitHub
@@ -191,12 +223,39 @@ public partial class ReposViewModel : PageViewModelBase
     public bool HasHeaderStats => HasGitHubTotals || HasChangesTotal;
 
     /// <summary>
-    /// Re-raises every header total after the repo set may have been replaced wholesale
-    /// (initial load, rescan): the fresh entities start at zero, so previously non-zero
-    /// stats must drop without any single entity carrying a change notification.
+    /// Recomputes the running header totals from the current repo set in one pass and
+    /// re-seeds the per-repo contributions to match, then re-raises every header total.
+    /// Called after the repo set may have been replaced wholesale (initial load, rescan):
+    /// the fresh entities start at zero, so previously non-zero stats must drop without
+    /// any single entity carrying a change notification — and only a full recompute here
+    /// keeps the incremental folds correct across list membership changes.
     /// </summary>
     private void RefreshHeaderTotals()
     {
+        lock (_totalsLock)
+        {
+            _prTotalContributions.Clear();
+            _issueTotalContributions.Clear();
+            _modifiedTotalContributions.Clear();
+
+            var pr = 0;
+            var issues = 0;
+            var modified = 0;
+            foreach (var repo in _repoService.Repos)
+            {
+                pr += repo.GitHubPrCount;
+                issues += repo.GitHubIssueCount;
+                modified += repo.GitModifiedCount;
+                _prTotalContributions[repo] = repo.GitHubPrCount;
+                _issueTotalContributions[repo] = repo.GitHubIssueCount;
+                _modifiedTotalContributions[repo] = repo.GitModifiedCount;
+            }
+
+            _totalPrCount = pr;
+            _totalIssueCount = issues;
+            _totalModifiedCount = modified;
+        }
+
         OnPropertyChanged(nameof(GitHubTotalPrCount));
         OnPropertyChanged(nameof(GitHubTotalIssueCount));
         OnPropertyChanged(nameof(HasGitHubTotals));
@@ -271,7 +330,6 @@ public partial class ReposViewModel : PageViewModelBase
 
     public ReposViewModel(
         ISettingsService settingsService,
-        IDevToolsClient devToolsClient,
         IDialogService dialogService,
         IRepoService repoService,
         IGitStatusService gitStatusService,
@@ -279,12 +337,12 @@ public partial class ReposViewModel : PageViewModelBase
         IAzureDevOpsService azureDevOpsService,
         IEnumerable<IRepoActivityService> activityServices,
         IProcessLauncher processLauncher,
+        ITerminalLauncher terminalLauncher,
         IOpenCodeModelService openCodeModelService,
         INotificationService notificationService,
         BottomBarViewModel bottomBar)
     {
         _settingsService = settingsService;
-        _devToolsClient = devToolsClient;
         _dialogService = dialogService;
         _repoService = repoService;
         _gitStatusService = gitStatusService;
@@ -292,6 +350,7 @@ public partial class ReposViewModel : PageViewModelBase
         _azureDevOpsService = azureDevOpsService;
         _activityServices = activityServices;
         _processLauncher = processLauncher;
+        _terminalLauncher = terminalLauncher;
         _openCodeModelService = openCodeModelService;
         _notificationService = notificationService;
         _bottomBar = bottomBar;
@@ -338,12 +397,8 @@ public partial class ReposViewModel : PageViewModelBase
 
         // Cancel any deferred filter/changed callbacks so a pending debounce does not fire
         // its UI-thread update after this VM is no longer the active page.
-        _filterDebounce?.Cancel();
-        _filterDebounce?.Dispose();
-        _changedDebounce?.Cancel();
-        _changedDebounce?.Dispose();
-        _filterDebounce = null;
-        _changedDebounce = null;
+        _filterDebounce.Dispose();
+        _changedDebounce.Dispose();
         return Task.CompletedTask;
     }
 
@@ -429,28 +484,15 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private void ScheduleChangedDebounce()
     {
-        _changedDebounce?.Cancel();
-        _changedDebounce?.Dispose();
-        _changedDebounce = new CancellationTokenSource();
-        var token = _changedDebounce.Token;
-        Task.Run(async () =>
+        _changedDebounce.Debounce(() =>
         {
-            try
-            {
-                await Task.Delay(ChangedDebounceMs, token);
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    if (token.IsCancellationRequested) return;
-                    RebuildTagFilters();
-                    // A rescan can replace repo instances — re-wire the live-re-sort
-                    // listeners to the fresh set before re-ordering, and drop the header
-                    // totals the orphaned entities were carrying.
-                    RefreshSortListeners();
-                    RefreshHeaderTotals();
-                    ApplyFilter();
-                });
-            }
-            catch (OperationCanceledException) { }
+            RebuildTagFilters();
+            // A rescan can replace repo instances — re-wire the live-re-sort listeners
+            // to the fresh set before re-ordering, and drop the header totals the
+            // orphaned entities were carrying.
+            RefreshSortListeners();
+            RefreshHeaderTotals();
+            ApplyFilter();
         });
     }
 
@@ -462,23 +504,7 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private void ScheduleFilterDebounce()
     {
-        _filterDebounce?.Cancel();
-        _filterDebounce?.Dispose();
-        _filterDebounce = new CancellationTokenSource();
-        var token = _filterDebounce.Token;
-        Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(FilterDebounceMs, token);
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    if (token.IsCancellationRequested) return;
-                    ApplyFilter();
-                });
-            }
-            catch (OperationCanceledException) { }
-        });
+        _filterDebounce.Debounce(ApplyFilter);
     }
 
     /// <summary>
@@ -501,21 +527,81 @@ public partial class ReposViewModel : PageViewModelBase
     [RelayCommand]
     private void TagFilterChanged() => ApplyFilter();
 
+    /// <summary>
+    /// Reconciles the checkable tag list with <see cref="IRepoService.AllTags"/>: reuses
+    /// the existing <see cref="TagFilter"/> instance per tag name (its check state
+    /// survives untouched), removes only vanished tags and adds only new ones. Most
+    /// debounced scan raises find an unchanged tag set, where the merge is a no-op — the
+    /// tags ItemsControl then rebuilds nothing, where the previous wholesale rebuild
+    /// churned every checkbox per raise.
+    /// </summary>
     private void RebuildTagFilters()
     {
-        var previous = TagFilters.ToDictionary(t => t.Name, t => t.IsChecked);
         var tags = _repoService.AllTags
             .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var rebuilt = new ObservableCollection<TagFilter>();
-        foreach (var name in tags)
+        // Common case: same names in the same (sorted) order — keep the existing
+        // instances and collection untouched.
+        if (TagFilters.Count == tags.Count)
         {
-            var wasChecked = previous.TryGetValue(name, out var c) && c;
-            rebuilt.Add(new TagFilter(name) { IsChecked = wasChecked });
+            var identical = true;
+            for (var i = 0; i < tags.Count; i++)
+            {
+                if (string.Equals(TagFilters[i].Name, tags[i], StringComparison.OrdinalIgnoreCase)) continue;
+                identical = false;
+                break;
+            }
+
+            if (identical) return;
         }
 
-        TagFilters = rebuilt;
+        var reusable = new Dictionary<string, TagFilter>(StringComparer.OrdinalIgnoreCase);
+        foreach (var filter in TagFilters)
+            reusable[filter.Name] = filter;
+
+        var membershipChanged = false;
+        var merged = new List<TagFilter>(tags.Count);
+        foreach (var name in tags)
+        {
+            if (reusable.Remove(name, out var filter))
+            {
+                merged.Add(filter);
+            }
+            else
+            {
+                merged.Add(new TagFilter(name));
+                membershipChanged = true; // a tag appeared
+            }
+        }
+
+        // Whatever was not merged back belongs to a tag that vanished.
+        membershipChanged |= reusable.Count > 0;
+
+        if (membershipChanged)
+        {
+            // The rare case (a rescan added/removed tags): replace the collection, with
+            // the surviving tags keeping their instances — and thus their check states —
+            // without re-setting them.
+            TagFilters = new ObservableCollection<TagFilter>(merged);
+            return;
+        }
+
+        // Same tags, different order (virtually never — both sides sort the same way):
+        // reorder the existing collection with Move notifications instead of replacing
+        // it, so the checkboxes keep their containers.
+        for (var i = 0; i < merged.Count; i++)
+        {
+            var target = merged[i];
+            if (ReferenceEquals(TagFilters[i], target)) continue;
+
+            for (var j = i; j < TagFilters.Count; j++)
+            {
+                if (!ReferenceEquals(TagFilters[j], target)) continue;
+                TagFilters.Move(j, i);
+                break;
+            }
+        }
     }
 
     partial void OnSelectedSortOptionChanged(RepoSortOption? value)
@@ -575,6 +661,15 @@ public partial class ReposViewModel : PageViewModelBase
         foreach (var repo in _sortObservedRepos)
             repo.PropertyChanged -= OnRepoPropertyChanged;
         _sortObservedRepos.Clear();
+
+        // Same hygiene for the header totals: drop the per-repo contributions so the
+        // detached repos are not referenced from here anymore.
+        lock (_totalsLock)
+        {
+            _prTotalContributions.Clear();
+            _issueTotalContributions.Clear();
+            _modifiedTotalContributions.Clear();
+        }
     }
 
     private void OnRepoPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -591,26 +686,53 @@ public partial class ReposViewModel : PageViewModelBase
             ScheduleFilterDebounce();
         }
 
-        // The GitHub probes push their counts from background gh continuations; the header
-        // totals re-read the whole repo set per change, so raise per count kind. (Avalonia
-        // marshals the binding updates onto the UI thread, same as the per-row chips.)
+        if (sender is not Repo repo)
+        {
+            return;
+        }
+
+        // The GitHub / git probes push their counts from background continuations; the
+        // header totals are running sums, so each count change folds its delta in
+        // (subtract this repo's previous contribution, add the new value) and raises the
+        // same notifications per count kind as before. (Avalonia marshals the binding
+        // updates onto the UI thread, same as the per-row chips.)
         if (e.PropertyName is nameof(Repo.GitHubPrCount))
         {
+            AdjustTotal(_prTotalContributions, repo, repo.GitHubPrCount, ref _totalPrCount);
             OnPropertyChanged(nameof(GitHubTotalPrCount));
             OnPropertyChanged(nameof(HasGitHubTotals));
             OnPropertyChanged(nameof(HasHeaderStats));
         }
         else if (e.PropertyName is nameof(Repo.GitHubIssueCount))
         {
+            AdjustTotal(_issueTotalContributions, repo, repo.GitHubIssueCount, ref _totalIssueCount);
             OnPropertyChanged(nameof(GitHubTotalIssueCount));
             OnPropertyChanged(nameof(HasGitHubTotals));
             OnPropertyChanged(nameof(HasHeaderStats));
         }
         else if (e.PropertyName is nameof(Repo.GitModifiedCount))
         {
+            AdjustTotal(_modifiedTotalContributions, repo, repo.GitModifiedCount, ref _totalModifiedCount);
             OnPropertyChanged(nameof(GitTotalModifiedCount));
             OnPropertyChanged(nameof(HasChangesTotal));
             OnPropertyChanged(nameof(HasHeaderStats));
+        }
+    }
+
+    /// <summary>
+    /// Folds one repo's new count into a running header total: subtracts the repo's
+    /// previous contribution (zero when never seen — a change arriving before the totals
+    /// were seeded contributes its current value only) and adds the new value. The next
+    /// <see cref="RefreshHeaderTotals"/> recomputes everything from the repo set, so no
+    /// drift survives a rebuild.
+    /// </summary>
+    private void AdjustTotal(Dictionary<Repo, int> contributions, Repo repo, int value, ref int total)
+    {
+        lock (_totalsLock)
+        {
+            contributions.TryGetValue(repo, out var previous);
+            total += value - previous;
+            contributions[repo] = value;
         }
     }
 
@@ -623,7 +745,16 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     private IOrderedEnumerable<Repo> SortRepos(IEnumerable<Repo> repos)
     {
-        var favoritesFirst = repos.OrderByDescending(r => r.IsFavorite);
+        // Repo.IsFavorite walks the Tags collection with .Any per read, and a comparison
+        // sort evaluates its primary key O(n log n) times — snapshot the flag once per
+        // repo before sorting and capture the snapshot in the comparator. One tag walk
+        // per repo, identical ordering (bool descending, stable, as before).
+        var snapshot = repos.ToList();
+        var favoriteFlags = new Dictionary<Repo, bool>(snapshot.Count);
+        foreach (var repo in snapshot)
+            favoriteFlags[repo] = repo.IsFavorite;
+
+        var favoritesFirst = snapshot.OrderByDescending(r => favoriteFlags[r]);
         return SelectedSortOption.Mode switch
         {
             RepoSortMode.LastActivity => favoritesFirst
@@ -703,69 +834,54 @@ public partial class ReposViewModel : PageViewModelBase
     private void OpenVisualStudio(Repo? repo)
     {
         if (repo?.SolutionPath is null) return;
-
-        // Windows keeps the .sln shell association unless an IDE is configured; other
-        // platforms open the solution in an auto-detected .NET IDE (e.g. Rider).
-        var ide = ExecutableDefaults.ResolveIde(_reposSettings.IdeExecutable);
-        if (ide is null)
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                _processLauncher.StartProcess(repo.SolutionPath);
-            }
-            else
-            {
-                Log.Logger.Warning("OpenVisualStudio: no .NET IDE found; configure one in Repos settings");
-            }
-            return;
-        }
-
-        _processLauncher.StartProcess(ide, $"\"{repo.SolutionPath}\"", stripElectronEnvironment: true);
+        _terminalLauncher.OpenSolution(repo.SolutionPath, _reposSettings.IdeExecutable);
     }
 
     [RelayCommand]
-    private void OpenFolder(string? folderPath) => _processLauncher.StartProcess(folderPath);
+    private void OpenFolder(string? folderPath) => _terminalLauncher.OpenFolder(folderPath);
 
     [RelayCommand]
     private async Task OpenWithVSCodeAsync(string? folderPath)
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
-
-        // Resolve early: on Linux the GUI PATH can miss user-level installs, so the
-        // fallback launch below needs the absolute path, not the bare name.
-        var exe = ExecutableDefaults.Locate(_reposSettings.VSCodeExecutable)
-                  ?? _reposSettings.VSCodeExecutable
-                  ?? "code";
-
-        // When a profile is configured, launch VS Code with it (--profile <name>);
-        // otherwise open with the default profile (no extra arguments).
-        var args = string.IsNullOrWhiteSpace(_reposSettings.VSCodeProfile)
-            ? folderPath
-            : $"--profile \"{_reposSettings.VSCodeProfile}\" \"{folderPath}\"";
-
-        // Route through the DevTools service (named pipe). The service runs
-        // non-elevated, so VS Code launches non-elevated even when Tools runs as admin.
-        try
-        {
-            await _devToolsClient.SendProcessLaunchRequestAsync(exe, args);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Warning(ex, "OpenWithVSCode: pipe launch failed, falling back to direct launch");
-            _processLauncher.StartProcess(exe, args, hidden: true, stripElectronEnvironment: true);
-        }
+        await _terminalLauncher.OpenInVSCodeAsync(folderPath, _reposSettings.VSCodeExecutable, _reposSettings.VSCodeProfile);
     }
 
     [RelayCommand]
     private void OpenWithTerminal(string? folderPath)
     {
         if (string.IsNullOrWhiteSpace(folderPath)) return;
+        _terminalLauncher.OpenFolderInTerminal(folderPath, _reposSettings.TerminalExecutable);
+    }
 
-        var exe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
-        if (exe is null) return;
+    // --- Row chips routing to the bottom bar ---
 
-        var args = TerminalArgumentFormatter.BuildArguments(exe, folderPath);
-        _processLauncher.StartProcess(exe, args, stripElectronEnvironment: true);
+    /// <summary>
+    /// Sentinel for <see cref="OpenTabFor"/>: the OpenCode settings drawer is not a bar
+    /// tab (<see cref="BottomBarTab"/> has no member for it — opening it must not switch
+    /// the bar's active tab), but its row chip shares the same route-through-the-bar
+    /// shape as the tab chips.
+    /// </summary>
+    private const BottomBarTab OpenCodeDrawer = (BottomBarTab)(-1);
+
+    /// <summary>
+    /// Shared body of the row chips that hand their repo to the bottom bar: drop null
+    /// rows (the designer-preview / recycled-container case), then open the bar's
+    /// matching entry point on that repo. The bar replaces the old GitHub / Azure DevOps
+    /// details modals and the per-row change list.
+    /// </summary>
+    private void OpenTabFor(BottomBarTab tab, Repo? repo)
+    {
+        if (repo is null) return;
+
+        switch (tab)
+        {
+            case BottomBarTab.PullRequests: _bottomBar.OpenPullRequests(repo); break;
+            case BottomBarTab.Issues: _bottomBar.OpenIssues(repo); break;
+            case BottomBarTab.Changes: _bottomBar.OpenChanges(repo); break;
+            case BottomBarTab.Azure: _bottomBar.OpenAzure(repo); break;
+            case OpenCodeDrawer: _bottomBar.OpenOpenCode(repo); break;
+        }
     }
 
     // --- GitHub column ---
@@ -773,36 +889,24 @@ public partial class ReposViewModel : PageViewModelBase
     /// <summary>
     /// Opens the bottom bar's Pull Requests tab on the clicked row's repo: open pull
     /// requests listed as clickable links, seeded from the GitHub service cache and
-    /// refreshed in the background. Replaces the old GitHub details modal.
+    /// refreshed in the background.
     /// </summary>
     [RelayCommand]
-    private void OpenPullRequests(Repo? repo)
-    {
-        if (repo is null) return;
-        _bottomBar.OpenPullRequests(repo);
-    }
+    private void OpenPullRequests(Repo? repo) => OpenTabFor(BottomBarTab.PullRequests, repo);
 
     /// <summary>
     /// Opens the bottom bar's Issues tab on the clicked row's repo — the issues half of
     /// what the old GitHub details modal showed.
     /// </summary>
     [RelayCommand]
-    private void OpenIssues(Repo? repo)
-    {
-        if (repo is null) return;
-        _bottomBar.OpenIssues(repo);
-    }
+    private void OpenIssues(Repo? repo) => OpenTabFor(BottomBarTab.Issues, repo);
 
     /// <summary>
     /// Opens the bottom bar's Changes tab on the clicked row's repo (the branch pill's
     /// action): the working-tree change list with per-file status codes.
     /// </summary>
     [RelayCommand]
-    private void OpenChanges(Repo? repo)
-    {
-        if (repo is null) return;
-        _bottomBar.OpenChanges(repo);
-    }
+    private void OpenChanges(Repo? repo) => OpenTabFor(BottomBarTab.Changes, repo);
 
     // --- Azure DevOps column ---
 
@@ -819,55 +923,20 @@ public partial class ReposViewModel : PageViewModelBase
 
     /// <summary>
     /// Opens the bottom bar's Azure tab on the clicked row's repo: active pull requests,
-    /// open work items and recent pipeline runs. Replaces the old Azure DevOps details
-    /// modal.
+    /// open work items and recent pipeline runs.
     /// </summary>
     [RelayCommand]
-    private void OpenAzureDevOpsDetails(Repo? repo)
-    {
-        if (repo is null) return;
-        _bottomBar.OpenAzure(repo);
-    }
+    private void OpenAzureDevOpsDetails(Repo? repo) => OpenTabFor(BottomBarTab.Azure, repo);
 
     /// <summary>
-    /// Opens zcode on the repo folder. The zcode AppImage is the Electron desktop package
-    /// (it contains no interactive CLI runtime), so it is launched directly on the folder
-    /// like VS Code — no terminal wrapper. A standalone zcode CLI binary has no UI of its
-    /// own, so that variant still runs inside the configured terminal.
+    /// Opens zcode on the repo folder. The AppImage-vs-terminal choice (and every
+    /// resolution/argument decision) lives in <see cref="ITerminalLauncher.OpenZCode"/>.
     /// </summary>
     [RelayCommand]
     private void OpenWithZCode(Repo? repo)
     {
         if (repo?.FolderPath is null) return;
-
-        var resolved = ExecutableDefaults.Locate(_reposSettings.ZCodeExecutable)
-                       ?? _reposSettings.ZCodeExecutable
-                       ?? "zcode";
-
-        if (!OperatingSystem.IsWindows() && resolved.EndsWith(".appimage", StringComparison.OrdinalIgnoreCase))
-        {
-            _processLauncher.StartProcess(resolved, $"\"{repo.FolderPath}\"", stripElectronEnvironment: true);
-            return;
-        }
-
-        var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
-        if (terminalExe is null) return;
-
-        var zcodeExe = resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
-        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, zcodeExe);
-        _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
-    }
-
-    /// <summary>
-    /// Resolves a CLI name for embedding in a terminal command line. The spawned
-    /// terminal inherits the app's often-minimal GUI PATH, so a bare name is expanded
-    /// to its absolute path; when unresolvable the bare name is kept so the terminal
-    /// shows the familiar "command not found" feedback.
-    /// </summary>
-    private string ResolveCliForTerminal(string? configured, string fallback)
-    {
-        var resolved = ExecutableDefaults.Locate(configured) ?? configured ?? fallback;
-        return resolved.Contains(' ') ? $"\"{resolved}\"" : resolved;
+        _terminalLauncher.OpenZCode(repo.FolderPath, _reposSettings.ZCodeExecutable, _reposSettings.TerminalExecutable);
     }
 
     // --- OpenCode ---
@@ -891,31 +960,27 @@ public partial class ReposViewModel : PageViewModelBase
         if (models.Count == 0)
             models = await _openCodeModelService.GetModelsAsync(_reposSettings.OpenCodeExecutable, defaultModel);
 
-        var configured = defaultModel?.Trim();
-        var model = !string.IsNullOrEmpty(configured)
-            ? models.FirstOrDefault(m => string.Equals(m, configured, StringComparison.OrdinalIgnoreCase)) ?? configured
-            : models.FirstOrDefault() ?? string.Empty;
+        var model = _openCodeModelService.ResolveLaunchModel(models, defaultModel);
 
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null) return;
 
-        var openCodeExe = ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
-        var commandLine = OpenCodeGridLauncher.BuildCommandLine(openCodeExe, model, string.Empty);
-        var args = TerminalArgumentFormatter.BuildCommandArguments(terminalExe, repo.FolderPath, commandLine);
-        _processLauncher.StartProcess(terminalExe, args, stripElectronEnvironment: true);
+        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
+        _terminalLauncher.LaunchOpenCode(terminalExe, openCodeExe, repo.FolderPath, model, string.Empty, 1);
     }
 
     /// <summary>
     /// Opens the OpenCode settings drawer on the clicked row's repo: the model picker
     /// (which persists the configured default model), commit model, instances, template,
     /// prompt and the launch button — a right-sidebar overlay that leaves the page and
-    /// the bar untouched.
+    /// the bar untouched. Gated on the integration being enabled (mirrored live from the
+    /// bar); the null-row drop happens in <see cref="OpenTabFor"/>.
     /// </summary>
     [RelayCommand]
     private void OpenOpenCode(Repo? repo)
     {
-        if (repo is null || !IsOpenCodeEnabled) return;
-        _bottomBar.OpenOpenCode(repo);
+        if (!IsOpenCodeEnabled) return;
+        OpenTabFor(OpenCodeDrawer, repo);
     }
 
     [RelayCommand]

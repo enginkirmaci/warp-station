@@ -1,7 +1,4 @@
 using System.Collections.ObjectModel;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -491,31 +488,198 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The load routine behind each tab — the one dispatch point shared by opening a
+    /// tab (<see cref="OpenTab"/>) and reloading the open one
+    /// (<see cref="ReloadActiveTab"/>). The shared GitHub tabs also kick the Azure load
+    /// so their Azure sections fill even when entered without passing Overview;
+    /// <see cref="BottomBarTab.None"/> has no panel to load.
+    /// </summary>
+    private Func<Task>? TabLoader(BottomBarTab tab) => tab switch
+    {
+        BottomBarTab.Overview => LoadOverviewAsync,
+        BottomBarTab.Changes => LoadChangesTabAsync,
+        BottomBarTab.PullRequests => LoadGitHubTabAsync,
+        BottomBarTab.Issues => LoadGitHubTabAsync,
+        BottomBarTab.Azure => LoadAzureAsync,
+        _ => null,
+    };
+
+    /// <summary>The shared GitHub tabs' load: the GitHub lists plus — when the Azure
+    /// column is on — the Azure sections shown alongside them.</summary>
+    private Task LoadGitHubTabAsync()
+    {
+        _ = LoadGitHubAsync();
+        LoadAzureForSharedTabs();
+        return Task.CompletedTask;
+    }
+
     /// <summary>Reloads whichever panel is open after the target repo changed underneath it.</summary>
     private void ReloadActiveTab()
     {
-        switch (ActiveTab)
+        if (TabLoader(ActiveTab) is { } load)
         {
-            case BottomBarTab.Overview:
-                _ = LoadOverviewAsync();
-                break;
-            case BottomBarTab.Changes:
-                _ = LoadChangesTabAsync();
-                break;
-            case BottomBarTab.PullRequests:
-            case BottomBarTab.Issues:
-                _ = LoadGitHubAsync();
-                LoadAzureForSharedTabs();
-                break;
-            case BottomBarTab.Azure:
-                _ = LoadAzureAsync();
-                break;
+            _ = load();
         }
     }
 
     /// <summary>Refreshes the open panel's data (the header's refresh button).</summary>
     [RelayCommand]
     private void RefreshPanel() => ReloadActiveTab();
+
+    // --- Shared panel loader plumbing ---
+    // Every panel load repeats the same mechanics: snapshot the selected repo, fetch,
+    // drop the result when the repo switched mid-load, swap the list under a busy flag
+    // and raise the derived bindings. These helpers are that idiom, factored out once;
+    // the GitHub/Azure twins additionally share the cache-seed and refresh skeletons
+    // (<see cref="LoadProviderAsync{TActivity}"/>, <see cref="RefreshProviderAsync{TActivity}"/>).
+
+    /// <summary>
+    /// Fetches a payload for the snapshotted repo and hands it back only when the user
+    /// has not switched repos while the fetch ran — the "repo switched mid-load" guard
+    /// every panel loader repeats. Returns null when the load was abandoned mid-flight
+    /// (the caller then skips its state updates).
+    /// </summary>
+    private async Task<T?> FetchIfCurrentAsync<T>(Repo repo, Func<Repo, Task<T>> fetch) where T : class
+    {
+        var payload = await fetch(repo);
+        if (!ReferenceEquals(SelectedRepo, repo)) return default; // repo switched while loading
+        return payload;
+    }
+
+    /// <summary>Rebuilds a bound collection in place (Clear + Add) — the loaders' swap
+    /// step, which keeps the collection instance (and its bindings) alive.</summary>
+    private static void ReplaceItems<T>(ObservableCollection<T> target, IEnumerable<T> items)
+    {
+        target.Clear();
+        foreach (var item in items)
+        {
+            target.Add(item);
+        }
+    }
+
+    /// <summary>Runs a panel load under its busy flag: raises it up front, restores it
+    /// in finally and pushes the flag-derived bindings — the try/finally shape every
+    /// loader repeated. Exceptions keep propagating, as before.</summary>
+    private async Task RunBusyAsync(Action<bool> setBusy, Func<Task> load, Action raiseSettled)
+    {
+        setBusy(true);
+        try
+        {
+            await load();
+        }
+        finally
+        {
+            setBusy(false);
+            raiseSettled();
+        }
+    }
+
+    /// <summary>
+    /// The GitHub/Azure load twin: seed the panel from the service's cache so opening
+    /// the tab is instant, then run the refresh that replaces the lists when it lands.
+    /// The caller owns the null-repo branch (each panel clears its own collections).
+    /// </summary>
+    private async Task LoadProviderAsync<TActivity>(
+        Func<TActivity?> getCached,
+        Action<TActivity> apply,
+        Func<Task> refresh)
+    {
+        var cached = getCached();
+        if (cached is not null)
+        {
+            apply(cached);
+        }
+
+        await refresh();
+    }
+
+    /// <summary>
+    /// The GitHub/Azure refresh twin: fetches the provider's activity for the selected
+    /// repo under the panel's busy flag, keeps the previous lists when the repo switched
+    /// mid-load or the fetch failed (logged with the provider label — a failed fetch
+    /// returns an empty activity, and applying it would flash a misleading all-clear),
+    /// surfaces the provider's availability note and applies the activity. A no-op when
+    /// there is no repo or <paramref name="canStart"/> refuses (the Azure panel never
+    /// overlaps its own refresh; the GitHub one relies on its command's CanExecute).
+    /// </summary>
+    private async Task RefreshProviderAsync<TActivity>(
+        string providerLabel,
+        Func<bool> canStart,
+        Action<bool> setRefreshing,
+        Func<Repo, Task<TActivity>> fetch,
+        Action<Repo> setUnavailable,
+        Action<TActivity> apply) where TActivity : class
+    {
+        var repo = SelectedRepo;
+        if (repo is null || !canStart()) return;
+
+        setRefreshing(true);
+        try
+        {
+            var activity = await FetchIfCurrentAsync(repo, fetch);
+            if (activity is null) return; // repo switched while loading
+            setUnavailable(repo);
+            apply(activity);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "{Provider} panel refresh failed for {FolderPath}", providerLabel, repo.FolderPath);
+        }
+        finally
+        {
+            setRefreshing(false);
+        }
+    }
+
+    // --- Git commands' shared plumbing ---
+    // The bar's git commands repeat one shape: run the service call under the command's
+    // busy flag, toast Success/Error on the outcome and run the per-command follow-ups
+    // (branch re-sync, tab reload). RunGitActionAsync is that shape, factored out once.
+
+    /// <summary>
+    /// Runs one git service call under <paramref name="setBusy"/> (null when the command
+    /// has no busy flag), toasts <paramref name="successText"/> on success and
+    /// <paramref name="errorText"/> on failure (null skips a toast; the error lambda runs
+    /// after the action, so pull/push can embed git's stderr line) and invokes the
+    /// outcome hooks. Exceptions keep propagating, exactly as before.
+    /// </summary>
+    private async Task RunGitActionAsync(
+        Repo repo,
+        Action<bool>? setBusy,
+        Func<Repo, Task<bool>> action,
+        string? successText,
+        Func<string?> errorText,
+        Action? onSuccess = null,
+        Action? onFailure = null)
+    {
+        setBusy?.Invoke(true);
+        try
+        {
+            if (await action(repo))
+            {
+                if (successText is not null)
+                {
+                    _notificationService.Show(successText, NotificationKind.Success);
+                }
+
+                onSuccess?.Invoke();
+            }
+            else
+            {
+                if (errorText() is { } error)
+                {
+                    _notificationService.Show(error, NotificationKind.Error);
+                }
+
+                onFailure?.Invoke();
+            }
+        }
+        finally
+        {
+            setBusy?.Invoke(false);
+        }
+    }
 
     // --- Git: branch dropdown, checkout, fetch ---
 
@@ -569,30 +733,23 @@ public partial class BottomBarViewModel : ObservableObject
         _ = CheckoutAsync(value);
     }
 
-    private async Task CheckoutAsync(string branch)
+    private Task CheckoutAsync(string branch)
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        IsCheckingOut = true;
-        try
-        {
-            if (await _gitStatusService.CheckoutAsync(repo, branch))
+        return RunGitActionAsync(
+            repo,
+            value => IsCheckingOut = value,
+            r => _gitStatusService.CheckoutAsync(r, branch),
+            $"Checked out {branch} in {repo.Name}",
+            () => $"Checkout of {branch} failed",
+            onSuccess: () =>
             {
-                _notificationService.Show($"Checked out {branch} in {repo.Name}", NotificationKind.Success);
                 SyncBranchSelection(repo);
                 _ = LoadBranchesAsync();
-            }
-            else
-            {
-                _notificationService.Show($"Checkout of {branch} failed", NotificationKind.Error);
-                SyncBranchSelection(repo);
-            }
-        }
-        finally
-        {
-            IsCheckingOut = false;
-        }
+            },
+            onFailure: () => SyncBranchSelection(repo));
     }
 
     /// <summary>
@@ -658,87 +815,67 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanFetch))]
-    private async Task FetchAsync()
+    private Task FetchAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        IsFetching = true;
-        try
-        {
-            if (await _gitStatusService.FetchAsync(repo))
-            {
-                _notificationService.Show($"Fetched {repo.Name}", NotificationKind.Success);
-                SyncBranchSelection(repo);
-            }
-            else
-            {
-                _notificationService.Show($"Fetch failed for {repo.Name}", NotificationKind.Error);
-            }
-        }
-        finally
-        {
-            IsFetching = false;
-        }
+        return RunGitActionAsync(
+            repo,
+            value => IsFetching = value,
+            r => _gitStatusService.FetchAsync(r),
+            $"Fetched {repo.Name}",
+            () => $"Fetch failed for {repo.Name}",
+            onSuccess: () => SyncBranchSelection(repo));
     }
 
     private bool CanFetch() => !IsFetching && HasSelectedRepo;
 
     [RelayCommand(CanExecute = nameof(CanPull))]
-    private async Task PullAsync()
+    private Task PullAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        IsPulling = true;
-        try
-        {
-            var result = await _gitStatusService.PullAsync(repo);
-            if (result.Success)
+        string? error = null;
+        return RunGitActionAsync(
+            repo,
+            value => IsPulling = value,
+            async r =>
             {
-                _notificationService.Show($"Pulled {repo.Name}", NotificationKind.Success);
-                SyncBranchSelection(repo);
-            }
-            else
-            {
-                _notificationService.Show(
-                    result.Error is { } error ? $"Pull failed for {repo.Name}: {error}" : $"Pull failed for {repo.Name}",
-                    NotificationKind.Error);
-            }
-        }
-        finally
-        {
-            IsPulling = false;
-        }
+                var result = await _gitStatusService.PullAsync(r);
+                error = result.Error;
+                return result.Success;
+            },
+            $"Pulled {repo.Name}",
+            () => error is { } detail
+                ? $"Pull failed for {repo.Name}: {detail}"
+                : $"Pull failed for {repo.Name}",
+            onSuccess: () => SyncBranchSelection(repo));
     }
 
     private bool CanPull() => !IsPulling && !IsPushing && HasSelectedRepo;
 
     [RelayCommand(CanExecute = nameof(CanPush))]
-    private async Task PushAsync()
+    private Task PushAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        IsPushing = true;
-        try
-        {
-            var result = await _gitStatusService.PushAsync(repo);
-            if (result.Success)
+        string? error = null;
+        return RunGitActionAsync(
+            repo,
+            value => IsPushing = value,
+            async r =>
             {
-                _notificationService.Show($"Pushed {repo.Name}", NotificationKind.Success);
-            }
-            else
-            {
-                _notificationService.Show(
-                    result.Error is { } error ? $"Push failed for {repo.Name}: {error}" : $"Push failed for {repo.Name}",
-                    NotificationKind.Error);
-            }
-        }
-        finally
-        {
-            IsPushing = false;
-        }
+                var result = await _gitStatusService.PushAsync(r);
+                error = result.Error;
+                return result.Success;
+            },
+            $"Pushed {repo.Name}",
+            () => error is { } detail
+                ? $"Push failed for {repo.Name}: {detail}"
+                : $"Push failed for {repo.Name}");
     }
 
     private bool CanPush() => !IsPulling && !IsPushing && HasSelectedRepo;
@@ -766,8 +903,20 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool ShowChangesEmpty => !IsLoadingFiles && ChangedFiles.Count == 0;
 
-    /// <summary>First five changed files for the Overview card (the Changes tab lists all).</summary>
-    public IEnumerable<GitChangedFile> ChangedFilesPreview => ChangedFiles.Take(5);
+    /// <summary>First five changed files for the Overview card (the Changes tab lists all).
+    /// A cached slice — recomputed only when the list (re)fills, instead of re-enumerating
+    /// <see cref="ChangedFiles"/> on every binding evaluation.</summary>
+    public IReadOnlyList<GitChangedFile> ChangedFilesPreview => _changedFilesPreview;
+
+    private IReadOnlyList<GitChangedFile> _changedFilesPreview = Array.Empty<GitChangedFile>();
+
+    /// <summary>Recomputes the Overview card's changed-files slice and raises its binding —
+    /// called wherever <see cref="ChangedFiles"/> is (re)filled or cleared.</summary>
+    private void RefreshChangedFilesPreview()
+    {
+        _changedFilesPreview = ChangedFiles.Take(5).ToList();
+        OnPropertyChanged(nameof(ChangedFilesPreview));
+    }
 
     partial void OnIsLoadingFilesChanged(bool value) => OnPropertyChanged(nameof(ShowChangesEmpty));
 
@@ -775,7 +924,7 @@ public partial class BottomBarViewModel : ObservableObject
 
     partial void OnChangesDeletionsChanged(int value) => OnPropertyChanged(nameof(ChangesDeltaText));
 
-    private async Task LoadChangedFilesAsync()
+    private Task LoadChangedFilesAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
@@ -784,35 +933,27 @@ public partial class BottomBarViewModel : ObservableObject
             ChangesAdditions = 0;
             ChangesDeletions = 0;
             OnPropertyChanged(nameof(ShowChangesEmpty));
-            OnPropertyChanged(nameof(ChangedFilesPreview));
-            return;
+            RefreshChangedFilesPreview();
+            return Task.CompletedTask;
         }
 
-        IsLoadingFiles = true;
-        try
-        {
-            var files = await _gitStatusService.GetChangedFilesAsync(repo);
-            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-            // Sum locally and assign: the observable totals are never reset between
-            // loads, so accumulating on them would compound with every reload.
-            var additions = 0;
-            var deletions = 0;
-            ChangedFiles.Clear();
-            foreach (var file in files)
+        return RunBusyAsync(
+            value => IsLoadingFiles = value,
+            async () =>
             {
-                ChangedFiles.Add(file);
-                additions += file.Additions ?? 0;
-                deletions += file.Deletions ?? 0;
-            }
-            ChangesAdditions = additions;
-            ChangesDeletions = deletions;
-        }
-        finally
-        {
-            IsLoadingFiles = false;
-            OnPropertyChanged(nameof(ShowChangesEmpty));
-            OnPropertyChanged(nameof(ChangedFilesPreview));
-        }
+                var files = await FetchIfCurrentAsync(repo, r => _gitStatusService.GetChangedFilesAsync(r));
+                if (files is null) return;
+                ReplaceItems(ChangedFiles, files);
+                // Sum locally and assign: the observable totals are never reset between
+                // loads, so accumulating on them would compound with every reload.
+                ChangesAdditions = files.Sum(f => f.Additions ?? 0);
+                ChangesDeletions = files.Sum(f => f.Deletions ?? 0);
+            },
+            () =>
+            {
+                OnPropertyChanged(nameof(ShowChangesEmpty));
+                RefreshChangedFilesPreview();
+            });
     }
 
     /// <summary>
@@ -874,7 +1015,7 @@ public partial class BottomBarViewModel : ObservableObject
         GenerateCommitMessageCommand.NotifyCanExecuteChanged();
     }
 
-    private async Task LoadChangeGroupsAsync()
+    private Task LoadChangeGroupsAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
@@ -883,99 +1024,83 @@ public partial class BottomBarViewModel : ObservableObject
             UnstagedFiles.Clear();
             IsLoadingGroups = false;
             RaiseChangeGroupsDerived();
-            return;
+            return Task.CompletedTask;
         }
 
-        IsLoadingGroups = true;
-        try
-        {
-            var groups = await _gitStatusService.GetChangeGroupsAsync(repo);
-            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-
-            StagedFiles.Clear();
-            foreach (var file in groups.Staged)
+        return RunBusyAsync(
+            value => IsLoadingGroups = value,
+            async () =>
             {
-                StagedFiles.Add(file);
-            }
-            UnstagedFiles.Clear();
-            foreach (var file in groups.Unstaged)
-            {
-                UnstagedFiles.Add(file);
-            }
-        }
-        finally
-        {
-            IsLoadingGroups = false;
-            RaiseChangeGroupsDerived();
-        }
+                var groups = await FetchIfCurrentAsync(repo, r => _gitStatusService.GetChangeGroupsAsync(r));
+                if (groups is null) return;
+                ReplaceItems(StagedFiles, groups.Staged);
+                ReplaceItems(UnstagedFiles, groups.Unstaged);
+            },
+            () => RaiseChangeGroupsDerived());
     }
 
     /// <summary>Stages one file (+ button on an unstaged row).</summary>
     [RelayCommand]
-    private async Task StageFileAsync(GitChangedFile? file)
+    private Task StageFileAsync(GitChangedFile? file)
     {
         var repo = SelectedRepo;
-        if (repo is null || file is null) return;
+        if (repo is null || file is null) return Task.CompletedTask;
 
-        if (await _gitStatusService.StageAsync(repo, file.Path))
-        {
-            _ = LoadChangesTabAsync();
-        }
-        else
-        {
-            _notificationService.Show($"Could not stage {file.Path}", NotificationKind.Error);
-        }
+        return RunGitActionAsync(
+            repo,
+            setBusy: null,
+            r => _gitStatusService.StageAsync(r, file.Path),
+            successText: null,
+            errorText: () => $"Could not stage {file.Path}",
+            onSuccess: () => _ = LoadChangesTabAsync());
     }
 
     /// <summary>Unstages one file (− button on a staged row); the working tree keeps the change.</summary>
     [RelayCommand]
-    private async Task UnstageFileAsync(GitChangedFile? file)
+    private Task UnstageFileAsync(GitChangedFile? file)
     {
         var repo = SelectedRepo;
-        if (repo is null || file is null) return;
+        if (repo is null || file is null) return Task.CompletedTask;
 
-        if (await _gitStatusService.UnstageAsync(repo, file.Path))
-        {
-            _ = LoadChangesTabAsync();
-        }
-        else
-        {
-            _notificationService.Show($"Could not unstage {file.Path}", NotificationKind.Error);
-        }
+        return RunGitActionAsync(
+            repo,
+            setBusy: null,
+            r => _gitStatusService.UnstageAsync(r, file.Path),
+            successText: null,
+            errorText: () => $"Could not unstage {file.Path}",
+            onSuccess: () => _ = LoadChangesTabAsync());
     }
 
     /// <summary>Stages everything, untracked files and deletions included (Stage All).</summary>
     [RelayCommand]
-    private async Task StageAllAsync()
+    private Task StageAllAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        if (await _gitStatusService.StageAllAsync(repo))
-        {
-            _ = LoadChangesTabAsync();
-        }
-        else
-        {
-            _notificationService.Show($"Could not stage the changes of {repo.Name}", NotificationKind.Error);
-        }
+        return RunGitActionAsync(
+            repo,
+            setBusy: null,
+            r => _gitStatusService.StageAllAsync(r),
+            successText: null,
+            errorText: () => $"Could not stage the changes of {repo.Name}",
+            onSuccess: () => _ = LoadChangesTabAsync());
     }
 
     /// <summary>Unstages everything — index back to HEAD, working tree untouched (Unstage All).</summary>
     [RelayCommand]
-    private async Task UnstageAllAsync()
+    private Task UnstageAllAsync()
     {
         var repo = SelectedRepo;
-        if (repo is null) return;
+        if (repo is null) return Task.CompletedTask;
 
-        if (await _gitStatusService.UnstageAllAsync(repo))
-        {
-            _ = LoadChangesTabAsync();
-        }
-        else
-        {
-            _notificationService.Show($"Could not unstage the changes of {repo.Name}", NotificationKind.Error);
-        }
+        return RunGitActionAsync(
+            repo,
+            setBusy: null,
+            r => _gitStatusService.UnstageAllAsync(r),
+            successText: null,
+            errorText: () => $"Could not unstage the changes of {repo.Name}",
+            onSuccess: () => _ = LoadChangesTabAsync());
     }
 
     // --- Changes tab: commit ---
@@ -1100,15 +1225,8 @@ public partial class BottomBarViewModel : ObservableObject
     {
         if (commit is null || string.IsNullOrEmpty(commit.Hash)) return;
 
-        if (Application.Current?.ApplicationLifetime
-            is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
-        {
-            // Avalonia 12: plain text goes through the data-transfer API (SetTextAsync is gone)
-            var transfer = new DataTransfer();
-            transfer.Add(DataTransferItem.CreateText(commit.Hash));
-            await window.Clipboard.SetDataAsync(transfer);
-            _notificationService.Show($"Copied {commit.ShortHash} to clipboard", NotificationKind.Success);
-        }
+        await _clipboardService.CopyTextAsync(commit.Hash);
+        _notificationService.Show($"Copied {commit.ShortHash} to clipboard", NotificationKind.Success);
     }
 
     /// <summary>
@@ -1316,11 +1434,6 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>Whether the Pipelines card shows a passing state.</summary>
     public bool IsPipelinePassing => !IsPipelineFailing && !IsPipelineRunning && AzurePipelineRuns.Count > 0;
 
-    partial void OnAzurePipelineRunsChanged(ObservableCollection<AzureDevOpsPipelineRun> value)
-    {
-        RaisePipelineStatus();
-    }
-
     private void RaisePipelineStatus()
     {
         OnPropertyChanged(nameof(PipelineStatusText));
@@ -1398,32 +1511,25 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>Loads the recent commit list for the Changes tab's Recent Commits section.</summary>
-    private async Task LoadRecentCommitsAsync()
+    private Task LoadRecentCommitsAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
         {
             GitCommits.Clear();
             OnPropertyChanged(nameof(ShowCommitsEmpty));
-            return;
+            return Task.CompletedTask;
         }
 
-        IsLoadingCommits = true;
-        try
-        {
-            var commits = await _gitStatusService.GetRecentCommitsAsync(repo);
-            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-            GitCommits.Clear();
-            foreach (var commit in commits)
+        return RunBusyAsync(
+            value => IsLoadingCommits = value,
+            async () =>
             {
-                GitCommits.Add(commit);
-            }
-        }
-        finally
-        {
-            IsLoadingCommits = false;
-            OnPropertyChanged(nameof(ShowCommitsEmpty));
-        }
+                var commits = await FetchIfCurrentAsync(repo, r => _gitStatusService.GetRecentCommitsAsync(r));
+                if (commits is null) return;
+                ReplaceItems(GitCommits, commits);
+            },
+            () => OnPropertyChanged(nameof(ShowCommitsEmpty)));
     }
 
     // --- GitHub tabs (pull requests + issues) ---
@@ -1438,10 +1544,16 @@ public partial class BottomBarViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<GitHubItem> _gitHubIssues = new();
 
-    /// <summary>First five pull requests / issues for the Overview cards (tabs list all).</summary>
-    public IEnumerable<GitHubItem> GitHubPullRequestsPreview => GitHubPullRequests.Take(5);
+    /// <summary>First five pull requests / issues for the Overview cards (tabs list all).
+    /// Cached slices — recomputed only when the lists (re)fill, instead of re-enumerating
+    /// the collections on every binding evaluation.</summary>
+    public IReadOnlyList<GitHubItem> GitHubPullRequestsPreview => _gitHubPullRequestsPreview;
 
-    public IEnumerable<GitHubItem> GitHubIssuesPreview => GitHubIssues.Take(5);
+    public IReadOnlyList<GitHubItem> GitHubIssuesPreview => _gitHubIssuesPreview;
+
+    private IReadOnlyList<GitHubItem> _gitHubPullRequestsPreview = Array.Empty<GitHubItem>();
+
+    private IReadOnlyList<GitHubItem> _gitHubIssuesPreview = Array.Empty<GitHubItem>();
 
     /// <summary>Tab header totals: GitHub items plus the Azure DevOps ones shown in the
     /// same tabs' Azure sections.</summary>
@@ -1449,18 +1561,14 @@ public partial class BottomBarViewModel : ObservableObject
 
     public int OpenIssueCount => GitHubIssues.Count + AzureWorkItems.Count;
 
-    partial void OnGitHubPullRequestsChanged(ObservableCollection<GitHubItem> value)
+    /// <summary>Recomputes the Overview cards' GitHub preview slices and raises their
+    /// bindings — called wherever the GitHub lists are (re)filled or cleared.</summary>
+    private void RefreshGitHubPreviews()
     {
+        _gitHubPullRequestsPreview = GitHubPullRequests.Take(5).ToList();
+        _gitHubIssuesPreview = GitHubIssues.Take(5).ToList();
         OnPropertyChanged(nameof(GitHubPullRequestsPreview));
-        OnPropertyChanged(nameof(OpenPullRequestCount));
-        OnPropertyChanged(nameof(ShowPullRequestsEmpty));
-    }
-
-    partial void OnGitHubIssuesChanged(ObservableCollection<GitHubItem> value)
-    {
         OnPropertyChanged(nameof(GitHubIssuesPreview));
-        OnPropertyChanged(nameof(OpenIssueCount));
-        OnPropertyChanged(nameof(ShowIssuesEmpty));
     }
 
     [ObservableProperty]
@@ -1483,60 +1591,45 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool ShowGitHubUnavailable => GitHubHasLoaded && GitHubIsUnavailable;
 
-    private async Task LoadGitHubAsync()
+    private Task LoadGitHubAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
         {
             GitHubPullRequests.Clear();
             GitHubIssues.Clear();
-            return;
+            RefreshGitHubPreviews();
+            return Task.CompletedTask;
         }
 
-        // Seed from the service cache so opening the tab is instant; the fresh fetch
-        // below replaces the lists when it returns.
-        var cached = _gitHubService.GetCachedActivity(repo);
-        if (cached is not null)
-        {
-            ApplyGitHubActivity(cached);
-        }
-
-        await RefreshGitHubAsync();
+        return LoadProviderAsync(
+            () => _gitHubService.GetCachedActivity(repo),
+            ApplyGitHubActivity,
+            RefreshGitHubAsync);
     }
 
+    /// <summary>Refreshes the GitHub pull requests and issues from github.com.</summary>
     [RelayCommand(CanExecute = nameof(CanRefreshGitHub))]
-    private async Task RefreshGitHubAsync()
-    {
-        var repo = SelectedRepo;
-        if (repo is null) return;
-
-        IsGitHubRefreshing = true;
-        try
-        {
-            var activity = await _gitHubService.RefreshRepoAsync(repo);
-            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-            // A failed fetch returns an empty activity — applying it would flash a
-            // misleading all-clear. Keep any previous lists and surface the unavailable note.
-            GitHubIsUnavailable = !repo.GitHubAvailable;
-            ApplyGitHubActivity(activity);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "GitHub panel refresh failed for {FolderPath}", repo.FolderPath);
-        }
-        finally
-        {
-            IsGitHubRefreshing = false;
-        }
-    }
+    private Task RefreshGitHubAsync() => RefreshProviderAsync(
+        "GitHub",
+        () => true,
+        value => IsGitHubRefreshing = value,
+        repo => _gitHubService.RefreshRepoAsync(repo),
+        repo => GitHubIsUnavailable = !repo.GitHubAvailable,
+        ApplyGitHubActivity);
 
     private bool CanRefreshGitHub() => !IsGitHubRefreshing;
 
     private void ApplyGitHubActivity(GitHubActivity activity)
     {
-        GitHubPullRequests = new ObservableCollection<GitHubItem>(activity.PullRequests);
-        GitHubIssues = new ObservableCollection<GitHubItem>(activity.Issues);
+        // In-place sync: the same collection instances keep serving the ItemsControls,
+        // so a refresh recycles rows instead of regenerating every container.
+        ReplaceItems(GitHubPullRequests, activity.PullRequests);
+        ReplaceItems(GitHubIssues, activity.Issues);
         GitHubHasLoaded = true;
+        RefreshGitHubPreviews();
+        OnPropertyChanged(nameof(OpenPullRequestCount));
+        OnPropertyChanged(nameof(OpenIssueCount));
         OnPropertyChanged(nameof(ShowPullRequestsEmpty));
         OnPropertyChanged(nameof(ShowIssuesEmpty));
         OnPropertyChanged(nameof(ShowGitHubUnavailable));
@@ -1611,32 +1704,33 @@ public partial class BottomBarViewModel : ObservableObject
     public bool HasAzureWorkItems => AzureWorkItems.Count > 0;
     public bool HasAzurePipelineRuns => AzurePipelineRuns.Count > 0;
 
-    /// <summary>First three Azure items for the Overview cards' Azure sections.</summary>
-    public IEnumerable<AzureDevOpsItem> AzurePullRequestsPreview => AzurePullRequests.Take(3);
+    /// <summary>First three Azure items for the Overview cards' Azure sections. Cached
+    /// slices — recomputed only when the lists (re)fill, instead of re-enumerating
+    /// the collections on every binding evaluation.</summary>
+    public IReadOnlyList<AzureDevOpsItem> AzurePullRequestsPreview => _azurePullRequestsPreview;
 
-    public IEnumerable<AzureDevOpsItem> AzureWorkItemsPreview => AzureWorkItems.Take(3);
+    public IReadOnlyList<AzureDevOpsItem> AzureWorkItemsPreview => _azureWorkItemsPreview;
 
-    partial void OnAzurePullRequestsChanged(ObservableCollection<AzureDevOpsItem> value)
+    private IReadOnlyList<AzureDevOpsItem> _azurePullRequestsPreview = Array.Empty<AzureDevOpsItem>();
+
+    private IReadOnlyList<AzureDevOpsItem> _azureWorkItemsPreview = Array.Empty<AzureDevOpsItem>();
+
+    /// <summary>Recomputes the Overview cards' Azure preview slices and raises their
+    /// bindings — called wherever the Azure lists are (re)filled or cleared.</summary>
+    private void RefreshAzurePreviews()
     {
-        OnPropertyChanged(nameof(HasAzurePullRequests));
+        _azurePullRequestsPreview = AzurePullRequests.Take(3).ToList();
+        _azureWorkItemsPreview = AzureWorkItems.Take(3).ToList();
         OnPropertyChanged(nameof(AzurePullRequestsPreview));
-        OnPropertyChanged(nameof(OpenPullRequestCount));
-        OnPropertyChanged(nameof(ShowPullRequestsEmpty));
+        OnPropertyChanged(nameof(AzureWorkItemsPreview));
     }
 
-    partial void OnAzureWorkItemsChanged(ObservableCollection<AzureDevOpsItem> value)
-    {
-        OnPropertyChanged(nameof(HasAzureWorkItems));
-        OnPropertyChanged(nameof(AzureWorkItemsPreview));
-        OnPropertyChanged(nameof(OpenIssueCount));
-        OnPropertyChanged(nameof(ShowIssuesEmpty));
-    }
     public bool ShowAzureEmpty => AzureHasLoaded && !AzureIsUnavailable
         && AzurePullRequests.Count == 0 && AzureWorkItems.Count == 0 && AzurePipelineRuns.Count == 0;
     public bool ShowAzureUnavailable => AzureHasLoaded && AzureIsUnavailable
         && !HasAzurePullRequests && !HasAzureWorkItems && !HasAzurePipelineRuns;
 
-    private async Task LoadAzureAsync()
+    private Task LoadAzureAsync()
     {
         var repo = SelectedRepo;
         if (repo is null)
@@ -1647,23 +1741,19 @@ public partial class BottomBarViewModel : ObservableObject
             OnPropertyChanged(nameof(HasAzurePullRequests));
             OnPropertyChanged(nameof(HasAzureWorkItems));
             OnPropertyChanged(nameof(HasAzurePipelineRuns));
-            OnPropertyChanged(nameof(AzurePullRequestsPreview));
-            OnPropertyChanged(nameof(AzureWorkItemsPreview));
+            RefreshAzurePreviews();
             OnPropertyChanged(nameof(OpenPullRequestCount));
             OnPropertyChanged(nameof(OpenIssueCount));
             OnPropertyChanged(nameof(ShowPullRequestsEmpty));
             OnPropertyChanged(nameof(ShowIssuesEmpty));
             RaisePipelineStatus();
-            return;
+            return Task.CompletedTask;
         }
 
-        var cached = _azureDevOpsService.GetCachedActivity(repo);
-        if (cached is not null)
-        {
-            ApplyAzureActivity(cached);
-        }
-
-        await RefreshAzureAsync();
+        return LoadProviderAsync(
+            () => _azureDevOpsService.GetCachedActivity(repo),
+            ApplyAzureActivity,
+            RefreshAzureAsync);
     }
 
     /// <summary>
@@ -1679,41 +1769,34 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
+    /// <summary>Refreshes the Azure pull requests, work items and pipeline runs.</summary>
     [RelayCommand(CanExecute = nameof(CanRefreshAzure))]
-    private async Task RefreshAzureAsync()
-    {
-        var repo = SelectedRepo;
-        if (repo is null || IsAzureRefreshing) return;
-
-        IsAzureRefreshing = true;
-        try
-        {
-            var activity = await _azureDevOpsService.RefreshRepoAsync(repo);
-            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while loading
-            AzureIsUnavailable = !repo.AzureDevOpsAvailable;
-            ApplyAzureActivity(activity);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Azure panel refresh failed for {FolderPath}", repo.FolderPath);
-        }
-        finally
-        {
-            IsAzureRefreshing = false;
-        }
-    }
+    private Task RefreshAzureAsync() => RefreshProviderAsync(
+        "Azure",
+        () => !IsAzureRefreshing,
+        value => IsAzureRefreshing = value,
+        repo => _azureDevOpsService.RefreshRepoAsync(repo),
+        repo => AzureIsUnavailable = !repo.AzureDevOpsAvailable,
+        ApplyAzureActivity);
 
     private bool CanRefreshAzure() => !IsAzureRefreshing;
 
     private void ApplyAzureActivity(AzureDevOpsActivity activity)
     {
-        AzurePullRequests = new ObservableCollection<AzureDevOpsItem>(activity.PullRequests);
-        AzureWorkItems = new ObservableCollection<AzureDevOpsItem>(activity.WorkItems);
-        AzurePipelineRuns = new ObservableCollection<AzureDevOpsPipelineRun>(activity.PipelineRuns);
+        // In-place sync: the same collection instances keep serving the ItemsControls,
+        // so a refresh recycles rows instead of regenerating every container.
+        ReplaceItems(AzurePullRequests, activity.PullRequests);
+        ReplaceItems(AzureWorkItems, activity.WorkItems);
+        ReplaceItems(AzurePipelineRuns, activity.PipelineRuns);
         AzureHasLoaded = true;
+        RefreshAzurePreviews();
         OnPropertyChanged(nameof(HasAzurePullRequests));
         OnPropertyChanged(nameof(HasAzureWorkItems));
         OnPropertyChanged(nameof(HasAzurePipelineRuns));
+        OnPropertyChanged(nameof(OpenPullRequestCount));
+        OnPropertyChanged(nameof(OpenIssueCount));
+        OnPropertyChanged(nameof(ShowPullRequestsEmpty));
+        OnPropertyChanged(nameof(ShowIssuesEmpty));
         OnPropertyChanged(nameof(ShowAzureEmpty));
         OnPropertyChanged(nameof(ShowAzureUnavailable));
         RaisePipelineStatus();
@@ -1775,7 +1858,7 @@ public partial class BottomBarViewModel : ObservableObject
     {
         _openCodeSettings.EnableOpenCode = value;
         RefreshOpenCodeAvailability();
-        _ = PersistOpenCodeSettingAsync(s => s.OpenCode.EnableOpenCode = value);
+        _ = PersistOpenCodeSettingAsync(o => o.EnableOpenCode = value);
         OpenCodeStateChanged?.Invoke();
     }
 
@@ -1809,14 +1892,17 @@ public partial class BottomBarViewModel : ObservableObject
         OpenCodeStateChanged?.Invoke();
     }
 
-    private async Task PersistOpenCodeSettingAsync(Action<AppSettings> mutate)
+    /// <summary>
+    /// Persists one OpenCode settings mutation through the settings service's single-lock
+    /// section-scoped <see cref="ISettingsService.UpdateAsync{TSection}"/> — deep copy in,
+    /// one save out, the section resolved non-null before the mutation. Failures are
+    /// logged: the in-memory toggle stays live either way.
+    /// </summary>
+    private async Task PersistOpenCodeSettingAsync(Action<OpenCodeSettings> mutate)
     {
         try
         {
-            var settings = await _settingsService.GetSettingsAsync();
-            settings.OpenCode ??= new OpenCodeSettings();
-            mutate(settings);
-            await _settingsService.SaveSettingsAsync(settings);
+            await _settingsService.UpdateAsync(mutate);
         }
         catch (Exception ex)
         {
@@ -1826,47 +1912,35 @@ public partial class BottomBarViewModel : ObservableObject
 
     // --- Public tab entry points (header tabs toggle; row chips open directly) ---
 
-    /// <summary>Opens the Overview tab (repo optional — the row chip passes its repo).</summary>
-    public void OpenOverview(Repo? repo = null)
+    /// <summary>
+    /// The five open commands' core: point the bar at the chosen repo (the row chip's
+    /// row; null keeps the current selection), switch the panel and kick its load —
+    /// fire-and-forget, exactly as each copy did.
+    /// </summary>
+    private void OpenTab(BottomBarTab tab, Repo? repo)
     {
         SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.Overview;
-        _ = LoadOverviewAsync();
+        ActiveTab = tab;
+        if (TabLoader(tab) is { } load)
+        {
+            _ = load();
+        }
     }
+
+    /// <summary>Opens the Overview tab (repo optional — the row chip passes its repo).</summary>
+    public void OpenOverview(Repo? repo = null) => OpenTab(BottomBarTab.Overview, repo);
 
     /// <summary>Opens the Changes tab (repo optional — the row chip passes its repo).</summary>
-    public void OpenChanges(Repo? repo = null)
-    {
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.Changes;
-        _ = LoadChangesTabAsync();
-    }
+    public void OpenChanges(Repo? repo = null) => OpenTab(BottomBarTab.Changes, repo);
 
     /// <summary>Opens the Pull Requests tab (GitHub list plus the Azure DevOps section).</summary>
-    public void OpenPullRequests(Repo? repo = null)
-    {
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.PullRequests;
-        _ = LoadGitHubAsync();
-        LoadAzureForSharedTabs();
-    }
+    public void OpenPullRequests(Repo? repo = null) => OpenTab(BottomBarTab.PullRequests, repo);
 
     /// <summary>Opens the Issues tab (GitHub list plus the Azure work items section).</summary>
-    public void OpenIssues(Repo? repo = null)
-    {
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.Issues;
-        _ = LoadGitHubAsync();
-        LoadAzureForSharedTabs();
-    }
+    public void OpenIssues(Repo? repo = null) => OpenTab(BottomBarTab.Issues, repo);
 
     /// <summary>Opens the Azure DevOps tab.</summary>
-    public void OpenAzure(Repo? repo = null)
-    {
-        SetTargetRepo(repo);
-        ActiveTab = BottomBarTab.Azure;
-        _ = LoadAzureAsync();
-    }
+    public void OpenAzure(Repo? repo = null) => OpenTab(BottomBarTab.Azure, repo);
 
     /// <summary>
     /// Opens the OpenCode settings drawer (the repo row's options icon, or the tools
@@ -1891,9 +1965,26 @@ public partial class BottomBarViewModel : ObservableObject
     /// the active tab does nothing (there is no collapse-to-strip; leaving the repo
     /// view is the header X, which hides the whole bar).
     /// </summary>
-    [RelayCommand] private void ToggleOverviewTab() { if (ActiveTab != BottomBarTab.Overview) OpenOverview(); }
-    [RelayCommand] private void ToggleChangesTab() { if (ActiveTab != BottomBarTab.Changes) OpenChanges(); }
-    [RelayCommand] private void TogglePullRequestsTab() { if (ActiveTab != BottomBarTab.PullRequests) OpenPullRequests(); }
-    [RelayCommand] private void ToggleIssuesTab() { if (ActiveTab != BottomBarTab.Issues) OpenIssues(); }
-    [RelayCommand] private void ToggleAzureTab() { if (ActiveTab != BottomBarTab.Azure) OpenAzure(); }
+    private void ToggleTab(BottomBarTab tab)
+    {
+        if (ActiveTab != tab)
+        {
+            OpenTab(tab, repo: null);
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleOverviewTab() => ToggleTab(BottomBarTab.Overview);
+
+    [RelayCommand]
+    private void ToggleChangesTab() => ToggleTab(BottomBarTab.Changes);
+
+    [RelayCommand]
+    private void TogglePullRequestsTab() => ToggleTab(BottomBarTab.PullRequests);
+
+    [RelayCommand]
+    private void ToggleIssuesTab() => ToggleTab(BottomBarTab.Issues);
+
+    [RelayCommand]
+    private void ToggleAzureTab() => ToggleTab(BottomBarTab.Azure);
 }

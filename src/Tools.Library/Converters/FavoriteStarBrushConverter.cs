@@ -23,11 +23,19 @@ public class FavoriteStarBrushConverter : IValueConverter
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        var isFavorite = value is IEnumerable enumerable
-            && enumerable.OfType<RepoTag>()
-                .Any(t => string.Equals(t.Name, Repo.FavoritesTag, StringComparison.OrdinalIgnoreCase));
+        if (value is IEnumerable tags)
+        {
+            foreach (var item in tags)
+            {
+                if (item is RepoTag tag
+                    && string.Equals(tag.Name, Repo.FavoritesTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    return FavoriteBrush;
+                }
+            }
+        }
 
-        return isFavorite ? FavoriteBrush : DefaultBrush;
+        return DefaultBrush;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

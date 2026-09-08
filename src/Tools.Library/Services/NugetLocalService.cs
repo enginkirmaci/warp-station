@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Serilog;
 using Tools.Library.Configuration;
@@ -23,6 +22,13 @@ namespace Tools.Library.Services;
 /// </remarks>
 public class NugetLocalService : INugetLocalService, IDisposable
 {
+    /// <summary>
+    /// Upper bound for one <c>dotnet nuget</c> invocation; the runner kills the child tree
+    /// on expiry. Previously these calls were unbounded — a hung dotnet would stall
+    /// registration (and even service initialization) forever.
+    /// </summary>
+    private static readonly TimeSpan NugetCommandTimeout = TimeSpan.FromSeconds(120);
+
     private readonly ISettingsService _settingsService;
     private FileSystemWatcher? _watcher;
     private NugetLocalSettings _nugetSettings = new();
@@ -105,11 +111,15 @@ public class NugetLocalService : INugetLocalService, IDisposable
         WatchFolder = path;
         ComputedCopyFolder = ComputeCopyFolder(path);
 
-        var settings = await _settingsService.GetSettingsAsync();
-        settings.NugetLocal ??= new NugetLocalSettings();
-        settings.NugetLocal.WatchFolder = path;
-        await _settingsService.SaveSettingsAsync(settings);
-        _nugetSettings = settings.NugetLocal;
+        // Single get → mutate → save transition: the read, the mutation and the
+        // adoption of the new state happen under one lock in the settings service,
+        // so a concurrent save cannot resurrect a stale NugetLocal section.
+        var settings = await _settingsService.UpdateAsync(s =>
+        {
+            s.NugetLocal ??= new NugetLocalSettings();
+            s.NugetLocal.WatchFolder = path;
+        });
+        _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();
 
         // If the watch was running, restart against the new folder.
         if (IsWatching)
@@ -215,38 +225,28 @@ public class NugetLocalService : INugetLocalService, IDisposable
             var folderName = Path.GetFileName(folderToRegister.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             var sourceName = $"{folderName}-local";
 
-            var startInfo = new ProcessStartInfo
+            var result = await ProcessRunner.RunAsync(new ProcessRunOptions
             {
                 FileName = "dotnet",
                 Arguments = $"nuget add source \"{folderToRegister}\" --name \"{sourceName}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                Timeout = NugetCommandTimeout,
+            });
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
+            if (result.TimedOut)
             {
-                RaiseStateChanged();
-                return;
+                AddLog($"✗ Timed out after {NugetCommandTimeout.TotalSeconds}s registering NuGet source '{sourceName}': {folderToRegister}");
             }
-
-            var output = await process.StandardOutput.ReadToEndAsync();
-            var error = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode == 0)
+            else if (result.Succeeded)
             {
                 AddLog($"✓ Registered NuGet source '{sourceName}': {folderToRegister}");
             }
-            else if (output.Contains("already been added", StringComparison.OrdinalIgnoreCase))
+            else if (result.StandardOutput.Contains("already been added", StringComparison.OrdinalIgnoreCase))
             {
                 AddLog($"ℹ NuGet source '{sourceName}' already registered: {folderToRegister}");
             }
             else
             {
-                AddLog($"✗ Failed to register source: {error}");
+                AddLog($"✗ Failed to register source: {result.StandardError}");
             }
         }
         catch (Exception ex)
@@ -419,26 +419,16 @@ public class NugetLocalService : INugetLocalService, IDisposable
     {
         try
         {
-            var startInfo = new ProcessStartInfo
+            var result = await ProcessRunner.RunAsync(new ProcessRunOptions
             {
                 FileName = "dotnet",
                 Arguments = "nuget locals global-packages --list",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                Timeout = NugetCommandTimeout,
+            });
 
-            using var process = Process.Start(startInfo);
-            if (process == null)
-            {
-                return string.Empty;
-            }
-
-            var output = await process.StandardOutput.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            var match = Regex.Match(output, @"global-packages:\s*(.+)");
+            // The exit code is not consulted (as before): the folder line on stdout is the
+            // only thing that matters.
+            var match = Regex.Match(result.StandardOutput, @"global-packages:\s*(.+)");
             if (match.Success)
             {
                 return match.Groups[1].Value.Trim();

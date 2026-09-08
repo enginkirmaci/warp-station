@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -71,6 +72,29 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
     /// <summary>Set when the API rejects the token (401); short-circuits repos until the next Configure.</summary>
     private volatile bool _authRejected;
 
+    /// <summary>
+    /// Parsed Azure DevOps remotes per repo folder. A repo's <c>.git/config</c> only
+    /// changes while the user edits remotes outside the app, so each folder is read and
+    /// parsed once per session instead of on every refresh pass (the parse itself reads
+    /// the config twice — once hunting <c>origin</c>, once for any remote). Cleared on
+    /// every <see cref="ConfigureProvider"/> because the settings' custom server URL
+    /// takes part in the parse: a newly configured host can make previously
+    /// unrecognized remotes parse, and a removed one the reverse. Nulls are cached too
+    /// (a non-Azure repo would otherwise re-read its config on every pass).
+    /// </summary>
+    private readonly ConcurrentDictionary<string, AzureDevOpsRemote?> _remotesByFolder = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Work-item fetches keyed by project for the CURRENT refresh pass only (key
+    /// <c>"{base}/{project}"</c>, which pins organization, collection and project):
+    /// the work-item list is the hosting project's, so N repos of one project would
+    /// otherwise run the identical WIQL + batch pair N times per pass. Task-valued so
+    /// repos probing concurrently join one fetch instead of racing duplicates; nulled
+    /// outside passes (see <see cref="RefreshPassAsync"/>) so out-of-pass single-repo
+    /// refreshes always re-query and nothing can go stale between passes.
+    /// </summary>
+    private volatile ConcurrentDictionary<string, Lazy<Task<IReadOnlyList<AzureDevOpsItem>>>>? _passWorkItems;
+
     public AzureDevOpsService(IRepoService repoService)
         : base(repoService)
     {
@@ -89,6 +113,9 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
         _configuredPat = string.IsNullOrWhiteSpace(settings.AzureDevOpsPat) ? null : settings.AzureDevOpsPat.Trim();
         _configuredUrl = NormalizeServerUrl(settings.AzureDevOpsUrl);
         _authRejected = false;
+        // The custom server URL takes part in remote parsing, so memoized remotes from
+        // the previous settings are stale the moment it changes.
+        _remotesByFolder.Clear();
         if (ColumnEnabled && ResolveToken(_configuredPat) is null)
         {
             Log.Logger.Warning(
@@ -103,6 +130,25 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
     /// <inheritdoc/>
     public Task<AzureDevOpsActivity> RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default)
         => FetchGuardedAsync(repo, AzureDevOpsActivity.Empty, ct => RefreshRepoCoreAsync(repo, ct), cancellationToken);
+
+    /// <summary>
+    /// One throttled refresh pass, and the scope of the per-project work-item
+    /// memoization: the cache exists exactly for the duration of a pass (the coalescer
+    /// never stacks concurrent passes), so the next pass always re-queries and repos
+    /// refreshed outside a pass bypass it entirely.
+    /// </summary>
+    protected override async Task RefreshPassAsync(CancellationToken cancellationToken)
+    {
+        _passWorkItems = new ConcurrentDictionary<string, Lazy<Task<IReadOnlyList<AzureDevOpsItem>>>>();
+        try
+        {
+            await base.RefreshPassAsync(cancellationToken);
+        }
+        finally
+        {
+            _passWorkItems = null;
+        }
+    }
 
     /// <summary>The REST queries themselves; only run while the service is enabled.</summary>
     private async Task<AzureDevOpsActivity> RefreshRepoCoreAsync(Repo repo, CancellationToken cancellationToken)
@@ -152,7 +198,7 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
 
             // Then fetch the three activity kinds. They are independent, so run them together.
             var prTask = GetPullRequestsAsync(remote, repoId, token, cancellationToken);
-            var workItemTask = GetWorkItemsAsync(remote, token, cancellationToken);
+            var workItemTask = GetWorkItemsForProjectAsync(remote, token, cancellationToken);
             var pipelineTask = GetPipelineRunsAsync(remote, repoId, token, cancellationToken);
             await Task.WhenAll(prTask, workItemTask, pipelineTask);
 
@@ -216,21 +262,8 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
             $" — {stateText}, {age}";
     }
 
-    /// <summary>Formats an age like the Repos table's relative labels ("5m ago").</summary>
-    private static string FormatRelative(DateTimeOffset at)
-    {
-        var minutes = Math.Max(0, (int)(DateTimeOffset.Now - at).TotalMinutes);
-        return minutes switch
-        {
-            < 1 => "just now",
-            < 60 => $"{minutes}m ago",
-            _ when minutes < 60 * 24 => $"{minutes / 60}h ago",
-            _ when minutes < 60 * 24 * 7 => $"{minutes / (60 * 24)}d ago",
-            _ when minutes < 60 * 24 * 30 => $"{minutes / (60 * 24 * 7)}w ago",
-            _ when minutes < 60 * 24 * 365 => $"{minutes / (60 * 24 * 30)}mo ago",
-            _ => $"{minutes / (60 * 24 * 365)}y ago",
-        };
-    }
+    /// <summary>Formats an age like the Repos table's relative labels ("5m ago"); delegates to the shared formatter.</summary>
+    private static string FormatRelative(DateTimeOffset at) => Formatters.RelativeTime.Format(at);
 
     // --- Token ---
 
@@ -268,8 +301,14 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
     /// custom server URL is configured in the settings — remotes under that host too
     /// (company-hosted Azure DevOps Server, with or without a collection/app-tier path).
     /// The <c>origin</c> remote wins; otherwise the first remote with a URL is used.
+    /// Results are memoized per folder (<see cref="_remotesByFolder"/>) so a refresh
+    /// pass reads each repo's config once per session instead of twice per pass.
     /// </summary>
     internal AzureDevOpsRemote? ParseAzureDevOpsRemote(string folderPath)
+        => _remotesByFolder.GetOrAdd(folderPath, ParseRemoteCore);
+
+    /// <summary>The uncached parse behind <see cref="ParseAzureDevOpsRemote"/>.</summary>
+    private AzureDevOpsRemote? ParseRemoteCore(string folderPath)
     {
         var url = ReadRemoteUrl(folderPath, "origin") ?? ReadRemoteUrl(folderPath, null);
         return url is null ? null : ParseAzureDevOpsUrl(url, _configuredUrl);
@@ -598,6 +637,26 @@ public sealed class AzureDevOpsService : RepoActivityServiceBase<AzureDevOpsActi
                 p.IsDraft,
                 State: null))
             .ToArray();
+    }
+
+    /// <summary>
+    /// <see cref="GetWorkItemsAsync"/> behind the per-pass, per-project memoization:
+    /// every repo of one project shares a single WIQL + batch fetch per pass. The
+    /// <see cref="Lazy{T}"/> wrapper keeps concurrent repos from racing duplicate HTTP
+    /// calls — the losing factory's task never starts. Outside a pass (no cache, see
+    /// <see cref="RefreshPassAsync"/>) the fetch runs directly. The whole pass shares
+    /// one token, so the first repo's captured arguments are every repo's.
+    /// </summary>
+    private Task<IReadOnlyList<AzureDevOpsItem>> GetWorkItemsForProjectAsync(
+        AzureDevOpsRemote remote, string token, CancellationToken cancellationToken)
+    {
+        var cache = _passWorkItems;
+        if (cache is null) return GetWorkItemsAsync(remote, token, cancellationToken);
+
+        return cache.GetOrAdd(
+            $"{remote.BaseUrl}/{remote.Project}",
+            _ => new Lazy<Task<IReadOnlyList<AzureDevOpsItem>>>(
+                () => GetWorkItemsAsync(remote, token, cancellationToken))).Value;
     }
 
     /// <summary>

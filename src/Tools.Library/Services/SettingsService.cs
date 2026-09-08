@@ -17,9 +17,6 @@ public class SettingsService : ISettingsService
 {
     private const string SettingsFileName = "settings.json";
 
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
-    private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
-
     private readonly string _settingsFilePath;
     private readonly string _settingsDirectory;
     private readonly object _lock = new();
@@ -64,18 +61,83 @@ public class SettingsService : ISettingsService
         string json;
         lock (_lock)
         {
-            EnsureNestedSections(snapshot);
-            _cachedSettings = snapshot;
-            // Serialize once under the lock: it's needed both for the atomic
-            // write and for the read cache, and computing it here keeps them in
-            // sync so subsequent reads skip the serialize half.
-            json = JsonSerializer.Serialize(snapshot, WriteOptions);
-            _cachedSettingsJson = json;
+            json = AdoptSnapshot(snapshot);
         }
 
+        await WriteSavedJsonAsync(json);
+    }
+
+    /// <summary>
+    /// Applies <paramref name="mutate"/> to a deep copy of the current settings and persists
+    /// the result as one get → mutate → save transition. Unlike a hand-rolled
+    /// <c>GetSettingsAsync()</c> → mutate → <c>SaveSettingsAsync()</c> round trip — where the
+    /// save replaces the whole graph, so two overlapping single-field saves resurrect stale
+    /// copies of each other's sections — the read, the mutation and the adoption of the new
+    /// authoritative state all happen inside a single <see cref="_lock"/> acquisition, so
+    /// concurrent updates stack instead of racing. The disk write itself runs after the lock
+    /// is released, exactly as in <see cref="SaveSettingsAsync"/>. Returns a deep copy of the
+    /// newly persisted state.
+    /// </summary>
+    public async Task<AppSettings> UpdateAsync(Action<AppSettings> mutate)
+    {
+        AppSettings result;
+        string json;
+        lock (_lock)
+        {
+            EnsureLoaded();
+            var updated = CopySettings();
+            mutate(updated);
+            json = AdoptSnapshot(updated);
+            // Hand back a copy rather than the adopted instance itself, so the caller
+            // cannot mutate the live cache out from under the service (same contract
+            // as the read methods).
+            result = CopySettings();
+        }
+
+        await WriteSavedJsonAsync(json);
+        return result;
+    }
+
+    /// <summary>
+    /// Section-scoped variant of <see cref="UpdateAsync(Action{AppSettings})"/>: resolves the
+    /// nested section of type <typeparamref name="TSection"/> on a deep copy of the current
+    /// settings, applies <paramref name="mutate"/> to it and persists the whole graph under
+    /// the same single-lock discipline, e.g.
+    /// <c>await settings.UpdateAsync&lt;ReposSettings&gt;(r =&gt; r.MaxScanDepth = 5);</c>
+    /// </summary>
+    public async Task<AppSettings> UpdateAsync<TSection>(Action<TSection> mutate) where TSection : class
+    {
+        return await UpdateAsync(settings => mutate(ResolveSection<TSection>(settings)));
+    }
+
+    /// <summary>
+    /// Adopts <paramref name="snapshot"/> as the authoritative in-memory state: fixes up
+    /// nested sections, swaps the cache and refreshes the read-cache JSON. Must be called
+    /// under <see cref="_lock"/>. Returns the serialized JSON for the atomic write.
+    /// </summary>
+    private string AdoptSnapshot(AppSettings snapshot)
+    {
+        EnsureNestedSections(snapshot);
+        _cachedSettings = snapshot;
+        // Serialize once under the lock: it's needed both for the atomic
+        // write and for the read cache, and computing it here keeps them in
+        // sync so subsequent reads skip the serialize half.
+        var json = JsonSerializer.Serialize(snapshot, JsonIO.WriteOptions);
+        _cachedSettingsJson = json;
+        return json;
+    }
+
+    /// <summary>
+    /// Persists already-serialized settings JSON atomically. Runs after the lock is
+    /// released, mirroring <see cref="SaveSettingsAsync"/>: the in-memory state is already
+    /// adopted, so the JSON of any later writer always includes every mutation adopted
+    /// before it.
+    /// </summary>
+    private async Task WriteSavedJsonAsync(string json)
+    {
         try
         {
-            await WriteAtomicallyAsync(json);
+            await JsonIO.WriteAtomicallyAsync(_settingsFilePath, json);
         }
         catch (Exception ex)
         {
@@ -102,20 +164,20 @@ public class SettingsService : ISettingsService
             {
                 var json = File.ReadAllText(_settingsFilePath);
                 json = MigrateLegacyEnableKeys(json);
-                _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json, ReadOptions) ?? new AppSettings();
+                _cachedSettings = JsonSerializer.Deserialize<AppSettings>(json, JsonIO.ReadOptions) ?? new AppSettings();
                 _cachedSettingsJson = json;
             }
             else
             {
                 _cachedSettings = new AppSettings();
-                _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, WriteOptions);
+                _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, JsonIO.WriteOptions);
             }
         }
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Error loading settings");
             _cachedSettings = new AppSettings();
-            _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, WriteOptions);
+            _cachedSettingsJson = JsonSerializer.Serialize(_cachedSettings, JsonIO.WriteOptions);
         }
 
         EnsureNestedSections(_cachedSettings);
@@ -134,6 +196,24 @@ public class SettingsService : ISettingsService
         settings.OpenCode ??= new OpenCodeSettings();
         settings.General ??= new GeneralSettings();
     }
+
+    /// <summary>
+    /// Resolves the nested section of type <typeparamref name="TSection"/>. Sections are
+    /// non-null here because <see cref="EnsureNestedSections"/> has already run (both
+    /// <see cref="CopySettings"/> and <see cref="AdoptSnapshot"/> apply it).
+    /// </summary>
+    private static TSection ResolveSection<TSection>(AppSettings settings) where TSection : class
+        => typeof(TSection) switch
+        {
+            var t when t == typeof(NugetLocalSettings) => (TSection)(object)settings.NugetLocal!,
+            var t when t == typeof(ReposSettings) => (TSection)(object)settings.Repos!,
+            var t when t == typeof(ClipboardPasswordSettings) => (TSection)(object)settings.ClipboardPassword!,
+            var t when t == typeof(SnapItSettings) => (TSection)(object)settings.SnapIt!,
+            var t when t == typeof(OpenCodeSettings) => (TSection)(object)settings.OpenCode!,
+            var t when t == typeof(GeneralSettings) => (TSection)(object)settings.General!,
+            _ => throw new InvalidOperationException(
+                $"{typeof(TSection).Name} is not a settings section of {nameof(AppSettings)}.")
+        };
 
     /// <summary>
     /// Maps the legacy per-tool toggle keys to the uniform <c>Enable&lt;Tool&gt;</c>
@@ -193,30 +273,8 @@ public class SettingsService : ISettingsService
     /// </summary>
     private AppSettings CopySettings()
     {
-        var copy = JsonSerializer.Deserialize<AppSettings>(_cachedSettingsJson!, ReadOptions)!;
+        var copy = JsonSerializer.Deserialize<AppSettings>(_cachedSettingsJson!, JsonIO.ReadOptions)!;
         EnsureNestedSections(copy);
         return copy;
-    }
-
-    /// <summary>
-    /// Writes the already-serialized settings JSON atomically: write to a temp
-    /// file in the same directory, then rename it over the target. A crash
-    /// during the write leaves the previous file intact rather than a
-    /// truncated/partial one.
-    /// </summary>
-    private async Task WriteAtomicallyAsync(string json)
-    {
-        Directory.CreateDirectory(_settingsDirectory);
-
-        var tempPath = _settingsFilePath + ".tmp";
-
-        await File.WriteAllTextAsync(tempPath, json);
-
-        // File.Move with overwrite is atomic on the same volume (POSIX rename / Win
-        // ReplaceFile semantics), preventing a partial-write from corrupting the file.
-        if (File.Exists(_settingsFilePath))
-            File.Replace(tempPath, _settingsFilePath, destinationBackupFileName: null);
-        else
-            File.Move(tempPath, _settingsFilePath);
     }
 }

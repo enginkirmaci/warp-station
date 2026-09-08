@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text.Json;
 using Serilog;
 using Tools.Library.Configuration;
@@ -35,6 +34,16 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
     /// <summary>gh JSON field lists, kept minimal for cheap parsing.</summary>
     private const string PrFields = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision,updatedAt";
     private const string IssueFields = "number,title,url,author,labels,updatedAt";
+
+    /// <summary>
+    /// Environment for every gh child: never block on credential prompts — gh falls back
+    /// to its keyring/token config and fails fast instead when it cannot authenticate.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> GhEnvironment = new Dictionary<string, string>
+    {
+        ["GIT_TERMINAL_PROMPT"] = "0",
+        ["GH_PROMPT"] = "disabled",
+    };
 
     /// <summary>Set once <c>gh</c> is missing; subsequent refreshes become no-ops.</summary>
     private volatile bool _ghUnavailable;
@@ -96,7 +105,7 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
             var repoJson = await RunGhAsync(ghPath, repo.FolderPath, "repo view --json url", cancellationToken);
             var repoUrl = string.IsNullOrWhiteSpace(repoJson)
                 ? null
-                : JsonSerializer.Deserialize<RepoViewPayload>(repoJson, JsonOptions)?.Url;
+                : JsonSerializer.Deserialize<RepoViewPayload>(repoJson, JsonIO.ReadOptions)?.Url;
             if (string.IsNullOrWhiteSpace(repoUrl))
             {
                 MarkUnavailable(repo);
@@ -155,7 +164,7 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
                 cancellationToken);
             var payload = string.IsNullOrWhiteSpace(json)
                 ? null
-                : JsonSerializer.Deserialize<RepoDetailsPayload>(json, JsonOptions);
+                : JsonSerializer.Deserialize<RepoDetailsPayload>(json, JsonIO.ReadOptions);
             var details = payload is null
                 ? null
                 : new GitHubRepoDetails(
@@ -184,8 +193,6 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
         repo.GitHubAvailable = false;
         repo.GitHubLoaded = true;
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private sealed record RepoViewPayload(string? Url);
 
@@ -231,7 +238,7 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
 
         try
         {
-            var payload = JsonSerializer.Deserialize<ItemPayload[]>(json, JsonOptions);
+            var payload = JsonSerializer.Deserialize<ItemPayload[]>(json, JsonIO.ReadOptions);
             if (payload is null)
             {
                 return [];
@@ -267,26 +274,17 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
     /// </summary>
     private async Task<string?> RunGhAsync(string ghPath, string workingDir, string arguments, CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ghPath,
-            Arguments = arguments,
-            WorkingDirectory = workingDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        // Never block on credential prompts — gh falls back to its keyring/token config
-        // and fails fast instead when it cannot authenticate.
-        startInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
-        startInfo.Environment["GH_PROMPT"] = "disabled";
-
-        using var process = new Process { StartInfo = startInfo };
+        ProcessRunResult result;
         try
         {
-            if (!process.Start())
-                return null;
+            result = await ProcessRunner.RunAsync(new ProcessRunOptions
+            {
+                FileName = ghPath,
+                Arguments = arguments,
+                WorkingDirectory = workingDir,
+                Timeout = ProcessTimeout,
+                EnvironmentVariables = GhEnvironment,
+            }, cancellationToken);
         }
         catch (Win32Exception ex)
         {
@@ -297,22 +295,6 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
             return null;
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(ProcessTimeout);
-
-        try
-        {
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-            await process.WaitForExitAsync(timeoutCts.Token);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            return process.ExitCode == 0 ? stdoutTask.Result : null;
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            // Timeout, not an external cancel: kill the stray gh process and move on.
-            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
-            return null;
-        }
+        return result.ExitCode == 0 ? result.StandardOutput : null;
     }
 }

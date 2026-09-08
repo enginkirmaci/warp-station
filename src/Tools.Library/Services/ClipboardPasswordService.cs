@@ -1,10 +1,9 @@
 using System.Runtime.InteropServices;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input.Platform;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Serilog;
+using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
@@ -53,16 +52,30 @@ public class ClipboardPasswordService : IClipboardPasswordService
 #endif
 
     private readonly ISettingsService _settingsService;
+    private readonly IMainWindowProvider _mainWindowProvider;
 
-    public ClipboardPasswordService(ISettingsService settingsService)
+    public ClipboardPasswordService(ISettingsService settingsService, IMainWindowProvider mainWindowProvider)
     {
         _settingsService = settingsService;
+        _mainWindowProvider = mainWindowProvider;
     }
 
     public async Task InitializeAsync()
     {
         // Load settings if needed
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Encodes the password (Base64 over UTF-8 — the exact format
+    /// <see cref="GetDecryptedPasswordAsync"/> decodes) and persists it to settings through
+    /// <see cref="ISettingsService.UpdateAsync{TSection}"/>, so the read → mutate → save
+    /// transition happens as one update serialized under the settings lock.
+    /// </summary>
+    public async Task SetPasswordAsync(string password)
+    {
+        await _settingsService.UpdateAsync<ClipboardPasswordSettings>(
+            cp => cp.EncryptedPassword = Convert.ToBase64String(Encoding.UTF8.GetBytes(password)));
     }
 
     public void RegisterHotKeys(nint hwnd)
@@ -126,17 +139,19 @@ public class ClipboardPasswordService : IClipboardPasswordService
         Dispatcher.UIThread.Post(() => _ = HandleHotkeyAsync());
     }
 
-    private static async Task SetClipboardTextAsync(string text)
+    private async Task SetClipboardTextAsync(string text)
     {
-        var lifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
-        var clipboard = lifetime?.MainWindow is { } window ? TopLevel.GetTopLevel(window)?.Clipboard : null;
+        var clipboard = _mainWindowProvider.TopLevel?.Clipboard;
         if (clipboard is null)
         {
             Log.Logger.Warning("ClipboardPassword: no clipboard available to copy the password to");
             return;
         }
 
-        await clipboard.SetTextAsync(text);
+        // Avalonia 12: plain text goes through the data-transfer API (SetTextAsync is gone)
+        var transfer = new DataTransfer();
+        transfer.Add(DataTransferItem.CreateText(text));
+        await clipboard.SetDataAsync(transfer);
     }
 #endif
 

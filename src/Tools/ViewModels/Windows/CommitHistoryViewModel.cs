@@ -1,7 +1,4 @@
 using System.Collections.ObjectModel;
-using Avalonia;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Library.Entities;
@@ -21,12 +18,13 @@ public sealed record CommitHistoryContext(Repo Repo, GitCommitInfo Commit);
 /// (checkout, revert, copy SHA), the per-file changed list with expandable patches,
 /// and the "View Full Diff" jump to the GitHub/Azure DevOps web page.
 /// </summary>
-public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerContextReceiver
+public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerContextReceiver<CommitHistoryContext>
 {
     private readonly IGitStatusService _gitStatusService;
     private readonly IProcessLauncher _processLauncher;
     private readonly IToolDrawerService _toolDrawer;
     private readonly INotificationService _notificationService;
+    private readonly IClipboardService _clipboardService;
 
     private Repo? _repo;
 
@@ -34,12 +32,14 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         IGitStatusService gitStatusService,
         IProcessLauncher processLauncher,
         IToolDrawerService toolDrawer,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IClipboardService clipboardService)
     {
         _gitStatusService = gitStatusService;
         _processLauncher = processLauncher;
         _toolDrawer = toolDrawer;
         _notificationService = notificationService;
+        _clipboardService = clipboardService;
     }
 
     /// <summary>The clicked commit (subject, hash, author, time).</summary>
@@ -96,15 +96,15 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     }
 
     /// <inheritdoc/>
-    public void OnDrawerContext(object context)
+    public Task OnDrawerContextAsync(CommitHistoryContext? context)
     {
-        if (context is not CommitHistoryContext payload)
+        if (context is null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        _repo = payload.Repo;
-        Commit = payload.Commit;
+        _repo = context.Repo;
+        Commit = context.Commit;
         Files.Clear();
         IsLoading = false;
         IsBusy = false;
@@ -113,6 +113,7 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
 
         ComputeWebUrl();
         _ = LoadDetailsAsync();
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -170,23 +171,23 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         _toolDrawer.Close();
     }
 
-    /// <summary>Checks out the commit (detached HEAD at the hash) and refreshes status.</summary>
-    [RelayCommand]
-    private async Task CheckoutAsync()
+    /// <summary>
+    /// The two git actions' shared mechanics: run under the drawer's busy flag and toast
+    /// the given success/error message. The null repo/commit and already-busy guards stay
+    /// with the commands; exceptions keep propagating, as before.
+    /// </summary>
+    private async Task RunGitActionAsync(Func<Task<bool>> action, string successText, string errorText)
     {
-        var repo = _repo;
-        if (repo is null || Commit is null || IsBusy) return;
-
         IsBusy = true;
         try
         {
-            if (await _gitStatusService.CheckoutAsync(repo, Commit.Hash))
+            if (await action())
             {
-                _notificationService.Show($"Checked out {Commit.ShortHash}", NotificationKind.Success);
+                _notificationService.Show(successText, NotificationKind.Success);
             }
             else
             {
-                _notificationService.Show($"Checkout of {Commit.ShortHash} failed", NotificationKind.Error);
+                _notificationService.Show(errorText, NotificationKind.Error);
             }
         }
         finally
@@ -195,29 +196,32 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         }
     }
 
-    /// <summary>Reverts the commit (<c>git revert --no-edit</c>: a new undo commit).</summary>
+    /// <summary>Checks out the commit (detached HEAD at the hash) and refreshes status.</summary>
     [RelayCommand]
-    private async Task RevertAsync()
+    private Task CheckoutAsync()
     {
         var repo = _repo;
-        if (repo is null || Commit is null || IsBusy) return;
+        var commit = Commit;
+        if (repo is null || commit is null || IsBusy) return Task.CompletedTask;
 
-        IsBusy = true;
-        try
-        {
-            if (await _gitStatusService.RevertCommitAsync(repo, Commit.Hash))
-            {
-                _notificationService.Show($"Reverted {Commit.ShortHash}", NotificationKind.Success);
-            }
-            else
-            {
-                _notificationService.Show($"Revert of {Commit.ShortHash} failed", NotificationKind.Error);
-            }
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+        return RunGitActionAsync(
+            () => _gitStatusService.CheckoutAsync(repo, commit.Hash),
+            $"Checked out {commit.ShortHash}",
+            $"Checkout of {commit.ShortHash} failed");
+    }
+
+    /// <summary>Reverts the commit (<c>git revert --no-edit</c>: a new undo commit).</summary>
+    [RelayCommand]
+    private Task RevertAsync()
+    {
+        var repo = _repo;
+        var commit = Commit;
+        if (repo is null || commit is null || IsBusy) return Task.CompletedTask;
+
+        return RunGitActionAsync(
+            () => _gitStatusService.RevertCommitAsync(repo, commit.Hash),
+            $"Reverted {commit.ShortHash}",
+            $"Revert of {commit.ShortHash} failed");
     }
 
     /// <summary>Copies the full SHA (same flow as the History row's hash link).</summary>
@@ -226,14 +230,8 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     {
         if (Commit is null || string.IsNullOrEmpty(Commit.Hash)) return;
 
-        if (Application.Current?.ApplicationLifetime
-            is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
-        {
-            var transfer = new DataTransfer();
-            transfer.Add(DataTransferItem.CreateText(Commit.Hash));
-            await window.Clipboard.SetDataAsync(transfer);
-            _notificationService.Show($"Copied {Commit.ShortHash} to clipboard", NotificationKind.Success);
-        }
+        await _clipboardService.CopyTextAsync(Commit.Hash);
+        _notificationService.Show($"Copied {Commit.ShortHash} to clipboard", NotificationKind.Success);
     }
 
     /// <summary>Opens the commit's GitHub/Azure DevOps page (the full diff) in the browser.</summary>

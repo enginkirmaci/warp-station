@@ -11,7 +11,15 @@ namespace Tools.Library.Services;
 /// source of truth for the Repos page (which is rebuilt per navigation as a Transient
 /// VM) and merges user-defined tags across rescans by matching folder path.
 /// </summary>
-public class RepoService : IRepoService
+/// <remarks>
+/// Persistence is write-behind: tag/favorite edits only dirty-flag the cache and
+/// schedule a single debounced flush (400ms), so a burst of star/tag clicks collapses
+/// into one full-file write instead of serializing the whole cache per click. Reads
+/// always see the live in-memory state; only the file write is deferred. The service
+/// implements <see cref="IDisposable"/> so the DI container's final flush on
+/// <c>Host.Dispose()</c> (app shutdown) closes the deferral window.
+/// </remarks>
+public class RepoService : IRepoService, IDisposable
 {
     private readonly IRepoScanner _scanner;
     private readonly IRepoCacheStore _cacheStore;
@@ -20,6 +28,14 @@ public class RepoService : IRepoService
     private bool _busy;
     private bool _cacheLoaded;
     private bool _scannedThisSession;
+
+    // Write-behind persistence state (guarded by _persistLock).
+    private static readonly TimeSpan FlushDelay = TimeSpan.FromMilliseconds(400);
+    private readonly object _persistLock = new();
+    private bool _dirty;
+    private bool _disposed;
+    private Task? _flushLoop;
+    private CancellationTokenSource? _flushCts;
 
     public RepoService(IRepoScanner scanner, IRepoCacheStore cacheStore)
     {
@@ -113,29 +129,32 @@ public class RepoService : IRepoService
     }
 
     /// <inheritdoc/>
-    public async Task AddTagAsync(Repo repo, string tag)
+    public Task AddTagAsync(Repo repo, string tag)
     {
         repo.AddTag(tag);
-        await SaveAsync();
+        ScheduleSave();
         RaiseTagsChanged();
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public async Task RemoveTagAsync(Repo repo, string tag)
+    public Task RemoveTagAsync(Repo repo, string tag)
     {
-        if (!repo.RemoveTag(tag)) return;
-        await SaveAsync();
+        if (!repo.RemoveTag(tag)) return Task.CompletedTask;
+        ScheduleSave();
         RaiseTagsChanged();
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public async Task ToggleFavoriteAsync(Repo repo)
+    public Task ToggleFavoriteAsync(Repo repo)
     {
         if (!repo.RemoveTag(FavoritesTag))
             repo.AddTag(FavoritesTag);
 
-        await SaveAsync();
+        ScheduleSave();
         RaiseTagsChanged();
+        return Task.CompletedTask;
     }
 
     private async Task ScanAsync(ReposSettings settings)
@@ -191,7 +210,7 @@ public class RepoService : IRepoService
             _repos = scanned;
             _scannedThisSession = true;
 
-            await SaveAsync();
+            ScheduleSave();
 
             // No RaiseChanged here: the start raise above already flipped _busy to true,
             // and the finally raise below signals both data-ready and _busy=false in one
@@ -210,12 +229,141 @@ public class RepoService : IRepoService
         }
     }
 
-    private async Task SaveAsync()
+    /// <summary>
+    /// Marks the cache dirty and ensures a single debounced flush is scheduled. Burst
+    /// edits inside one <see cref="FlushDelay"/> window (e.g. rapid star/tag clicks)
+    /// collapse into one file write; edits landing while a flush is already writing
+    /// re-arm the dirty flag and are picked up by the next loop iteration. Never
+    /// touches the file system on the toggling caller's path.
+    /// </summary>
+    private void ScheduleSave()
     {
-        await _cacheStore.SaveAsync(new RepoCache
+        lock (_persistLock)
         {
-            Repos = _repos.ToList()
-        });
+            if (_disposed) return;
+            _dirty = true;
+            if (_flushLoop != null) return; // a flush loop is pending or writing; it will observe _dirty
+
+            var cts = new CancellationTokenSource();
+            _flushCts = cts;
+            _flushLoop = Task.Run(() => FlushLoopAsync(cts.Token));
+        }
+    }
+
+    /// <summary>
+    /// The write-behind loop: waits out the debounce window, then writes the full cache
+    /// exactly as the previous per-call save did (same <see cref="RepoCache"/> payload
+    /// through the same <see cref="IRepoCacheStore"/> path, so file format and location
+    /// are unchanged). Exits when quiescent; failures leave the dirty flag set so the
+    /// next trigger retries, and never propagate (the loop is fire-and-forget).
+    /// </summary>
+    private async Task FlushLoopAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            try
+            {
+                await Task.Delay(FlushDelay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Dispose cancelled the debounce; Dispose owns the final flush.
+                return;
+            }
+
+            RepoCache snapshot;
+            lock (_persistLock)
+            {
+                if (_disposed) return;
+                if (!_dirty)
+                {
+                    // Quiescent: hand the loop slot back so the next trigger starts fresh.
+                    _flushLoop = null;
+                    _flushCts?.Dispose();
+                    _flushCts = null;
+                    return;
+                }
+                _dirty = false;
+                // Same shallow copy the old synchronous save built; the store serializes
+                // this identical shape, so what is persisted does not change.
+                snapshot = new RepoCache { Repos = _repos.ToList() };
+            }
+
+            try
+            {
+                await _cacheStore.SaveAsync(snapshot);
+            }
+            catch (Exception ex)
+            {
+                // The store normally logs and swallows its own IO errors; this guards the
+                // fire-and-forget loop itself. Re-arm and release the slot so the next
+                // trigger (edit or shutdown flush) rewrites the full current state.
+                Log.Logger.Error(ex, "Error flushing repo cache");
+                lock (_persistLock)
+                {
+                    _dirty = true;
+                    _flushLoop = null;
+                    _flushCts?.Dispose();
+                    _flushCts = null;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Final flush closing the write-behind window on app exit. Wired up by DI: the
+    /// service is a singleton, so the host's <c>Host.Dispose()</c> in
+    /// <c>App.OnShutdownRequested</c> calls this during shutdown.
+    /// </summary>
+    public void Dispose()
+    {
+        Task? loop;
+        lock (_persistLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            loop = _flushLoop;
+            _flushLoop = null;
+            _flushCts?.Cancel();
+        }
+
+        try
+        {
+            // Wait out any in-flight debounce/write so the final flush below cannot race it.
+            // Cancellation bounds the wait to the remaining file IO (~milliseconds).
+            loop?.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Error waiting for pending repo cache flush");
+        }
+
+        RepoCache? pending;
+        lock (_persistLock)
+        {
+            pending = null;
+            if (_dirty)
+            {
+                _dirty = false;
+                pending = new RepoCache { Repos = _repos.ToList() };
+            }
+            _flushCts?.Dispose();
+            _flushCts = null;
+        }
+
+        if (pending == null) return;
+
+        try
+        {
+            // Host.Dispose() runs on the UI thread during shutdown; hop to the thread pool
+            // so the store's awaited file IO cannot deadlock on the blocked UI context.
+            Task.Run(() => _cacheStore.SaveAsync(pending)).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Error flushing repo cache on shutdown");
+        }
     }
 
     private void RaiseChanged() => Changed?.Invoke(this, EventArgs.Empty);

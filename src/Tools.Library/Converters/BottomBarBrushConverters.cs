@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
+using Tools.Library.Media;
 
 namespace Tools.Library.Converters;
 
@@ -18,10 +19,10 @@ namespace Tools.Library.Converters;
 /// </summary>
 public class GitStatusBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Added = new(Color.Parse("#CC228B22"));
-    private static readonly ImmutableSolidColorBrush Deleted = new(Color.Parse("#BBF5222D"));
-    private static readonly ImmutableSolidColorBrush Modified = new(Color.Parse("#CCFA8C16"));
-    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse("#B4B4B4"));
+    private static readonly ImmutableSolidColorBrush Added = new(Color.Parse(ChipPalette.GreenStrong));
+    private static readonly ImmutableSolidColorBrush Deleted = new(Color.Parse(ChipPalette.RedDeleted));
+    private static readonly ImmutableSolidColorBrush Modified = new(Color.Parse(ChipPalette.AmberStrong));
+    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse(ChipPalette.Gray));
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
@@ -51,12 +52,12 @@ public class GitStatusBrushConverter : IValueConverter
 /// </summary>
 public class GitHubStateChipBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Approved = new(Color.Parse("#CC228B22"));
-    private static readonly ImmutableSolidColorBrush Review = new(Color.Parse("#8B5CF6"));
-    private static readonly ImmutableSolidColorBrush Draft = new(Color.Parse("#B4B4B4"));
-    private static readonly ImmutableSolidColorBrush ApprovedBg = new(Color.Parse("#26228B22"));
-    private static readonly ImmutableSolidColorBrush ReviewBg = new(Color.Parse("#268B5CF6"));
-    private static readonly ImmutableSolidColorBrush DraftBg = new(Color.Parse("#26B4B4B4"));
+    private static readonly ImmutableSolidColorBrush Approved = new(Color.Parse(ChipPalette.GreenStrong));
+    private static readonly ImmutableSolidColorBrush Review = new(Color.Parse(ChipPalette.Purple));
+    private static readonly ImmutableSolidColorBrush Draft = new(Color.Parse(ChipPalette.Gray));
+    private static readonly ImmutableSolidColorBrush ApprovedBg = new(Color.Parse(ChipPalette.GreenTint));
+    private static readonly ImmutableSolidColorBrush ReviewBg = new(Color.Parse(ChipPalette.PurpleTint));
+    private static readonly ImmutableSolidColorBrush DraftBg = new(Color.Parse(ChipPalette.GrayTint));
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
@@ -83,18 +84,18 @@ public class GitHubStateChipBrushConverter : IValueConverter
 /// </summary>
 public class GitHubLabelBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Bug = new(Color.Parse("#CCF5222D"));
-    private static readonly ImmutableSolidColorBrush Enhancement = new(Color.Parse("#CC8B5CF6"));
-    private static readonly ImmutableSolidColorBrush Documentation = new(Color.Parse("#CC3B82F6"));
-    private static readonly ImmutableSolidColorBrush Performance = new(Color.Parse("#CCFA8C16"));
-    private static readonly ImmutableSolidColorBrush Community = new(Color.Parse("#CC228B22"));
-    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse("#B4B4B4"));
-    private static readonly ImmutableSolidColorBrush BugBg = new(Color.Parse("#26F5222D"));
-    private static readonly ImmutableSolidColorBrush EnhancementBg = new(Color.Parse("#268B5CF6"));
-    private static readonly ImmutableSolidColorBrush DocumentationBg = new(Color.Parse("#263B82F6"));
-    private static readonly ImmutableSolidColorBrush PerformanceBg = new(Color.Parse("#26FA8C16"));
-    private static readonly ImmutableSolidColorBrush CommunityBg = new(Color.Parse("#26228B22"));
-    private static readonly ImmutableSolidColorBrush OtherBg = new(Color.Parse("#26B4B4B4"));
+    private static readonly ImmutableSolidColorBrush Bug = new(Color.Parse(ChipPalette.RedStrong));
+    private static readonly ImmutableSolidColorBrush Enhancement = new(Color.Parse(ChipPalette.PurpleStrong));
+    private static readonly ImmutableSolidColorBrush Documentation = new(Color.Parse(ChipPalette.BlueStrong));
+    private static readonly ImmutableSolidColorBrush Performance = new(Color.Parse(ChipPalette.AmberStrong));
+    private static readonly ImmutableSolidColorBrush Community = new(Color.Parse(ChipPalette.GreenStrong));
+    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse(ChipPalette.Gray));
+    private static readonly ImmutableSolidColorBrush BugBg = new(Color.Parse(ChipPalette.RedTint));
+    private static readonly ImmutableSolidColorBrush EnhancementBg = new(Color.Parse(ChipPalette.PurpleTint));
+    private static readonly ImmutableSolidColorBrush DocumentationBg = new(Color.Parse(ChipPalette.BlueTint));
+    private static readonly ImmutableSolidColorBrush PerformanceBg = new(Color.Parse(ChipPalette.AmberTint));
+    private static readonly ImmutableSolidColorBrush CommunityBg = new(Color.Parse(ChipPalette.GreenTint));
+    private static readonly ImmutableSolidColorBrush OtherBg = new(Color.Parse(ChipPalette.GrayTint));
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {

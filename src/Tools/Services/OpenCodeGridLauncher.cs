@@ -1,9 +1,11 @@
 using Serilog;
 using Tools.Library.Formatters;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services.Abstractions;
 using Tools.SnapIt.Entities;
 using Tools.SnapIt.Graphics;
+using Tools.SnapIt.Helpers;
 using Tools.SnapIt.Services.Abstractions;
 
 namespace Tools.Services;
@@ -102,29 +104,11 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
     /// <summary>
     /// Builds the opencode command line (e.g.
     /// <c>opencode --model "gpt-4" --prompt "fix the bug"</c>) shared by the grid and
-    /// non-grid launch paths so both stay in sync. <c>--model</c>/<c>--prompt</c> are only
-    /// emitted when non-empty; values are trimmed and quotes escaped.
+    /// non-grid launch paths so both stay in sync. The assembly itself lives on the
+    /// Library terminal launcher; this delegate keeps the grid path on the same source.
     /// </summary>
     internal static string BuildCommandLine(string openCodeExe, string model, string prompt)
-    {
-        openCodeExe = string.IsNullOrWhiteSpace(openCodeExe) ? "opencode" : openCodeExe;
-        var cleanModel = (model ?? string.Empty).Trim();
-        var cleanPrompt = (prompt ?? string.Empty).Trim();
-
-        var parts = new List<string> { openCodeExe };
-        if (!string.IsNullOrWhiteSpace(cleanModel))
-        {
-            parts.Add($"--model \"{Escape(cleanModel)}\"");
-        }
-        if (!string.IsNullOrWhiteSpace(cleanPrompt))
-        {
-            parts.Add($"--prompt \"{Escape(cleanPrompt)}\"");
-        }
-
-        return string.Join(' ', parts);
-    }
-
-    private static string Escape(string value) => value.Replace("\"", "\\\"");
+        => TerminalLauncher.BuildOpenCodeCommandLine(openCodeExe, model, prompt);
 
     /// <summary>
     /// Picks the grid that fits the count. Counts up to 6 always divide the screen into a
@@ -240,11 +224,7 @@ public class OpenCodeGridLauncher : IOpenCodeGridLauncher
         var outer = _winApiService.GetWindowRect(handle);
         if (!withMargin.IsEmpty && !outer.IsEmpty)
         {
-            var marginHorizontal = (outer.Width - withMargin.Width) / 2;
-            cell.Left -= marginHorizontal;
-            cell.Top -= 0;
-            cell.Right += marginHorizontal;
-            cell.Bottom += outer.Height - withMargin.Height;
+            WindowPlacement.ExpandByFrameMargins(cell, outer, withMargin);
         }
 
         _winApiService.MoveWindow(activeWindow, cell);
