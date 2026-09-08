@@ -199,6 +199,8 @@ public partial class BottomBarViewModel : ObservableObject
     private void OnSelectedRepoPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(Repo.GitModifiedCount)
+            or nameof(Repo.GitToPushCount)
+            or nameof(Repo.GitToPullCount)
             or nameof(Repo.GitHubPrCount)
             or nameof(Repo.GitHubIssueCount)
             or nameof(Repo.AzureDevOpsPrCount)
@@ -225,10 +227,20 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedRepoFolderPath));
         OnPropertyChanged(nameof(HasSelectedRepoGitHubUrl));
         OnPropertyChanged(nameof(SelectedRepoGitHubDisplayUrl));
+        OnPropertyChanged(nameof(GitToPullCount));
+        OnPropertyChanged(nameof(GitToPushCount));
     }
 
     /// <summary>Working-tree change count of the selected repo (the Overview card's footer).</summary>
     public int ChangesCount => SelectedRepo?.GitModifiedCount ?? 0;
+
+    /// <summary>Behind-the-upstream count (the Changes toolbar's Pull badge); 0 with no
+    /// repo selected — a flat mirror so the binding path never crosses a null
+    /// SelectedRepo (that logs a binding error under a debugger on every rebind).</summary>
+    public int GitToPullCount => SelectedRepo?.GitToPullCount ?? 0;
+
+    /// <summary>Ahead-of-upstream count (the Changes toolbar's Push badge); 0 with no repo.</summary>
+    public int GitToPushCount => SelectedRepo?.GitToPushCount ?? 0;
 
     public bool ShowChangesBadge => ChangesCount > 0;
 

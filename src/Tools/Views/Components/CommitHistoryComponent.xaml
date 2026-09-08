@@ -50,20 +50,20 @@
                         FontSize="15"
                         FontWeight="SemiBold"
                         Foreground="{DynamicResource BodyForegroundBrush}"
-                        Text="{Binding Commit.Subject}"
+                        Text="{Binding CommitSubject}"
                         TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="5">
-                        <TextBlock Classes="mono" Classes.subtle="True" Text="{Binding Commit.ShortHash}" />
+                        <TextBlock Classes="mono" Classes.subtle="True" Text="{Binding CommitShortHash}" />
                         <TextBlock Classes="subtle" Text="·" />
                         <TextBlock
                             Classes="subtle"
-                            IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                            Text="{Binding Commit.Author}" />
+                            IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                            Text="{Binding CommitAuthor}" />
                         <TextBlock
                             Classes="subtle"
-                            IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                            IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                             Text="·" />
-                        <TextBlock Classes="subtle" Text="{Binding Commit.RelativeTime}" />
+                        <TextBlock Classes="subtle" Text="{Binding CommitRelativeTime}" />
                     </StackPanel>
                 </StackPanel>
 

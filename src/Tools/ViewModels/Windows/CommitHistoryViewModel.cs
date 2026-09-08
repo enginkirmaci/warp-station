@@ -46,6 +46,25 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     [ObservableProperty]
     private GitCommitInfo? _commit;
 
+    partial void OnCommitChanged(GitCommitInfo? value)
+    {
+        OnPropertyChanged(nameof(CommitSubject));
+        OnPropertyChanged(nameof(CommitShortHash));
+        OnPropertyChanged(nameof(CommitAuthor));
+        OnPropertyChanged(nameof(CommitRelativeTime));
+    }
+
+    /// <summary>Null-safe header mirrors of <see cref="Commit"/> — the drawer's bindings
+    /// attach before the open context lands, and a null intermediate path logs a binding
+    /// error under a debugger on every open.</summary>
+    public string? CommitSubject => Commit?.Subject;
+
+    public string? CommitShortHash => Commit?.ShortHash;
+
+    public string? CommitAuthor => Commit?.Author;
+
+    public string? CommitRelativeTime => Commit?.RelativeTime;
+
     /// <summary>True while the commit's file list is being loaded.</summary>
     [ObservableProperty]
     private bool _isLoading;

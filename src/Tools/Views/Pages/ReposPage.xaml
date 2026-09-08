@@ -662,31 +662,34 @@
                                                                         </Grid>
 
                                                                         <!--
-                                                                                Git stats: modified count in a tinted pill,
-                                                                                push/pull numbers plain beside it, left-aligned
-                                                                                in its column; ONLY the count pill is clickable
-                                                                                and opens the bottom bar's Changes tab (same
-                                                                                command as the branch pill) — the "Changes (↑↓)"
-                                                                                text next to it is inert. Sized so all three
-                                                                                groups fit the column at the default window width.
+                                                                                Git stats split to two columns: the modified
+                                                                                count pill right-aligned in a FIXED 48px column
+                                                                                (the badges align down the table), "Changes (↑↓)"
+                                                                                left-aligned after it — an auto-width pill let
+                                                                                the text drift row to row. ONLY the count pill
+                                                                                is clickable and opens the bottom bar's Changes
+                                                                                tab (same command as the branch pill) — the
+                                                                                "Changes (↑↓)" text next to it is inert.
                                                                         -->
-                                                                        <StackPanel
+                                                                        <Grid
                                                                                 Grid.Column="4"
                                                                                 Margin="0,0,16,0"
-                                                                                VerticalAlignment="Center">
-                                                                                <StackPanel
-                                                                                        Orientation="Horizontal"
-                                                                                        IsVisible="{Binding GitStatusLoaded}">
-                                                                                        <Button
-                                                                                                Padding="0"
-                                                                                                VerticalAlignment="Center"
-                                                                                                Background="Transparent"
-                                                                                                BorderThickness="0"
-                                                                                                Classes="chip-hover-dim"
-                                                                                                Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
-                                                                                                CommandParameter="{Binding}"
-                                                                                                Cursor="Hand"
-                                                                                                ToolTip.Tip="Open the changes panel">
+                                                                                VerticalAlignment="Center"
+                                                                                ColumnDefinitions="48,*">
+                                                                                <!--  Count pill: right-aligned in its fixed column.  -->
+                                                                                <Button
+                                                                                        Grid.Column="0"
+                                                                                        Padding="0"
+                                                                                        HorizontalAlignment="Right"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Background="Transparent"
+                                                                                        BorderThickness="0"
+                                                                                        Classes="chip-hover-dim"
+                                                                                        Command="{ReflectionBinding #Root.DataContext.OpenChangesCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        Cursor="Hand"
+                                                                                        IsVisible="{Binding GitStatusLoaded}"
+                                                                                        ToolTip.Tip="Open the changes panel">
                                                                                                 <Border
                                                                                                         Padding="9,4"
                                                                                                         VerticalAlignment="Center"
@@ -700,6 +703,12 @@
                                                                                                                 Text="{Binding GitModifiedCount}" />
                                                                                                 </Border>
                                                                                         </Button>
+                                                                                        <!--  Label + ahead/behind counts: left-aligned after
+                                                                                              the fixed pill column, same x on every row.  -->
+                                                                                        <StackPanel
+                                                                                                Grid.Column="1"
+                                                                                                Orientation="Horizontal"
+                                                                                                IsVisible="{Binding GitStatusLoaded}">
                                                                                         <TextBlock
                                                                                                 Margin="6,0,0,0"
                                                                                                 VerticalAlignment="Center"
@@ -749,13 +758,15 @@
                                                                                                 VerticalAlignment="Center"
                                                                                                 Classes="subtle"
                                                                                                 Text=")" />
-                                                                                </StackPanel>
+                                                                                        </StackPanel>
                                                                                 <TextBlock
+                                                                                        Grid.Column="0"
+                                                                                        Grid.ColumnSpan="2"
                                                                                         HorizontalAlignment="Left"
                                                                                         Classes="subtle"
                                                                                         IsVisible="{Binding !GitStatusLoaded}"
                                                                                         Text="checking…" />
-                                                                        </StackPanel>
+                                                                        </Grid>
 
                                                                         <!--
                                                                                 GitHub: one chip per item kind with

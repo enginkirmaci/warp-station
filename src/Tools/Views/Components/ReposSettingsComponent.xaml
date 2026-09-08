@@ -24,7 +24,7 @@
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="16,4,16,12" Spacing="12">
 
-                <!--  Scanning: folders, patterns, depth  -->
+                <!--  Scanning: folders and patterns  -->
                 <Border Classes="card">
                     <StackPanel Spacing="8">
                         <TextBlock Classes="card-title" Text="Scanning" />
@@ -79,13 +79,6 @@
                                     Text="Platform Folder Name"
                                     ToolTip.Tip="Path marker used to auto-tag platform repos" />
                                 <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="Max Scan Depth"
-                                    ToolTip.Tip="Maximum number of folder levels to scan recursively (e.g. 3)" />
-                                <TextBox Text="{Binding MaxScanDepth, UpdateSourceTrigger=PropertyChanged}" Watermark="3" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>

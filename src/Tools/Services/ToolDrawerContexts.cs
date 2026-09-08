@@ -19,7 +19,7 @@ public sealed class AddRepositoriesDrawerContext
         TrackedRepos = trackedRepos;
     }
 
-    /// <summary>The repo scan settings (exclusions, patterns, depth) to scan with.</summary>
+    /// <summary>The repo scan settings (exclusions, patterns) to scan with.</summary>
     public ReposSettings Settings { get; }
 
     /// <summary>The currently tracked repos; their findings cannot be re-added.</summary>

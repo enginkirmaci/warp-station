@@ -21,6 +21,13 @@ public partial class ReposSettingsViewModel :
     // Canonical defaults live on ReposSettings itself (the per-field Default* constants
     // that also back ReposSettings.Defaults); no private duplicates are kept here.
 
+    /// <summary>
+    /// The drawer has no depth field (the Add Repositories dialog owns that setting),
+    /// so the stored value is captured on open and re-emitted on save — the caller
+    /// replaces the whole Repos section with <see cref="BuildSettings"/>'s result.
+    /// </summary>
+    private int _preservedMaxScanDepth = ReposSettings.DefaultMaxScanDepth;
+
     [ObservableProperty]
     private string _repoScanFoldersText = string.Empty;
 
@@ -98,9 +105,6 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _azureDevOpsUrl = string.Empty;
 
-    [ObservableProperty]
-    private string _maxScanDepth = ReposSettings.DefaultMaxScanDepth.ToString();
-
     /// <summary>
     /// Initializes a new instance. Editing state is seeded per open through
     /// <see cref="OnDrawerContextAsync"/> (the component is resolved fresh from DI each time).
@@ -163,9 +167,7 @@ public partial class ReposSettingsViewModel :
             EnableAzureDevOps = EnableAzureDevOps,
             AzureDevOpsPat = AzureDevOpsPat?.Trim() ?? string.Empty,
             AzureDevOpsUrl = AzureDevOpsUrl?.Trim() ?? string.Empty,
-            MaxScanDepth = int.TryParse(MaxScanDepth, out var depth) && depth > 0
-                ? depth
-                : ReposSettings.DefaultMaxScanDepth
+            MaxScanDepth = _preservedMaxScanDepth
         };
     }
 
@@ -210,9 +212,9 @@ public partial class ReposSettingsViewModel :
         EnableAzureDevOps = settings.EnableAzureDevOps;
         AzureDevOpsPat = settings.AzureDevOpsPat ?? string.Empty;
         AzureDevOpsUrl = settings.AzureDevOpsUrl ?? string.Empty;
-        MaxScanDepth = settings.MaxScanDepth > 0
-            ? settings.MaxScanDepth.ToString()
-            : ReposSettings.DefaultMaxScanDepth.ToString();
+        _preservedMaxScanDepth = settings.MaxScanDepth > 0
+            ? settings.MaxScanDepth
+            : ReposSettings.DefaultMaxScanDepth;
     }
 
     private static string[] ToLines(string? text)
