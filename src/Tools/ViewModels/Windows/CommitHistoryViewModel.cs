@@ -187,6 +187,7 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
 
         ComputeWebUrl();
         _ = LoadDetailsAsync();
+        _ = EvaluateWebUrlAsync();
         return Task.CompletedTask;
     }
 
@@ -209,8 +210,29 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         {
             _webUrl = $"{azure.TrimEnd('/')}/commit/{Commit.Hash}";
         }
+    }
 
-        HasWebUrl = _webUrl is not null;
+    /// <summary>
+    /// The commit's web page only exists once the commit is pushed, so the footer's
+    /// visibility waits for the pushed check instead of just the remote's existence —
+    /// an unpushed commit's page would be a 404. A stale answer (the user opened
+    /// another commit while the check ran) is dropped.
+    /// </summary>
+    private async Task EvaluateWebUrlAsync()
+    {
+        var repo = _repo;
+        var commit = Commit;
+        if (repo is null || commit is null || _webUrl is null)
+        {
+            HasWebUrl = false;
+            return;
+        }
+
+        var pushed = await _gitStatusService.IsCommitPushedAsync(repo, commit.Hash);
+        if (ReferenceEquals(Commit, commit))
+        {
+            HasWebUrl = pushed;
+        }
     }
 
     private async Task LoadDetailsAsync()

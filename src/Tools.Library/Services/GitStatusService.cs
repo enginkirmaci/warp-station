@@ -288,6 +288,19 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public async Task<bool> IsCommitPushedAsync(Repo repo, string hash, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash)) return false;
+
+        // Remote-tracking branches containing the commit: non-empty = reachable from
+        // some fetched remote ref (= pushed). Note the list is only as fresh as the
+        // last fetch. A git error (null) fails open — the web link hides only on a
+        // positive "no remote ref contains it".
+        var output = await RunGitAsync(repo.FolderPath, $"branch -r --contains {Quote(hash)}", cancellationToken);
+        return output is null || output.Trim().Length > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<GitChangedFile>> GetChangedFilesAsync(Repo repo, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitChangedFile>();

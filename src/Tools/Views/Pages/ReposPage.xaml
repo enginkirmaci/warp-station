@@ -328,8 +328,7 @@
                                                         host. All row actions are explicit buttons (with CommandParameter), so
                                                         ListBox selection is neither needed nor meaningful; neutralize its visual
                                                         states (rest/selected/pressed/focused) and every chrome layer behind the
-                                                        rows stays transparent — rows carry no hover tint at all; only the
-                                                        bar-selected repo lights up (Border.repo-row.selected below).
+                                                        rows stays transparent — rows carry no hover tint at all, in any state.
                                                 -->
                                                 <Style Selector="ListBoxItem">
                                                         <Setter Property="Padding" Value="0" />
@@ -361,23 +360,22 @@
                                                         <Setter Property="Background" Value="Transparent" />
                                                 </Style>
                                                 <!--
-                                                        The bar's selected repo keeps the same tint the rows used to
-                                                        show on hover, so the row feeding the bottom bar stays findable
-                                                        in the shrunken table. This is the row's only highlight —
-                                                        hover deliberately paints nothing.
-                                                -->
-                                                <Style Selector="Border.repo-row.selected">
-                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
-                                                </Style>
-                                                <!--
-                                                        Row affordance: the whole row press-toggles the bottom bar
-                                                        (OnCardPointerPressed in the code-behind) and the chips are
-                                                        buttons, so the hand cursor signals clickability across the
-                                                        row (Cursor is inherited). Hover paints nothing on purpose —
-                                                        the bar-selected tint above stays the row's only highlight.
+                                                        Row highlight: rows tint on hover and the bar's selected
+                                                        repo keeps a steady tint. The base transparent background
+                                                        must be a STYLE, not a local attribute — a local value would
+                                                        beat the :pointerover setter below — and it must exist
+                                                        because a null-background Border only hit-tests on its
+                                                        children, leaving the empty cell areas hover-dead.
                                                 -->
                                                 <Style Selector="Border.repo-row">
+                                                        <Setter Property="Background" Value="Transparent" />
                                                         <Setter Property="Cursor" Value="Hand" />
+                                                </Style>
+                                                <Style Selector="Border.repo-row:pointerover">
+                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+                                                </Style>
+                                                <Style Selector="Border.repo-row.selected">
+                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
                                                 </Style>
                                                 <!--
                                                         SukiTheme's app-wide ListBoxItem ControlTheme replaces the item
@@ -518,12 +516,17 @@
                                                                                                         Width="22"
                                                                                                         Height="22"
                                                                                                         Data="{tools:SvgPath icon-opencode}"
-                                                                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                        Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
+                                                                                        <!--  Flat icon button (no fill/outline — user
+                                                                                              preference over tool-button): the icon
+                                                                                              class is transparent with a hover tint.  -->
                                                                                         <Button
+                                                                                                Width="40"
+                                                                                                Height="40"
                                                                                                 VerticalAlignment="Center"
-                                                                                                Classes="tool-button"
+                                                                                                Classes="icon"
                                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 ToolTip.Tip="Open the OpenCode panel (model, instances, template, prompt)">

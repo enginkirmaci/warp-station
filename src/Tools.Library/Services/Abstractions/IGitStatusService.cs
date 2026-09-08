@@ -94,6 +94,14 @@ public interface IGitStatusService
     Task<bool> RevertCommitAsync(Repo repo, string hash, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Whether one commit is reachable from any fetched remote-tracking branch
+    /// (<c>git branch -r --contains &lt;hash&gt;</c>) — i.e. pushed, so the provider's
+    /// web page for it exists. Git errors fail open (true) so the web link is only
+    /// hidden on a positive "not contained".
+    /// </summary>
+    Task<bool> IsCommitPushedAsync(Repo repo, string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lists the repo's working-tree changes file by file (modified, renamed, unmerged
     /// and untracked; every untracked file individually) with each entry's porcelain
     /// status code and — where git reports them — the file's added/deleted line counts.
