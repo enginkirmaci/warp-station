@@ -245,6 +245,10 @@ public partial class MainWindow : SukiWindow
         {
             viewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
         }
+        // An open drawer hosts a transient ViewModel subscribed to singleton services;
+        // Close() routes the teardown through OnToolDrawerChanged so the VM is not
+        // rooted by them for the remaining process lifetime.
+        _toolDrawer.Close();
         _toolDrawer.Changed -= OnToolDrawerChanged;
         _searchDebounce.Dispose();
         // Background services (SnapIt, NuGet watch) are stopped during application
@@ -426,12 +430,15 @@ public partial class MainWindow : SukiWindow
 
     /// <summary>
     /// Invokes an asynchronous ViewModel lifecycle hook, surfacing failures via the
-    /// logger instead of silently swallowing them. Fire-and-forget mirrors the former
-    /// navigation service's handling of the same hooks.
+    /// logger instead of silently swallowing them. Hooks dispatch on the UI thread —
+    /// a thread-pool run would let teardown race the next instance's constructor
+    /// subscribe and let view-models mutate observable state off the UI thread.
+    /// Fire-and-forget mirrors the former navigation service's handling of the same
+    /// hooks.
     /// </summary>
     private static void FireLifecycle(Func<Task> hook)
     {
-        _ = Task.Run(async () =>
+        _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
             try
             {

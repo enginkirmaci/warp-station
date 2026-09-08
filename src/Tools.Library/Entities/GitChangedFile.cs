@@ -24,6 +24,14 @@ public sealed record GitChangedFile(
     public bool HasCounts => Additions is not null || Deletions is not null;
 
     /// <summary>
+    /// Which side of the index the row currently renders in — the merged Changes
+    /// list branches its +/− action button on it (unstaged rows stage, staged rows
+    /// unstage). Set by the bar when it builds the section rows; records are
+    /// recreated on every status load, so nothing to invalidate.
+    /// </summary>
+    public bool IsStaged { get; set; }
+
+    /// <summary>
     /// The status letter as the UI shows it — "U" for untracked (VS Code's letter), the
     /// porcelain code otherwise ("?" is git's raw untracked marker, never displayed).
     /// </summary>

@@ -118,53 +118,6 @@
             </Grid>
         </DataTemplate>
 
-        <!--  Staged/unstaged file row: status chip + path + numstat + the action
-              button. The button's command, tooltip and icon come from the owning
-              list's class (ItemsControl.stage-actions / .unstage-actions styles).
-              The numstat column is FIXED 104px (48 + 8 + 48) so the action button
-              holds its x on rows without counts (binary/untracked) too.  -->
-        <DataTemplate x:Key="GitChangedFileRowTemplate" x:DataType="entities:GitChangedFile">
-            <Grid ColumnDefinitions="Auto,*,104,Auto" ColumnSpacing="8">
-                <Border
-                    Grid.Column="0"
-                    Width="30"
-                    Padding="0,2"
-                    VerticalAlignment="Center"
-                    Background="{DynamicResource CardSubtleBackgroundBrush}"
-                    BorderBrush="{DynamicResource HairlineBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{DynamicResource ChipRadius}">
-                    <TextBlock
-                        HorizontalAlignment="Center"
-                        Classes="mono"
-                        Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                        Text="{Binding DisplayStatusCode}" />
-                </Border>
-                <TextBlock
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
-                    Classes="mono"
-                    Foreground="{DynamicResource BodyForegroundBrush}"
-                    Text="{Binding Path}"
-                    TextTrimming="CharacterEllipsis" />
-                <ContentControl
-                    Grid.Column="2"
-                    Content="{Binding}"
-                    ContentTemplate="{StaticResource NumstatPillsTemplate}" />
-                <Button
-                    Grid.Column="3"
-                    VerticalAlignment="Center"
-                    Classes="icon row-action"
-                    CommandParameter="{Binding}">
-                    <Path
-                        Width="14"
-                        Height="14"
-                        Fill="{DynamicResource MutedForegroundBrush}"
-                        Stretch="Uniform" />
-                </Button>
-            </Grid>
-        </DataTemplate>
-
         <!--  Overview stat-card bodies. The cards are written twice (4-column grid with
               the Pipelines slot, 3-column without it); only the Button's command /
               visibility differ per site, so the bodies live here. The icon badge is
@@ -472,28 +425,6 @@
         <Style Selector="TextBlock.list-note">
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,24" />
-        </Style>
-        <!--  Staged/unstaged file-row action: one shared row template
-              (GitChangedFileRowTemplate) serves both lists; the +/− button's command,
-              tooltip and icon come from the list's class — .stage-actions stages with
-              a plus, .unstage-actions unstages with a minus. The lists are plain
-              ItemsControls on purpose: the card's own ScrollViewer is the ONLY
-              scroller (a virtualizing ListBox here would need its own bounded
-              viewport and a second scrollbar — rejected: "inner one is not
-              needed").  -->
-        <Style Selector="ItemsControl.stage-actions Button.row-action">
-            <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}" />
-            <Setter Property="ToolTip.Tip" Value="Stage this file" />
-        </Style>
-        <Style Selector="ItemsControl.stage-actions Button.row-action Path">
-            <Setter Property="Data" Value="{tools:SvgPath icon-plus}" />
-        </Style>
-        <Style Selector="ItemsControl.unstage-actions Button.row-action">
-            <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}" />
-            <Setter Property="ToolTip.Tip" Value="Unstage this file — the working tree keeps the change" />
-        </Style>
-        <Style Selector="ItemsControl.unstage-actions Button.row-action Path">
-            <Setter Property="Data" Value="{tools:SvgPath icon-minus}" />
         </Style>
     </UserControl.Styles>
 
@@ -1445,10 +1376,17 @@
                     <!--  Main row: staged/unstaged tree (left) + commit workspace (right)  -->
                     <Grid ColumnDefinitions="58*,42*" ColumnSpacing="10">
 
-                        <!--  LEFT: the staged/unstaged tree  -->
+                        <!--  LEFT: the staged/unstaged tree. ONE virtualized list holds
+                              both sections (each opens with its own header row,
+                              unstaged first), so the tab keeps its single scrolling
+                              surface while only viewport rows are realized — the list
+                              can hold thousands of untracked files, and realizing
+                              them all was the bar's biggest RAM cost. Header rows
+                              carry the Stage All / Unstage All buttons; file rows
+                              branch their +/− action on GitChangedFile.IsStaged.  -->
                         <Border Grid.Column="0" Classes="ov-card">
-                            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel Spacing="2" Margin="4,4,4,4">
+                            <Grid Margin="4" RowDefinitions="Auto,*">
+                                <StackPanel Grid.Row="0" Spacing="2">
                                     <TextBlock
                                         Margin="0,20"
                                         Classes="list-note subtle"
@@ -1459,82 +1397,128 @@
                                         Classes="list-note subtle"
                                         IsVisible="{Binding IsChangesTabLoading}"
                                         Text="Loading changes…" />
-
-                                    <!--  Unstaged section  -->
-                                    <Grid
-                                        ColumnDefinitions="*,Auto"
-                                        Margin="2,2,2,2"
-                                        IsVisible="{Binding ShowUnstagedSection}">
-                                        <StackPanel
-                                            Grid.Column="0"
-                                            VerticalAlignment="Center"
-                                            Orientation="Horizontal"
-                                            Spacing="6">
-                                            <Path
-                                                Width="13"
-                                                Height="13"
-                                                VerticalAlignment="Center"
-                                                Data="{tools:SvgPath icon-source-branch}"
-                                                Fill="{DynamicResource WarningAccentBrush}"
-                                                Stretch="Uniform" />
-                                            <TextBlock Classes="ov-card-title" Text="Unstaged Changes" />
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text="{Binding UnstagedCount, StringFormat='({0})'}" />
-                                        </StackPanel>
-                                        <Button
-                                            Grid.Column="1"
-                                            VerticalAlignment="Center"
-                                            Classes="text-subtle"
-                                            Command="{Binding StageAllCommand}"
-                                            Content="Stage All"
-                                            ToolTip.Tip="Stage all unstaged files" />
-                                    </Grid>
-                                    <ItemsControl
-                                        Classes="stage-actions"
-                                        IsVisible="{Binding ShowUnstagedSection}"
-                                        ItemTemplate="{StaticResource GitChangedFileRowTemplate}"
-                                        ItemsSource="{Binding UnstagedFiles}" />
-
-                                    <!--  Staged section  -->
-                                    <Grid
-                                        ColumnDefinitions="*,Auto"
-                                        Margin="2,8,2,2"
-                                        IsVisible="{Binding ShowStagedSection}">
-                                        <StackPanel
-                                            Grid.Column="0"
-                                            VerticalAlignment="Center"
-                                            Orientation="Horizontal"
-                                            Spacing="6">
-                                            <Path
-                                                Width="13"
-                                                Height="13"
-                                                VerticalAlignment="Center"
-                                                Data="{tools:SvgPath icon-check}"
-                                                Fill="{DynamicResource StatusActiveBrush}"
-                                                Stretch="Uniform" />
-                                            <TextBlock Classes="ov-card-title" Text="Staged Changes" />
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Classes="subtle"
-                                                Text="{Binding StagedCount, StringFormat='({0})'}" />
-                                        </StackPanel>
-                                        <Button
-                                            Grid.Column="1"
-                                            VerticalAlignment="Center"
-                                            Classes="text-subtle"
-                                            Command="{Binding UnstageAllCommand}"
-                                            Content="Unstage All"
-                                            ToolTip.Tip="Unstage all files — the working tree keeps every change" />
-                                    </Grid>
-                                    <ItemsControl
-                                        Classes="unstage-actions"
-                                        IsVisible="{Binding ShowStagedSection}"
-                                        ItemTemplate="{StaticResource GitChangedFileRowTemplate}"
-                                        ItemsSource="{Binding StagedFiles}" />
                                 </StackPanel>
-                            </ScrollViewer>
+                                <ListBox
+                                    Grid.Row="1"
+                                    Classes="plain-list"
+                                    ItemsSource="{Binding ChangeRows}">
+                                    <ListBox.DataTemplates>
+                                        <!--  Section header: icon + title + count on the
+                                              left, the side's all-button on the right
+                                              (icon and command branch on the side).  -->
+                                        <DataTemplate x:DataType="vm:ChangeSectionRow">
+                                            <Grid ColumnDefinitions="*,Auto" Margin="2,8,2,2">
+                                                <StackPanel
+                                                    Grid.Column="0"
+                                                    VerticalAlignment="Center"
+                                                    Orientation="Horizontal"
+                                                    Spacing="6">
+                                                    <Panel Width="13" Height="13" VerticalAlignment="Center">
+                                                        <Path
+                                                            Width="13"
+                                                            Height="13"
+                                                            Data="{tools:SvgPath icon-source-branch}"
+                                                            Fill="{DynamicResource WarningAccentBrush}"
+                                                            IsVisible="{Binding IsUnstaged}"
+                                                            Stretch="Uniform" />
+                                                        <Path
+                                                            Width="13"
+                                                            Height="13"
+                                                            Data="{tools:SvgPath icon-check}"
+                                                            Fill="{DynamicResource StatusActiveBrush}"
+                                                            IsVisible="{Binding !IsUnstaged}"
+                                                            Stretch="Uniform" />
+                                                    </Panel>
+                                                    <TextBlock Classes="ov-card-title" Text="{Binding Title}" />
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        Classes="subtle"
+                                                        Text="{Binding Count, StringFormat='({0})'}" />
+                                                </StackPanel>
+                                                <Button
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Classes="text-subtle"
+                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageAllCommand}"
+                                                    Content="Stage All"
+                                                    IsVisible="{Binding IsUnstaged}"
+                                                    ToolTip.Tip="Stage all unstaged files" />
+                                                <Button
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Classes="text-subtle"
+                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageAllCommand}"
+                                                    Content="Unstage All"
+                                                    IsVisible="{Binding !IsUnstaged}"
+                                                    ToolTip.Tip="Unstage all files — the working tree keeps every change" />
+                                            </Grid>
+                                        </DataTemplate>
+                                        <!--  File row: status chip + path + numstat + the
+                                              side's action button. The numstat column is
+                                              FIXED 104px (48 + 8 + 48) so the action
+                                              button holds its x on rows without counts
+                                              (binary/untracked) too.  -->
+                                        <DataTemplate x:DataType="entities:GitChangedFile">
+                                            <Grid ColumnDefinitions="Auto,*,104,Auto" ColumnSpacing="8">
+                                                <Border
+                                                    Grid.Column="0"
+                                                    Width="30"
+                                                    Padding="0,2"
+                                                    VerticalAlignment="Center"
+                                                    Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource HairlineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="{DynamicResource ChipRadius}">
+                                                    <TextBlock
+                                                        HorizontalAlignment="Center"
+                                                        Classes="mono"
+                                                        Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
+                                                        Text="{Binding DisplayStatusCode}" />
+                                                </Border>
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Classes="mono"
+                                                    Foreground="{DynamicResource BodyForegroundBrush}"
+                                                    Text="{Binding Path}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <ContentControl
+                                                    Grid.Column="2"
+                                                    Content="{Binding}"
+                                                    ContentTemplate="{StaticResource NumstatPillsTemplate}" />
+                                                <Panel Grid.Column="3" VerticalAlignment="Center">
+                                                    <Button
+                                                        Classes="icon row-action"
+                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        IsVisible="{Binding !IsStaged}"
+                                                        ToolTip.Tip="Stage this file">
+                                                        <Path
+                                                            Width="14"
+                                                            Height="14"
+                                                            Data="{tools:SvgPath icon-plus}"
+                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                            Stretch="Uniform" />
+                                                    </Button>
+                                                    <Button
+                                                        Classes="icon row-action"
+                                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        IsVisible="{Binding IsStaged}"
+                                                        ToolTip.Tip="Unstage this file — the working tree keeps the change">
+                                                        <Path
+                                                            Width="14"
+                                                            Height="14"
+                                                            Data="{tools:SvgPath icon-minus}"
+                                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                                            Stretch="Uniform" />
+                                                    </Button>
+                                                </Panel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.DataTemplates>
+                                </ListBox>
+                            </Grid>
                         </Border>
 
                         <!--  RIGHT: the commit workspace  -->

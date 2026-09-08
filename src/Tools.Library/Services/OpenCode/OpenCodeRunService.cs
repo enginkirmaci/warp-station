@@ -18,11 +18,12 @@ public class OpenCodeRunService : IOpenCodeRunService
     /// <inheritdoc/>
     public async Task<string?> RunAsync(string? executable, string? model, string prompt, CancellationToken cancellationToken = default)
     {
-        // Not on the shared ProcessRunner (yet): this run's semantics are load-bearing and
-        // differ from the runner's — on timeout the child must be left alive (only an
-        // external cancel kills it, synchronously via token Register), completion is the
-        // first pipe to close rather than process exit plus a full drain, and the drains
-        // ride CancellationToken.None to survive teardown.
+        // Not on the shared ProcessRunner (yet): completion is the first pipe to close
+        // rather than process exit plus a full drain, and the drains ride
+        // CancellationToken.None to survive teardown. The timeout now kills the tree
+        // exactly like the runner does — a timed-out run's output is discarded, and a
+        // left-alive Electron tree would outlive the app (the wand's generation scope
+        // disposes its CTS without cancelling, so nothing else would reap it).
         var (exe, resolved) = ProcessRunner.LocateCli(executable, "opencode", "OpenCodeRunService", warnWhenMissing: false);
         if (resolved is null)
         {
@@ -82,6 +83,10 @@ public class OpenCodeRunService : IOpenCodeRunService
                 // A cancelled delay also lands here; surface it as cancellation (the
                 // kill already happened via killOnCancel) instead of a timeout.
                 await completed;
+                // Genuine timeout: kill the whole tree, mirroring ProcessRunner. The
+                // output is discarded either way, and a left-alive Electron tree would
+                // pin system RAM past app exit.
+                try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
                 Log.Logger.Warning("OpenCodeRunService: '{Exe} run' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
                 return null;
             }

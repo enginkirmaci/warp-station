@@ -18,7 +18,8 @@ namespace Tools.Library.Services;
 /// </summary>
 public abstract class RepoActivityServiceBase<TActivity> : IRepoActivityService
 {
-    private readonly IRepoService _repoService;
+    /// <summary>The live repo list — derived providers prune their per-folder caches against it.</summary>
+    protected readonly IRepoService _repoService;
 
     /// <summary>Owns the coalescing refresh loop and the throttled pass over every repo.</summary>
     private readonly RefreshCoalescer _coalescer;

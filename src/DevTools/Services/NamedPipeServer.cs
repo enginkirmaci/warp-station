@@ -42,29 +42,39 @@ public class NamedPipeServer : IDisposable
     {
         while (_isRunning && !_cts.Token.IsCancellationRequested)
         {
+            var pipeServer = new NamedPipeServerStream(
+                PipeName,
+                PipeDirection.In,
+                MaxConnections,
+                PipeTransmissionMode.Message,
+                PipeOptions.Asynchronous);
+
             try
             {
-                var pipeServer = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.In,
-                    MaxConnections,
-                    PipeTransmissionMode.Message,
-                    PipeOptions.Asynchronous);
-
                 await pipeServer.WaitForConnectionAsync(_cts.Token);
-                Log.Information("[NamedPipeServer] Client connected");
-
-                var task = Task.Run(() => HandleClientAsync(pipeServer, _cts.Token));
-                _connectionTasks.Add(task);
             }
             catch (OperationCanceledException)
             {
+                pipeServer.Dispose();
                 break;
             }
             catch (Exception ex)
             {
+                // The stream belongs to this loop until a client connects; an accept
+                // failure must not leak it.
+                pipeServer.Dispose();
                 Log.Error(ex, "[NamedPipeServer] Error accepting connection");
+                continue;
             }
+
+            Log.Information("[NamedPipeServer] Client connected");
+
+            var task = Task.Run(() => HandleClientAsync(pipeServer, _cts.Token));
+            _connectionTasks.Add(task);
+
+            // Prune finished entries: the list is only joined on shutdown, and a
+            // long-lived host would otherwise accumulate one dead task per client.
+            _connectionTasks.RemoveAll(t => t.IsCompleted);
         }
 
         // Wait for all connection tasks to complete

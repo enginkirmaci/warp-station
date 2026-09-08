@@ -78,6 +78,23 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
                 "GitHub column enabled but the gh CLI could not be located ({Configured}); set the GitHub CLI executable in Repos settings",
                 settings.GitHubExecutable);
         }
+
+        // Drop memoized details whose folder left the repo list (removal, rescan):
+        // without this the details cache never invalidates and dropped repos' entries
+        // pin their metadata forever. Reconfigure always follows a scan that changed
+        // the list, so this runs at exactly the right moments.
+        var liveFolders = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var repo in _repoService.Repos)
+        {
+            if (repo.FolderPath is { } folder) liveFolders.Add(folder);
+        }
+        foreach (var folder in _detailsByFolder.Keys)
+        {
+            if (!liveFolders.Contains(folder))
+            {
+                _detailsByFolder.TryRemove(folder, out _);
+            }
+        }
     }
 
     /// <inheritdoc/>

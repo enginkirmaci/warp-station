@@ -185,6 +185,15 @@ public class NugetLocalService : INugetLocalService, IDisposable
             return false;
         }
 
+        // A fresh cancellation scope per start: Stop() cancels _cts without replacing
+        // it, so a reused one would hand every new file event an already-cancelled
+        // token. The spent source is left for the GC — disposing it could pull the
+        // ground from a task Stop()'s drain abandoned at its time bound.
+        lock (_stateLock)
+        {
+            _cts = new CancellationTokenSource();
+        }
+
         await Task.Run(() =>
         {
             _watcher = new FileSystemWatcher(WatchFolder)

@@ -409,12 +409,11 @@ public sealed class GitStatusService : IGitStatusService
         var statusFiles = new List<GitChangedFile>();
         var staged = new List<GitChangedFile>();
         var unstaged = new List<GitChangedFile>();
-        foreach (var rawLine in statusOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        ForEachLine(statusOutput, line =>
         {
-            var line = rawLine.TrimEnd('\r');
-            if (line.Length == 0 || line[0] == '#') continue;
+            if (line.IsEmpty || line[0] == '#') return;
             ParseStatusLine(line, statusFiles, staged, unstaged);
-        }
+        });
 
         return new GitChangeSnapshot(
             statusFiles,
@@ -437,7 +436,7 @@ public sealed class GitStatusService : IGitStatusService
     /// IS the path (it may contain spaces), worktree side only.
     /// </summary>
     private static void ParseStatusLine(
-        string line,
+        ReadOnlySpan<char> line,
         List<GitChangedFile> statusFiles,
         List<GitChangedFile> staged,
         List<GitChangedFile> unstaged)
@@ -448,23 +447,23 @@ public sealed class GitStatusService : IGitStatusService
         var kind = line[..separator];
         var rest = line[(separator + 1)..];
 
-        if (kind == "?")
+        if (kind.SequenceEqual("?"))
         {
-            if (rest.Length > 0) statusFiles.Add(new GitChangedFile(rest, "?"));
-            unstaged.Add(new GitChangedFile(rest, "?"));
+            if (!rest.IsEmpty) statusFiles.Add(new GitChangedFile(rest.ToString(), "?"));
+            unstaged.Add(new GitChangedFile(rest.ToString(), "?"));
             return;
         }
 
-        if (kind == "u")
+        if (kind.SequenceEqual("u"))
         {
-            unstaged.Add(new GitChangedFile(LastToken(rest), "U"));
+            unstaged.Add(new GitChangedFile(LastToken(rest).ToString(), "U"));
 
             var unmergedCodeEnd = rest.IndexOf(' ');
             if (unmergedCodeEnd <= 0) return;
             var unmergedPath = LastToken(rest[(unmergedCodeEnd + 1)..]);
-            if (unmergedPath.Length > 0)
+            if (!unmergedPath.IsEmpty)
             {
-                statusFiles.Add(new GitChangedFile(unmergedPath, rest[..unmergedCodeEnd]));
+                statusFiles.Add(new GitChangedFile(unmergedPath.ToString(), rest[..unmergedCodeEnd].ToString()));
             }
             return;
         }
@@ -476,17 +475,17 @@ public sealed class GitStatusService : IGitStatusService
 
         if (indexCode is not ('.' or ' '))
         {
-            staged.Add(new GitChangedFile(path, indexCode.ToString()));
+            staged.Add(new GitChangedFile(path.ToString(), indexCode.ToString()));
         }
         if (worktreeCode is not ('.' or ' '))
         {
-            unstaged.Add(new GitChangedFile(path, worktreeCode.ToString()));
+            unstaged.Add(new GitChangedFile(path.ToString(), worktreeCode.ToString()));
         }
-        if (path.Length > 0)
+        if (!path.IsEmpty)
         {
             // (Path, StatusCode) — the flat file list shows the path and the verbatim
             // XY pair as its status.
-            statusFiles.Add(new GitChangedFile(path, rest[..2]));
+            statusFiles.Add(new GitChangedFile(path.ToString(), rest[..2].ToString()));
         }
     }
 
@@ -514,10 +513,34 @@ public sealed class GitStatusService : IGitStatusService
         new Dictionary<string, (int?, int?)>(StringComparer.Ordinal));
 
     /// <summary>The last space-separated token of a porcelain v2 change line.</summary>
-    private static string LastToken(string fields)
+    private static ReadOnlySpan<char> LastToken(ReadOnlySpan<char> fields)
     {
         var lastSpace = fields.LastIndexOf(' ');
         return lastSpace >= 0 ? fields[(lastSpace + 1)..] : fields;
+    }
+
+    /// <summary>
+    /// Walks the lines of a multi-line CLI output as spans — the allocation-free
+    /// alternative to <c>Split('\n')</c>, which duplicates the whole output as
+    /// per-line strings on every pass (a status output can hold thousands of
+    /// untracked entries). Mirrors <c>StringSplitOptions.RemoveEmptyEntries</c>:
+    /// empty and whitespace-only lines are skipped, and each line is handed over
+    /// \r-trimmed. The span is only valid for the duration of the call.
+    /// </summary>
+    private delegate void LineHandler(ReadOnlySpan<char> line);
+
+    private static void ForEachLine(string output, LineHandler handle)
+    {
+        var span = output.AsSpan();
+        while (!span.IsEmpty)
+        {
+            var eol = span.IndexOf('\n');
+            var line = eol < 0 ? span : span[..eol];
+            span = eol < 0 ? default : span[(eol + 1)..];
+            line = line.TrimEnd('\r');
+            if (line.IsWhiteSpace()) continue;
+            handle(line);
+        }
     }
 
     /// <inheritdoc/>
@@ -586,8 +609,20 @@ public sealed class GitStatusService : IGitStatusService
     public async Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return null;
-        return await RunGitAsync(repo.FolderPath, "--no-optional-locks diff --cached", cancellationToken);
+
+        // The only consumer (the commit-message prompt) truncates the patch to 8,000
+        // chars anyway, so the read stops at a fixed head instead of materializing a
+        // multi-megabyte diff (LOH churn on every wand press).
+        return await RunGitAsync(
+            repo.FolderPath,
+            "--no-optional-locks diff --cached",
+            cancellationToken,
+            maxOutputChars: StagedPatchReadCap);
     }
+
+    /// <summary>Read cap for the staged patch: comfortably past the prompt's own
+    /// 8,000-char truncation point, yet far under LOH size for any real diff.</summary>
+    private const int StagedPatchReadCap = 48 * 1024;
 
     /// <summary>Parses <c>git diff --numstat</c> output into per-path add/delete counts.</summary>
     private static Dictionary<string, (int? Additions, int? Deletions)> ParseNumstat(string? output)
@@ -693,29 +728,31 @@ public sealed class GitStatusService : IGitStatusService
 
         if (!string.IsNullOrEmpty(output))
         {
-            foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            ForEachLine(output, line =>
             {
-                var line = rawLine.TrimEnd('\r');
                 if (line.StartsWith("# branch.head ", StringComparison.Ordinal))
                 {
-                    branch = line["# branch.head ".Length..].Trim();
+                    branch = line["# branch.head ".Length..].Trim().ToString();
                 }
                 else if (line.StartsWith("# branch.ab ", StringComparison.Ordinal))
                 {
-                    foreach (var part in line["# branch.ab ".Length..]
-                                 .Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    var values = line["# branch.ab ".Length..].Trim();
+                    Span<Range> parts = stackalloc Range[4];
+                    var count = values.Split(parts, ' ', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = 0; i < count; i++)
                     {
+                        var part = values[parts[i]];
                         if (part.StartsWith('+'))
-                            int.TryParse(part.AsSpan(1), out ahead);
+                            int.TryParse(part[1..], out ahead);
                         else if (part.StartsWith('-'))
-                            int.TryParse(part.AsSpan(1), out behind);
+                            int.TryParse(part[1..], out behind);
                     }
                 }
                 else if (!line.StartsWith('#'))
                 {
                     modified++;
                 }
-            }
+            });
         }
 
         return new GitStatusSnapshot(branch, modified, ahead, behind);
@@ -733,7 +770,8 @@ public sealed class GitStatusService : IGitStatusService
         string arguments,
         CancellationToken cancellationToken,
         TimeSpan? timeout = null,
-        ICollection<string>? stderrSink = null)
+        ICollection<string>? stderrSink = null,
+        int? maxOutputChars = null)
     {
         ProcessRunResult result;
         try
@@ -745,6 +783,7 @@ public sealed class GitStatusService : IGitStatusService
                 WorkingDirectory = workingDir,
                 Timeout = timeout ?? ProcessTimeout,
                 EnvironmentVariables = GitEnvironment,
+                MaxOutputChars = maxOutputChars,
             }, cancellationToken);
         }
         catch (Win32Exception ex)
@@ -758,7 +797,7 @@ public sealed class GitStatusService : IGitStatusService
 
         // Sync failures surface their stderr to the user — same line-splitting as before,
         // so the notification still carries one actionable git line.
-        if (result.ExitCode != 0 && stderrSink is not null)
+        if (result.ExitCode != 0 && !result.Truncated && stderrSink is not null)
         {
             foreach (var line in result.StandardError.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
@@ -766,7 +805,9 @@ public sealed class GitStatusService : IGitStatusService
             }
         }
 
-        return result.ExitCode == 0 ? result.StandardOutput : null;
+        // A truncated read is a success by contract: the cap kill makes the exit code
+        // non-zero, but the caller asked for (and got) exactly the head it wanted.
+        return result.ExitCode == 0 || result.Truncated ? result.StandardOutput : null;
     }
 
     /// <summary>

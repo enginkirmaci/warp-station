@@ -147,11 +147,19 @@ public static class ProcessRunner
 
             try
             {
-                var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                var maxChars = options.MaxOutputChars;
+                var stdoutTask = maxChars is null
+                    ? process.StandardOutput.ReadToEndAsync(timeoutCts.Token)
+                    : ReadCappedAsync(process.StandardOutput, maxChars.Value, process);
                 var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
                 await process.WaitForExitAsync(timeoutCts.Token);
                 await Task.WhenAll(stdoutTask, stderrTask);
-                return new ProcessRunResult(process.ExitCode, stdoutTask.Result, stderrTask.Result, TimedOut: false);
+                return new ProcessRunResult(
+                    process.ExitCode,
+                    stdoutTask.Result,
+                    stderrTask.Result,
+                    TimedOut: false,
+                    Truncated: maxChars is { } cap && stdoutTask.Result.Length >= cap);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -160,6 +168,33 @@ public static class ProcessRunner
                 return new ProcessRunResult(ExitCode: null, string.Empty, string.Empty, TimedOut: true);
             }
         }
+    }
+
+    /// <summary>
+    /// Reads stdout until <paramref name="maxChars"/> characters are captured, then
+    /// kills the child's whole tree: the pipes EOF, so the stderr drain and the exit
+    /// wait complete and the run finishes normally with the truncated head. For
+    /// consumers that only need output's head (the commit-message prompt truncates
+    /// the staged diff anyway), this avoids materializing a multi-megabyte string.
+    /// The killed run's exit code is non-zero — callers check
+    /// <see cref="ProcessRunResult.Truncated"/>, not just the exit code.
+    /// </summary>
+    private static async Task<string> ReadCappedAsync(StreamReader reader, int maxChars, Process process)
+    {
+        var builder = new StringBuilder(maxChars + 1024);
+        var buffer = new char[4096];
+        while (builder.Length < maxChars)
+        {
+            var read = await reader.ReadAsync(buffer);
+            if (read <= 0) break; // child closed its stdout before the cap
+            builder.Append(buffer, 0, Math.Min(read, maxChars - builder.Length));
+        }
+
+        if (builder.Length >= maxChars)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+        }
+        return builder.ToString();
     }
 }
 
@@ -205,6 +240,13 @@ public sealed record ProcessRunOptions
     /// when <paramref name="cancellationToken"/> fires, instead of only aborting the wait.
     /// </summary>
     public bool KillOnCancel { get; init; }
+
+    /// <summary>
+    /// Optional read cap for stdout: once captured output reaches the cap the child's
+    /// tree is killed and the run completes with the head (<see cref="ProcessRunResult.Truncated"/>
+    /// flags it — the killed exit code is non-zero). <see langword="null"/> captures everything.
+    /// </summary>
+    public int? MaxOutputChars { get; init; }
 }
 
 /// <summary>Outcome of one <see cref="ProcessRunner.RunAsync"/> invocation.</summary>
@@ -212,10 +254,14 @@ public sealed record ProcessRunOptions
 /// The child's exit code, or <see langword="null"/> when it never ran to completion
 /// (spawn failure or timeout).
 /// </param>
-/// <param name="StandardOutput">Everything the child wrote to stdout.</param>
+/// <param name="StandardOutput">The child's stdout — everything it wrote, or the first
+/// <see cref="ProcessRunOptions.MaxOutputChars"/> characters when the read cap engaged.</param>
 /// <param name="StandardError">Everything the child wrote to stderr.</param>
 /// <param name="TimedOut">True when the run hit <see cref="ProcessRunOptions.Timeout"/>.</param>
-public sealed record ProcessRunResult(int? ExitCode, string StandardOutput, string StandardError, bool TimedOut)
+/// <param name="Truncated">True when <see cref="ProcessRunOptions.MaxOutputChars"/> engaged:
+/// stdout holds only the head and the child was killed, so <paramref name="ExitCode"/> is
+/// the kill's non-zero code.</param>
+public sealed record ProcessRunResult(int? ExitCode, string StandardOutput, string StandardError, bool TimedOut, bool Truncated = false)
 {
     /// <summary>True only when the child ran and exited 0 — false for non-zero exits,
     /// timeouts and spawn failures alike.</summary>

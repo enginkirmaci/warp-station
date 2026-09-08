@@ -153,7 +153,9 @@ public interface IGitStatusService
 
     /// <summary>
     /// The staged diff as a patch (<c>git diff --cached</c>) — the input for an
-    /// AI-generated commit message. Empty when nothing is staged; null on any failure.
+    /// AI-generated commit message. The read stops at a fixed head (the only consumer
+    /// truncates far below it), so very large diffs come back truncated rather than
+    /// fully materialized. Empty when nothing is staged; null on any failure.
     /// </summary>
     Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default);
 

@@ -1,4 +1,4 @@
-<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:suki="https://github.com/kikipoulet/SukiUI">
 
     <!--
         ================================================================
@@ -370,6 +370,87 @@
     <Style Selector="Button.tool-button:pointerover">
         <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBorderBrush}" />
+    </Style>
+
+    <!--
+        ================================================================
+        PLAIN VIRTUALIZED LIST (ListBox.plain-list)
+        ================================================================
+        The chrome-stripped, virtualizing list used inside cards (the bottom bar's
+        Changes file list, the commit-history drawer's file list). A ListBox, not an
+        ItemsControl, because only a ListBox's own ScrollViewer gives a
+        VirtualizingStackPanel a bounded viewport — these lists can hold thousands of
+        rows (git status with untracked-files=all) and realizing every row was the
+        biggest RAM cost in the app. Selection is meaningless here (all actions are
+        buttons inside the row templates), so selection and every SukiUI list chrome
+        layer are neutralized — the same treatment as the repos table (the theme's
+        pseudoclass selectors beat a plain ListBoxItem style, so each is repeated at
+        matching specificity; the theme's CheckSelected tick is collapsed outright
+        because Opacity-hidden it still reserves a dead right inset, and its
+        GlassCard re-fires 700/450 ms animations on every virtualized realization).
+    -->
+    <Style Selector="ListBox.plain-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <!--  A * path column trims only under a constrained width — an enabled
+              horizontal scrollbar measures rows infinitely and kills trimming.  -->
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ItemsPanel">
+            <Setter.Value>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                </ItemsPanelTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:pointerover">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:pressed">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:selected">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem /template/ PathIcon#CheckSelected">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="IsAnimated" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:pointerover /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.plain-list ListBoxItem:selected /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <!--  Every state change inside the rows is instant (the SukiUI Button theme's
+          transitions would re-fire per realized row); feedback itself stays.  -->
+    <Style Selector="ListBox.plain-list Button">
+        <Setter Property="Transitions">
+            <Setter.Value>
+                <Transitions />
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </Styles>

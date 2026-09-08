@@ -26,6 +26,12 @@ public enum BottomBarTab
     Azure,
 }
 
+/// <summary>One section header row inside the Changes list's merged rows
+/// (<see cref="BottomBarViewModel.ChangeRows"/>): the section title + live count on
+/// the left, the Stage All / Unstage All text button on the right. The side rides
+/// as a flag so the single row template can branch icon, count and button.</summary>
+public sealed record ChangeSectionRow(string Title, int Count, bool IsUnstaged);
+
 /// <summary>
 /// Binding adapter for the Repos page's bottom panels. Owns the bar's selected repo (the
 /// git controls, GitHub/Azure panels all target it) and the expandable tab panels' data.
@@ -1077,6 +1083,16 @@ public partial class BottomBarViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<GitChangedFile> _unstagedFiles = new();
 
+    /// <summary>
+    /// The virtualized Changes list: one section-header row per non-empty side
+    /// (unstaged first), interleaved with that side's file rows. Headers ride in the
+    /// list so the tab keeps its single scrolling surface, and the virtualizing
+    /// ListBox realizes only viewport rows — the list can hold thousands of
+    /// untracked files, and realizing them all was the bar's biggest RAM cost.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<object> _changeRows = new();
+
     /// <summary>True while the staged/unstaged split is loading; gates the empty state.</summary>
     [ObservableProperty]
     private bool _isLoadingGroups;
@@ -1119,6 +1135,7 @@ public partial class BottomBarViewModel : ObservableObject
         {
             StagedFiles.Clear();
             UnstagedFiles.Clear();
+            RebuildChangeRows();
             IsLoadingGroups = false;
             RaiseChangeGroupsDerived();
             return Task.CompletedTask;
@@ -1132,9 +1149,37 @@ public partial class BottomBarViewModel : ObservableObject
                 if (groups is null) return;
                 ReplaceItems(StagedFiles, groups.Staged);
                 ReplaceItems(UnstagedFiles, groups.Unstaged);
+                RebuildChangeRows();
             },
             () => RaiseChangeGroupsDerived(),
             () => $"Could not load the staged changes of {repo.Name}");
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="ChangeRows"/> from the current groups: a header row opens
+    /// each non-empty side and tags every file with its side for the row template's
+    /// +/− button. Mutates the collection in place (mirrors <see cref="ReplaceItems{T}"/>)
+    /// so the list keeps the scroll-position behavior of the old per-section lists.
+    /// </summary>
+    private void RebuildChangeRows()
+    {
+        foreach (var file in StagedFiles) file.IsStaged = true;
+        foreach (var file in UnstagedFiles) file.IsStaged = false;
+
+        var rows = new List<object>(
+            (UnstagedFiles.Count > 0 ? 1 : 0) + UnstagedFiles.Count
+            + (StagedFiles.Count > 0 ? 1 : 0) + StagedFiles.Count);
+        if (UnstagedFiles.Count > 0)
+        {
+            rows.Add(new ChangeSectionRow("Unstaged Changes", UnstagedFiles.Count, IsUnstaged: true));
+            rows.AddRange(UnstagedFiles);
+        }
+        if (StagedFiles.Count > 0)
+        {
+            rows.Add(new ChangeSectionRow("Staged Changes", StagedFiles.Count, IsUnstaged: false));
+            rows.AddRange(StagedFiles);
+        }
+        ReplaceItems(ChangeRows, rows);
     }
 
     // --- Changes tab: staging ---
@@ -1371,8 +1416,9 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>
     /// The in-flight message generation. The token rides into the run service, whose
     /// kill-on-cancel handler terminates the opencode process tree the moment it fires —
-    /// on a repo switch (<see cref="OnSelectedRepoChanged"/>) or app shutdown, the CLI
-    /// must not keep running in the background.
+    /// on a repo switch, app shutdown, or generation teardown (cancel-before-dispose in
+    /// <see cref="EndCommitMessageGeneration"/>; the service kills the tree itself on
+    /// its own timeout) — so the CLI must not keep running in the background.
     /// </summary>
     private CancellationTokenSource? _commitMessageCts;
 
@@ -1394,6 +1440,11 @@ public partial class BottomBarViewModel : ObservableObject
 
     private void EndCommitMessageGeneration()
     {
+        // Cancel before dispose: after a timed-out run the CTS is the only remaining
+        // hook to the kill-on-cancel registration in OpenCodeRunService — disposing it
+        // silently would leave a stray Electron tree running forever.
+        try { _commitMessageCts?.Cancel(); }
+        catch (ObjectDisposedException) { /* a superseding scope already tore it down */ }
         _commitMessageCts?.Dispose();
         _commitMessageCts = null;
     }

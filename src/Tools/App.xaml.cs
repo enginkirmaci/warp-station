@@ -114,7 +114,12 @@ public partial class App : Application
         // selection, open tab) for the whole window lifetime.
         services.AddSingleton<ViewModels.Components.BottomBarViewModel>();
         // Register pages and view models
-        RegisterPageWithViewModel<ReposPage, ReposViewModel>(services);
+        // The Repositories page is permanent window content (attached once in the
+        // MainWindow constructor), so its ViewModel is a Singleton: the constructor
+        // subscribes to singleton services and its detach path can never run — a
+        // Transient registration would leak a subscribed VM per future resolution.
+        services.AddSingleton<ReposViewModel>();
+        services.AddTransient<ReposPage>();
         // Register tool components (floating drawer) and their view models
         RegisterPageWithViewModel<FormattersComponent, FormattersViewModel>(services);
         RegisterPageWithViewModel<NugetLocalComponent, NugetLocalViewModel>(services);
