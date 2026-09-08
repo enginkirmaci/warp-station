@@ -70,4 +70,21 @@ public static class ChipPalette
 
     /// <summary>Near-opaque develop blue — chip text and glyphs.</summary>
     public const string DevelopBlueStrong = "#CC2F54EB";
+
+    // Bright variants — the strong hues above are tuned for light surfaces and read
+    // muddy on the dark theme; pill text/glyphs and tint backgrounds use these
+    // higher-luminance versions of the same hues instead (still saturated — NOT
+    // pastel). Tints derive from them at ~0.18 alpha.
+
+    /// <summary>Bright green — readable green on dark surfaces.</summary>
+    public const string GreenBright = "#4EC94E";
+
+    /// <summary>Bright amber — readable amber on dark surfaces.</summary>
+    public const string AmberBright = "#FFAB40";
+
+    /// <summary>Bright purple — readable purple on dark surfaces.</summary>
+    public const string PurpleBright = "#A78BFA";
+
+    /// <summary>Bright blue — readable blue on dark surfaces.</summary>
+    public const string BlueBright = "#6E9BF7";
 }

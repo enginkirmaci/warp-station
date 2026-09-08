@@ -129,7 +129,7 @@
                                                                 VerticalAlignment="Center"
                                                                 FontSize="12"
                                                                 FontWeight="SemiBold"
-                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                Foreground="{DynamicResource AmberBrightBrush}"
                                                                 Text="{Binding GitTotalModifiedCount}" />
                                                 </Border>
                                                 <Border
@@ -144,13 +144,13 @@
                                                                         Height="13"
                                                                         VerticalAlignment="Center"
                                                                         Data="{tools:SvgPath icon-git-pull-request}"
-                                                                        Fill="{DynamicResource PurpleAccentBrush}"
+                                                                        Fill="{DynamicResource PurpleBrightBrush}"
                                                                         Stretch="Uniform" />
                                                                 <TextBlock
                                                                         VerticalAlignment="Center"
                                                                         FontSize="12"
                                                                         FontWeight="SemiBold"
-                                                                        Foreground="{DynamicResource PurpleAccentBrush}"
+                                                                        Foreground="{DynamicResource PurpleBrightBrush}"
                                                                         Text="{Binding GitHubTotalPrCount}" />
                                                         </StackPanel>
                                                 </Border>
@@ -166,13 +166,13 @@
                                                                         Height="13"
                                                                         VerticalAlignment="Center"
                                                                         Data="{tools:SvgPath icon-issue}"
-                                                                        Fill="{DynamicResource StatusActiveBrush}"
+                                                                        Fill="{DynamicResource GreenBrightBrush}"
                                                                         Stretch="Uniform" />
                                                                 <TextBlock
                                                                         VerticalAlignment="Center"
                                                                         FontSize="12"
                                                                         FontWeight="SemiBold"
-                                                                        Foreground="{DynamicResource StatusActiveBrush}"
+                                                                        Foreground="{DynamicResource GreenBrightBrush}"
                                                                         Text="{Binding GitHubTotalIssueCount}" />
                                                         </StackPanel>
                                                 </Border>
@@ -710,7 +710,7 @@
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
                                                                                                                 FontWeight="SemiBold"
-                                                                                                                Foreground="{DynamicResource WarningAccentBrush}"
+                                                                                                                Foreground="{DynamicResource AmberBrightBrush}"
                                                                                                                 Text="{Binding GitModifiedCount}" />
                                                                                                 </Border>
                                                                                         </Button>
@@ -825,13 +825,13 @@
                                                                                                                 Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-git-pull-request}"
-                                                                                                                Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                                Fill="{DynamicResource PurpleBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                         <TextBlock
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
                                                                                                                 FontWeight="SemiBold"
-                                                                                                                Foreground="{DynamicResource PurpleAccentBrush}"
+                                                                                                                Foreground="{DynamicResource PurpleBrightBrush}"
                                                                                                                 Text="{Binding GitHubPrCount}" />
                                                                                                 </StackPanel>
                                                                                         </Button>
@@ -849,13 +849,13 @@
                                                                                                                 Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-issue}"
-                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Fill="{DynamicResource GreenBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                         <TextBlock
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
                                                                                                                 FontWeight="SemiBold"
-                                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                                Foreground="{DynamicResource GreenBrightBrush}"
                                                                                                                 Text="{Binding GitHubIssueCount}" />
                                                                                                 </StackPanel>
                                                                                         </Button>
@@ -935,13 +935,13 @@
                                                                                                                 Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-git-pull-request}"
-                                                                                                                Fill="{DynamicResource PurpleAccentBrush}"
+                                                                                                                Fill="{DynamicResource PurpleBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                         <TextBlock
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
                                                                                                                 FontWeight="SemiBold"
-                                                                                                                Foreground="{DynamicResource PurpleAccentBrush}"
+                                                                                                                Foreground="{DynamicResource PurpleBrightBrush}"
                                                                                                                 Text="{Binding AzureDevOpsPrCount}" />
                                                                                                 </StackPanel>
                                                                                         </Button>
@@ -959,13 +959,13 @@
                                                                                                                 Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-issue}"
-                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Fill="{DynamicResource GreenBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                         <TextBlock
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 FontSize="12"
                                                                                                                 FontWeight="SemiBold"
-                                                                                                                Foreground="{DynamicResource StatusActiveBrush}"
+                                                                                                                Foreground="{DynamicResource GreenBrightBrush}"
                                                                                                                 Text="{Binding AzureDevOpsWorkItemCount}" />
                                                                                                 </StackPanel>
                                                                                         </Button>
@@ -988,7 +988,7 @@
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-check,
                                                                                                                                      Center=False}"
-                                                                                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                                                                                Fill="{DynamicResource GreenBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                                 <Button
@@ -1005,7 +1005,7 @@
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-close,
                                                                                                                                      Center=False}"
-                                                                                                                Fill="{DynamicResource DangerAccentBrush}"
+                                                                                                                Fill="{DynamicResource RedBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                                 <Button
@@ -1021,7 +1021,7 @@
                                                                                                                 Height="13"
                                                                                                                 VerticalAlignment="Center"
                                                                                                                 Data="{tools:SvgPath icon-play}"
-                                                                                                                Fill="{DynamicResource InfoAccentBrush}"
+                                                                                                                Fill="{DynamicResource BlueBrightBrush}"
                                                                                                                 Stretch="Uniform" />
                                                                                                 </Button>
                                                                                         </Panel>

@@ -19,33 +19,22 @@ namespace Tools.Library.Converters;
 /// the other Repos chips use.
 /// </para>
 /// <para>
-/// The brushes are cached singletons (hex colors from <see cref="ChipPalette"/>):
-/// this converter runs for every realized repo row, so it must not allocate —
-/// the family match slices the branch name in place and compares spans
-/// ordinally case-insensitively, with no intermediate strings.
+/// The brushes are the shared cached singletons in <see cref="ChipBrushes"/> (hex
+/// colors from <see cref="ChipPalette"/>): this converter runs for every realized
+/// repo row, so it must not allocate — the family match slices the branch name in
+/// place and compares spans ordinally case-insensitively, with no intermediate
+/// strings.
 /// </para>
 /// </summary>
 public class BranchChipBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush MainAccent = new(Color.Parse(ChipPalette.GreenStrong));
-    private static readonly ImmutableSolidColorBrush DevelopAccent = new(Color.Parse(ChipPalette.DevelopBlueStrong));
-    private static readonly ImmutableSolidColorBrush ReleaseAccent = new(Color.Parse(ChipPalette.AmberStrong));
-    private static readonly ImmutableSolidColorBrush MasterAccent = new(Color.Parse(ChipPalette.Purple));
-    private static readonly ImmutableSolidColorBrush OtherAccent = new(Color.Parse(ChipPalette.Gray));
-
-    private static readonly ImmutableSolidColorBrush MainTint = new(Color.Parse(ChipPalette.GreenStrong), 0.16);
-    private static readonly ImmutableSolidColorBrush DevelopTint = new(Color.Parse(ChipPalette.DevelopBlueStrong), 0.16);
-    private static readonly ImmutableSolidColorBrush ReleaseTint = new(Color.Parse(ChipPalette.AmberStrong), 0.16);
-    private static readonly ImmutableSolidColorBrush MasterTint = new(Color.Parse(ChipPalette.Purple), 0.16);
-    private static readonly ImmutableSolidColorBrush OtherTint = new(Color.Parse(ChipPalette.Gray), 0.16);
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         var tinted = parameter is "bg";
         return value switch
         {
             string name => MatchHead(name.AsSpan(), tinted),
-            _ => tinted ? OtherTint : OtherAccent,
+            _ => tinted ? ChipBrushes.GrayTint : ChipBrushes.Gray,
         };
     }
 
@@ -66,26 +55,26 @@ public class BranchChipBrushConverter : IValueConverter
 
         if (head.Equals("main", StringComparison.OrdinalIgnoreCase))
         {
-            return tinted ? MainTint : MainAccent;
+            return tinted ? ChipBrushes.GreenBrightTint : ChipBrushes.GreenBright;
         }
 
         if (head.Equals("develop", StringComparison.OrdinalIgnoreCase)
             || head.Equals("development", StringComparison.OrdinalIgnoreCase))
         {
-            return tinted ? DevelopTint : DevelopAccent;
+            return tinted ? ChipBrushes.BlueBrightTint : ChipBrushes.BlueBright;
         }
 
         if (head.Equals("release", StringComparison.OrdinalIgnoreCase))
         {
-            return tinted ? ReleaseTint : ReleaseAccent;
+            return tinted ? ChipBrushes.AmberBrightTint : ChipBrushes.AmberBright;
         }
 
         if (head.Equals("master", StringComparison.OrdinalIgnoreCase))
         {
-            return tinted ? MasterTint : MasterAccent;
+            return tinted ? ChipBrushes.PurpleBrightTint : ChipBrushes.PurpleBright;
         }
 
-        return tinted ? OtherTint : OtherAccent;
+        return tinted ? ChipBrushes.GrayTint : ChipBrushes.Gray;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

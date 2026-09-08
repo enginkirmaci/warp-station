@@ -12,30 +12,25 @@ namespace Tools.Library.Converters;
 /// amber, untracked and anything else muted gray. The first status character decides
 /// (two-character XY codes like "MM" color as their first letter).
 /// <para>
-/// The brushes are cached singletons with the theme palette's own colors (matching
-/// <see cref="BranchChipBrushConverter"/>'s approach): this converter runs per realized
-/// list row, so it must not allocate or hit the resource tree.
+/// The brushes are the shared cached singletons in <see cref="ChipBrushes"/>: this
+/// converter runs per realized list row, so it must not allocate or hit the resource
+/// tree.
 /// </para>
 /// </summary>
 public class GitStatusBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Added = new(Color.Parse(ChipPalette.GreenStrong));
-    private static readonly ImmutableSolidColorBrush Deleted = new(Color.Parse(ChipPalette.RedDeleted));
-    private static readonly ImmutableSolidColorBrush Modified = new(Color.Parse(ChipPalette.AmberStrong));
-    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse(ChipPalette.Gray));
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         return (value as string) switch
         {
             { Length: > 0 } code => code[0] switch
             {
-                'A' => Added,
-                'D' => Deleted,
-                'M' or 'R' or 'T' or 'C' => Modified,
-                _ => Other,
+                'A' => ChipBrushes.GreenBright,
+                'D' => ChipBrushes.RedDeleted,
+                'M' or 'R' or 'T' or 'C' => ChipBrushes.AmberBright,
+                _ => ChipBrushes.Gray,
             },
-            _ => Other,
+            _ => ChipBrushes.Gray,
         };
     }
 
@@ -52,21 +47,14 @@ public class GitStatusBrushConverter : IValueConverter
 /// </summary>
 public class GitHubStateChipBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Approved = new(Color.Parse(ChipPalette.GreenStrong));
-    private static readonly ImmutableSolidColorBrush Review = new(Color.Parse(ChipPalette.Purple));
-    private static readonly ImmutableSolidColorBrush Draft = new(Color.Parse(ChipPalette.Gray));
-    private static readonly ImmutableSolidColorBrush ApprovedBg = new(Color.Parse(ChipPalette.GreenTint));
-    private static readonly ImmutableSolidColorBrush ReviewBg = new(Color.Parse(ChipPalette.PurpleTint));
-    private static readonly ImmutableSolidColorBrush DraftBg = new(Color.Parse(ChipPalette.GrayTint));
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         var tinted = string.Equals(parameter as string, "bg", StringComparison.OrdinalIgnoreCase);
         return value switch
         {
-            "Approved" => tinted ? ApprovedBg : Approved,
-            "Review" => tinted ? ReviewBg : Review,
-            _ => tinted ? DraftBg : Draft,
+            "Approved" => tinted ? ChipBrushes.GreenBrightTint : ChipBrushes.GreenBright,
+            "Review" => tinted ? ChipBrushes.PurpleBrightTint : ChipBrushes.PurpleBright,
+            _ => tinted ? ChipBrushes.GrayTint : ChipBrushes.Gray,
         };
     }
 
@@ -84,32 +72,19 @@ public class GitHubStateChipBrushConverter : IValueConverter
 /// </summary>
 public class GitHubLabelBrushConverter : IValueConverter
 {
-    private static readonly ImmutableSolidColorBrush Bug = new(Color.Parse(ChipPalette.RedStrong));
-    private static readonly ImmutableSolidColorBrush Enhancement = new(Color.Parse(ChipPalette.PurpleStrong));
-    private static readonly ImmutableSolidColorBrush Documentation = new(Color.Parse(ChipPalette.BlueStrong));
-    private static readonly ImmutableSolidColorBrush Performance = new(Color.Parse(ChipPalette.AmberStrong));
-    private static readonly ImmutableSolidColorBrush Community = new(Color.Parse(ChipPalette.GreenStrong));
-    private static readonly ImmutableSolidColorBrush Other = new(Color.Parse(ChipPalette.Gray));
-    private static readonly ImmutableSolidColorBrush BugBg = new(Color.Parse(ChipPalette.RedTint));
-    private static readonly ImmutableSolidColorBrush EnhancementBg = new(Color.Parse(ChipPalette.PurpleTint));
-    private static readonly ImmutableSolidColorBrush DocumentationBg = new(Color.Parse(ChipPalette.BlueTint));
-    private static readonly ImmutableSolidColorBrush PerformanceBg = new(Color.Parse(ChipPalette.AmberTint));
-    private static readonly ImmutableSolidColorBrush CommunityBg = new(Color.Parse(ChipPalette.GreenTint));
-    private static readonly ImmutableSolidColorBrush OtherBg = new(Color.Parse(ChipPalette.GrayTint));
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         var tinted = string.Equals(parameter as string, "bg", StringComparison.OrdinalIgnoreCase);
         return value as string switch
         {
-            null => tinted ? OtherBg : Other,
-            { Length: > 0 } label => Contains(label, "bug", "crash", "regression") ? Tint(tinted, Bug, BugBg)
-                : Contains(label, "enhancement", "feature", "improvement") ? Tint(tinted, Enhancement, EnhancementBg)
-                : Contains(label, "doc") ? Tint(tinted, Documentation, DocumentationBg)
-                : Contains(label, "performance", "slow") ? Tint(tinted, Performance, PerformanceBg)
-                : Contains(label, "good first issue", "help wanted") ? Tint(tinted, Community, CommunityBg)
-                : Tint(tinted, Other, OtherBg),
-            _ => tinted ? OtherBg : Other,
+            null => tinted ? ChipBrushes.GrayTint : ChipBrushes.Gray,
+            { Length: > 0 } label => Contains(label, "bug", "crash", "regression") ? Tint(tinted, ChipBrushes.RedStrong, ChipBrushes.RedTint)
+                : Contains(label, "enhancement", "feature", "improvement") ? Tint(tinted, ChipBrushes.PurpleBright, ChipBrushes.PurpleBrightTint)
+                : Contains(label, "doc") ? Tint(tinted, ChipBrushes.BlueBright, ChipBrushes.BlueBrightTint)
+                : Contains(label, "performance", "slow") ? Tint(tinted, ChipBrushes.AmberBright, ChipBrushes.AmberBrightTint)
+                : Contains(label, "good first issue", "help wanted") ? Tint(tinted, ChipBrushes.GreenBright, ChipBrushes.GreenBrightTint)
+                : Tint(tinted, ChipBrushes.Gray, ChipBrushes.GrayTint),
+            _ => tinted ? ChipBrushes.GrayTint : ChipBrushes.Gray,
         };
     }
 

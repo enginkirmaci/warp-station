@@ -119,25 +119,33 @@
     <Color x:Key="PurpleBrandColor">#8B5CF6</Color>
     <SolidColorBrush x:Key="PurpleAccentBrush" Color="{DynamicResource PurpleBrandColor}" />
     <!-- Translucent tints behind the GitHub column's PR / issue count chips
-         (PR purple, issue green) -->
-    <SolidColorBrush x:Key="GitHubPrChipBrush" Color="{DynamicResource PurpleBrandColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="GitHubIssueChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
+         (PR purple, issue green) — bright bases at 0.2 so the pill reads on the
+         dark theme -->
+    <SolidColorBrush x:Key="GitHubPrChipBrush" Color="#33A78BFA" />
+    <SolidColorBrush x:Key="GitHubIssueChipBrush" Color="#334EC94E" />
     <!-- Translucent tint behind the changes column's count pill (matches the orange modified count) -->
-    <SolidColorBrush x:Key="ChangesChipBrush" Color="{DynamicResource SukiWarningColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="ChangesChipBrush" Color="#33FFAB40" />
     <!-- The changes tab's per-file delta pills: additions green, deletions light red
          (a softer red than the danger accent, so the pair reads +/- rather than error) -->
     <Color x:Key="LightRedColor">#F87171</Color>
-    <SolidColorBrush x:Key="AddedCountBrush" Color="{DynamicResource SukiSuccessColor}" />
+    <SolidColorBrush x:Key="AddedCountBrush" Color="#4EC94E" />
     <SolidColorBrush x:Key="RemovedCountBrush" Color="{DynamicResource LightRedColor}" />
-    <SolidColorBrush x:Key="AddedCountChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="RemovedCountChipBrush" Color="{DynamicResource LightRedColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AddedCountChipBrush" Color="#334EC94E" />
+    <SolidColorBrush x:Key="RemovedCountChipBrush" Color="#33F87171" />
+    <!-- Bright pill text/glyph brushes (ChipPalette.Bright*) — higher-luminance
+         versions of the accent hues so pill text reads on the dark theme -->
+    <SolidColorBrush x:Key="GreenBrightBrush" Color="#4EC94E" />
+    <SolidColorBrush x:Key="RedBrightBrush" Color="#F87171" />
+    <SolidColorBrush x:Key="AmberBrightBrush" Color="#FFAB40" />
+    <SolidColorBrush x:Key="PurpleBrightBrush" Color="#A78BFA" />
+    <SolidColorBrush x:Key="BlueBrightBrush" Color="#6E9BF7" />
     <!-- Translucent tints behind the Azure DevOps column's chips — PR / work item follow
          the GitHub coding (purple / green); pipeline states keep their own semantics -->
-    <SolidColorBrush x:Key="AzureDevOpsPrChipBrush" Color="{DynamicResource PurpleBrandColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="AzureDevOpsWorkItemChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="AzureDevOpsPipelineOkChipBrush" Color="{DynamicResource SukiSuccessColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="AzureDevOpsPipelineFailedChipBrush" Color="{DynamicResource SukiDangerColor}" Opacity="0.16" />
-    <SolidColorBrush x:Key="AzureDevOpsPipelineRunningChipBrush" Color="{DynamicResource SukiInformationColor}" Opacity="0.16" />
+    <SolidColorBrush x:Key="AzureDevOpsPrChipBrush" Color="#33A78BFA" />
+    <SolidColorBrush x:Key="AzureDevOpsWorkItemChipBrush" Color="#334EC94E" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineOkChipBrush" Color="#334EC94E" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineFailedChipBrush" Color="#33F87171" />
+    <SolidColorBrush x:Key="AzureDevOpsPipelineRunningChipBrush" Color="#336E9BF7" />
 
     <!--
         ================================================================
