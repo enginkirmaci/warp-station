@@ -254,9 +254,11 @@ public sealed class GitStatusService : IGitStatusService
             return new GitCommitDetails(hash ?? string.Empty, Array.Empty<GitChangedFile>());
         }
 
-        // "--format=" drops the commit header, leaving just "added\tdeleted\tpath"
-        // numstat lines (a rename's path renders as "old => new" — ParseNumstat takes
-        // the resolved tail, which is also the path the patch command needs).
+        // "--format=" drops the commit header; --numstat already suppresses the patch
+        // body (any explicit diff format does), so the output is just the
+        // "added\tdeleted\tpath" lines (a rename's path renders as "old => new" —
+        // ParseNumstat takes the resolved tail, which is also the path the patch
+        // command needs). Verified: adding --no-patch here EMPTIES the numstat too.
         var output = await RunGitAsync(repo.FolderPath, $"show --numstat --format= {Quote(hash)}", cancellationToken);
         var counts = ParseNumstat(output);
         var files = counts
@@ -273,10 +275,15 @@ public sealed class GitStatusService : IGitStatusService
             return null;
         }
 
+        // Capped: the patch renders in a fixed-height read-only box, and the TextBox
+        // pays for every character with text layout — a single generated file's
+        // multi-MB patch would spike the drawer for content nobody scrolls to.
         return await RunGitAsync(
             repo.FolderPath,
             $"show --format= {Quote(hash)} -- {Quote(path)}",
-            cancellationToken);
+            cancellationToken,
+            maxOutputChars: CommitPatchReadCap,
+            truncationSuffix: "\n… (patch truncated)");
     }
 
     /// <inheritdoc/>
@@ -624,6 +631,11 @@ public sealed class GitStatusService : IGitStatusService
     /// 8,000-char truncation point, yet far under LOH size for any real diff.</summary>
     private const int StagedPatchReadCap = 48 * 1024;
 
+    /// <summary>Read cap for one History drawer file patch: 64K chars is ~4,000 lines —
+    /// far past what the drawer's fixed-height box usefully shows, and it bounds the
+    /// TextBox's text layout to match.</summary>
+    private const int CommitPatchReadCap = 64 * 1024;
+
     /// <summary>Parses <c>git diff --numstat</c> output into per-path add/delete counts.</summary>
     private static Dictionary<string, (int? Additions, int? Deletions)> ParseNumstat(string? output)
     {
@@ -771,7 +783,8 @@ public sealed class GitStatusService : IGitStatusService
         CancellationToken cancellationToken,
         TimeSpan? timeout = null,
         ICollection<string>? stderrSink = null,
-        int? maxOutputChars = null)
+        int? maxOutputChars = null,
+        string? truncationSuffix = null)
     {
         ProcessRunResult result;
         try
@@ -807,7 +820,12 @@ public sealed class GitStatusService : IGitStatusService
 
         // A truncated read is a success by contract: the cap kill makes the exit code
         // non-zero, but the caller asked for (and got) exactly the head it wanted.
-        return result.ExitCode == 0 || result.Truncated ? result.StandardOutput : null;
+        var output = result.ExitCode == 0 || result.Truncated ? result.StandardOutput : null;
+        if (output is not null && result.Truncated && truncationSuffix is not null)
+        {
+            output += truncationSuffix;
+        }
+        return output;
     }
 
     /// <summary>
