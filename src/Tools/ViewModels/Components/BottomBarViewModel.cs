@@ -641,7 +641,7 @@ public partial class BottomBarViewModel : ObservableObject
     /// Runs one git service call under <paramref name="setBusy"/> (null when the command
     /// has no busy flag), toasts <paramref name="successText"/> on success and
     /// <paramref name="errorText"/> on failure (null skips a toast; the error lambda runs
-    /// after the action, so pull/push can embed git's stderr line) and invokes the
+    /// after the action, so fetch/pull/push can embed git's stderr line) and invokes the
     /// outcome hooks. Exceptions keep propagating, exactly as before.
     /// </summary>
     private async Task RunGitActionAsync(
@@ -820,12 +820,20 @@ public partial class BottomBarViewModel : ObservableObject
         var repo = SelectedRepo;
         if (repo is null) return Task.CompletedTask;
 
+        string? error = null;
         return RunGitActionAsync(
             repo,
             value => IsFetching = value,
-            r => _gitStatusService.FetchAsync(r),
+            async r =>
+            {
+                var result = await _gitStatusService.FetchAsync(r);
+                error = result.Error;
+                return result.Success;
+            },
             $"Fetched {repo.Name}",
-            () => $"Fetch failed for {repo.Name}",
+            () => error is { } detail
+                ? $"Fetch failed for {repo.Name}: {detail}"
+                : $"Fetch failed for {repo.Name}",
             onSuccess: () =>
             {
                 SyncBranchSelection(repo);

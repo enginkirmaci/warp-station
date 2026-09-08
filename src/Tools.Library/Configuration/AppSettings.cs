@@ -264,9 +264,11 @@ public class ReposSettings
     public RepoSortMode SortMode { get; set; } = RepoSortMode.Name;
 
     /// <summary>
-    /// Gets or sets the maximum folder depth to scan recursively.
-    /// A value of 1 scans only the root scan folder, 2 includes its immediate
-    /// subfolders, and so on. Defaults to 3.
+    /// Gets or sets the maximum folder depth used only by the Add Repositories
+    /// dialog's scan: how many folder levels below the picked folder are searched.
+    /// A value of 1 scans only the picked folder's direct children, 2 includes their
+    /// subfolders, and so on. The main Repos page listing always scans non-recursively
+    /// and ignores this value. Defaults to 3.
     /// </summary>
     public int MaxScanDepth { get; set; } = DefaultMaxScanDepth;
 }

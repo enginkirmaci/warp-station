@@ -51,6 +51,21 @@
                         Command="{Binding ScanCommand}"
                         Content="Scan"
                         ToolTip.Tip="Search the folder for git repositories" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Classes="field-label"
+                        Text="Depth"
+                        ToolTip.Tip="How many folder levels deep the scan searches for repositories" />
+                    <NumericUpDown
+                        Width="90"
+                        VerticalAlignment="Center"
+                        FormatString="0"
+                        Increment="1"
+                        Maximum="10"
+                        Minimum="1"
+                        ParsingNumberStyle="Integer"
+                        Value="{Binding ScanDepth, Mode=TwoWay}"
+                        ToolTip.Tip="How many folder levels deep the scan searches for repositories" />
                     <ProgressBar
                         Width="90"
                         Height="4"

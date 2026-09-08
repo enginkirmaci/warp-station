@@ -191,6 +191,88 @@
     </Style>
 
     <!--
+        Stepped spinner ring (commit button + commit-message wand in the bottom bar,
+        the Repos page's refresh button): the arc is drawn at final size in element
+        coordinates — NO Stretch, no StrokeLineCap setters — so the circle's center is
+        exactly the RenderTransformOrigin (50%,50%) the rotation pivots on; keep those
+        on each Path instance. Stroke stays per-instance too: the commit ring tracks
+        the button Foreground, the wand ring is accent-colored. [IsVisible=True] stops
+        the animation (and its clock work) once the ring hides. The spin is stepped on
+        purpose: during each hold nothing invalidates and the compositor idles — a
+        smooth per-frame sweep measured ~20% of a core on this 165Hz display, the
+        stepped form ~2% (synthetic A/B).
+    -->
+    <Style Selector="Path.spinner[IsVisible=True]">
+        <Style.Animations>
+            <Animation Duration="0:0:0.9" IterationCount="Infinite">
+                <KeyFrame Cue="0%">
+                    <Setter Property="RotateTransform.Angle" Value="0" />
+                </KeyFrame>
+                <KeyFrame Cue="8.3%">
+                    <Setter Property="RotateTransform.Angle" Value="0" />
+                </KeyFrame>
+                <KeyFrame Cue="10%">
+                    <Setter Property="RotateTransform.Angle" Value="36" />
+                </KeyFrame>
+                <KeyFrame Cue="18.3%">
+                    <Setter Property="RotateTransform.Angle" Value="36" />
+                </KeyFrame>
+                <KeyFrame Cue="20%">
+                    <Setter Property="RotateTransform.Angle" Value="72" />
+                </KeyFrame>
+                <KeyFrame Cue="28.3%">
+                    <Setter Property="RotateTransform.Angle" Value="72" />
+                </KeyFrame>
+                <KeyFrame Cue="30%">
+                    <Setter Property="RotateTransform.Angle" Value="108" />
+                </KeyFrame>
+                <KeyFrame Cue="38.3%">
+                    <Setter Property="RotateTransform.Angle" Value="108" />
+                </KeyFrame>
+                <KeyFrame Cue="40%">
+                    <Setter Property="RotateTransform.Angle" Value="144" />
+                </KeyFrame>
+                <KeyFrame Cue="48.3%">
+                    <Setter Property="RotateTransform.Angle" Value="144" />
+                </KeyFrame>
+                <KeyFrame Cue="50%">
+                    <Setter Property="RotateTransform.Angle" Value="180" />
+                </KeyFrame>
+                <KeyFrame Cue="58.3%">
+                    <Setter Property="RotateTransform.Angle" Value="180" />
+                </KeyFrame>
+                <KeyFrame Cue="60%">
+                    <Setter Property="RotateTransform.Angle" Value="216" />
+                </KeyFrame>
+                <KeyFrame Cue="68.3%">
+                    <Setter Property="RotateTransform.Angle" Value="216" />
+                </KeyFrame>
+                <KeyFrame Cue="70%">
+                    <Setter Property="RotateTransform.Angle" Value="252" />
+                </KeyFrame>
+                <KeyFrame Cue="78.3%">
+                    <Setter Property="RotateTransform.Angle" Value="252" />
+                </KeyFrame>
+                <KeyFrame Cue="80%">
+                    <Setter Property="RotateTransform.Angle" Value="288" />
+                </KeyFrame>
+                <KeyFrame Cue="88.3%">
+                    <Setter Property="RotateTransform.Angle" Value="288" />
+                </KeyFrame>
+                <KeyFrame Cue="90%">
+                    <Setter Property="RotateTransform.Angle" Value="324" />
+                </KeyFrame>
+                <KeyFrame Cue="98.3%">
+                    <Setter Property="RotateTransform.Angle" Value="324" />
+                </KeyFrame>
+                <KeyFrame Cue="100%">
+                    <Setter Property="RotateTransform.Angle" Value="360" />
+                </KeyFrame>
+            </Animation>
+        </Style.Animations>
+    </Style>
+
+    <!--
         Stat-card icon badge — the overview card's tinted rounded square: give the
         Border the stat's accent color as its Background and draw the full-strength
         icon on top of it (sibling inside a 36px Grid).

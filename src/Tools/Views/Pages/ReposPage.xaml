@@ -33,19 +33,6 @@
 
         <UserControl.Styles>
                 <!--
-                        The OpenCode quick-launch keeps the outlined-box look but in the
-                        plain foreground (white) instead of SukiUI's Outlined accent —
-                        the stock class paints border + content from compiled theme
-                        resources, so a white variant has to live here.
-                -->
-                <Style Selector="Button.outline-white">
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="BorderBrush" Value="{DynamicResource BodyForegroundBrush}" />
-                        <Setter Property="BorderThickness" Value="1" />
-                        <Setter Property="CornerRadius" Value="8" />
-                        <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-                </Style>
-                <!--
                         Hover feedback for the table row's clickable chips (the
                         branch pill and the changes-count pill): a plain opacity
                         dip on pointerover. Was duplicated as an identical inline
@@ -238,12 +225,40 @@
                                                         Text="Clear" />
                                         </Button>
                                         <Border Classes="vertical-divider" />
+                                        <!--
+                                                Refresh: reloads the repo list and re-checks every git
+                                                status; the icon gives way to the spinning ring for the
+                                                whole cycle and the button stays click-locked (CanRefresh
+                                                + IsEnabled). The ring is the app-wide Path.spinner style:
+                                                element-space arc (13px native, no Stretch) so the circle's
+                                                center is exactly the RenderTransformOrigin the rotation
+                                                pivots on — same recipe as the bottom bar's commit spinner.
+                                        -->
                                         <Button
                                                 Classes="icon"
                                                 Command="{Binding RefreshCommand}"
                                                 IsEnabled="{Binding !IsRefreshing}"
                                                 ToolTip.Tip="Refresh">
-                                                <Path Classes="icon" Data="{tools:SvgPath icon-refresh}" />
+                                                <Panel>
+                                                        <Path
+                                                                Classes="icon"
+                                                                IsVisible="{Binding !IsRefreshing}"
+                                                                Data="{tools:SvgPath icon-refresh}" />
+                                                        <Path
+                                                                Width="13"
+                                                                Height="13"
+                                                                VerticalAlignment="Center"
+                                                                IsVisible="{Binding IsRefreshing}"
+                                                                Classes="spinner"
+                                                                RenderTransformOrigin="50%,50%"
+                                                                Data="{tools:SvgPath icon-spinner, Center=False}"
+                                                                Stroke="{DynamicResource MutedForegroundBrush}"
+                                                                StrokeThickness="2">
+                                                                <Path.RenderTransform>
+                                                                        <RotateTransform />
+                                                                </Path.RenderTransform>
+                                                        </Path>
+                                                </Panel>
                                         </Button>
                                         <!--
                                                 Add repository: picks a folder, scans it for git repos and
@@ -308,9 +323,9 @@
                                                         Drop the per-item list chrome so each row renders as a plain content
                                                         host. All row actions are explicit buttons (with CommandParameter), so
                                                         ListBox selection is neither needed nor meaningful; neutralize its visual
-                                                        states (rest/selected/pressed/focused) and keep a single hover surface:
-                                                        the full-bleed repo-row Border tints while every chrome layer behind it
-                                                        stays transparent.
+                                                        states (rest/selected/pressed/focused) and every chrome layer behind the
+                                                        rows stays transparent — rows carry no hover tint at all; only the
+                                                        bar-selected repo lights up (Border.repo-row.selected below).
                                                 -->
                                                 <Style Selector="ListBoxItem">
                                                         <Setter Property="Padding" Value="0" />
@@ -341,15 +356,11 @@
                                                 <Style Selector="ListBoxItem:pressed /template/ ContentPresenter">
                                                         <Setter Property="Background" Value="Transparent" />
                                                 </Style>
-                                                <!--  The table's only hover feedback: a subtle full-width row tint.  -->
-                                                <Style Selector="ListBoxItem:pointerover Border.repo-row">
-                                                        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
-                                                </Style>
                                                 <!--
-                                                        The bar's selected repo keeps the same tint after the pointer
-                                                        leaves, so the row feeding the bottom bar stays findable in the
-                                                        shrunken table (declared after the hover style; brushes are
-                                                        identical, so hover/selected interactions are indistinguishable).
+                                                        The bar's selected repo keeps the same tint the rows used to
+                                                        show on hover, so the row feeding the bottom bar stays findable
+                                                        in the shrunken table. This is the row's only highlight —
+                                                        hover deliberately paints nothing.
                                                 -->
                                                 <Style Selector="Border.repo-row.selected">
                                                         <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
@@ -370,9 +381,33 @@
                                                 <Style Selector="ListBoxItem /template/ PathIcon#CheckSelected">
                                                         <Setter Property="IsVisible" Value="False" />
                                                 </Style>
+                                                <!--
+                                                        Row appearance must be instant: the row's GlassCard attaches
+                                                        composition implicit animations on load while its IsAnimated
+                                                        flag (default true) is set — a 700ms opacity+offset fade/slide
+                                                        on the card's root panel and 450ms size+offset on its border
+                                                        layers, re-fired every time virtualization realizes a row.
+                                                        IsAnimated=False (the same switch SukiUI's own ".Control"
+                                                        variant uses) skips that attach entirely.
+                                                -->
                                                 <Style Selector="ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
+                                                        <Setter Property="IsAnimated" Value="False" />
                                                         <Setter Property="Background" Value="Transparent" />
                                                         <Setter Property="BorderThickness" Value="0" />
+                                                </Style>
+                                                <!--
+                                                        Every button in the rows (star, launch actions, chips) inherits
+                                                        the SukiUI Button theme's transitions (background/foreground/
+                                                        border/opacity/render-transform, 0.1–0.35s) plus the app-wide
+                                                        Button.tool-button hover transition. An empty Transitions
+                                                        collection scoped to this list makes every state change inside
+                                                        the rows instant; the hover/press feedback itself stays, it just
+                                                        no longer animates.
+                                                -->
+                                                <Style Selector="Button">
+                                                        <Setter Property="Transitions">
+                                                                <Transitions />
+                                                        </Setter>
                                                 </Style>
                                                 <Style Selector="ListBoxItem:pointerover /template/ suki|GlassCard#BorderBasicStyle">
                                                         <Setter Property="Background" Value="Transparent" />
@@ -461,10 +496,7 @@
                                                                                         Orientation="Horizontal"
                                                                                         Spacing="8">
                                                                                         <Button
-                                                                                                Width="40"
-                                                                                                Height="40"
-                                                                                                Padding="0"
-                                                                                                Classes="outline-white"
+                                                                                                Classes="tool-button"
                                                                                                 Command="{ReflectionBinding #Root.DataContext.QuickOpenOpenCodeCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 ToolTip.Tip="Launch one opencode instance with the default model">
@@ -472,7 +504,7 @@
                                                                                                         Width="22"
                                                                                                         Height="22"
                                                                                                         Data="{tools:SvgPath icon-opencode}"
-                                                                                                        Fill="{Binding $parent[Button].Foreground}"
+                                                                                                        Fill="{DynamicResource StatusActiveBrush}"
                                                                                                         Stretch="Uniform" />
                                                                                         </Button>
                                                                                         <Button
@@ -595,7 +627,7 @@
                                                                                         CornerRadius="{DynamicResource ChipRadius}"
                                                                                         Cursor="Hand"
                                                                                         IsVisible="{Binding GitBranchName, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                                                                        ToolTip.Tip="Open the changes panel">
+                                                                                        ToolTip.Tip="{Binding GitBranchName}">
                                                                                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                                                                                                 <Path
                                                                                                         Grid.Column="0"
@@ -607,9 +639,9 @@
                                                                                                         Stretch="Uniform" />
                                                                                                 <!--
                                                                                                         Budget from the BranchColumnWidth resource — see the
-                                                                                                        paired resources at the page top. No name tooltip
-                                                                                                        here — the pill button's own "Open the changes
-                                                                                                        panel" tooltip covers the cell.
+                                                                                                        paired resources at the page top. The pill button's
+                                                                                                        tooltip carries the full branch name (the visible
+                                                                                                        label is tail-trimmed at this budget).
                                                                                                 -->
                                                                                                 <lib:TailTrimmingTextBlock
                                                                                                         Grid.Column="1"

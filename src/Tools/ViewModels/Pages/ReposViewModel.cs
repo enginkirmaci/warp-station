@@ -1002,12 +1002,22 @@ public partial class ReposViewModel : PageViewModelBase
         IsRefreshing = true;
         try
         {
+            // The service-level refresh outwaits its scan, and the status service's
+            // coalescer lets this await join the loop the scan's completion raise
+            // armed — so this window covers the whole cycle (scan + status pass) and
+            // the data on screen is final when it ends.
             await _repoService.RefreshAsync(_reposSettings);
-            // Re-check git statuses against the freshly scanned list and await them so the
-            // button's busy state spans the whole cycle (scan + status). The scan itself
-            // raises Changed on completion, which triggers one more status pass; awaiting
-            // here coalesces both into a single IsRefreshing window.
             await _gitStatusService.RefreshAllAsync();
+
+            // Settle the projection NOW instead of leaving it to the Changed debounce:
+            // its idle window would otherwise land the rebuilt list up to 100ms after
+            // the busy state cleared, reading as data still trickling in. Cancel drops
+            // the pending callback; the rebuild below is exactly what it would have run.
+            _changedDebounce.Cancel();
+            RebuildTagFilters();
+            RefreshSortListeners();
+            RefreshHeaderTotals();
+            ApplyFilter();
         }
         finally
         {

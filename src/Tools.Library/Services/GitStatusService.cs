@@ -31,8 +31,8 @@ public sealed class GitStatusService : IGitStatusService
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Upper bound for pull/push: network transfers grow with the payload, unlike the
-    /// local probes the 10 s bound is tuned for.
+    /// Upper bound for fetch/pull/push: network transfers grow with the payload, unlike
+    /// the local probes the 10 s bound is tuned for.
     /// </summary>
     private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(60);
 
@@ -179,17 +179,22 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
-    public async Task<bool> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
+    public async Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return false;
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
 
+        var stderr = new List<string>();
         // The timestamp is stamped before the refresh: SeedLastFetchTime only fills a
         // null GitLastFetchAt, so the app's own fetch time must be in place first.
         return await RunAndRefreshAsync(
             repo,
             "fetch --prune",
             cancellationToken,
-            onSucceeded: () => repo.GitLastFetchAt = DateTimeOffset.Now);
+            SyncTimeout,
+            stderr,
+            onSucceeded: () => repo.GitLastFetchAt = DateTimeOffset.Now)
+            ? GitSyncResult.Ok()
+            : new GitSyncResult(false, SummarizeSyncError(stderr));
     }
 
     /// <inheritdoc/>
@@ -755,7 +760,7 @@ public sealed class GitStatusService : IGitStatusService
     /// Runs one mutating git command and, when it succeeded, refreshes the repo's status
     /// before reporting success — the shape every state-changing command below repeats.
     /// <paramref name="timeout"/> and <paramref name="stderrSink"/> pass through to
-    /// <see cref="RunGitAsync"/> (the sync commands' longer bound and stderr capture);
+    /// <see cref="RunGitAsync"/> (the network commands' longer bound and stderr capture);
     /// <paramref name="onSucceeded"/> runs after the command but before the refresh, so
     /// <see cref="FetchAsync"/> can stamp <see cref="Repo.GitLastFetchAt"/> ahead of it.
     /// </summary>

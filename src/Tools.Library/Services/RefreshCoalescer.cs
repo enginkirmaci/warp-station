@@ -22,11 +22,19 @@ public sealed class RefreshCoalescer
 {
     private readonly IRepoService _repoService;
 
-    /// <summary>Guards <see cref="_isRefreshing"/>/<see cref="_refreshPending"/>.</summary>
+    /// <summary>Guards <see cref="_isRefreshing"/>/<see cref="_loopTask"/>/<see cref="_refreshPending"/>.</summary>
     private readonly object _sync = new();
 
-    /// <summary>True while a refresh pass loop is running.</summary>
+    /// <summary>
+    /// True while a refresh pass loop is running. Cleared in the same critical section
+    /// that decides the loop exits — a task's completion is NOT atomic with that decision,
+    /// so testing <see cref="_loopTask"/>.IsCompleted instead would let a trigger arriving
+    /// in between join a loop that never runs another pass (its request silently lost).
+    /// </summary>
     private bool _isRefreshing;
+
+    /// <summary>The running loop's task — the handle joining callers await.</summary>
+    private Task? _loopTask;
 
     /// <summary>Set when a refresh is requested while one is running; runs another pass after.</summary>
     private bool _refreshPending;
@@ -39,20 +47,35 @@ public sealed class RefreshCoalescer
     /// <summary>
     /// Runs <paramref name="passBody"/> in a coalescing loop: calls arriving while a loop
     /// is running just flag exactly one follow-up pass, and the loop drains the flag
-    /// before exiting.
+    /// before exiting. Such a caller JOINS the running loop — the returned task is the
+    /// loop itself, not an already-completed one — so awaiting callers (the Repos page's
+    /// Refresh button) outwait the follow-up pass their trigger armed instead of seeing
+    /// the refresh "done" while a pass is still settling.
     /// </summary>
-    public async Task RunCoalescedAsync(Func<CancellationToken, Task> passBody, CancellationToken cancellationToken)
+    public Task RunCoalescedAsync(Func<CancellationToken, Task> passBody, CancellationToken cancellationToken)
     {
         lock (_sync)
         {
             if (_isRefreshing)
             {
                 _refreshPending = true;
-                return;
+                return _loopTask ?? Task.CompletedTask;
             }
-            _isRefreshing = true;
-        }
 
+            _isRefreshing = true;
+            _loopTask = RunLoopAsync(passBody, cancellationToken);
+            return _loopTask;
+        }
+    }
+
+    /// <summary>
+    /// The loop behind <see cref="_loopTask"/>. The normal exit clears
+    /// <see cref="_isRefreshing"/> under the lock together with the exit decision, so a
+    /// trigger arriving afterwards starts a fresh loop rather than joining this one.
+    /// </summary>
+    private async Task RunLoopAsync(Func<CancellationToken, Task> passBody, CancellationToken cancellationToken)
+    {
+        var exitedNormally = false;
         try
         {
             while (true)
@@ -69,6 +92,7 @@ public sealed class RefreshCoalescer
                     if (!_refreshPending || cancellationToken.IsCancellationRequested)
                     {
                         _isRefreshing = false;
+                        exitedNormally = true;
                         return;
                     }
                 }
@@ -76,12 +100,16 @@ public sealed class RefreshCoalescer
         }
         finally
         {
-            // Only reachable when an exception escapes the pass body (e.g. a canceled
-            // token mid-pass); the normal exit already cleared the flag under the lock
-            // above, so a later trigger always starts a fresh loop.
-            lock (_sync)
+            // An exception escaping the pass body (e.g. a canceled token mid-pass) skips
+            // the normal exit, so release the flag here — but only on that path: after a
+            // normal exit another loop may already own the flag, and clearing it again
+            // would let a third trigger start a concurrent pass.
+            if (!exitedNormally)
             {
-                _isRefreshing = false;
+                lock (_sync)
+                {
+                    _isRefreshing = false;
+                }
             }
         }
     }

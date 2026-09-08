@@ -43,20 +43,30 @@ public partial class FoundRepository : ObservableObject
 /// ViewModel for the <see cref="Views.Components.AddRepositoryComponent"/> (the former
 /// Add Repositories modal dialog, now hosted in the floating tool drawer). Holds the
 /// folder to scan, runs the scan through <see cref="IRepoScanner"/> (reusing the repo
-/// scan settings' exclusions/patterns/depth), and presents the discovered repositories
-/// for selection. The component resolves its drawer context with the selected folder
-/// paths; merging them into the persisted scan folders is the caller's job.
+/// scan settings' exclusions/patterns; the depth is a dialog field, persisted back when
+/// a scan runs), and presents the discovered repositories for selection. The component
+/// resolves its drawer context with the selected folder paths; merging them into the
+/// persisted scan folders is the caller's job.
 /// </summary>
 public partial class AddRepositoryViewModel :
     DrawerDialogViewModelBase<AddRepositoriesDrawerContext, IReadOnlyList<string>>
 {
     private readonly IRepoScanner _scanner;
+    private readonly ISettingsService _settingsService;
 
     private ReposSettings _settings = new();
     private HashSet<string> _trackedPaths = new(RepoPath.Comparer);
 
     [ObservableProperty]
     private string _folderPath = string.Empty;
+
+    /// <summary>
+    /// Scan depth for this dialog: how many folder levels below the picked folder are
+    /// searched. Seeded from the persisted <see cref="ReposSettings.MaxScanDepth"/> on
+    /// each open and persisted back when a scan runs.
+    /// </summary>
+    [ObservableProperty]
+    private int _scanDepth = ReposSettings.DefaultMaxScanDepth;
 
     [ObservableProperty]
     private bool _isScanning;
@@ -94,10 +104,11 @@ public partial class AddRepositoryViewModel :
         ? $"Add {SelectedCount} {(SelectedCount == 1 ? "repository" : "repositories")}"
         : "Add";
 
-    public AddRepositoryViewModel(IRepoScanner scanner, IToolDrawerService toolDrawer)
+    public AddRepositoryViewModel(IRepoScanner scanner, IToolDrawerService toolDrawer, ISettingsService settingsService)
         : base(toolDrawer)
     {
         _scanner = scanner;
+        _settingsService = settingsService;
     }
 
     /// <summary>The open context's completion source the Add command resolves.</summary>
@@ -112,6 +123,9 @@ public partial class AddRepositoryViewModel :
     private void Load(ReposSettings settings, IReadOnlyList<Repo> trackedRepos)
     {
         _settings = settings;
+        ScanDepth = settings.MaxScanDepth > 0
+            ? settings.MaxScanDepth
+            : ReposSettings.DefaultMaxScanDepth;
         _trackedPaths = new HashSet<string>(
             trackedRepos.Where(r => r.FolderPath is not null).Select(r => r.FolderPath!),
             RepoPath.Comparer);
@@ -166,9 +180,10 @@ public partial class AddRepositoryViewModel :
 
     /// <summary>
     /// Scans the entered folder for git repositories. The scan uses a throwaway settings
-    /// instance rooted at the entered path but carrying the persisted exclusions, folder
-    /// pattern and depth, so the dialog discovers exactly what a regular scan rooted
-    /// there would.
+    /// instance rooted at the entered path but carrying the persisted exclusions and
+    /// folder patterns, plus the dialog's scan depth passed explicitly to the scanner,
+    /// so the dialog discovers exactly what a scan rooted there at that depth would.
+    /// A successful scan also persists the depth (see <see cref="PersistDepthAsync"/>).
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync()
@@ -193,11 +208,11 @@ public partial class AddRepositoryViewModel :
                 ExcludedFolders = _settings.ExcludedFolders,
                 GitFolderPattern = _settings.GitFolderPattern,
                 SolutionFilePattern = _settings.SolutionFilePattern,
-                PlatformFolderName = _settings.PlatformFolderName,
-                MaxScanDepth = _settings.MaxScanDepth
+                PlatformFolderName = _settings.PlatformFolderName
             };
-            var result = await _scanner.ScanAsync(scanSettings);
+            var result = await _scanner.ScanAsync(scanSettings, ScanDepth);
             SetResults(result.Repos);
+            await PersistDepthAsync();
         }
         catch (Exception ex)
         {
@@ -211,6 +226,29 @@ public partial class AddRepositoryViewModel :
         {
             IsScanning = false;
             ScanCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// Persists the chosen depth so the next open (and session) starts from it. Runs only
+    /// after a scan actually used the value, with its own error handling so a settings
+    /// write failure cannot discard the scan results; the single-lock
+    /// <see cref="ISettingsService.UpdateAsync{TSection}"/> keeps it race-safe with other
+    /// settings writers.
+    /// </summary>
+    private async Task PersistDepthAsync()
+    {
+        if (ScanDepth == _settings.MaxScanDepth)
+            return;
+
+        try
+        {
+            await _settingsService.UpdateAsync<ReposSettings>(r => r.MaxScanDepth = ScanDepth);
+            _settings.MaxScanDepth = ScanDepth;
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Add Repositories: failed to persist scan depth {Depth}", ScanDepth);
         }
     }
 

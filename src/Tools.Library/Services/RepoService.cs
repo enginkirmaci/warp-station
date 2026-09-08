@@ -29,6 +29,14 @@ public class RepoService : IRepoService, IDisposable
     private bool _cacheLoaded;
     private bool _scannedThisSession;
 
+    /// <summary>
+    /// The running (or last) session scan, recorded by <see cref="StartScan"/> so
+    /// <see cref="RefreshAsync"/> can outwait the scan it kicked — the manual refresh's
+    /// busy state must span the scan, while <see cref="EnsureLoadedAsync"/> fires it
+    /// fire-and-forget so page navigation returns instantly.
+    /// </summary>
+    private Task? _scanTask;
+
     // Write-behind persistence state (guarded by _persistLock).
     private static readonly TimeSpan FlushDelay = TimeSpan.FromMilliseconds(400);
     private readonly object _persistLock = new();
@@ -105,7 +113,7 @@ public class RepoService : IRepoService, IDisposable
             }
         }
 
-        // Scan once per app session: the background scan is disk-bound (recursive walk
+        // Scan once per app session: the background scan is disk-bound (folder walk
         // plus a per-repo solution file lookup), so re-running it on every navigation to
         // the Repos page would hammer the file system and re-trigger a full git status
         // pass each time. Later navigations serve the in-memory/cache data; the manual
@@ -113,7 +121,7 @@ public class RepoService : IRepoService, IDisposable
         // unset so the next navigation retries.
         if (!_scannedThisSession && settings.RepoScanFolders?.Any() == true)
         {
-            _ = ScanAsync(settings);
+            StartScan(settings);
         }
     }
 
@@ -126,6 +134,17 @@ public class RepoService : IRepoService, IDisposable
         _scannedThisSession = false;
         RaiseChanged();
         await EnsureLoadedAsync(settings);
+
+        // EnsureLoadedAsync kicks the rescan fire-and-forget (page navigations must not
+        // wait on it); the manual refresh has to — its caller's busy state (the Repos
+        // page's Refresh button) spans the whole scan + git-status cycle, so the data on
+        // screen is final the moment the busy state clears. The task is current here:
+        // this call just started the scan, or an earlier one is still settling. It never
+        // faults — ScanCoreAsync catches, logs and settles internally.
+        if (_scanTask is { IsCompleted: false })
+        {
+            await _scanTask;
+        }
     }
 
     /// <inheritdoc/>
@@ -157,14 +176,33 @@ public class RepoService : IRepoService, IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task ScanAsync(ReposSettings settings)
+    /// <summary>
+    /// Claims the scan slot and starts the session scan, recording the running task in
+    /// <see cref="_scanTask"/> for <see cref="RefreshAsync"/>. A call arriving while a
+    /// scan is in flight is a no-op that leaves the field alone — the in-flight task
+    /// stays the current one (assigning a rejected no-op over it would let a waiting
+    /// refresh return before the real scan finished).
+    /// </summary>
+    private void StartScan(ReposSettings settings)
     {
         if (_busy) return;
         _busy = true;
         RaiseChanged();
+        _scanTask = ScanCoreAsync(settings);
+    }
 
+    /// <summary>
+    /// The scan body behind <see cref="_scanTask"/>. Never faults: failures are logged
+    /// and the finally block settles <see cref="_busy"/> and raises <c>Changed</c> —
+    /// the raise that tells the git-status services to re-probe the fresh list.
+    /// </summary>
+    private async Task ScanCoreAsync(ReposSettings settings)
+    {
         try
         {
+            // Listing scan: omitting the depth makes the scanner non-recursive (direct
+            // children of each scan root only). Deep scanning is the Add Repositories
+            // dialog's job.
             var result = await _scanner.ScanAsync(settings);
             var scanned = result.Repos;
 

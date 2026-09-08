@@ -7,9 +7,10 @@ namespace Tools.Library.Services;
 
 /// <summary>
 /// File-system implementation of <see cref="IRepoScanner"/>. Walks configured folders
-/// recursively up to a depth limit, honoring exclusions, to discover git repositories
-/// (one <see cref="Repo"/> per .git folder's parent). Auto-tags repos whose path
-/// contains the configured platform folder name.
+/// up to the requested depth — or only their direct children when none is requested,
+/// which is how the main repo listing scans — honoring exclusions, to discover git
+/// repositories (one <see cref="Repo"/> per .git folder's parent). Auto-tags repos
+/// whose path contains the configured platform folder name.
 /// </summary>
 public class RepoScanner : IRepoScanner
 {
@@ -25,11 +26,14 @@ public class RepoScanner : IRepoScanner
     /// <summary>
     /// Runs the disk walk on the thread pool: the recursive enumeration and per-repo
     /// solution lookup are pure blocking I/O, so offloading keeps callers (typically the
-    /// UI thread kicking a background scan) responsive for the whole scan.
+    /// UI thread kicking a background scan) responsive for the whole scan. Called
+    /// without <paramref name="maxDepth"/> by the main repo listing (non-recursive);
+    /// the Add Repositories dialog passes its configured depth.
     /// </summary>
-    public Task<RepoScanResult> ScanAsync(ReposSettings settings) => Task.Run(() => Scan(settings));
+    public Task<RepoScanResult> ScanAsync(ReposSettings settings, int? maxDepth = null)
+        => Task.Run(() => Scan(settings, maxDepth));
 
-    private static RepoScanResult Scan(ReposSettings settings)
+    private static RepoScanResult Scan(ReposSettings settings, int? maxDepth)
     {
         var repos = new List<Repo>();
 
@@ -37,13 +41,17 @@ public class RepoScanner : IRepoScanner
         var gitPattern = settings.GitFolderPattern ?? ".git";
         var platformPattern = settings.PlatformFolderName ?? PlatformTag;
         var slnPatterns = ParseSolutionPatterns(settings.SolutionFilePattern);
-        var maxDepth = settings.MaxScanDepth > 0 ? settings.MaxScanDepth : ReposSettings.Defaults.MaxScanDepth;
+
+        // No explicit depth means the listing scan: examine only each scan root's
+        // direct children (depth 1, no descending). Deep scanning is exclusively the
+        // Add Repositories dialog's job and passes its configured depth.
+        var effectiveDepth = maxDepth ?? 1;
 
         foreach (var folderPath in scanFolders)
         {
             if (!Directory.Exists(folderPath)) continue;
 
-            foreach (var dir in GetAccessibleDirectoriesRecursively(folderPath, gitPattern, maxDepth, settings.ExcludedFolders))
+            foreach (var dir in GetAccessibleDirectoriesRecursively(folderPath, gitPattern, effectiveDepth, settings.ExcludedFolders))
             {
                 var parentDir = Path.GetDirectoryName(dir);
                 if (parentDir == null) continue;

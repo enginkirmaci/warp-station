@@ -442,86 +442,10 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <!--
-            Stepped spinner ring (commit button + commit-message wand): the arc is
-            drawn at final size in element coordinates — NO Stretch, no StrokeLineCap
-            setters — so the circle's center is exactly the RenderTransformOrigin
-            (50%,50%) the rotation pivots on; keep those on each Path instance. Stroke
-            stays per-instance too: the commit ring tracks the button Foreground, the
-            wand ring is accent-colored. [IsVisible=True] stops the animation (and its
-            clock work) once the ring hides. The spin is stepped on purpose: during
-            each hold nothing invalidates and the compositor idles — a smooth
-            per-frame sweep measured ~20% of a core on this 165Hz display, the stepped
-            form ~2% (synthetic A/B).
+            The stepped spinner ring behind Classes="spinner" (commit button + commit-
+            message wand) lives app-wide in AppStyles.axaml so pages outside the bar
+            share it (the Repos page's refresh button) — same pattern as stat-badge.
         -->
-        <Style Selector="Path.spinner[IsVisible=True]">
-            <Style.Animations>
-                <Animation Duration="0:0:0.9" IterationCount="Infinite">
-                    <KeyFrame Cue="0%">
-                        <Setter Property="RotateTransform.Angle" Value="0" />
-                    </KeyFrame>
-                    <KeyFrame Cue="8.3%">
-                        <Setter Property="RotateTransform.Angle" Value="0" />
-                    </KeyFrame>
-                    <KeyFrame Cue="10%">
-                        <Setter Property="RotateTransform.Angle" Value="36" />
-                    </KeyFrame>
-                    <KeyFrame Cue="18.3%">
-                        <Setter Property="RotateTransform.Angle" Value="36" />
-                    </KeyFrame>
-                    <KeyFrame Cue="20%">
-                        <Setter Property="RotateTransform.Angle" Value="72" />
-                    </KeyFrame>
-                    <KeyFrame Cue="28.3%">
-                        <Setter Property="RotateTransform.Angle" Value="72" />
-                    </KeyFrame>
-                    <KeyFrame Cue="30%">
-                        <Setter Property="RotateTransform.Angle" Value="108" />
-                    </KeyFrame>
-                    <KeyFrame Cue="38.3%">
-                        <Setter Property="RotateTransform.Angle" Value="108" />
-                    </KeyFrame>
-                    <KeyFrame Cue="40%">
-                        <Setter Property="RotateTransform.Angle" Value="144" />
-                    </KeyFrame>
-                    <KeyFrame Cue="48.3%">
-                        <Setter Property="RotateTransform.Angle" Value="144" />
-                    </KeyFrame>
-                    <KeyFrame Cue="50%">
-                        <Setter Property="RotateTransform.Angle" Value="180" />
-                    </KeyFrame>
-                    <KeyFrame Cue="58.3%">
-                        <Setter Property="RotateTransform.Angle" Value="180" />
-                    </KeyFrame>
-                    <KeyFrame Cue="60%">
-                        <Setter Property="RotateTransform.Angle" Value="216" />
-                    </KeyFrame>
-                    <KeyFrame Cue="68.3%">
-                        <Setter Property="RotateTransform.Angle" Value="216" />
-                    </KeyFrame>
-                    <KeyFrame Cue="70%">
-                        <Setter Property="RotateTransform.Angle" Value="252" />
-                    </KeyFrame>
-                    <KeyFrame Cue="78.3%">
-                        <Setter Property="RotateTransform.Angle" Value="252" />
-                    </KeyFrame>
-                    <KeyFrame Cue="80%">
-                        <Setter Property="RotateTransform.Angle" Value="288" />
-                    </KeyFrame>
-                    <KeyFrame Cue="88.3%">
-                        <Setter Property="RotateTransform.Angle" Value="288" />
-                    </KeyFrame>
-                    <KeyFrame Cue="90%">
-                        <Setter Property="RotateTransform.Angle" Value="324" />
-                    </KeyFrame>
-                    <KeyFrame Cue="98.3%">
-                        <Setter Property="RotateTransform.Angle" Value="324" />
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                        <Setter Property="RotateTransform.Angle" Value="360" />
-                    </KeyFrame>
-                </Animation>
-            </Style.Animations>
-        </Style>
         <!--  Centered muted list message ("Loading…", empty states); sites that sit
               tighter override Margin locally.  -->
         <Style Selector="TextBlock.list-note">
@@ -1124,14 +1048,19 @@
 
                         <!--
                             Branch dropdown — outlined box with a branch icon + name;
-                            picking an entry checks it out.
+                            picking an entry checks it out. The box follows the branch
+                            name's width (the toolbar's Auto column grants the content
+                            size) up to the cap, past which the name ellipsizes instead
+                            of eating the Pull/Push/Fetch side of the row; the dropdown
+                            popup grows with its widest entry under the same cap, so
+                            full names show there.
                         -->
                         <ComboBox
                             x:Name="BranchPicker"
                             Grid.Column="0"
                             Height="30"
                             MinWidth="88"
-                            MaxWidth="200"
+                            MaxWidth="360"
                             VerticalAlignment="Center"
                             Background="Transparent"
                             BorderBrush="{DynamicResource HairlineBrush}"
@@ -1142,6 +1071,15 @@
                             SelectedItem="{Binding SelectedBranch, Mode=OneWay}"
                             SelectionChanged="OnBranchSelectionChanged"
                             ToolTip.Tip="Current branch — pick another to check it out">
+                            <ComboBox.Styles>
+                                <!--  The popup is at least the box's width and otherwise
+                                      follows its widest entry (theme MinWidth binding);
+                                      the cap keeps an extreme name on screen, where the
+                                      entry's own ellipsis (ItemTemplate) takes over.  -->
+                                <Style Selector="ComboBoxItem">
+                                    <Setter Property="MaxWidth" Value="360" />
+                                </Style>
+                            </ComboBox.Styles>
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1154,9 +1092,15 @@
                                         <!--
                                             Explicit foreground: SukiUI brightens only TextBlocks that
                                             are the ComboBoxItem's DIRECT content; inside this
-                                            StackPanel the inherited popup color is too dim.
+                                            StackPanel the inherited popup color is too dim. The
+                                            ellipsis bites only under the caps (the closed box's
+                                            MaxWidth, the item's) — the popup sizes to the widest
+                                            entry otherwise, so entries never trim in it.
                                         -->
-                                        <TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="{Binding}" />
+                                        <TextBlock
+                                            Foreground="{DynamicResource BodyForegroundBrush}"
+                                            Text="{Binding}"
+                                            TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>

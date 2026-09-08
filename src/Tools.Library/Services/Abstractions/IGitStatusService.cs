@@ -53,10 +53,11 @@ public interface IGitStatusService
     /// Fetches the repo's remotes (<c>git fetch --prune</c>) and refreshes its status so
     /// the ahead/behind counts (measured against local upstream refs and therefore stale
     /// until a fetch) become current. On success stamps
-    /// <see cref="Repo.GitLastFetchAt"/> with the completion time. Returns false on any
-    /// failure (no network, missing credentials, timeout).
+    /// <see cref="Repo.GitLastFetchAt"/> with the completion time. Returns the outcome
+    /// carrying git's actionable stderr line on failure (no network, missing
+    /// credentials, timeout).
     /// </summary>
-    Task<bool> FetchAsync(Repo repo, CancellationToken cancellationToken = default);
+    Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Pulls the checked-out branch from its upstream (<c>git pull</c> — the user's
