@@ -20,6 +20,11 @@ namespace Tools.Library.Services;
 /// background threads — CommunityToolkit raises <c>PropertyChanged</c> and the bound
 /// cards update without the page VM being involved.
 /// <para>
+/// The process mechanics live in <see cref="GitCommandRunner"/> and the output parsing
+/// in <see cref="GitOutputParser"/>; this class owns the orchestration — the coalesced
+/// refresh loop, the probe/push cadence and the Changes tab's shared snapshot probe.
+/// </para>
+/// <para>
 /// A refresh is kicked automatically when <see cref="IRepoService"/> raises
 /// <c>Changed</c> outside of a scan, so statuses re-check after every rescan without the
 /// page having to coordinate anything.
@@ -27,37 +32,17 @@ namespace Tools.Library.Services;
 /// </summary>
 public sealed class GitStatusService : IGitStatusService
 {
-    /// <summary>Upper bound for a single git invocation; a hung repo must not stall the rest.</summary>
-    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary>
-    /// Upper bound for fetch/pull/push: network transfers grow with the payload, unlike
-    /// the local probes the 10 s bound is tuned for.
-    /// </summary>
-    private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(60);
-
     /// <summary>How many repos are probed concurrently; keeps process storms off the UI machine.</summary>
     private const int MaxParallelism = 4;
 
-    /// <summary>
-    /// Environment for every git child: never block on credential/passphrase prompts —
-    /// fail fast instead.
-    /// </summary>
-    private static readonly IReadOnlyDictionary<string, string> GitEnvironment = new Dictionary<string, string>
-    {
-        ["GIT_TERMINAL_PROMPT"] = "0",
-    };
-
     private readonly IRepoService _repoService;
+    private readonly GitCommandRunner _runner = new();
 
     /// <summary>
     /// Owns the coalescing refresh loop and the throttled pass over every repo; this
     /// service only supplies the disabled guard and the per-repo probe.
     /// </summary>
     private readonly RefreshCoalescer _coalescer;
-
-    /// <summary>Set once <c>git</c> is missing on PATH; subsequent refreshes become no-ops.</summary>
-    private volatile bool _gitUnavailable;
 
     /// <summary>
     /// In-flight change-probe runs per folder, shared by the Changes tab's two
@@ -88,7 +73,7 @@ public sealed class GitStatusService : IGitStatusService
     /// <inheritdoc/>
     public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
     {
-        if (_gitUnavailable) return;
+        if (_runner.IsUnavailable) return;
         await _coalescer.RunCoalescedAsync(RefreshCoreAsync, cancellationToken);
     }
 
@@ -123,7 +108,7 @@ public sealed class GitStatusService : IGitStatusService
                 "--no-optional-locks status --porcelain=v2 --branch --untracked-files=all",
                 cancellationToken);
 
-            var status = ParsePorcelain(output);
+            var status = GitOutputParser.ParsePorcelain(output);
             repo.GitBranchName = status.BranchName;
             repo.GitModifiedCount = status.ModifiedCount;
             repo.GitToPushCount = status.AheadCount;
@@ -175,27 +160,18 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(branch)) return false;
 
-        return await RunAndRefreshAsync(repo, $"checkout {Quote(branch)}", cancellationToken);
+        return await RunAndRefreshAsync(repo, $"checkout {GitCommandRunner.Quote(branch)}", cancellationToken);
     }
 
     /// <inheritdoc/>
-    public async Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
-
-        var stderr = new List<string>();
-        // The timestamp is stamped before the refresh: SeedLastFetchTime only fills a
-        // null GitLastFetchAt, so the app's own fetch time must be in place first.
-        return await RunAndRefreshAsync(
+    public Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
+        => SyncAsync(
             repo,
             "fetch --prune",
             cancellationToken,
-            SyncTimeout,
-            stderr,
-            onSucceeded: () => repo.GitLastFetchAt = DateTimeOffset.Now)
-            ? GitSyncResult.Ok()
-            : new GitSyncResult(false, SummarizeSyncError(stderr));
-    }
+            // The timestamp is stamped before the refresh: SeedLastFetchTime only fills a
+            // null GitLastFetchAt, so the app's own fetch time must be in place first.
+            onSucceeded: () => repo.GitLastFetchAt = DateTimeOffset.Now);
 
     /// <inheritdoc/>
     public async Task<GitSyncResult> PullAsync(Repo repo, CancellationToken cancellationToken = default)
@@ -206,44 +182,24 @@ public sealed class GitStatusService : IGitStatusService
         => await SyncAsync(repo, "push", cancellationToken);
 
     /// <summary>
-    /// Runs one network sync command (pull/push) in the repo and refreshes its status
-    /// on success. Unlike the local git calls, a sync's failure reason matters to the
-    /// user (no upstream, rejected non-fast-forward, conflicts…), so stderr is captured
-    /// and summarized into the result. Transfers can legitimately run past the 10 s
-    /// probe timeout, so syncs get their own longer bound.
+    /// Runs one network sync command (fetch/pull/push) in the repo and refreshes its
+    /// status on success. Unlike the local git calls, a sync's failure reason matters to
+    /// the user (no upstream, rejected non-fast-forward, conflicts…), so stderr is
+    /// captured and summarized into the result. Transfers can legitimately run past the
+    /// 10 s probe timeout, so syncs get their own longer bound.
     /// </summary>
-    private async Task<GitSyncResult> SyncAsync(Repo repo, string command, CancellationToken cancellationToken)
+    private async Task<GitSyncResult> SyncAsync(
+        Repo repo,
+        string command,
+        CancellationToken cancellationToken,
+        Action? onSucceeded = null)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
 
         var stderr = new List<string>();
-        return await RunAndRefreshAsync(repo, command, cancellationToken, SyncTimeout, stderr)
+        return await RunAndRefreshAsync(repo, command, cancellationToken, GitCommandRunner.SyncTimeout, stderr, onSucceeded)
             ? GitSyncResult.Ok()
-            : new GitSyncResult(false, SummarizeSyncError(stderr));
-    }
-
-    /// <summary>
-    /// Picks the actionable line from git's stderr for a sync failure — the first
-    /// fatal/error/conflict/rejection line, falling back to the last non-empty line
-    /// (transfer chatter like "From origin" would otherwise fill the notification).
-    /// </summary>
-    private static string? SummarizeSyncError(List<string> lines)
-    {
-        string? fallback = null;
-        foreach (var raw in lines)
-        {
-            var line = raw.Trim();
-            if (line.Length == 0) continue;
-            if (line.StartsWith("fatal: ", StringComparison.Ordinal)
-                || line.StartsWith("error: ", StringComparison.Ordinal)
-                || line.StartsWith("CONFLICT", StringComparison.Ordinal)
-                || line.StartsWith("! [", StringComparison.Ordinal))
-            {
-                return line;
-            }
-            fallback = line;
-        }
-        return fallback;
+            : new GitSyncResult(false, GitOutputParser.SummarizeSyncError(stderr));
     }
 
     /// <inheritdoc/>
@@ -259,8 +215,8 @@ public sealed class GitStatusService : IGitStatusService
         // "added\tdeleted\tpath" lines (a rename's path renders as "old => new" —
         // ParseNumstat takes the resolved tail, which is also the path the patch
         // command needs). Verified: adding --no-patch here EMPTIES the numstat too.
-        var output = await RunGitAsync(repo.FolderPath, $"show --numstat --format= {Quote(hash)}", cancellationToken);
-        var counts = ParseNumstat(output);
+        var output = await RunGitAsync(repo.FolderPath, $"show --numstat --format= {GitCommandRunner.Quote(hash)}", cancellationToken);
+        var counts = GitOutputParser.ParseNumstat(output);
         var files = counts
             .Select(entry => new GitChangedFile(entry.Key, string.Empty, entry.Value.Additions, entry.Value.Deletions))
             .ToList();
@@ -280,7 +236,7 @@ public sealed class GitStatusService : IGitStatusService
         // multi-MB patch would spike the drawer for content nobody scrolls to.
         return await RunGitAsync(
             repo.FolderPath,
-            $"show --format= {Quote(hash)} -- {Quote(path)}",
+            $"show --format= {GitCommandRunner.Quote(hash)} -- {GitCommandRunner.Quote(path)}",
             cancellationToken,
             maxOutputChars: CommitPatchReadCap,
             truncationSuffix: "\n… (patch truncated)");
@@ -291,7 +247,7 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash)) return false;
 
-        return await RunAndRefreshAsync(repo, $"revert --no-edit {Quote(hash)}", cancellationToken);
+        return await RunAndRefreshAsync(repo, $"revert --no-edit {GitCommandRunner.Quote(hash)}", cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -303,7 +259,7 @@ public sealed class GitStatusService : IGitStatusService
         // some fetched remote ref (= pushed). Note the list is only as fresh as the
         // last fetch. A git error (null) fails open — the web link hides only on a
         // positive "no remote ref contains it".
-        var output = await RunGitAsync(repo.FolderPath, $"branch -r --contains {Quote(hash)}", cancellationToken);
+        var output = await RunGitAsync(repo.FolderPath, $"branch -r --contains {GitCommandRunner.Quote(hash)}", cancellationToken);
         return output is null || output.Trim().Length > 0;
     }
 
@@ -416,84 +372,18 @@ public sealed class GitStatusService : IGitStatusService
         var statusFiles = new List<GitChangedFile>();
         var staged = new List<GitChangedFile>();
         var unstaged = new List<GitChangedFile>();
-        ForEachLine(statusOutput, line =>
+        GitOutputParser.ForEachLine(statusOutput, line =>
         {
             if (line.IsEmpty || line[0] == '#') return;
-            ParseStatusLine(line, statusFiles, staged, unstaged);
+            GitOutputParser.ParseStatusLine(line, statusFiles, staged, unstaged);
         });
 
         return new GitChangeSnapshot(
             statusFiles,
             staged,
             unstaged,
-            ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --numstat", CancellationToken.None)),
-            ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --cached --numstat", CancellationToken.None)));
-    }
-
-    /// <summary>
-    /// Parses one porcelain v2 change line into the two views the Changes tab shows.
-    /// Ordinary/renamed entries (<c>1</c>/<c>2</c>): the XY pair right after the kind —
-    /// X is the index (staged) status, Y the worktree (unstaged) status, '.' meaning
-    /// unmodified on that side; the path is the LAST space-separated token (a rename's
-    /// original path precedes it). The file list keeps the whole XY pair verbatim and
-    /// only non-empty paths; the split view emits one entry per non-'.' side. Unmerged
-    /// entries (<c>u</c>) surface as a "U" worktree entry — there is no clean index
-    /// side to stage until the conflict is resolved — while the file list reads the XY
-    /// pair like any ordinary line. Untracked entries (<c>?</c>): the whole remainder
-    /// IS the path (it may contain spaces), worktree side only.
-    /// </summary>
-    private static void ParseStatusLine(
-        ReadOnlySpan<char> line,
-        List<GitChangedFile> statusFiles,
-        List<GitChangedFile> staged,
-        List<GitChangedFile> unstaged)
-    {
-        var separator = line.IndexOf(' ');
-        if (separator <= 0) return;
-
-        var kind = line[..separator];
-        var rest = line[(separator + 1)..];
-
-        if (kind.SequenceEqual("?"))
-        {
-            if (!rest.IsEmpty) statusFiles.Add(new GitChangedFile(rest.ToString(), "?"));
-            unstaged.Add(new GitChangedFile(rest.ToString(), "?"));
-            return;
-        }
-
-        if (kind.SequenceEqual("u"))
-        {
-            unstaged.Add(new GitChangedFile(LastToken(rest).ToString(), "U"));
-
-            var unmergedCodeEnd = rest.IndexOf(' ');
-            if (unmergedCodeEnd <= 0) return;
-            var unmergedPath = LastToken(rest[(unmergedCodeEnd + 1)..]);
-            if (!unmergedPath.IsEmpty)
-            {
-                statusFiles.Add(new GitChangedFile(unmergedPath.ToString(), rest[..unmergedCodeEnd].ToString()));
-            }
-            return;
-        }
-
-        if (rest.Length < 3) return;
-        var indexCode = rest[0];
-        var worktreeCode = rest[1];
-        var path = LastToken(rest[3..]);
-
-        if (indexCode is not ('.' or ' '))
-        {
-            staged.Add(new GitChangedFile(path.ToString(), indexCode.ToString()));
-        }
-        if (worktreeCode is not ('.' or ' '))
-        {
-            unstaged.Add(new GitChangedFile(path.ToString(), worktreeCode.ToString()));
-        }
-        if (!path.IsEmpty)
-        {
-            // (Path, StatusCode) — the flat file list shows the path and the verbatim
-            // XY pair as its status.
-            statusFiles.Add(new GitChangedFile(path.ToString(), rest[..2].ToString()));
-        }
+            GitOutputParser.ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --numstat", CancellationToken.None)),
+            GitOutputParser.ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --cached --numstat", CancellationToken.None)));
     }
 
     /// <summary>
@@ -519,43 +409,12 @@ public sealed class GitStatusService : IGitStatusService
         new Dictionary<string, (int?, int?)>(StringComparer.Ordinal),
         new Dictionary<string, (int?, int?)>(StringComparer.Ordinal));
 
-    /// <summary>The last space-separated token of a porcelain v2 change line.</summary>
-    private static ReadOnlySpan<char> LastToken(ReadOnlySpan<char> fields)
-    {
-        var lastSpace = fields.LastIndexOf(' ');
-        return lastSpace >= 0 ? fields[(lastSpace + 1)..] : fields;
-    }
-
-    /// <summary>
-    /// Walks the lines of a multi-line CLI output as spans — the allocation-free
-    /// alternative to <c>Split('\n')</c>, which duplicates the whole output as
-    /// per-line strings on every pass (a status output can hold thousands of
-    /// untracked entries). Mirrors <c>StringSplitOptions.RemoveEmptyEntries</c>:
-    /// empty and whitespace-only lines are skipped, and each line is handed over
-    /// \r-trimmed. The span is only valid for the duration of the call.
-    /// </summary>
-    private delegate void LineHandler(ReadOnlySpan<char> line);
-
-    private static void ForEachLine(string output, LineHandler handle)
-    {
-        var span = output.AsSpan();
-        while (!span.IsEmpty)
-        {
-            var eol = span.IndexOf('\n');
-            var line = eol < 0 ? span : span[..eol];
-            span = eol < 0 ? default : span[(eol + 1)..];
-            line = line.TrimEnd('\r');
-            if (line.IsWhiteSpace()) continue;
-            handle(line);
-        }
-    }
-
     /// <inheritdoc/>
     public async Task<bool> StageAsync(Repo repo, string path, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path)) return false;
 
-        return await RunAndRefreshAsync(repo, $"add -- {Quote(path)}", cancellationToken);
+        return await RunAndRefreshAsync(repo, $"add -- {GitCommandRunner.Quote(path)}", cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -571,7 +430,7 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path)) return false;
 
-        return await RunAndRefreshAsync(repo, $"reset -q HEAD -- {Quote(path)}", cancellationToken);
+        return await RunAndRefreshAsync(repo, $"reset -q HEAD -- {GitCommandRunner.Quote(path)}", cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -593,7 +452,7 @@ public sealed class GitStatusService : IGitStatusService
         try
         {
             await File.WriteAllTextAsync(messageFile, message, cancellationToken);
-            var output = await RunGitAsync(repo.FolderPath, $"commit -F {Quote(messageFile)}", cancellationToken);
+            var output = await RunGitAsync(repo.FolderPath, $"commit -F {GitCommandRunner.Quote(messageFile)}", cancellationToken);
             if (output is null) return null;
 
             // First line of git's output: "[branch abc1234] subject" — pick the hash.
@@ -636,38 +495,6 @@ public sealed class GitStatusService : IGitStatusService
     /// TextBox's text layout to match.</summary>
     private const int CommitPatchReadCap = 64 * 1024;
 
-    /// <summary>Parses <c>git diff --numstat</c> output into per-path add/delete counts.</summary>
-    private static Dictionary<string, (int? Additions, int? Deletions)> ParseNumstat(string? output)
-    {
-        var counts = new Dictionary<string, (int?, int?)>(StringComparer.Ordinal);
-        if (string.IsNullOrEmpty(output)) return counts;
-
-        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var line = rawLine.TrimEnd('\r');
-            // "additions\tdeletions\tpath" — the path may contain spaces (and renames
-            // render as "old => new" or "{prefix old => suffix new}"), so split exactly
-            // two tab-separated counts off the front.
-            var firstTab = line.IndexOf('\t');
-            if (firstTab <= 0) continue;
-            var secondTab = line.IndexOf('\t', firstTab + 1);
-            if (secondTab <= 0) continue;
-
-            var path = line[(secondTab + 1)..];
-            var arrow = path.LastIndexOf(" => ", StringComparison.Ordinal);
-            if (arrow >= 0)
-            {
-                path = path[(arrow + 4)..];
-            }
-
-            int? additions = int.TryParse(line[..firstTab], out var a) ? a : null;
-            int? deletions = int.TryParse(line[(firstTab + 1)..secondTab], out var d) ? d : null;
-            counts[path] = (additions, deletions);
-        }
-
-        return counts;
-    }
-
     /// <inheritdoc/>
     public async Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default)
     {
@@ -695,13 +522,6 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <summary>
-    /// Quotes a git argument when it contains spaces (branch names rarely do, but a
-    /// ref with one must not split into two arguments).
-    /// </summary>
-    private static string Quote(string value)
-        => value.Contains(' ') ? $"\"{value}\"" : value;
-
-    /// <summary>
     /// Seeds <see cref="Repo.GitLastFetchAt"/> from <c>.git/FETCH_HEAD</c>'s last write
     /// time when the app has not fetched itself yet — a repo fetched outside the app
     /// still reports an honest age instead of "never".
@@ -725,59 +545,10 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <summary>
-    /// Parses <c>git status --porcelain=v2 --branch --untracked-files=all</c> output.
-    /// Header lines look like <c># branch.head main</c> and <c># branch.ab +2 -1</c>
-    /// (the latter only when an upstream is configured); every remaining line is one
-    /// change entry (ordinary, renamed, unmerged or untracked). A null/empty output
-    /// yields a zeroed snapshot.
+    /// Runs one git command through the runner (stdout, or null on any failure —
+    /// non-zero exit, timeout, missing binary).
     /// </summary>
-    private static GitStatusSnapshot ParsePorcelain(string? output)
-    {
-        string? branch = null;
-        var modified = 0;
-        var ahead = 0;
-        var behind = 0;
-
-        if (!string.IsNullOrEmpty(output))
-        {
-            ForEachLine(output, line =>
-            {
-                if (line.StartsWith("# branch.head ", StringComparison.Ordinal))
-                {
-                    branch = line["# branch.head ".Length..].Trim().ToString();
-                }
-                else if (line.StartsWith("# branch.ab ", StringComparison.Ordinal))
-                {
-                    var values = line["# branch.ab ".Length..].Trim();
-                    Span<Range> parts = stackalloc Range[4];
-                    var count = values.Split(parts, ' ', StringSplitOptions.RemoveEmptyEntries);
-                    for (var i = 0; i < count; i++)
-                    {
-                        var part = values[parts[i]];
-                        if (part.StartsWith('+'))
-                            int.TryParse(part[1..], out ahead);
-                        else if (part.StartsWith('-'))
-                            int.TryParse(part[1..], out behind);
-                    }
-                }
-                else if (!line.StartsWith('#'))
-                {
-                    modified++;
-                }
-            });
-        }
-
-        return new GitStatusSnapshot(branch, modified, ahead, behind);
-    }
-
-    /// <summary>
-    /// Runs <c>git</c> with the given arguments in <paramref name="workingDir"/> and
-    /// returns stdout, or <see langword="null"/> on any failure (non-zero exit, timeout,
-    /// missing binary). Prompts are disabled (<c>GIT_TERMINAL_PROMPT=0</c>) and locks are
-    /// not taken (<c>--no-optional-locks</c>) so probing never interferes with the user's
-    /// own git operations.
-    /// </summary>
-    private async Task<string?> RunGitAsync(
+    private Task<string?> RunGitAsync(
         string workingDir,
         string arguments,
         CancellationToken cancellationToken,
@@ -785,48 +556,7 @@ public sealed class GitStatusService : IGitStatusService
         ICollection<string>? stderrSink = null,
         int? maxOutputChars = null,
         string? truncationSuffix = null)
-    {
-        ProcessRunResult result;
-        try
-        {
-            result = await ProcessRunner.RunAsync(new ProcessRunOptions
-            {
-                FileName = "git",
-                Arguments = arguments,
-                WorkingDirectory = workingDir,
-                Timeout = timeout ?? ProcessTimeout,
-                EnvironmentVariables = GitEnvironment,
-                MaxOutputChars = maxOutputChars,
-            }, cancellationToken);
-        }
-        catch (Win32Exception ex)
-        {
-            // git is not installed / not on PATH: disable the service until the next
-            // app run instead of failing every repo on every refresh.
-            _gitUnavailable = true;
-            Log.Logger.Debug(ex, "git executable not found; git status checks disabled");
-            return null;
-        }
-
-        // Sync failures surface their stderr to the user — same line-splitting as before,
-        // so the notification still carries one actionable git line.
-        if (result.ExitCode != 0 && !result.Truncated && stderrSink is not null)
-        {
-            foreach (var line in result.StandardError.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            {
-                stderrSink.Add(line);
-            }
-        }
-
-        // A truncated read is a success by contract: the cap kill makes the exit code
-        // non-zero, but the caller asked for (and got) exactly the head it wanted.
-        var output = result.ExitCode == 0 || result.Truncated ? result.StandardOutput : null;
-        if (output is not null && result.Truncated && truncationSuffix is not null)
-        {
-            output += truncationSuffix;
-        }
-        return output;
-    }
+        => _runner.RunAsync(workingDir, arguments, cancellationToken, timeout, stderrSink, maxOutputChars, truncationSuffix);
 
     /// <summary>
     /// Runs one mutating git command and, when it succeeded, refreshes the repo's status
@@ -853,7 +583,4 @@ public sealed class GitStatusService : IGitStatusService
 
         return ok;
     }
-
-    /// <summary>The parsed result of one repo's git status probe.</summary>
-    private sealed record GitStatusSnapshot(string? BranchName, int ModifiedCount, int AheadCount, int BehindCount);
 }
