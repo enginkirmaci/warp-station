@@ -34,6 +34,17 @@
         <Style Selector="Grid.history-row:pointerover">
             <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
+        <!--  Changes-tab file rows: same transparent-base + hover-tint contract
+              as the history rows. The highlight doubles as the action reveal —
+              the row's discard / stage / unstage pair binds IsVisible to the
+              row's IsPointerOver, so it exists (in a reserved column) but only
+              paints while the pointer is on the row.  -->
+        <Style Selector="Grid.change-row">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Grid.change-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+        </Style>
         <!--
             Overview clickable card: the ov-card look on a Button using the same
             stretch template, so the WHOLE card routes to its tab and the hover tint

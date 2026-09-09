@@ -141,13 +141,19 @@
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
-                        <!--  File row: status chip + path + numstat + the
-                              side's action button. The numstat column is
-                              FIXED 104px (48 + 8 + 48) so the action
-                              button holds its x on rows without counts
-                              (binary/untracked) too.  -->
+                        <!--  File row: status chip + path, then the action
+                              pair (discard + stage/unstage) LEFT of the
+                              numstat pills. Both trailing columns are FIXED
+                              width so pills align row-to-row and never shift:
+                              the pair owns a reserved 50px column (two 24px
+                              buttons + 2px gap) and only becomes visible while
+                              the row is highlighted.  -->
                         <DataTemplate x:DataType="entities:GitChangedFile">
-                            <Grid ColumnDefinitions="Auto,*,104,Auto" ColumnSpacing="8">
+                            <Grid
+                                x:Name="ChangeRow"
+                                Classes="change-row"
+                                ColumnDefinitions="Auto,*,50,104"
+                                ColumnSpacing="8">
                                 <Border
                                     Grid.Column="0"
                                     Width="30"
@@ -171,20 +177,24 @@
                                     Text="{Binding Path}"
                                     TextTrimming="CharacterEllipsis" />
                                 <ContentControl
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     Content="{Binding}"
                                     ContentTemplate="{StaticResource NumstatPillsTemplate}" />
                                 <!--  Row actions: discard (↩) + the side's
-                                      stage/unstage button. Discard reverts an
+                                      stage/unstage button, revealed only while
+                                      the row is highlighted. Discard reverts an
                                       unstaged file to the index (untracked
                                       files are deleted) and throws a staged
                                       file back to HEAD — no undo.  -->
                                 <StackPanel
-                                    Grid.Column="3"
+                                    Grid.Column="2"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
-                                    Spacing="2">
+                                    Spacing="2"
+                                    IsVisible="{Binding #ChangeRow.IsPointerOver}">
                                     <Button
+                                        Width="24"
+                                        Height="24"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).DiscardFileCommand}"
                                         CommandParameter="{Binding}"
@@ -197,6 +207,8 @@
                                             Stretch="Uniform" />
                                     </Button>
                                     <Button
+                                        Width="24"
+                                        Height="24"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageFileCommand}"
                                         CommandParameter="{Binding}"
@@ -210,6 +222,8 @@
                                             Stretch="Uniform" />
                                     </Button>
                                     <Button
+                                        Width="24"
+                                        Height="24"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageFileCommand}"
                                         CommandParameter="{Binding}"
