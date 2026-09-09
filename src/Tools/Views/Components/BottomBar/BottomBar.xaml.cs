@@ -4,7 +4,7 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
-using Tools.ViewModels.Components;
+using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.Views.Components.BottomBar;
 

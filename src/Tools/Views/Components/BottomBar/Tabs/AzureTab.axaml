@@ -8,11 +8,11 @@
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="600"
     d:DesignWidth="1200"
     x:CompileBindings="True"
-    x:DataType="vm:BottomBarViewModel"
+    x:DataType="vm:AzurePanelViewModel"
     mc:Ignorable="d">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -103,7 +103,7 @@
                             <DataTemplate x:DataType="entities:AzureDevOpsItem">
                                 <Button
                                     Classes="bar-item"
-                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                    Command="{Binding $parent[UserControl].((vm:AzurePanelViewModel)DataContext).OpenAzureItemCommand}"
                                     CommandParameter="{Binding}"
                                     ToolTip.Tip="{Binding Url}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
@@ -144,7 +144,7 @@
                             <DataTemplate x:DataType="entities:AzureDevOpsItem">
                                 <Button
                                     Classes="bar-item"
-                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                    Command="{Binding $parent[UserControl].((vm:AzurePanelViewModel)DataContext).OpenAzureItemCommand}"
                                     CommandParameter="{Binding}"
                                     ToolTip.Tip="{Binding Url}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
@@ -184,7 +184,7 @@
                             <DataTemplate x:DataType="entities:AzureDevOpsPipelineRun">
                                 <Button
                                     Classes="bar-item"
-                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzurePipelineCommand}"
+                                    Command="{Binding $parent[UserControl].((vm:AzurePanelViewModel)DataContext).OpenAzurePipelineCommand}"
                                     CommandParameter="{Binding}"
                                     ToolTip.Tip="{Binding Url}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">

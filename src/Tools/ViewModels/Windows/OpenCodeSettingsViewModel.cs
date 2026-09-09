@@ -10,6 +10,7 @@ using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Components;
+using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.ViewModels.Windows;
 

@@ -12,7 +12,7 @@
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="600"
     d:DesignWidth="1200"
     x:CompileBindings="True"
@@ -44,20 +44,20 @@
                 Grid.Column="1"
                 VerticalAlignment="Center"
                 Classes="icon"
-                Command="{Binding RefreshGitHubCommand}"
-                IsEnabled="{Binding !IsGitHubRefreshing}"
+                Command="{Binding GitHub.RefreshCommand}"
+                IsEnabled="{Binding !GitHub.IsRefreshing}"
                 ToolTip.Tip="Refresh">
                 <Panel>
                     <Path
                         Classes="icon"
                         Data="{tools:SvgPath icon-refresh}"
-                        IsVisible="{Binding !IsGitHubRefreshing}" />
+                        IsVisible="{Binding !GitHub.IsRefreshing}" />
                     <Path
                         Width="13"
                         Height="13"
                         Classes="spinner"
                         Data="{tools:SvgPath icon-spinner, Center=False}"
-                        IsVisible="{Binding IsGitHubRefreshing}"
+                        IsVisible="{Binding GitHub.IsRefreshing}"
                         RenderTransformOrigin="50%,50%"
                         Stroke="{DynamicResource MutedForegroundBrush}"
                         StrokeThickness="2">
@@ -85,7 +85,7 @@
             <StackPanel Spacing="2">
                 <TextBlock
                     Classes="list-note subtle"
-                    IsVisible="{Binding !GitHubHasLoaded}"
+                    IsVisible="{Binding !GitHub.HasLoaded}"
                     Text="Loading…" />
                 <TextBlock
                     Classes="list-note subtle"
@@ -93,14 +93,14 @@
                     Text="No open pull requests" />
                 <TextBlock
                     Classes="list-note subtle"
-                    IsVisible="{Binding ShowGitHubUnavailable}"
+                    IsVisible="{Binding GitHub.ShowUnavailable}"
                     Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
-                <ItemsControl ItemsSource="{Binding GitHubPullRequests}">
+                <ItemsControl ItemsSource="{Binding GitHub.PullRequests}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="entities:GitHubItem">
                             <Button
                                 Classes="bar-item"
-                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
+                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).GitHub.OpenItemCommand}"
                                 CommandParameter="{Binding}"
                                 ToolTip.Tip="{Binding Url}">
                                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
@@ -154,17 +154,17 @@
                 </ItemsControl>
 
                 <!--  Azure DevOps pull requests, in the same tab as the GitHub list  -->
-                <StackPanel IsVisible="{Binding HasAzurePullRequests}" Spacing="2">
+                <StackPanel IsVisible="{Binding Azure.HasAzurePullRequests}" Spacing="2">
                     <TextBlock
                         Margin="0,10,0,0"
                         Classes="field-label"
-                        Text="{Binding AzurePullRequests.Count, StringFormat='Azure DevOps Pull Requests ({0})'}" />
-                    <ItemsControl ItemsSource="{Binding AzurePullRequests}">
+                        Text="{Binding Azure.AzurePullRequests.Count, StringFormat='Azure DevOps Pull Requests ({0})'}" />
+                    <ItemsControl ItemsSource="{Binding Azure.AzurePullRequests}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="entities:AzureDevOpsItem">
                                 <Button
                                     Classes="bar-item"
-                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).Azure.OpenAzureItemCommand}"
                                     CommandParameter="{Binding}"
                                     ToolTip.Tip="{Binding Url}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">

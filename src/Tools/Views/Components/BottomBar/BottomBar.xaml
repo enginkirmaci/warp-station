@@ -8,11 +8,12 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:repo="using:Tools.Views.Components.Repo"
     xmlns:tabs="using:Tools.Views.Components.BottomBar.Tabs"
-    xmlns:vm="using:Tools.ViewModels.Components"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="280"
     d:DesignWidth="1200"
     x:CompileBindings="True"
     x:DataType="vm:BottomBarViewModel"
+    x:Name="BarRoot"
     mc:Ignorable="d">
 
     <!--
@@ -76,10 +77,12 @@
                     IsVisible="{Binding IsActiveOverview}" />
 
                 <!--  Changes tab: branch toolbar, staged/unstaged tree, commit workspace,
-                      collapsed history  -->
+                      collapsed history — bound to the shell's Changes child VM; the
+                      shell-scoped visibility reads the root element directly.  -->
                 <tabs:ChangesTab
                     Grid.Row="1"
-                    IsVisible="{Binding IsActiveChanges}" />
+                    DataContext="{Binding Changes}"
+                    IsVisible="{Binding #BarRoot.((vm:BottomBarViewModel)DataContext).IsActiveChanges}" />
 
                 <!--  Pull requests tab  -->
                 <tabs:PullRequestsTab
@@ -91,10 +94,12 @@
                     Grid.Row="1"
                     IsVisible="{Binding IsActiveIssues}" />
 
-                <!--  Azure DevOps tab: pull requests, work items, pipeline runs  -->
+                <!--  Azure DevOps tab: pull requests, work items, pipeline runs —
+                      bound to the shell's Azure panel VM  -->
                 <tabs:AzureTab
                     Grid.Row="1"
-                    IsVisible="{Binding IsActiveAzure}" />
+                    DataContext="{Binding Azure}"
+                    IsVisible="{Binding #BarRoot.((vm:BottomBarViewModel)DataContext).IsActiveAzure}" />
             </Grid>
         </Border>
 

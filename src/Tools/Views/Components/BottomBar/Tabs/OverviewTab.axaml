@@ -12,7 +12,7 @@
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="600"
     d:DesignWidth="1200"
     x:CompileBindings="True"
@@ -165,9 +165,9 @@
                                 <TextBlock
                                     Margin="0,16"
                                     Classes="list-note subtle"
-                                    IsVisible="{Binding ShowChangesEmpty}"
+                                    IsVisible="{Binding Changes.ShowChangesEmpty}"
                                     Text="Working tree is clean" />
-                                <ItemsControl ItemsSource="{Binding ChangedFilesPreview}">
+                                <ItemsControl ItemsSource="{Binding Changes.ChangedFilesPreview}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitChangedFile">
                                             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
@@ -228,13 +228,13 @@
                                     Classes="list-note subtle"
                                     IsVisible="{Binding ShowPullRequestsEmpty}"
                                     Text="No open pull requests" />
-                                <ItemsControl ItemsSource="{Binding GitHubPullRequestsPreview}">
+                                <ItemsControl ItemsSource="{Binding GitHub.PullRequestsPreview}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitHubItem">
                                             <Button
                                                 Padding="4,5"
                                                 Classes="bar-item"
-                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
+                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).GitHub.OpenItemCommand}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="{Binding Url}">
                                                 <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
@@ -272,17 +272,17 @@
                                 </ItemsControl>
 
                                 <!--  Azure DevOps pull requests preview  -->
-                                <StackPanel IsVisible="{Binding HasAzurePullRequests}" Spacing="4">
+                                <StackPanel IsVisible="{Binding Azure.HasAzurePullRequests}" Spacing="4">
                                     <TextBlock
                                         Classes="field-label"
-                                        Text="{Binding AzurePullRequests.Count, StringFormat='Azure DevOps ({0})'}" />
-                                    <ItemsControl ItemsSource="{Binding AzurePullRequestsPreview}">
+                                        Text="{Binding Azure.AzurePullRequests.Count, StringFormat='Azure DevOps ({0})'}" />
+                                    <ItemsControl ItemsSource="{Binding Azure.AzurePullRequestsPreview}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="entities:AzureDevOpsItem">
                                                 <Button
                                                     Padding="4,5"
                                                     Classes="bar-item"
-                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).Azure.OpenAzureItemCommand}"
                                                     CommandParameter="{Binding}"
                                                     ToolTip.Tip="{Binding Url}">
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -325,13 +325,13 @@
                                     Classes="list-note subtle"
                                     IsVisible="{Binding ShowIssuesEmpty}"
                                     Text="No open issues" />
-                                <ItemsControl ItemsSource="{Binding GitHubIssuesPreview}">
+                                <ItemsControl ItemsSource="{Binding GitHub.IssuesPreview}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="entities:GitHubItem">
                                             <Button
                                                 Padding="4,5"
                                                 Classes="bar-item"
-                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenGitHubItemCommand}"
+                                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).GitHub.OpenItemCommand}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip.Tip="{Binding Url}">
                                                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
@@ -366,17 +366,17 @@
                                 </ItemsControl>
 
                                 <!--  Azure DevOps work items preview  -->
-                                <StackPanel IsVisible="{Binding HasAzureWorkItems}" Spacing="4">
+                                <StackPanel IsVisible="{Binding Azure.HasAzureWorkItems}" Spacing="4">
                                     <TextBlock
                                         Classes="field-label"
-                                        Text="{Binding AzureWorkItems.Count, StringFormat='Azure DevOps ({0})'}" />
-                                    <ItemsControl ItemsSource="{Binding AzureWorkItemsPreview}">
+                                        Text="{Binding Azure.AzureWorkItems.Count, StringFormat='Azure DevOps ({0})'}" />
+                                    <ItemsControl ItemsSource="{Binding Azure.AzureWorkItemsPreview}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="entities:AzureDevOpsItem">
                                                 <Button
                                                     Padding="4,5"
                                                     Classes="bar-item"
-                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).OpenAzureItemCommand}"
+                                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).Azure.OpenAzureItemCommand}"
                                                     CommandParameter="{Binding}"
                                                     ToolTip.Tip="{Binding Url}">
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">

@@ -116,7 +116,7 @@ public partial class App : Application
         services.AddSingleton<MainWindowViewModel>();
         // Singleton: the bottom bar outlives page navigation and keeps its state (repo
         // selection, open tab) for the whole window lifetime.
-        services.AddSingleton<ViewModels.Components.BottomBarViewModel>();
+        services.AddSingleton<ViewModels.Components.BottomBar.BottomBarViewModel>();
         // Register pages and view models
         // The Repositories page is permanent window content (attached once in the
         // MainWindow constructor), so its ViewModel is a Singleton: the constructor
@@ -179,7 +179,7 @@ public partial class App : Application
         {
             // Cancelling makes the run service kill the opencode process tree on this
             // thread — without it a mid-generation CLI outlives the closed app.
-            services.GetRequiredService<ViewModels.Components.BottomBarViewModel>()
+            services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>()
                 .CancelCommitMessageGeneration();
             services.GetRequiredService<ISnapItService>().Stop();
             services.GetRequiredService<INugetLocalService>().Stop();

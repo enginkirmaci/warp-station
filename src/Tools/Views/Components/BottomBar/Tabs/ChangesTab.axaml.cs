@@ -3,20 +3,21 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
 using Tools.Library.Entities;
-using Tools.ViewModels.Components;
+using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.Views.Components.BottomBar.Tabs;
 
 /// <summary>
 /// Changes tab of the bottom bar: branch toolbar, staged/unstaged tree, commit
-/// workspace and the collapsed History list. Its DataContext is the bar's
-/// <see cref="BottomBarViewModel"/>. The branch ComboBox commits its selection
-/// through a code-behind handler instead of a TwoWay binding so the in-place
-/// branch reload never writes a transient null back into the view model.
+/// workspace and the collapsed History list. Its DataContext is the tab's
+/// <see cref="ChangesTabViewModel"/> (the bar shell's child, assigned by
+/// <c>BottomBar.xaml</c>). The branch ComboBox commits its selection through a
+/// code-behind handler instead of a TwoWay binding so the in-place branch reload
+/// never writes a transient null back into the view model.
 /// </summary>
 public partial class ChangesTab : UserControl
 {
-    public BottomBarViewModel? ViewModel => DataContext as BottomBarViewModel;
+    public ChangesTabViewModel? ViewModel => DataContext as ChangesTabViewModel;
 
     public ChangesTab()
     {

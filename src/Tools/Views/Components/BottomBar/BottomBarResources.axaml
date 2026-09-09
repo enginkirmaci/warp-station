@@ -14,7 +14,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components">
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar">
 
     <!--
         Stretch button theme: replaces SukiUI's Button template for the bar's clickable

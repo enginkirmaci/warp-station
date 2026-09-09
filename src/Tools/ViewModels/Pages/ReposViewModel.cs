@@ -11,6 +11,7 @@ using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Components;
+using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.ViewModels.Pages;
 
@@ -28,7 +29,7 @@ public sealed record RepoSortOption(RepoSortMode Mode, string Label);
 /// decisions), and tag persistence back through the service.
 /// Holds only view-specific state: the text + tag filters, the sort selection and the
 /// filtered projection. The OpenCode launch panel moved to the window's bottom bar
-/// (<see cref="Components.BottomBarViewModel"/>); this page keeps the per-row quick
+/// (<see cref="BottomBar.BottomBarViewModel"/>); this page keeps the per-row quick
 /// launch and routes the row chips/affordances to the bar's tabs.
 /// </summary>
 public partial class ReposViewModel : PageViewModelBase

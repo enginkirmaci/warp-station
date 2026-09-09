@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Tools.Library.Entities;
 using Tools.ViewModels.Components;
+using Tools.ViewModels.Components.BottomBar;
 using Tools.ViewModels.Pages;
 
 namespace Tools.Views.Pages;

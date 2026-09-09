@@ -17,11 +17,11 @@
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="600"
     d:DesignWidth="1200"
     x:CompileBindings="True"
-    x:DataType="vm:BottomBarViewModel"
+    x:DataType="vm:ChangesTabViewModel"
     mc:Ignorable="d">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -374,7 +374,7 @@
                                         Grid.Column="2"
                                         VerticalAlignment="Center"
                                         Classes="detail-link"
-                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).CopyCommitHashCommand}"
+                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).CopyCommitHashCommand}"
                                         CommandParameter="{Binding}"
                                         ToolTip.Tip="Copy commit hash">
                                         <TextBlock
@@ -467,7 +467,7 @@
                                         Grid.Column="1"
                                         VerticalAlignment="Center"
                                         Classes="text-subtle"
-                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageAllCommand}"
+                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageAllCommand}"
                                         Content="Stage All"
                                         IsVisible="{Binding IsUnstaged}"
                                         ToolTip.Tip="Stage all unstaged files" />
@@ -475,7 +475,7 @@
                                         Grid.Column="1"
                                         VerticalAlignment="Center"
                                         Classes="text-subtle"
-                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageAllCommand}"
+                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageAllCommand}"
                                         Content="Unstage All"
                                         IsVisible="{Binding !IsUnstaged}"
                                         ToolTip.Tip="Unstage all files — the working tree keeps every change" />
@@ -517,7 +517,7 @@
                                     <Panel Grid.Column="3" VerticalAlignment="Center">
                                         <Button
                                             Classes="icon row-action"
-                                            Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).StageFileCommand}"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageFileCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding !IsStaged}"
                                             ToolTip.Tip="Stage this file">
@@ -530,7 +530,7 @@
                                         </Button>
                                         <Button
                                             Classes="icon row-action"
-                                            Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).UnstageFileCommand}"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageFileCommand}"
                                             CommandParameter="{Binding}"
                                             IsVisible="{Binding IsStaged}"
                                             ToolTip.Tip="Unstage this file — the working tree keeps the change">
