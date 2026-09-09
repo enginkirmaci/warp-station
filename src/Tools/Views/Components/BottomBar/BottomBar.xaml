@@ -16,6 +16,48 @@
     x:Name="BarRoot"
     mc:Ignorable="d">
 
+    <UserControl.Styles>
+        <!--  Tab row styles (moved with the tab row itself out of RepoHeader):
+              quiet label + count chip, accent underline when active.  -->
+        <Style Selector="Button.bar-tab">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0,9" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.bar-tab TextBlock.tab-label">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.bar-tab:pointerover TextBlock.tab-label">
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.bar-tab.active">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimaryBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,2" />
+            <Setter Property="Padding" Value="0,9" />
+        </Style>
+        <Style Selector="Button.bar-tab.active TextBlock.tab-label">
+            <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <!--  Tab badge: the count carried over from the row chips, in a small rounded chip.  -->
+        <Style Selector="Border.tab-badge-chip">
+            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.tab-badge">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        </Style>
+    </UserControl.Styles>
+
     <!--
         Bottom bar shell: the expandable panel hosting the active tab's content.
         The whole control stays hidden until a repo is selected from the table: a
@@ -63,7 +105,7 @@
             ClipToBounds="True"
             CornerRadius="{DynamicResource CardRadius}"
             IsVisible="{Binding IsPanelOpen}">
-            <Grid Margin="12,8,12,12" RowDefinitions="Auto,*">
+            <Grid Margin="12,8,12,12" RowDefinitions="Auto,Auto,*">
 
                 <!--
                     Repo header (mockup): back link, repo name + star, branch / URL
@@ -71,35 +113,104 @@
                 -->
                 <repo:RepoHeader Grid.Row="0" />
 
+                <!--  Tab row: drives the panel's content (moved out of RepoHeader
+                      so the Changes History view can cover it via a row-spanning
+                      overlay without covering the repo name / tag rows).  -->
+                <StackPanel
+                    Grid.Row="1"
+                    Margin="0,0,0,8"
+                    Orientation="Horizontal"
+                    Spacing="36">
+                    <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}" ToolTip.Tip="Open the repository's overview">
+                        <TextBlock Classes="tab-label" Text="Overview" />
+                    </Button>
+                    <Button Classes="bar-tab" Classes.active="{Binding IsActiveChanges}" Command="{Binding ToggleChangesTabCommand}" ToolTip.Tip="Working tree, staging and commit">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="tab-label" Text="Changes" />
+                            <Border Classes="tab-badge-chip" IsVisible="{Binding ShowChangesBadge}">
+                                <TextBlock Classes="tab-badge" Text="{Binding ChangesCount}" />
+                            </Border>
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Classes="bar-tab"
+                        Classes.active="{Binding IsActivePullRequests}"
+                        Command="{Binding TogglePullRequestsTabCommand}"
+                        IsVisible="{Binding IsGitHubEnabled}"
+                        ToolTip.Tip="Open pull requests">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="tab-label" Text="Pull Requests" />
+                            <Border Classes="tab-badge-chip" IsVisible="{Binding ShowPullRequestBadge}">
+                                <TextBlock Classes="tab-badge" Text="{Binding PullRequestCount}" />
+                            </Border>
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Classes="bar-tab"
+                        Classes.active="{Binding IsActiveIssues}"
+                        Command="{Binding ToggleIssuesTabCommand}"
+                        IsVisible="{Binding IsGitHubEnabled}"
+                        ToolTip.Tip="Open issues">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="tab-label" Text="Issues" />
+                            <Border Classes="tab-badge-chip" IsVisible="{Binding ShowIssueBadge}">
+                                <TextBlock Classes="tab-badge" Text="{Binding IssueCount}" />
+                            </Border>
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Classes="bar-tab"
+                        Classes.active="{Binding IsActiveAzure}"
+                        Command="{Binding ToggleAzureTabCommand}"
+                        IsVisible="{Binding IsAzureDevOpsEnabled}"
+                        ToolTip.Tip="Open pull requests, work items and pipeline runs">
+                        <TextBlock Classes="tab-label" Text="Pipelines" />
+                    </Button>
+                </StackPanel>
+
                 <!--  Overview tab: stat cards, three activity lists, repository details  -->
                 <tabs:OverviewTab
-                    Grid.Row="1"
+                    Grid.Row="2"
                     IsVisible="{Binding IsActiveOverview}" />
 
                 <!--  Changes tab: branch toolbar, staged/unstaged tree, commit workspace,
                       collapsed history — bound to the shell's Changes child VM; the
                       shell-scoped visibility reads the root element directly.  -->
                 <tabs:ChangesTab
-                    Grid.Row="1"
+                    Grid.Row="2"
                     DataContext="{Binding Changes}"
                     IsVisible="{Binding #BarRoot.((vm:BottomBarViewModel)DataContext).IsActiveChanges}" />
 
                 <!--  Pull requests tab  -->
                 <tabs:PullRequestsTab
-                    Grid.Row="1"
+                    Grid.Row="2"
                     IsVisible="{Binding IsActivePullRequests}" />
 
                 <!--  Issues tab  -->
                 <tabs:IssuesTab
-                    Grid.Row="1"
+                    Grid.Row="2"
                     IsVisible="{Binding IsActiveIssues}" />
 
                 <!--  Azure DevOps tab: pull requests, work items, pipeline runs —
                       bound to the shell's Azure panel VM  -->
                 <tabs:AzureTab
-                    Grid.Row="1"
+                    Grid.Row="2"
                     DataContext="{Binding Azure}"
                     IsVisible="{Binding #BarRoot.((vm:BottomBarViewModel)DataContext).IsActiveAzure}" />
+
+                <!--  Changes History view: covers the tab row AND the content
+                      (rows 1-2) while the Changes tab's git rail has toggled
+                      History on — it reads as a page over the tabs, not a
+                      section under them. Only on the Changes tab; bound to the
+                      Changes child VM like the tab itself.  -->
+                <Grid
+                    Grid.Row="1"
+                    Grid.RowSpan="2"
+                    IsVisible="{Binding #BarRoot.((vm:BottomBarViewModel)DataContext).IsActiveChanges}">
+                    <tabs:ChangesHistoryView
+                        DataContext="{Binding Changes}"
+                        IsVisible="{Binding ShowHistoryView}" />
+                </Grid>
             </Grid>
         </Border>
 

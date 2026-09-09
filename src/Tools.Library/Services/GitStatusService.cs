@@ -472,6 +472,104 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public async Task<GitSyncResult> DiscardAllAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
+
+        // Both steps go through the sync path (their failure reason is summarized into
+        // the result), and each refreshes the repo's status — the clean's refresh is
+        // the one the UI ends on, with untracked files gone from the list too.
+        var reset = await SyncAsync(repo, "reset --hard HEAD", cancellationToken);
+        if (!reset.Success) return reset;
+
+        var clean = await SyncAsync(repo, "clean -fd", cancellationToken);
+        return clean.Success ? GitSyncResult.Ok() : clean;
+    }
+
+    /// <inheritdoc/>
+    public Task<bool> DiscardUnstagedAsync(Repo repo, IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
+        => DiscardPathsAsync(repo, paths, resetFirst: false, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> DiscardStagedAsync(Repo repo, IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
+        => DiscardPathsAsync(repo, paths, resetFirst: true, cancellationToken);
+
+    /// <summary>
+    /// Shared tail of the section discards: with <paramref name="resetFirst"/> the
+    /// paths are unstaged first (a staged discard's files return to HEAD), then every
+    /// path still in the index is checked out (worktree back to it) and every path
+    /// that is not — untracked files and just-unstaged additions — is deleted. Each
+    /// command is one batched git call; the last one refreshes the repo's status.
+    /// </summary>
+    private async Task<bool> DiscardPathsAsync(
+        Repo repo,
+        IReadOnlyList<string> paths,
+        bool resetFirst,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || paths.Count == 0) return false;
+
+        var quotedAll = string.Join(" ", paths.Select(GitCommandRunner.Quote));
+        if (resetFirst && !await RunAndRefreshAsync(repo, $"reset -q HEAD -- {quotedAll}", cancellationToken))
+        {
+            return false;
+        }
+
+        // Split by index membership: ls-files lists exactly the paths the index knows.
+        var listed = await RunGitAsync(repo.FolderPath!, $"ls-files -- {quotedAll}", cancellationToken) ?? string.Empty;
+        var inIndex = listed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var tracked = paths.Where(inIndex.Contains).ToList();
+        var untracked = paths.Where(p => !inIndex.Contains(p)).ToList();
+
+        if (tracked.Count > 0)
+        {
+            var quotedTracked = string.Join(" ", tracked.Select(GitCommandRunner.Quote));
+            if (!await RunAndRefreshAsync(repo, $"checkout -- {quotedTracked}", cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        if (untracked.Count > 0)
+        {
+            var quotedUntracked = string.Join(" ", untracked.Select(GitCommandRunner.Quote));
+            if (!await RunAndRefreshAsync(repo, $"clean -f -- {quotedUntracked}", cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> DiscardFileAsync(Repo repo, string path, bool isStaged, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path)) return false;
+
+        var quoted = GitCommandRunner.Quote(path);
+
+        // A staged row loses its staged state too, so the file ends at HEAD; an
+        // unstaged row keeps the index (a partially staged file keeps its edits).
+        if (isStaged && !await RunAndRefreshAsync(repo, $"reset -q HEAD -- {quoted}", cancellationToken))
+        {
+            return false;
+        }
+
+        // In the index → revert the working tree to it; not in the index → the file
+        // is untracked (or was a staged addition just unstaged above): delete it.
+        var inIndex = await RunGitAsync(repo.FolderPath!, $"ls-files -- {quoted}", cancellationToken) is { } hit
+            && hit.Trim().Length > 0;
+
+        return await RunAndRefreshAsync(
+            repo,
+            inIndex ? $"checkout -- {quoted}" : $"clean -f -- {quoted}",
+            cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<string?> CommitAsync(Repo repo, string message, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(message)) return null;

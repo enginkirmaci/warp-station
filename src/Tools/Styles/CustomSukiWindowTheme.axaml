@@ -157,7 +157,7 @@
                                             -->
                                             <Border
                                                 Name="HeaderSearchBorder"
-                                                MaxWidth="440"
+                                                Width="720"
                                                 Height="38"
                                                 Margin="170,2,170,0"
                                                 HorizontalAlignment="Center"

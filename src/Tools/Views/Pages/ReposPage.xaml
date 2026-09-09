@@ -56,15 +56,14 @@
         </UserControl.Styles>
 
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
-                <!--  Bottom margin 0: the bar's divider row owns the table↔bar gap (its
-                      28px drag band centers the grip dots); the strip keeps its own
-                      bottom spacing.  -->
+                <!--  Bottom margin 0 and no row spacing: the bar's divider row owns
+                      the table↔bar gap outright (one clean 16px drag band, dots
+                      centered) — extra card margins doubled it up.  -->
                 <Grid
                         Grid.Row="0"
                         Margin="16,16,16,0"
                         ColumnDefinitions="*"
-                        RowDefinitions="Auto,*"
-                        RowSpacing="16">
+                        RowDefinitions="Auto,*">
 
                         <Grid
                                 Grid.Row="0"
@@ -306,7 +305,6 @@
                                 Grid.Row="1"
                                 Grid.Column="0"
                                 Padding="0"
-                                Margin="0,0,0,16"
                                 Classes="card">
                                 <Panel>
                                 <ListBox

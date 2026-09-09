@@ -144,6 +144,40 @@ public interface IGitStatusService
     Task<bool> UnstageAllAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Discards one file's change. An unstaged row reverts the working tree to the
+    /// index (<c>git checkout --</c>) — a partially staged file keeps its staged
+    /// edits; a staged row unstages first (<c>git reset HEAD --</c>) so the file
+    /// returns to HEAD entirely. A file the index does not know (untracked, or a
+    /// staged addition just unstaged) is deleted (<c>git clean -f</c>). There is no
+    /// undo. Refreshes the repo's status; returns false on any failure.
+    /// </summary>
+    Task<bool> DiscardFileAsync(Repo repo, string path, bool isStaged, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discards every working-tree change: <c>git reset --hard HEAD</c> drops the
+    /// staged and unstaged edits on tracked files, then <c>git clean -fd</c> deletes
+    /// untracked files and folders — the usual "discard all" semantics, and there is
+    /// no undo. Refreshes the repo's status; returns false on any failure.
+    /// </summary>
+    Task<GitSyncResult> DiscardAllAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discards the working-tree side of the given unstaged paths: tracked files
+    /// revert to the index (<c>git checkout --</c>) — a partially staged file keeps
+    /// its staged edits — and untracked files are deleted (<c>git clean -f</c>).
+    /// There is no undo. Refreshes the repo's status; returns false on any failure.
+    /// </summary>
+    Task<bool> DiscardUnstagedAsync(Repo repo, IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discards the given staged paths entirely: they are unstaged
+    /// (<c>git reset HEAD --</c>) and every file returns to HEAD — a path that was a
+    /// staged addition (not in HEAD) is deleted. There is no undo. Refreshes the
+    /// repo's status; returns false on any failure.
+    /// </summary>
+    Task<bool> DiscardStagedAsync(Repo repo, IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Commits the staged index (<c>git commit -F</c> with the message written to a
     /// temp file, so any character survives) and refreshes the repo's status. Returns
     /// the short hash on success, empty when it could not be parsed from git's output,

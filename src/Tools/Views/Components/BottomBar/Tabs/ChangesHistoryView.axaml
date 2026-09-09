@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Changes History view: the full-width card that covers the bottom bar's tab
+    row and content while the Changes tab's git rail has toggled History on.
+    The back link mirrors the History drawer's (detail-link, arrow-left +
+    label) and returns to the commit workspace; every open re-fetches the
+    list (the tab's view-model does that on ShowHistoryView). One row per
+    commit: initials avatar + subject + author/time info line, the hash copy
+    link and a chevron that opens the commit-detail drawer. Row handlers
+    (tap / Enter / Space open the drawer) live in this view's code-behind.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.BottomBar.Tabs.ChangesHistoryView"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:entities="using:Tools.Library.Entities"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
+    d:DesignHeight="400"
+    d:DesignWidth="1200"
+    x:CompileBindings="True"
+    x:DataType="vm:ChangesTabViewModel"
+    mc:Ignorable="d">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarResources.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarStyles.axaml" />
+    </UserControl.Styles>
+
+    <Border Classes="ov-card">
+        <DockPanel Margin="6,4,6,6">
+
+            <!--  Back link: returns from the History view to the commit
+                  workspace (same pattern as the History drawer's).  -->
+            <Button
+                HorizontalAlignment="Left"
+                Margin="0,2,0,8"
+                Padding="0"
+                Background="Transparent"
+                BorderThickness="0"
+                Classes="detail-link"
+                Command="{Binding ToggleHistoryCommand}"
+                ToolTip.Tip="Back to the commit workspace"
+                DockPanel.Dock="Top">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path
+                        Width="12"
+                        Height="12"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-arrow-left}"
+                        Fill="{Binding $parent[Button].Foreground}"
+                        Stretch="Uniform" />
+                    <TextBlock VerticalAlignment="Center" Text="Changes" />
+                </StackPanel>
+            </Button>
+
+            <ScrollViewer
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="2">
+                    <TextBlock
+                        Margin="0,20"
+                        Classes="list-note subtle"
+                        IsVisible="{Binding IsLoadingCommits}"
+                        Text="Loading history…" />
+                    <TextBlock
+                        Margin="0,20"
+                        Classes="list-note subtle"
+                        IsVisible="{Binding ShowCommitsEmpty}"
+                        Text="No commits yet" />
+                    <ItemsControl ItemsSource="{Binding GitCommits}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="entities:GitCommitInfo">
+                                <Grid
+                                    Margin="0,4"
+                                    Classes="history-row"
+                                    ColumnDefinitions="Auto,*,Auto,Auto"
+                                    ColumnSpacing="10"
+                                    RowDefinitions="Auto,Auto"
+                                    RowSpacing="3"
+                                    Cursor="Hand"
+                                    Focusable="True"
+                                    KeyDown="OnHistoryRowKeyDown"
+                                    Tapped="OnHistoryRowTapped"
+                                    ToolTip.Tip="Open this commit's details">
+                                    <!--  Author-initials avatar: tinted circle (the
+                                          tint is a nested layer so the initials
+                                          keep full opacity).  -->
+                                    <Border
+                                        Grid.RowSpan="2"
+                                        Width="30"
+                                        Height="30"
+                                        VerticalAlignment="Center">
+                                        <Grid>
+                                            <Border
+                                                Background="{DynamicResource MutedForegroundBrush}"
+                                                CornerRadius="15"
+                                                Opacity="0.24" />
+                                            <TextBlock
+                                                Classes="subtle"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                FontSize="11"
+                                                FontWeight="SemiBold"
+                                                Text="{Binding Initials}" />
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock
+                                        Grid.Row="0"
+                                        Grid.Column="1"
+                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                        Text="{Binding Subject}"
+                                        MaxLines="2"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="Wrap" />
+                                    <!--  The info line: author • relative time.  -->
+                                    <StackPanel
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="5">
+                                        <TextBlock
+                                            Classes="subtle"
+                                            IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                            Text="{Binding Author}" />
+                                        <TextBlock
+                                            Classes="subtle"
+                                            IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                            Text="•" />
+                                        <TextBlock
+                                            Classes="subtle"
+                                            Text="{Binding RelativeTime}" />
+                                    </StackPanel>
+                                    <!--  the hash is a quiet link: click copies the
+                                          full SHA. It spans both text rows and
+                                          centers vertically — aligned with the
+                                          chevron beside it.  -->
+                                    <Button
+                                        Grid.RowSpan="2"
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        Classes="detail-link"
+                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).CopyCommitHashCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="Copy commit hash">
+                                        <TextBlock
+                                            Classes="mono"
+                                            Foreground="{DynamicResource MutedForegroundBrush}"
+                                            Text="{Binding ShortHash}" />
+                                    </Button>
+                                    <!--  box sized to the chevron's ink aspect
+                                          (12x7.4): 16x10 keeps it centered  -->
+                                    <Path
+                                        Grid.RowSpan="2"
+                                        Grid.Column="3"
+                                        Width="16"
+                                        Height="10"
+                                        VerticalAlignment="Center"
+                                        Data="{tools:SvgPath icon-chevron-right}"
+                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                        Stretch="Uniform" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

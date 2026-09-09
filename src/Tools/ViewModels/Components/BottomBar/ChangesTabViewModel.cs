@@ -5,8 +5,8 @@ using Serilog;
 using Tools.Helpers;
 using Tools.Library.Entities;
 using Tools.Library.Services.Abstractions;
-using Tools.ViewModels.Windows;
 using Tools.Services;
+using Tools.ViewModels.Windows;
 
 namespace Tools.ViewModels.Components.BottomBar;
 
@@ -19,11 +19,12 @@ namespace Tools.ViewModels.Components.BottomBar;
 public sealed record ChangeSectionRow(string Title, int Count, bool IsUnstaged);
 
 /// <summary>
-/// The Changes tab (commit workspace): the branch dropdown + Fetch/Pull/Push toolbar,
-/// the staged/unstaged tree as one virtualized merged list, the staging buttons, the
-/// commit message box (with the opencode wand) and the collapsed recent-commits
-/// history. Hangs off the bar shell — the selected repo lives there, the tab loads
-/// everything it shows for it.
+/// The Changes tab (commit workspace): the staged/unstaged tree as one virtualized
+/// merged list, the staging buttons, the commit message box (with the opencode
+/// wand) and the git rail beside it — a menu of git actions (fetch, pull, push,
+/// sync, discard-all, history toggle) over the branch dropdown, with the
+/// last-fetched status pinned to the rail's bottom edge. Hangs off the bar shell
+/// — the selected repo lives there, the tab loads everything it shows for it.
 /// </summary>
 public partial class ChangesTabViewModel : BottomBarPanelViewModel
 {
@@ -39,35 +40,35 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         _messageGenerator = messageGenerator;
     }
 
-    // --- Repo-derived toolbar mirrors ---
-    // Flat mirrors of the selected repo's state so the toolbar's binding paths never
-    // cross a null SelectedRepo (that logs a binding error under a debugger on every
-    // rebind). The shell raises these whenever the repo or its live counters change.
+// --- Repo-derived mirrors ---
+// Flat mirrors of the selected repo's state so the rail's binding paths never
+// cross a null SelectedRepo (that logs a binding error under a debugger on every
+// rebind). The shell raises these whenever the repo or its live counters change.
 
-    /// <summary>Whether the toolbar's sync side shows at all.</summary>
-    public bool HasSelectedRepo => Shell.SelectedRepo is not null;
+/// <summary>Whether a repo is selected (gates fetch and the commit paths).</summary>
+public bool HasSelectedRepo => Shell.SelectedRepo is not null;
 
-    /// <summary>Behind-the-upstream count (the toolbar's Pull badge); 0 with no repo.</summary>
-    public int GitToPullCount => Shell.SelectedRepo?.GitToPullCount ?? 0;
+/// <summary>Behind-the-upstream count (the Pull button's badge); 0 with no repo.</summary>
+public int GitToPullCount => Shell.SelectedRepo?.GitToPullCount ?? 0;
 
-    /// <summary>Ahead-of-upstream count (the toolbar's Push badge); 0 with no repo.</summary>
-    public int GitToPushCount => Shell.SelectedRepo?.GitToPushCount ?? 0;
+/// <summary>Ahead-of-upstream count (the Push button's badge); 0 with no repo.</summary>
+public int GitToPushCount => Shell.SelectedRepo?.GitToPushCount ?? 0;
 
-    /// <summary>"Last fetched: 2m ago", or null when the repo was never fetched.</summary>
-    public string? LastFetchText => Shell.SelectedRepo?.GitLastFetchLabel is { } label ? $"Last fetched: {label}" : null;
+/// <summary>"Last fetched: 2m ago", or null when the repo was never fetched.</summary>
+public string? LastFetchText => Shell.SelectedRepo?.GitLastFetchLabel is { } label ? $"Last fetched: {label}" : null;
 
-    public bool HasFetched => Shell.SelectedRepo?.GitLastFetchAt is not null;
+public bool HasFetched => Shell.SelectedRepo?.GitLastFetchAt is not null;
 
-    /// <summary>Re-raises the mirrors — the shell calls this whenever the selected repo
-    /// is (re)assigned or one of its watched properties changes underneath it.</summary>
-    public void RaiseRepoMirrors()
-    {
-        OnPropertyChanged(nameof(HasSelectedRepo));
-        OnPropertyChanged(nameof(GitToPullCount));
-        OnPropertyChanged(nameof(GitToPushCount));
-        OnPropertyChanged(nameof(HasFetched));
-        OnPropertyChanged(nameof(LastFetchText));
-    }
+/// <summary>Re-raises the mirrors — the shell calls this whenever the selected repo
+/// is (re)assigned or one of its watched properties changes underneath it.</summary>
+public void RaiseRepoMirrors()
+{
+    OnPropertyChanged(nameof(HasSelectedRepo));
+    OnPropertyChanged(nameof(GitToPullCount));
+    OnPropertyChanged(nameof(GitToPushCount));
+    OnPropertyChanged(nameof(HasFetched));
+    OnPropertyChanged(nameof(LastFetchText));
+}
 
     /// <summary>
     /// The observed repo changed (a pick from the table, a rescan re-resolve, or the
@@ -81,15 +82,26 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         {
             _messageGenerator.Cancel();
             CommitMessage = string.Empty;
+
+            // An open History view must not outlive its repo: drop the old rows
+            // and reload for the new one (an empty pass is fine — the note shows).
+            GitCommits.Clear();
+            OnPropertyChanged(nameof(ShowCommitsEmpty));
+            if (ShowHistoryView)
+            {
+                _ = LoadRecentCommitsAsync();
+            }
         }
 
         // CanExecute inputs the generators cannot hook (computed, not ObservableProperty).
         FetchCommand.NotifyCanExecuteChanged();
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        SyncCommand.NotifyCanExecuteChanged();
+        DiscardAllCommand.NotifyCanExecuteChanged();
     }
 
-    // --- Toolbar: branch dropdown, checkout, fetch/pull/push ---
+    // --- Git rail: branch dropdown, checkout, pull/push/fetch ---
 
     /// <summary>Local branches of the selected repo for the branch dropdown.</summary>
     [ObservableProperty]
@@ -102,7 +114,7 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
     [ObservableProperty]
     private bool _isCheckingOut;
 
-    /// <summary>True while a fetch is running; disables the Fetch button.</summary>
+    /// <summary>True while a fetch is running; disables the rail's refresh button.</summary>
     [ObservableProperty]
     private bool _isFetching;
 
@@ -110,22 +122,41 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
     [ObservableProperty]
     private bool _isPulling;
 
-    /// <summary>True while a push is running; disables the Push button.</summary>
+    /// <summary>True while a push is running; disables the Push row.</summary>
     [ObservableProperty]
     private bool _isPushing;
 
-    /// <summary>Pull and push exclude each other — concurrent syncs of one repo interleave badly.</summary>
+    /// <summary>True while a sync (pull then push) is running; disables the Sync row.</summary>
+    [ObservableProperty]
+    private bool _isSyncing;
+
+    /// <summary>True while discarding all changes is running; disables the discard row.</summary>
+    [ObservableProperty]
+    private bool _isDiscarding;
+
+    /// <summary>Pull, push and sync exclude each other — concurrent syncs of one repo interleave badly.</summary>
     partial void OnIsPullingChanged(bool value)
     {
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        SyncCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsPushingChanged(bool value)
     {
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        SyncCommand.NotifyCanExecuteChanged();
     }
+
+    partial void OnIsSyncingChanged(bool value)
+    {
+        PullCommand.NotifyCanExecuteChanged();
+        PushCommand.NotifyCanExecuteChanged();
+        SyncCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsDiscardingChanged(bool value) => DiscardAllCommand.NotifyCanExecuteChanged();
 
     /// <summary>
     /// The branch dropdown is active: picking a branch checks it out in the selected
@@ -288,7 +319,7 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
             });
     }
 
-    private bool CanPull() => !IsPulling && !IsPushing && HasSelectedRepo;
+    private bool CanPull() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
 
     [RelayCommand(CanExecute = nameof(CanPush))]
     private Task PushAsync()
@@ -313,7 +344,77 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
             onSuccess: () => RefreshGitCounts(repo));
     }
 
-    private bool CanPush() => !IsPulling && !IsPushing && HasSelectedRepo;
+    private bool CanPush() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
+
+    /// <summary>
+    /// Syncs the branch with its upstream: pull first (fast-forward when possible),
+    /// push after — a failed pull skips the push, and the first error detail wins the
+    /// toast. A pull that leaves conflicts fails here like any other pull failure.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSync))]
+    private Task SyncAsync()
+    {
+        var repo = Repo;
+        if (repo is null) return Task.CompletedTask;
+
+        string? error = null;
+        return RunGitActionAsync(
+            repo,
+            value => IsSyncing = value,
+            async r =>
+            {
+                var pull = await Shell.GitStatusService.PullAsync(r);
+                if (!pull.Success)
+                {
+                    error = pull.Error;
+                    return false;
+                }
+
+                var push = await Shell.GitStatusService.PushAsync(r);
+                if (!push.Success)
+                {
+                    error = push.Error;
+                    return false;
+                }
+
+                return true;
+            },
+            $"Synced {repo.Name}",
+            () => error is { } detail
+                ? $"Sync failed for {repo.Name}: {detail}"
+                : $"Sync failed for {repo.Name}",
+            onSuccess: () =>
+            {
+                SyncBranchSelection(repo);
+                RefreshGitCounts(repo);
+            });
+    }
+
+    private bool CanSync() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
+
+    /// <summary>
+    /// Discards EVERY change in the working tree: <c>reset --hard</c> drops the staged
+    /// and unstaged edits on tracked files, <c>clean -fd</c> deletes untracked files
+    /// and folders — there is no undo, so the row only enables while there is
+    /// something to discard. Reloads the list on success (both sections empty).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanDiscardAll))]
+    private Task DiscardAllAsync()
+    {
+        var repo = Repo;
+        if (repo is null) return Task.CompletedTask;
+
+        return RunGitActionAsync(
+            repo,
+            value => IsDiscarding = value,
+            async r => (await Shell.GitStatusService.DiscardAllAsync(r)).Success,
+            $"Discarded all changes in {repo.Name}",
+            () => $"Could not discard the changes of {repo.Name}",
+            onSuccess: () => _ = LoadTabAsync());
+    }
+
+    private bool CanDiscardAll() => !IsDiscarding && HasSelectedRepo
+        && (StagedFiles.Count > 0 || UnstagedFiles.Count > 0);
 
     /// <summary>
     /// Runs one git service call under <paramref name="setBusy"/> (null when the command
@@ -438,17 +539,13 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
 
     /// <summary>
     /// Loads everything the Changes tab shows: the merged change list (keeps the
-    /// Overview card's preview fresh), the staged/unstaged split and — when the
-    /// Recent Commits section is expanded — the recent commits. Concurrent.
+    /// Overview card's preview fresh) and the staged/unstaged split. Concurrent.
     /// </summary>
-    public async Task LoadTabAsync()
+    public Task LoadTabAsync()
     {
         _ = LoadChangedFilesAsync();
         _ = LoadChangeGroupsAsync();
-        if (ShowRecentCommits)
-        {
-            await LoadRecentCommitsAsync();
-        }
+        return Task.CompletedTask;
     }
 
     // --- Staged/unstaged split ---
@@ -504,6 +601,7 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         OnPropertyChanged(nameof(IsChangesTabLoading));
         CommitCommand.NotifyCanExecuteChanged();
         GenerateCommitMessageCommand.NotifyCanExecuteChanged();
+        DiscardAllCommand.NotifyCanExecuteChanged(); // CanDiscardAll reads both counts
     }
 
     private Task LoadChangeGroupsAsync()
@@ -577,6 +675,7 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         UnstageFileCommand.NotifyCanExecuteChanged();
         StageAllCommand.NotifyCanExecuteChanged();
         UnstageAllCommand.NotifyCanExecuteChanged();
+        DiscardSectionCommand.NotifyCanExecuteChanged();
     }
 
     private bool CanStageFile(GitChangedFile? file) => !IsStaging;
@@ -615,6 +714,27 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
             onSuccess: () => _ = LoadTabAsync());
     }
 
+    /// <summary>
+    /// Discards one row's change (↩ button). Unstaged rows revert the file's working
+    /// tree to the index — untracked files are deleted; staged rows also unstage, so
+    /// the file returns to HEAD. Shares the staging busy flag: no index write may
+    /// overlap another. There is no undo.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStageFile))]
+    private Task DiscardFileAsync(GitChangedFile? file)
+    {
+        var repo = Repo;
+        if (repo is null || file is null) return Task.CompletedTask;
+
+        return RunGitActionAsync(
+            repo,
+            busy => IsStaging = busy,
+            r => Shell.GitStatusService.DiscardFileAsync(r, file.Path, file.IsStaged),
+            successText: null,
+            errorText: () => $"Could not discard {file.Path}",
+            onSuccess: () => _ = LoadTabAsync());
+    }
+
     /// <summary>Stages everything, untracked files and deletions included (Stage All).</summary>
     [RelayCommand(CanExecute = nameof(CanStageAll))]
     private Task StageAllAsync()
@@ -644,6 +764,34 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
             r => Shell.GitStatusService.UnstageAllAsync(r),
             successText: null,
             errorText: () => $"Could not unstage the changes of {repo.Name}",
+            onSuccess: () => _ = LoadTabAsync());
+    }
+
+    /// <summary>
+    /// Discards one whole section (the header's Discard button). Unstaged: the files'
+    /// working trees revert to the index — untracked files are deleted, a partially
+    /// staged file keeps its staged edits. Staged: the files return to HEAD — a
+    /// staged addition is deleted. Neither has an undo; the rows only render for
+    /// non-empty sections. Shares the staging busy flag.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStageAll))]
+    private Task DiscardSectionAsync(ChangeSectionRow? section)
+    {
+        var repo = Repo;
+        if (repo is null || section is null) return Task.CompletedTask;
+
+        var paths = (section.IsUnstaged ? UnstagedFiles : StagedFiles)
+            .Select(f => f.Path)
+            .ToArray();
+
+        return RunGitActionAsync(
+            repo,
+            busy => IsStaging = busy,
+            r => section.IsUnstaged
+                ? Shell.GitStatusService.DiscardUnstagedAsync(r, paths)
+                : Shell.GitStatusService.DiscardStagedAsync(r, paths),
+            successText: null,
+            errorText: () => $"Could not discard the changes of {repo.Name}",
             onSuccess: () => _ = LoadTabAsync());
     }
 
@@ -760,7 +908,7 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         }
     }
 
-    // --- Recent commits (the tab's bottom section) ---
+    // --- History (the repo's recent commits, shown by the rail's History row) ---
 
     /// <summary>Clicking a commit's hash copies the full SHA-1 to the clipboard;
     /// the row keeps showing the seven-char display form.</summary>
@@ -799,26 +947,32 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
     partial void OnIsLoadingCommitsChanged(bool value) => OnPropertyChanged(nameof(ShowCommitsEmpty));
 
     /// <summary>
-    /// Whether the Recent Commits section shows under the Changes tab's workspace.
-    /// Collapsed by default — the section header stays visible as the toggle and the
-    /// history only loads once first expanded.
+    /// Whether the tab shows the full-width History view instead of the commit
+    /// workspace (the rail's History row opens it, the back link closes it). Every
+    /// open re-fetches the recent commits — the list may predate staging, commits
+    /// or even a repo switch (which clears it), and <c>git log</c> is cheap next to
+    /// a stale view.
     /// </summary>
     [ObservableProperty]
-    private bool _showRecentCommits;
+    private bool _showHistoryView;
 
-    /// <summary>Header-row toggle: expanding with no commits loaded yet fetches them
-    /// (the tab load skips the history while the section is collapsed).</summary>
-    [RelayCommand]
-    private async Task ToggleRecentCommitsAsync()
+    partial void OnShowHistoryViewChanged(bool value)
     {
-        ShowRecentCommits = !ShowRecentCommits;
-        if (ShowRecentCommits && GitCommits.Count == 0)
+        if (value)
         {
-            await LoadRecentCommitsAsync();
+            _ = LoadRecentCommitsAsync();
         }
     }
 
-    /// <summary>Loads the recent commit list for the Recent Commits section.</summary>
+    /// <summary>Rail History row / back link: opens and closes the History view.</summary>
+    [RelayCommand]
+    private Task ToggleHistoryAsync()
+    {
+        ShowHistoryView = !ShowHistoryView;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Loads the recent commit list for the History section.</summary>
     private Task LoadRecentCommitsAsync()
     {
         var repo = Repo;
@@ -900,15 +1054,26 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
     }
 
     /// <summary>
-    /// Runs the wand's core for the snapshotted repo: staged paths and recent subjects
-    /// are snapshot BEFORE the first await — a repo switch mid-run reloads the live
-    /// collections, and the prompt must not mix the old diff with the new repo's
-    /// context.
+    /// Runs the wand's core for the snapshotted repo: the staged paths are snapshot
+    /// BEFORE the first await — a repo switch mid-run reloads the live collections,
+    /// and the prompt must not mix the old diff with the new repo's context. The
+    /// tone subjects are read fresh from git against the snapshotted repo (the tab
+    /// keeps no history list); a failed log just drops the tone context.
     /// </summary>
     private async Task<string?> TryGenerateCommitMessageAsync(CancellationToken cancellationToken, Repo repo)
     {
         var stagedPaths = StagedFiles.Select(f => f.Path).ToArray();
-        var recentSubjects = GitCommits.Take(5).Select(c => c.Subject).ToArray();
+
+        string[] recentSubjects = [];
+        try
+        {
+            var commits = await Shell.GitStatusService.GetRecentCommitsAsync(repo, cancellationToken);
+            recentSubjects = commits.Take(5).Select(c => c.Subject).ToArray();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Bottom bar recent-subject read failed for {Path}", repo.FolderPath);
+        }
 
         return await _messageGenerator.TryGenerateAsync(
             cancellationToken,

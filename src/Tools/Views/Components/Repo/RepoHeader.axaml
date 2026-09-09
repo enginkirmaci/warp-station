@@ -31,44 +31,6 @@
         <!--  Action buttons are plain default SukiUI buttons (like the Add-Repository
               dialog's Browse…) — the native theme hover highlights the whole surface,
               so no custom hover styles here.  -->
-        <!--  Tab button: quiet label + count chip, accent underline when active.  -->
-        <Style Selector="Button.bar-tab">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0,9" />
-            <Setter Property="CornerRadius" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style Selector="Button.bar-tab TextBlock.tab-label">
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-        </Style>
-        <Style Selector="Button.bar-tab:pointerover TextBlock.tab-label">
-            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-        </Style>
-        <Style Selector="Button.bar-tab.active">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentPrimaryBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,0,2" />
-            <Setter Property="Padding" Value="0,9" />
-        </Style>
-        <Style Selector="Button.bar-tab.active TextBlock.tab-label">
-            <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <!--  Tab badge: the count carried over from the row chips, in a small rounded chip.  -->
-        <Style Selector="Border.tab-badge-chip">
-            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
-            <Setter Property="CornerRadius" Value="5" />
-            <Setter Property="Padding" Value="6,1" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style Selector="TextBlock.tab-badge">
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-        </Style>
         <!--  Tag chip's remove ×: transparent icon button, muted glyph that brightens
               on hover. Base values live here — a local Background would beat them.  -->
         <Style Selector="Button.tag-remove">
@@ -308,54 +270,5 @@
             </Button>
         </StackPanel>
 
-        <!--  Tabs: drive the bottom bar's panel; bottom margin keeps the active
-              tab's underline off the tab content below.  -->
-        <StackPanel Margin="0,0,0,8" Orientation="Horizontal" Spacing="36">
-            <Button Classes="bar-tab" Classes.active="{Binding IsActiveOverview}" Command="{Binding ToggleOverviewTabCommand}" ToolTip.Tip="Open the repository's overview">
-                <TextBlock Classes="tab-label" Text="Overview" />
-            </Button>
-            <Button Classes="bar-tab" Classes.active="{Binding IsActiveChanges}" Command="{Binding ToggleChangesTabCommand}" ToolTip.Tip="Working tree, staging and commit">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Classes="tab-label" Text="Changes" />
-                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowChangesBadge}">
-                        <TextBlock Classes="tab-badge" Text="{Binding ChangesCount}" />
-                    </Border>
-                </StackPanel>
-            </Button>
-            <Button
-                Classes="bar-tab"
-                Classes.active="{Binding IsActivePullRequests}"
-                Command="{Binding TogglePullRequestsTabCommand}"
-                IsVisible="{Binding IsGitHubEnabled}"
-                ToolTip.Tip="Open pull requests">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Classes="tab-label" Text="Pull Requests" />
-                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowPullRequestBadge}">
-                        <TextBlock Classes="tab-badge" Text="{Binding PullRequestCount}" />
-                    </Border>
-                </StackPanel>
-            </Button>
-            <Button
-                Classes="bar-tab"
-                Classes.active="{Binding IsActiveIssues}"
-                Command="{Binding ToggleIssuesTabCommand}"
-                IsVisible="{Binding IsGitHubEnabled}"
-                ToolTip.Tip="Open issues">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Classes="tab-label" Text="Issues" />
-                    <Border Classes="tab-badge-chip" IsVisible="{Binding ShowIssueBadge}">
-                        <TextBlock Classes="tab-badge" Text="{Binding IssueCount}" />
-                    </Border>
-                </StackPanel>
-            </Button>
-            <Button
-                Classes="bar-tab"
-                Classes.active="{Binding IsActiveAzure}"
-                Command="{Binding ToggleAzureTabCommand}"
-                IsVisible="{Binding IsAzureDevOpsEnabled}"
-                ToolTip.Tip="Open pull requests, work items and pipeline runs">
-                <TextBlock Classes="tab-label" Text="Pipelines" />
-            </Button>
-        </StackPanel>
     </StackPanel>
 </UserControl>
