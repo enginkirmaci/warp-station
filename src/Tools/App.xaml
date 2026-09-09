@@ -28,7 +28,13 @@
 			<conv:StringToGeometryConverter x:Key="StringToGeometryConverter" />
 			<conv:StringNotNullToBoolConverter x:Key="StringNotNullToBoolConverter" />
 			<conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter" />
-			<conv:FavoriteStarBrushConverter x:Key="FavoriteStarBrushConverter" />
+<!--
+                The favorite star's bool-to-brush pair, via the shared parameterized
+                BoolToBrushConverter (the dedicated converter class is gone): a
+                favorited repo paints the star gold, everything else (unchecked, or
+                no repo selected) the muted gray.
+            -->
+			<conv:BoolToBrushConverter x:Key="FavoriteStarBrushConverter" TrueBrush="#F5B400" FalseBrush="#8B90A0" NullBrush="#8B90A0" />
 			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
 			<conv:GitStatusBrushConverter x:Key="GitStatusBrushConverter" />
 			<conv:GitHubStateChipBrushConverter x:Key="GitHubStateChipBrushConverter" />

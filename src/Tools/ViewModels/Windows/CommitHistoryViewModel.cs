@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Tools.Library.Entities;
+using Tools.Helpers;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 
@@ -279,30 +280,22 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     }
 
     /// <summary>
-    /// The two git actions' shared mechanics: run under the drawer's busy flag and toast
-    /// the given success/error message. The null repo/commit and already-busy guards stay
-    /// with the commands. A thrown exception is treated as a failed outcome (logged and
-    /// toasted) — the relay commands would otherwise stash it unobserved. Both confirm
-    /// states clear when the action settles: an armed click either executes or disarms.
+    /// The two git actions' shared mechanics: run under the drawer's busy flag with the
+    /// shared outcome toasting (<see cref="GitToasts"/>). The null repo/commit and
+    /// already-busy guards stay with the commands. Both confirm states clear when the
+    /// action settles: an armed click either executes or disarms.
     /// </summary>
     private async Task RunGitActionAsync(Func<Task<bool>> action, string successText, string errorText)
     {
         IsBusy = true;
         try
         {
-            if (await action())
-            {
-                _notificationService.Show(successText, NotificationKind.Success);
-            }
-            else
-            {
-                _notificationService.Show(errorText, NotificationKind.Error);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "History drawer git action failed for {Hash}", Commit?.Hash);
-            _notificationService.Show(errorText, NotificationKind.Error);
+            await GitToasts.RunAsync(
+                _notificationService,
+                action,
+                () => successText,
+                () => errorText,
+                logContext: $"history drawer for {Commit?.Hash}");
         }
         finally
         {

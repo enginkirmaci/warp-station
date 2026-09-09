@@ -1,4 +1,5 @@
 using Serilog;
+using Tools.Library.Configuration;
 using Tools.Library.Formatters;
 using Tools.Library.Services.Abstractions;
 
@@ -138,7 +139,7 @@ public class TerminalLauncher : ITerminalLauncher
     /// </summary>
     public static string BuildOpenCodeCommandLine(string openCodeExe, string model, string prompt)
     {
-        openCodeExe = string.IsNullOrWhiteSpace(openCodeExe) ? "opencode" : openCodeExe;
+        openCodeExe = string.IsNullOrWhiteSpace(openCodeExe) ? ReposSettings.DefaultOpenCodeExecutable : openCodeExe;
         var cleanModel = (model ?? string.Empty).Trim();
         var cleanPrompt = (prompt ?? string.Empty).Trim();
 

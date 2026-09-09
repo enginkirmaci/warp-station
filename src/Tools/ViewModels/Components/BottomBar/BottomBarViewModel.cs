@@ -82,7 +82,7 @@ public partial class BottomBarViewModel : ObservableObject
     /// Guards the repo-dropdown rebuild posted from <see cref="IRepoService.Changed"/>:
     /// one scan raises Changed several times, and a single dispatcher pass per burst is enough.
     /// </summary>
-    private bool _reposRebuildPosted;
+    private readonly UiPostOnce _reposRebuildPost = new();
 
     public BottomBarViewModel(
         ISettingsService settingsService,
@@ -348,13 +348,7 @@ public partial class BottomBarViewModel : ObservableObject
     {
         // Changed fires on background threads (scan completion); re-resolve on the UI
         // thread, once per burst.
-        if (_reposRebuildPosted) return;
-        _reposRebuildPosted = true;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            _reposRebuildPosted = false;
-            SyncSelectedRepoInstance();
-        });
+        _reposRebuildPost.Post(SyncSelectedRepoInstance);
     }
 
     /// <summary>

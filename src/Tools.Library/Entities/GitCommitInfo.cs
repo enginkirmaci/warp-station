@@ -19,7 +19,7 @@ public sealed record GitCommitInfo(
     /// <summary>Relative age label for the commit ("2h ago"); null when unparsable.
     /// Cached — history rows bind this on every evaluation, and the record is
     /// immutable, so the first computation is final.</summary>
-    public string? RelativeTime => _relativeTime ??= FormatRelative(Date);
+    public string? RelativeTime => _relativeTime ??= Formatters.RelativeTime.Format(Date);
 
     private string? _initials;
 
@@ -44,5 +44,4 @@ public sealed record GitCommitInfo(
     /// <c>1d ago</c>, <c>3w ago</c>, <c>1mo ago</c>, <c>1y ago</c>); delegates to the
     /// shared <see cref="Tools.Library.Formatters.RelativeTime"/> formatter.
     /// </summary>
-    private static string FormatRelative(DateTimeOffset at) => Formatters.RelativeTime.Format(at);
 }

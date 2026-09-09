@@ -24,7 +24,7 @@ public class OpenCodeRunService : IOpenCodeRunService
         // exactly like the runner does — a timed-out run's output is discarded, and a
         // left-alive Electron tree would outlive the app (the wand's generation scope
         // disposes its CTS without cancelling, so nothing else would reap it).
-        var (exe, resolved) = ProcessRunner.LocateCli(executable, "opencode", "OpenCodeRunService", warnWhenMissing: false);
+        var (exe, resolved) = ProcessRunner.LocateCli(executable, ReposSettings.DefaultOpenCodeExecutable, "OpenCodeRunService", warnWhenMissing: false);
         if (resolved is null)
         {
             return null;

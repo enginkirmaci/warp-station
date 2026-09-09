@@ -53,7 +53,7 @@ public class OpenCodeModelService : IOpenCodeModelService
 
         // The GUI process often runs with a minimal PATH; LocateCli (see ProcessRunner)
         // resolves bare names against PATH plus the user-level install dirs.
-        var (exe, resolved) = ProcessRunner.LocateCli(executable, "opencode", "OpenCodeModelService");
+        var (exe, resolved) = ProcessRunner.LocateCli(executable, ReposSettings.DefaultOpenCodeExecutable, "OpenCodeModelService");
         if (resolved is null)
         {
             return MergeDefaultModel(Array.Empty<string>(), defaultModel);

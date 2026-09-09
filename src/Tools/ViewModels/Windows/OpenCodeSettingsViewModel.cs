@@ -362,7 +362,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
             return;
         }
 
-        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
+        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, ReposSettings.DefaultOpenCodeExecutable);
         var prompt = OpenCodePrompt?.Trim();
         var count = OpenCodeInstanceCount < 1 ? 1 : OpenCodeInstanceCount;
         var model = ResolveLaunchModel();
@@ -408,8 +408,9 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
             OpenCodeFilteredModels.Add(model);
     }
 
-    /// <summary>Whether a deferred <see cref="RefreshFilteredModels"/> pass is queued.</summary>
-    private bool _filteredModelsRefreshScheduled;
+    /// <summary>Coalesces the deferred <see cref="RefreshFilteredModels"/> passes —
+    /// one queued dispatcher pass per burst.</summary>
+    private readonly UiPostOnce _filteredModelsRefreshPost = new();
 
     partial void OnOpenCodeModelFilterChanged(string value) => ScheduleFilteredModelsRefresh();
 
@@ -421,16 +422,8 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// </summary>
     private void ScheduleFilteredModelsRefresh()
     {
-        if (_filteredModelsRefreshScheduled)
+        _filteredModelsRefreshPost.Post(() =>
         {
-            return;
-        }
-
-        _filteredModelsRefreshScheduled = true;
-        Dispatcher.UIThread.Post(() =>
-        {
-            _filteredModelsRefreshScheduled = false;
-
             // Capture whether the box is supposed to be showing the committed selection
             // before rebuilding — while a user search is in flight the filter differs.
             bool boxShowsSelection = string.Equals(OpenCodeModelFilter, OpenCodeSelectedModel, StringComparison.Ordinal);

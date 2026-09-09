@@ -155,7 +155,7 @@ public partial class Repo : ObservableObject
     /// hook drops the cache), not on a timer — ages drift stale until the next refresh
     /// pass. Every realized row binds this on every layout pass.
     /// </summary>
-    public string? GitLastActivity => GitLastCommitAt is { } at ? (_gitLastActivityLabel ??= FormatRelative(at)) : null;
+    public string? GitLastActivity => GitLastCommitAt is { } at ? (_gitLastActivityLabel ??= Formatters.RelativeTime.Format(at)) : null;
 
     private string? _gitLastActivityLabel;
 
@@ -179,7 +179,7 @@ public partial class Repo : ObservableObject
     /// derived from <see cref="GitLastFetchAt"/>. <c>null</c> when never fetched.
     /// Cached like <see cref="GitLastActivity"/>; dropped when a fetch time lands.
     /// </summary>
-    public string? GitLastFetchLabel => GitLastFetchAt is { } at ? (_gitLastFetchLabel ??= FormatRelative(at)) : null;
+    public string? GitLastFetchLabel => GitLastFetchAt is { } at ? (_gitLastFetchLabel ??= Formatters.RelativeTime.Format(at)) : null;
 
     private string? _gitLastFetchLabel;
 
@@ -384,5 +384,4 @@ public partial class Repo : ObservableObject
     /// unaffected by the commit's UTC offset. Delegates to the shared
     /// <see cref="Tools.Library.Formatters.RelativeTime"/> formatter.
     /// </summary>
-    private static string FormatRelative(DateTimeOffset at) => Formatters.RelativeTime.Format(at);
 }

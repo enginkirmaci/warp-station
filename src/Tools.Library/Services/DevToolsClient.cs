@@ -77,11 +77,6 @@ public class DevToolsClient : IDevToolsClient, IDisposable
         }
     }
 
-    public async Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null)
-    {
-        await SendProcessLaunchRequestAsync(fileName, arguments, false);
-    }
-
     public async Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null, bool hidden = false)
     {
         if (string.IsNullOrWhiteSpace(fileName))
@@ -150,11 +145,6 @@ public class DevToolsClient : IDevToolsClient, IDisposable
     {
         ConnectionStatusChanged?.Invoke(this, "Named pipes not supported on this platform");
         return Task.CompletedTask;
-    }
-
-    public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null)
-    {
-        throw new NotSupportedException("The DevTools supervisor pipe is not available on this platform");
     }
 
     public Task SendProcessLaunchRequestAsync(string fileName, string? arguments = null, bool hidden = false)

@@ -595,7 +595,7 @@ public partial class ReposViewModel : PageViewModelBase
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null) return;
 
-        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, "opencode");
+        var openCodeExe = ExecutableDefaults.ResolveCliForTerminal(_reposSettings.OpenCodeExecutable, ReposSettings.DefaultOpenCodeExecutable);
         _terminalLauncher.LaunchOpenCode(terminalExe, openCodeExe, repo.FolderPath, model, string.Empty, 1);
     }
 

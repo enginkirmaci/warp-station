@@ -317,12 +317,9 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
 
     /// <summary>
     /// Runs one git service call under <paramref name="setBusy"/> (null when the command
-    /// has no busy flag), toasts <paramref name="successText"/> on success and
-    /// <paramref name="errorText"/> on failure (null skips a toast; the error lambda runs
-    /// after the action, so fetch/pull/push can embed git's stderr line) and invokes the
-    /// outcome hooks. A thrown exception is treated as a failed outcome — logged and
-    /// toasted via <paramref name="errorText"/> — because every call site discards the
-    /// task or hands it to a relay command, which would leave it unobserved.
+    /// has no busy flag) with the shared outcome toasting (<see cref="GitToasts"/> —
+    /// success/failure text, exceptions treated as failed outcomes) plus this workspace's
+    /// follow-up hooks (branch re-sync, tab reload).
     /// </summary>
     private async Task RunGitActionAsync(
         Repo repo,
@@ -336,34 +333,17 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         setBusy?.Invoke(true);
         try
         {
-            if (await action(repo))
+            var ok = await GitToasts.RunAsync(
+                Shell.Notifications,
+                () => action(repo),
+                () => successText,
+                errorText,
+                onFailure,
+                logContext: repo.FolderPath);
+            if (ok)
             {
-                if (successText is not null)
-                {
-                    Shell.Notifications.Show(successText, NotificationKind.Success);
-                }
-
                 onSuccess?.Invoke();
             }
-            else
-            {
-                if (errorText() is { } error)
-                {
-                    Shell.Notifications.Show(error, NotificationKind.Error);
-                }
-
-                onFailure?.Invoke();
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Git action failed for {FolderPath}", repo.FolderPath);
-            if (errorText() is { } error)
-            {
-                Shell.Notifications.Show(error, NotificationKind.Error);
-            }
-
-            onFailure?.Invoke();
         }
         finally
         {

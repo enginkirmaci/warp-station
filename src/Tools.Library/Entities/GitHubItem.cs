@@ -36,12 +36,11 @@ public sealed record GitHubItem(
         : "Review";
 
     /// <summary>Age text from the item's last update ("2h ago"); null when unknown.</summary>
-    public string? AgeText => UpdatedAt is { } at ? FormatRelative(at) : null;
+    public string? AgeText => UpdatedAt is { } at ? Formatters.RelativeTime.Format(at) : null;
 
     /// <summary>
     /// Relative age label for a timestamp (<c>just now</c>, <c>5m ago</c>, <c>2h ago</c>,
     /// <c>1d ago</c>, <c>3w ago</c>, <c>1mo ago</c>, <c>1y ago</c>); delegates to the
     /// shared <see cref="Tools.Library.Formatters.RelativeTime"/> formatter.
     /// </summary>
-    private static string FormatRelative(DateTimeOffset at) => Formatters.RelativeTime.Format(at);
 }
