@@ -480,6 +480,29 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>
+    /// Typing a character anywhere outside a text field starts a repo search: the
+    /// header search box takes focus and the character becomes the fresh term.
+    /// TextInput bubbles only when no text-consuming control wanted the key — a
+    /// focused TextBox (commit message, tag flyout, the search field itself) handles
+    /// its text input first and never gets hijacked, and modifier-only shortcuts
+    /// produce no text at all.
+    /// </summary>
+    protected override void OnTextInput(TextInputEventArgs e)
+    {
+        if (!e.Handled
+            && HeaderSearchBox is not null
+            && !HeaderSearchBox.IsFocused
+            && !string.IsNullOrEmpty(e.Text))
+        {
+            HeaderSearchBox.Focus();
+            HeaderSearchBox.Text = e.Text;
+            HeaderSearchBox.CaretIndex = e.Text.Length;
+            e.Handled = true;
+        }
+        base.OnTextInput(e);
+    }
+
+    /// <summary>
     /// Header search typed text: debounce-push the term into the Repos page's filter
     /// (an empty field clears it).
     /// </summary>
