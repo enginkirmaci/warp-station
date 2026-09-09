@@ -37,7 +37,9 @@ public partial class Repo : ObservableObject
     public ObservableCollection<RepoTag> Tags { get; set; } = new();
 
     /// <summary>
-    /// Convenience: adds a tag by name, ignoring duplicates (case-insensitive).
+    /// Convenience: adds a tag by name, ignoring duplicates (case-insensitive). Raises
+    /// <see cref="IsFavorite"/> when the reserved favorites tag lands, so star bindings
+    /// refresh without waiting for a list rebuild to recycle the row container.
     /// </summary>
     public void AddTag(string name)
     {
@@ -45,10 +47,14 @@ public partial class Repo : ObservableObject
         if (string.IsNullOrEmpty(trimmed)) return;
         if (Tags.Any(t => string.Equals(t.Name, trimmed, StringComparison.OrdinalIgnoreCase))) return;
         Tags.Add(new RepoTag(this, trimmed));
+        if (string.Equals(trimmed, FavoritesTag, StringComparison.OrdinalIgnoreCase))
+            OnPropertyChanged(nameof(IsFavorite));
     }
 
     /// <summary>
     /// Convenience: removes a tag by name (case-insensitive). Returns true if removed.
+    /// Raises <see cref="IsFavorite"/> when the reserved favorites tag is removed (the
+    /// add-side twin of the comment above).
     /// </summary>
     public bool RemoveTag(string name)
     {
@@ -57,6 +63,8 @@ public partial class Repo : ObservableObject
             .ToList();
         foreach (var tag in toRemove)
             Tags.Remove(tag);
+        if (toRemove.Count > 0 && string.Equals(name, FavoritesTag, StringComparison.OrdinalIgnoreCase))
+            OnPropertyChanged(nameof(IsFavorite));
         return toRemove.Count > 0;
     }
 
@@ -75,7 +83,9 @@ public partial class Repo : ObservableObject
     public const string PlatformTag = "platform";
 
     /// <summary>
-    /// True when the reserved <c>favorites</c> tag is present.
+    /// True when the reserved <c>favorites</c> tag is present. Computed over
+    /// <see cref="Tags"/>, so it has no backing field: the change notification comes
+    /// from <see cref="AddTag"/>/<see cref="RemoveTag"/> when the favorites tag flips.
     /// </summary>
     public bool IsFavorite
         => Tags.Any(t => string.Equals(t.Name, FavoritesTag, StringComparison.OrdinalIgnoreCase));

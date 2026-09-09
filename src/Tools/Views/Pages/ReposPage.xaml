@@ -475,7 +475,7 @@
                                                                                         Width="16"
                                                                                         Height="16"
                                                                                         Data="{tools:SvgPath icon-star}"
-                                                                                        Fill="{Binding Tags, Converter={StaticResource FavoriteStarBrushConverter}}"
+                                                                                        Fill="{Binding IsFavorite, Converter={StaticResource FavoriteStarBrushConverter}}"
                                                                                         Stretch="Uniform" />
                                                                         </Button>
 

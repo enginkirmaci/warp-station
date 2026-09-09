@@ -1,19 +1,20 @@
-using System.Collections;
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
-using Tools.Library.Entities;
 
 namespace Tools.Library.Converters;
 
 /// <summary>
-/// Returns a gold brush when the bound tag collection contains the reserved
-/// <c>favorites</c> tag (so the star is filled for favorited repos), and a muted brush
-/// otherwise. Intended to bind to a <see cref="Repo"/>'s <see cref="Repo.Tags"/>.
+/// Returns a gold brush for <see langword="true"/> (the repo is favorited, so the star
+/// is filled) and a muted brush otherwise. Intended to bind to a <see cref="Repo"/>'s
+/// <see cref="Repo.IsFavorite"/>, which raises change notifications from
+/// <c>AddTag</c>/<c>RemoveTag</c> — binding the old way to the <c>Tags</c> collection
+/// reference never re-evaluated when a tag was added or removed, leaving the star
+/// painted in its pre-toggle color.
 /// <para>
 /// The brushes are cached immutable singletons: this converter runs for every realized
-/// repo card (and again whenever a card's <c>Tags</c> change), so it must not allocate.
+/// repo card, so it must not allocate.
 /// </para>
 /// </summary>
 public class FavoriteStarBrushConverter : IValueConverter
@@ -22,21 +23,7 @@ public class FavoriteStarBrushConverter : IValueConverter
     private static readonly ImmutableSolidColorBrush DefaultBrush = new(Color.Parse("#8B90A0"));
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is IEnumerable tags)
-        {
-            foreach (var item in tags)
-            {
-                if (item is RepoTag tag
-                    && string.Equals(tag.Name, Repo.FavoritesTag, StringComparison.OrdinalIgnoreCase))
-                {
-                    return FavoriteBrush;
-                }
-            }
-        }
-
-        return DefaultBrush;
-    }
+        => value is true ? FavoriteBrush : DefaultBrush;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
