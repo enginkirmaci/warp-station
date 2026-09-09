@@ -64,9 +64,15 @@ public class TerminalLauncher : ITerminalLauncher
 
         // Route through the DevTools service (named pipe). The service runs
         // non-elevated, so VS Code launches non-elevated even when Tools runs as admin.
+        // A .cmd/.bat shim (what a resolved "code" is on Windows) would otherwise show
+        // a cmd console when the service launches it via ShellExecute; hidden suppresses
+        // just that console. A real GUI exe keeps Normal — the SW_HIDE behind
+        // WindowStyle=Hidden must never reach VS Code's own main window.
+        var hidden = exe.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
+                     || exe.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
         try
         {
-            await _devToolsClient.SendProcessLaunchRequestAsync(exe, args);
+            await _devToolsClient.SendProcessLaunchRequestAsync(exe, args, hidden);
         }
         catch (Exception ex)
         {

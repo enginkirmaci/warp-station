@@ -204,6 +204,15 @@ public static class ExecutableDefaults
     {
         var extensions = GetWindowsPathExtensions();
 
+        // A bare name without a dot must not match extensionless PATH entries: files
+        // like VS Code's bin\code are POSIX shell scripts, not Win32 executables, and
+        // spawning them fails. Names that already carry an extension keep the empty
+        // probe ("zcode.exe" must not become "zcode.exe.exe").
+        if (!name.Contains('.'))
+        {
+            extensions = extensions.Where(extension => extension.Length > 0).ToArray();
+        }
+
         foreach (var directory in EnumerateSearchDirectories())
         {
             foreach (var extension in extensions)
