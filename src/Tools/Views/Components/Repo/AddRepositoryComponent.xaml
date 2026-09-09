@@ -6,7 +6,7 @@
     the drawer header's X and the backdrop/Escape close path land as a cancel too.
 -->
 <UserControl
-    x:Class="Tools.Views.Components.AddRepositoryComponent"
+    x:Class="Tools.Views.Components.Repo.AddRepositoryComponent"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"

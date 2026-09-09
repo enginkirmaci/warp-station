@@ -4,7 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.BottomBar;
 
 /// <summary>The drag axis a resize grip works on.</summary>
 public enum PanelResizeAxis

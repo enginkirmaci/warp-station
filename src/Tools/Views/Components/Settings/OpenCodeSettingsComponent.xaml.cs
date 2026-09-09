@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Windows;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Settings;
 
 /// <summary>
 /// The OpenCode launch drawer component (per-launch model picker, launch options).

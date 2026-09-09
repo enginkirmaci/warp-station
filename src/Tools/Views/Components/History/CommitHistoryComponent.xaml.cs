@@ -3,7 +3,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Windows;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.History;
 
 /// <summary>
 /// History commit-detail component, hosted in the main window's floating tool drawer

@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Settings;
 
 /// <summary>
 /// SnapIt settings tool (auto-start, running state, start/stop), hosted in the main

@@ -6,7 +6,7 @@
     position) instead of a bottom footer band.
 -->
 <UserControl
-    x:Class="Tools.Views.Components.CodeExecuteComponent"
+    x:Class="Tools.Views.Components.Tools.CodeExecuteComponent"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"

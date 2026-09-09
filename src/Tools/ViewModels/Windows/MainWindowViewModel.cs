@@ -90,11 +90,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// EnableClipboardPassword setting used to filter the tools dropdown; when
     /// disabled the tool stays reachable through its hotkey only. Loaded
     /// asynchronously after construction (see <see cref="LoadVisibilityFlagsAsync"/>);
-    /// the default matches the value computed from default settings, so the menu
-    /// item only ever settles, never flips, for default configurations.
+    /// the default matches the value computed from default settings (the setting
+    /// defaults to <c>false</c> = concealed), so the menu item only ever settles,
+    /// never flips, for default configurations.
     /// </summary>
     [ObservableProperty]
-    private bool _showClipboardPassword = true;
+    private bool _showClipboardPassword;
 
     /// <summary>
     /// Whether the NuGet Local tool shows in the GUI: the tools dropdown entry and the
@@ -162,7 +163,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var appSettings = await _settingsService.GetSettingsAsync();
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword != true;
+                ShowClipboardPassword = appSettings.ClipboardPassword?.EnableClipboardPassword == true;
                 ShowNuget = appSettings.NugetLocal?.EnableNuget != false;
             });
         }

@@ -1,5 +1,9 @@
 using Avalonia.Controls;
 using Tools.Views.Components;
+using Tools.Views.Components.History;
+using Tools.Views.Components.Repo;
+using Tools.Views.Components.Settings;
+using Tools.Views.Components.Tools;
 
 namespace Tools.Helpers;
 

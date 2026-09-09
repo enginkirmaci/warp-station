@@ -2,25 +2,18 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
-using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Tools.Library.Entities;
 using Tools.ViewModels.Components;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.BottomBar;
 
 /// <summary>
-/// Bottom bar of the Repos page: tab strip (always visible once a repo is selected from
-/// the table) and the active tab's expandable panel. Its DataContext is the singleton
-/// <see cref="BottomBarViewModel"/> (attached by ReposPage). The branch ComboBox commits
-/// its selection through a code-behind handler instead of a TwoWay binding so the
-/// in-place branch reload never writes a transient null back into the view model; the
-/// OpenCode settings drawer's model ComboBox does the same inside
-/// <see cref="OpenCodeSettingsComponent"/>.
+/// Bottom bar of the Repos page: shell only — the drag divider, the expandable
+/// panel card and the per-tab content controls under Tabs/. Its DataContext is
+/// the singleton <see cref="BottomBarViewModel"/> (bound by ReposPage) and is
+/// inherited by every tab control; the tab row lives in <c>RepoHeader</c> and
+/// each tab's templates/styles come from <c>BottomBarResources.axaml</c>.
 /// </summary>
 public partial class BottomBar : UserControl
 {
@@ -49,7 +42,8 @@ public partial class BottomBar : UserControl
     /// HorizontalScrollBarVisibility=Disabled constraint is supposed to flow to the
     /// presenter, but the themed template wins that race on this setup, so the
     /// presenter's horizontal-scroll flag is re-asserted as a local value the moment
-    /// each template applies (local beats template).
+    /// each template applies (local beats template). Every tab is instantiated in the
+    /// shell's XAML, so all of their ScrollViewers exist by ctor time.
     /// </summary>
     private void ConstrainScrollViewersToViewportWidth()
     {
@@ -71,85 +65,6 @@ public partial class BottomBar : UserControl
         if (presenter is not null)
         {
             presenter.CanHorizontallyScroll = false;
-        }
-    }
-
-    /// <summary>
-    /// Commits a branch pick: the ViewModel checks out the branch (see
-    /// <see cref="BottomBarViewModel.OnSelectedBranchChanged"/>). Programmatic syncs
-    /// re-commit the current branch and are ignored there.
-    /// </summary>
-    private void OnBranchSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (e.AddedItems.Count > 0 && e.AddedItems[0] is string branch && ViewModel is { } vm)
-        {
-            vm.SelectedBranch = branch;
-        }
-    }
-
-    /// <summary>
-    /// A History row was tapped: open the commit-detail drawer on that commit. Taps on
-    /// the row's hash Button are skipped — that button's own command (copy the full
-    /// SHA) should not also open the drawer.
-    /// </summary>
-    private void OnHistoryRowTapped(object? sender, TappedEventArgs e)
-    {
-        for (StyledElement? source = e.Source as StyledElement; source is not null; source = source.Parent)
-        {
-            if (source is Button)
-            {
-                return;
-            }
-        }
-
-        OpenHistoryRow(sender);
-    }
-
-    /// <summary>
-    /// Keyboard path for a History row: the row Grid is focusable, Enter/Space act as
-    /// a tap (an inner hash Button with focus handles its own key first, so its copy
-    /// action keeps priority).
-    /// </summary>
-    private void OnHistoryRowKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key is not (Key.Enter or Key.Space))
-        {
-            return;
-        }
-
-        if (OpenHistoryRow(sender))
-        {
-            e.Handled = true;
-        }
-    }
-
-    private bool OpenHistoryRow(object? sender)
-    {
-        if (sender is Control { DataContext: GitCommitInfo commit } && ViewModel is { } vm)
-        {
-            vm.OpenCommitDetailCommand.Execute(commit);
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Ctrl+Enter in the commit message box runs CommitCommand (plain Enter keeps its
-    /// newline — the box is multi-line). The command's CanExecute (staged files, no
-    /// in-flight commit) still gates it.
-    /// </summary>
-    private void OnCommitBoxKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.Control)
-        {
-            return;
-        }
-
-        if (ViewModel?.CommitCommand is { } commit && commit.CanExecute(null))
-        {
-            commit.Execute(null);
-            e.Handled = true;
         }
     }
 }

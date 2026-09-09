@@ -7,7 +7,7 @@ using Tools.Services;
 namespace Tools.ViewModels.Windows;
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Components.ReposSettingsComponent"/> (the former
+/// ViewModel for the <see cref="Views.Components.Repo.ReposSettingsComponent"/> (the former
 /// Repo Settings modal dialog, now hosted in the floating tool drawer). Holds the
 /// editing state for <see cref="ReposSettings"/> (multi-line text for the array
 /// fields, plain strings for the rest) and the OpenCode model fields (the default

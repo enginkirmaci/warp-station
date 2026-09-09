@@ -2,7 +2,7 @@
         x:Class="Tools.Views.Pages.ReposPage"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:components="using:Tools.Views.Components"
+        xmlns:components="using:Tools.Views.Components.BottomBar"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:entities="using:Tools.Library.Entities"
         xmlns:lib="using:Tools.Library.Controls"

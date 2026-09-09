@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Tools;
 
 /// <summary>
 /// Formatters tool (base64 / case conversions with history), hosted in the main

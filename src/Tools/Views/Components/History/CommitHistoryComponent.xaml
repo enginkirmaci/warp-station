@@ -6,7 +6,7 @@
     patches, and the "View Full Diff" jump to the commit's GitHub/Azure DevOps page.
 -->
 <UserControl
-    x:Class="Tools.Views.Components.CommitHistoryComponent"
+    x:Class="Tools.Views.Components.History.CommitHistoryComponent"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"

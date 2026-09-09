@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Windows;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Repo;
 
 /// <summary>
 /// Repo Settings component, hosted in the main window's floating tool drawer (the

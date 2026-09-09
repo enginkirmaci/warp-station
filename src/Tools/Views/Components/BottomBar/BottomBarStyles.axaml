@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Shared styles for the bottom bar's tab controls (companion to
+    BottomBarResources.axaml, which holds the shared keyed templates). Each tab
+    control includes this via StyleInclude so the classes stay scoped to the bar.
+-->
+<Styles
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        <!--
+            Panel item row: transparent full-width button with the table's hover tint;
+            the template comes from StretchButtonTheme above.
+        -->
+        <Style Selector="Button.bar-item">
+            <Setter Property="Theme" Value="{DynamicResource StretchButtonTheme}" />
+        </Style>
+        <Style Selector="Button.bar-item:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+        </Style>
+        <!--  The quiet accent link class (Button.detail-link — the History rows' hash
+              links and the commit-message wand) lives app-wide in AppStyles.axaml so
+              the History drawer's Back link, hosted outside the bar's style scope,
+              resolves the same class.  -->
+        <!--  History rows: hover tint (same RowHoverBackgroundBrush as the repos
+              table's rows) so the clickable rows read as interactive; they are
+              focusable too (Enter/Space open the drawer) but paint no focus ring.
+              The transparent base background is a STYLE, not a local attribute —
+              a local value would beat the :pointerover setter below. It exists so
+              the whole row hit-tests (null-background Grids only hit-test on
+              their children, which killed hover/tooltip outside the texts).  -->
+        <Style Selector="Grid.history-row">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Grid.history-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+        </Style>
+        <!--
+            Overview clickable card: the ov-card look on a Button using the same
+            stretch template, so the WHOLE card routes to its tab and the hover tint
+            covers the full card. Rows inside the recent-activity cards keep their own
+            click targets — a press on an inner row button never reaches the card.
+        -->
+        <Style Selector="Button.ov-card-btn">
+            <Setter Property="Theme" Value="{DynamicResource StretchButtonTheme}" />
+            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.ov-card-btn:pointerover">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+        </Style>
+        <!--  Overview / Git list card: panel background inset card.  -->
+        <Style Selector="Border.ov-card">
+            <Setter Property="Background" Value="{DynamicResource CardSubtleBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource ControlRadius}" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style Selector="TextBlock.ov-card-title">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+        </Style>
+        <!--
+            Overview stat-card icon badge (Border.stat-badge) lives app-wide in
+            AppStyles.axaml so pages share the same vocabulary.
+        -->
+        <!--  Pill chrome (state chips + label pills): fully-rounded tinted pill. The
+              Border's Background comes per row from GitHubStateChipBrushConverter
+              ("bg" param) or GitHubLabelBrushConverter; label pills add their right
+              gap locally (they used to be a separate .label-pill style one Margin
+              apart).  -->
+        <Style Selector="Border.state-chip">
+            <Setter Property="CornerRadius" Value="{DynamicResource PillRadius}" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!--
+            The stepped spinner ring behind Classes="spinner" (commit button + commit-
+            message wand) lives app-wide in AppStyles.axaml so pages outside the bar
+            share it (the Repos page's refresh button) — same pattern as stat-badge.
+        -->
+        <!--  Centered muted list message ("Loading…", empty states); sites that sit
+              tighter override Margin locally.  -->
+        <Style Selector="TextBlock.list-note">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,24" />
+        </Style>
+    
+</Styles>

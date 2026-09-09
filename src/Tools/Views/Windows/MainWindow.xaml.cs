@@ -14,6 +14,7 @@ using Tools.Services;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
 using Tools.Views.Components;
+using Tools.Views.Components.BottomBar;
 using Tools.Views.Pages;
 
 namespace Tools.Views.Windows;

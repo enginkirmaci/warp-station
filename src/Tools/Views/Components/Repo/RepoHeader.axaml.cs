@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Components;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Repo;
 
 /// <summary>
 /// Repo detail header at the top of the Repositories page (back link, repo name + star,

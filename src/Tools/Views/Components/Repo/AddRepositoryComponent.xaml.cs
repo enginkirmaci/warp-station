@@ -5,7 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Tools.ViewModels.Windows;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Repo;
 
 /// <summary>
 /// Add Repositories component, hosted in the main window's floating tool drawer (the

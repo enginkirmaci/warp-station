@@ -13,6 +13,10 @@ using Tools.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
 using Tools.Views.Components;
+using Tools.Views.Components.History;
+using Tools.Views.Components.Repo;
+using Tools.Views.Components.Settings;
+using Tools.Views.Components.Tools;
 using Tools.Views.Pages;
 using Tools.Views.Windows;
 

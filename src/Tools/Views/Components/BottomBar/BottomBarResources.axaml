@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Shared resources for the bottom bar's tab controls. The bar repeats the same
+    row/card markup across the Overview previews and the Changes / Pull Requests /
+    Issues / Azure tabs; these keyed templates and styles hold the shared pieces,
+    and each tab control merges this dictionary into its own Resources.
+
+    Templates are applied explicitly via ContentTemplate / ItemTemplate (not by
+    DataType): several rows share one CLR type but need different commands per
+    site, and two type-keyed templates for the same type cannot coexist.
+-->
+<ResourceDictionary
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:entities="using:Tools.Library.Entities"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Components">
+
+    <!--
+        Stretch button theme: replaces SukiUI's Button template for the bar's clickable
+        surfaces (list rows + Overview cards). SukiUI's own template renders the
+        content presenter content-sized even when the button stretches, so rows hug
+        left and their trailing age/chip columns drift with the text length instead of
+        pinning to the row's right edge, and card hovers only cover the content. This
+        template stretches one Border + ContentPresenter across the whole button; the
+        hover tint rides on Button.Background (TemplateBinding), so no template-part
+        targeting is needed.
+    -->
+    <ControlTheme x:Key="StretchButtonTheme" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ChipRadius}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}">
+                    <ContentPresenter
+                        Margin="{TemplateBinding Padding}"
+                        Content="{TemplateBinding Content}"
+                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!--  Git numstat: the +/− pills of a GitChangedFile row (hidden for binary /
+          untracked files, which have no counts). The pills ride in FIXED 48px
+          columns — additions right-aligned, deletions left-aligned — so the
+          numbers form the same +N −N pair on every row; an Auto pill column
+          drifts row to row with the path length, and a hidden pill keeps its
+          cell reserved.  -->
+    <DataTemplate x:Key="NumstatPillsTemplate" x:DataType="entities:GitChangedFile">
+        <Grid
+            ColumnDefinitions="48,48"
+            ColumnSpacing="8"
+            VerticalAlignment="Center"
+            IsVisible="{Binding HasCounts}">
+            <!--  Additions pill (green)  -->
+            <Border
+                Grid.Column="0"
+                Padding="6,1"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Background="{DynamicResource AddedCountChipBrush}"
+                CornerRadius="{DynamicResource ChipRadius}"
+                IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                <TextBlock
+                    Classes="mono"
+                    Foreground="{DynamicResource AddedCountBrush}"
+                    Text="{Binding AddedText}" />
+            </Border>
+            <!--  Deletions pill (light red)  -->
+            <Border
+                Grid.Column="1"
+                Padding="6,1"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Background="{DynamicResource RemovedCountChipBrush}"
+                CornerRadius="{DynamicResource ChipRadius}"
+                IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                <TextBlock
+                    Classes="mono"
+                    Foreground="{DynamicResource RemovedCountBrush}"
+                    Text="{Binding RemovedText}" />
+            </Border>
+        </Grid>
+    </DataTemplate>
+
+    <!--  Overview stat-card bodies. The cards are written twice (4-column grid with
+          the Pipelines slot, 3-column without it); only the Button's command /
+          visibility differ per site, so the bodies live here. The icon badge is
+          Border.stat-badge, the count rides the card's title brush.  -->
+    <DataTemplate x:Key="StatCardChanges" x:DataType="vm:BottomBarViewModel">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Grid
+                Width="36"
+                Height="36"
+                VerticalAlignment="Top">
+                <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
+                <Path
+                    Width="18"
+                    Height="18"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Data="{tools:SvgPath icon-source-branch}"
+                    Fill="{DynamicResource WarningAccentBrush}"
+                    Stretch="Uniform" />
+            </Grid>
+            <StackPanel Spacing="2">
+                <TextBlock
+                    FontSize="22"
+                    FontWeight="Bold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding ChangesCount}" />
+                <TextBlock Classes="subtle" Text="Local Changes" />
+            </StackPanel>
+        </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="StatCardPullRequests" x:DataType="vm:BottomBarViewModel">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Grid
+                Width="36"
+                Height="36"
+                VerticalAlignment="Top">
+                <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
+                <Path
+                    Width="18"
+                    Height="18"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Data="{tools:SvgPath icon-git-pull-request}"
+                    Fill="{DynamicResource PurpleAccentBrush}"
+                    Stretch="Uniform" />
+            </Grid>
+            <StackPanel Spacing="2">
+                <TextBlock
+                    FontSize="22"
+                    FontWeight="Bold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding PullRequestCount}" />
+                <TextBlock Classes="subtle" Text="Open Pull Requests" />
+            </StackPanel>
+        </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="StatCardIssues" x:DataType="vm:BottomBarViewModel">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Grid
+                Width="36"
+                Height="36"
+                VerticalAlignment="Top">
+                <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
+                <Path
+                    Width="18"
+                    Height="18"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Data="{tools:SvgPath icon-issue}"
+                    Fill="{DynamicResource StatusActiveBrush}"
+                    Stretch="Uniform" />
+            </Grid>
+            <StackPanel Spacing="2">
+                <TextBlock
+                    FontSize="22"
+                    FontWeight="Bold"
+                    Foreground="{DynamicResource TitleForegroundBrush}"
+                    Text="{Binding IssueCount}" />
+                <TextBlock Classes="subtle" Text="Open Issues" />
+            </StackPanel>
+        </StackPanel>
+    </DataTemplate>
+
+    <!--  GitHub label pill: same pill chrome as the state chips
+          (Border.state-chip) plus a local right gap; tinted by
+          GitHubLabelBrushConverter ("bg" param for the pill, default for text).  -->
+    <DataTemplate x:Key="LabelPillTemplate" x:DataType="x:String">
+        <Border
+            Margin="0,0,6,0"
+            Classes="state-chip"
+            Background="{Binding Converter={StaticResource GitHubLabelBrushConverter}, ConverterParameter=bg}"
+            ToolTip.Tip="{Binding}">
+            <TextBlock
+                Foreground="{Binding Converter={StaticResource GitHubLabelBrushConverter}}"
+                Text="{Binding}" />
+        </Border>
+    </DataTemplate>
+
+    <!--  GitHub labels row: pill flow (WrapPanel), shown only when the item has
+          labels.  -->
+    <DataTemplate x:Key="GitHubLabelsFlow" x:DataType="entities:GitHubItem">
+        <ItemsControl
+            IsVisible="{Binding HasLabels}"
+            ItemTemplate="{StaticResource LabelPillTemplate}"
+            ItemsSource="{Binding Labels}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+    </DataTemplate>
+
+    <!--  GitHub PR branch line: head → base (hidden when there is no summary).  -->
+    <DataTemplate x:Key="BranchSummaryTemplate" x:DataType="entities:GitHubItem">
+        <StackPanel
+            Orientation="Horizontal"
+            Spacing="6"
+            IsVisible="{Binding BranchSummary, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+            <TextBlock
+                Classes="mono"
+                Foreground="{DynamicResource MutedForegroundBrush}"
+                Text="{Binding HeadRef}" />
+            <TextBlock
+                Classes="mono"
+                Foreground="{DynamicResource AccentPrimaryBrush}"
+                Text="→" />
+            <TextBlock
+                Classes="mono"
+                Foreground="{DynamicResource MutedForegroundBrush}"
+                Text="{Binding BaseRef, TargetNullValue=main}" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!--  Pull-request state chip (Draft / Approved / Review): tinted by
+          GitHubStateChipBrushConverter ("bg" param for the pill, default for the
+          text).  -->
+    <DataTemplate x:Key="StateChipTemplate" x:DataType="entities:GitHubItem">
+        <Border
+            Classes="state-chip"
+            Background="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}, ConverterParameter=bg}"
+            ToolTip.Tip="{Binding StateChip}">
+            <TextBlock
+                FontWeight="SemiBold"
+                Foreground="{Binding StateChip, Converter={StaticResource GitHubStateChipBrushConverter}}"
+                Text="{Binding StateChip}" />
+        </Border>
+    </DataTemplate>
+
+    <!--  GitHub/Azure item title line: "#N title" in a star cell, so a long title
+          trims instead of painting over the trailing columns. Tab lists use the
+          13px variants.  -->
+    <DataTemplate x:Key="GitHubTitleLine" x:DataType="entities:GitHubItem">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <TextBlock
+                FontWeight="SemiBold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Number, StringFormat='#{0}'}" />
+            <TextBlock
+                Grid.Column="1"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Title}"
+                TextTrimming="CharacterEllipsis" />
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="GitHubTitleLine13" x:DataType="entities:GitHubItem">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <TextBlock
+                VerticalAlignment="Center"
+                FontSize="13"
+                FontWeight="SemiBold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Number, StringFormat='#{0}'}" />
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="13"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Title}"
+                TextTrimming="CharacterEllipsis" />
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="AzureTitleLine" x:DataType="entities:AzureDevOpsItem">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <TextBlock
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Number, StringFormat='#{0}'}" />
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Title}"
+                TextTrimming="CharacterEllipsis" />
+        </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="AzureTitleLine13" x:DataType="entities:AzureDevOpsItem">
+        <Grid
+            VerticalAlignment="Center"
+            ColumnDefinitions="Auto,*"
+            ColumnSpacing="6">
+            <TextBlock
+                VerticalAlignment="Center"
+                FontSize="13"
+                FontWeight="SemiBold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Number, StringFormat='#{0}'}" />
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="13"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding Title}"
+                TextTrimming="CharacterEllipsis" />
+        </Grid>
+    </DataTemplate>
+    <!--  GitHub URL cap in the Overview sidebar's link row — coupled to the
+          sidebar's fixed 290px width + the 110px key column + paddings (the
+          value cell has ~130px). The cap must be explicit because the button's
+          content presenter hugs (SukiUI), so TextTrimming never sees a finite
+          measure width without it.  -->
+    <x:Double x:Key="GitHubUrlMaxWidth">126</x:Double>
+
+</ResourceDictionary>

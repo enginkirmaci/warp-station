@@ -40,7 +40,7 @@ public partial class FoundRepository : ObservableObject
 }
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Components.AddRepositoryComponent"/> (the former
+/// ViewModel for the <see cref="Views.Components.Repo.AddRepositoryComponent"/> (the former
 /// Add Repositories modal dialog, now hosted in the floating tool drawer). Holds the
 /// folder to scan, runs the scan through <see cref="IRepoScanner"/> (reusing the repo
 /// scan settings' exclusions/patterns; the depth is a dialog field, persisted back when

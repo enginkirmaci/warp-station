@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Components;
+namespace Tools.Views.Components.Tools;
 
 /// <summary>
 /// Code Execute tool (run C# snippets via Roslyn scripting), hosted in the main
