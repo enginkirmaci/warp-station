@@ -47,9 +47,9 @@
     <Color x:Key="SukiSuccessDarkColor">#CC1D771D</Color>
     <Color x:Key="SukiSuccessForeground">White</Color>
 
-    <Color x:Key="SukiInformationColor">#CC2F54EB</Color>
-    <Color x:Key="SukiInformationMediumColor">#CC1D39C4</Color>
-    <Color x:Key="SukiInformationDarkColor">#CC1D39C4</Color>
+    <Color x:Key="SukiInformationColor">#CC6E9BF7</Color>
+    <Color x:Key="SukiInformationMediumColor">#CC4A76E6</Color>
+    <Color x:Key="SukiInformationDarkColor">#CC4A76E6</Color>
     <Color x:Key="SukiInformationForeground">White</Color>
 
     <Color x:Key="SukiWarningColor">#CCFA8C16</Color>
