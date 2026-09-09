@@ -16,20 +16,15 @@ using Tools.ViewModels.Components.BottomBar;
 namespace Tools.ViewModels.Pages;
 
 /// <summary>
-/// One entry of the Repos page sort selector: the sort mode plus its display label.
-/// A labeled wrapper (rather than binding the raw enum) keeps the dropdown text in
-/// one place and works with compiled bindings without a value converter.
-/// </summary>
-public sealed record RepoSortOption(RepoSortMode Mode, string Label);
-
-/// <summary>
 /// Binding adapter for the Repos page. Delegates scanning, caching, and the shared
 /// repo state to <see cref="IRepoService"/> (singleton), launching to
 /// <see cref="ITerminalLauncher"/> (executable resolution, argument shapes and fallback
-/// decisions), and tag persistence back through the service.
-/// Holds only view-specific state: the text + tag filters, the sort selection and the
-/// filtered projection. The OpenCode launch panel moved to the window's bottom bar
-/// (<see cref="BottomBar.BottomBarViewModel"/>); this page keeps the per-row quick
+/// decisions), and tag persistence back through the service. The list projection
+/// (filter/sort/tag state and its debounces) lives in <see cref="RepoListProjection"/>
+/// and the header summary in <see cref="RepoHeaderTotals"/>; this VM forwards their
+/// binding surface, owns the page lifecycle and keeps the view-specific state (column
+/// and shortcut visibility). The OpenCode launch panel moved to the window's bottom
+/// bar (<see cref="BottomBar.BottomBarViewModel"/>); this page keeps the per-row quick
 /// launch and routes the row chips/affordances to the bar's tabs.
 /// </summary>
 public partial class ReposViewModel : PageViewModelBase
@@ -52,74 +47,9 @@ public partial class ReposViewModel : PageViewModelBase
     private ReposSettings _reposSettings = new();
     private OpenCodeSettings _openCodeSettings = new();
 
-    /// <summary>
-    /// Debounce timers for the filter and the service-changed handler. A burst of typing or
-    /// the several <c>Changed</c> raises a single scan produces each cancel the pending
-    /// callback and restart the window, so only one in-place <see cref="ApplyFilter"/> runs
-    /// per burst instead of tearing down the list per keystroke / per event.
-    /// </summary>
-    private readonly UiDebounce _filterDebounce = new(FilterDebounceMs);
-    private readonly UiDebounce _changedDebounce = new(ChangedDebounceMs);
+    private readonly RepoListProjection _list;
+    private readonly RepoHeaderTotals _totals = new();
 
-    /// <summary>Idle window for the search-box filter before the list is re-synced.</summary>
-    private const int FilterDebounceMs = 150;
-
-    /// <summary>
-    /// Idle window for coalescing the multiple <c>Changed</c> raises a single scan emits
-    /// (start, data-ready, finally) into one rebuild.
-    /// </summary>
-    private const int ChangedDebounceMs = 100;
-
-    /// <summary>
-    /// The repos currently wired to <see cref="OnRepoPropertyChanged"/> for live re-sorting
-    /// and the GitHub header totals. The service raises <c>Changed</c> only around scans,
-    /// but the background git status / GitHub passes push their results straight onto the
-    /// entities afterwards — without listening to the entities, a Last-activity/Changes
-    /// sort would keep its pre-probe order and the header totals would lag until the next
-    /// unrelated rebuild. Rebuilt after every scan because a rescan can replace the repo
-    /// instances.
-    /// </summary>
-    private readonly HashSet<Repo> _sortObservedRepos = new();
-
-    [ObservableProperty]
-    private string _filterText = string.Empty;
-
-    /// <summary>The sort orders offered in the toolbar selector, in dropdown order.</summary>
-    public static IReadOnlyList<RepoSortOption> SortOptions { get; } = new[]
-    {
-        new RepoSortOption(RepoSortMode.Name, "Name"),
-        new RepoSortOption(RepoSortMode.LastActivity, "Last activity"),
-        new RepoSortOption(RepoSortMode.Changes, "Changes"),
-        new RepoSortOption(RepoSortMode.PullRequests, "Pull requests"),
-        new RepoSortOption(RepoSortMode.Issues, "Issues"),
-    };
-
-    /// <summary>
-    /// The currently selected entry of the toolbar sort selector. Seeded from the
-    /// persisted <see cref="ReposSettings.SortMode"/> on page load; a user pick
-    /// re-orders the list immediately and persists the mode back to settings.
-    /// </summary>
-    [ObservableProperty]
-    private RepoSortOption _selectedSortOption = SortOptions[0];
-
-    [ObservableProperty]
-    private ObservableCollection<Repo> _filteredRepos = new();
-
-    /// <summary>
-    /// The checkable tag list shown in the left filter panel. Rebuilt from
-    /// <see cref="IRepoService.AllTags"/> whenever the service changes, preserving
-    /// existing check states by tag name so checking a tag survives a rescan.
-    /// </summary>
-    [ObservableProperty]
-    private ObservableCollection<TagFilter> _tagFilters = new();
-
-    /// <summary>
-    /// Tracks an in-flight refresh (repo scan + git status pass) so only the Refresh
-    /// button reflects it — the rest of the page (search, tags, cards, OpenCode panel,
-    /// and the per-card "checking…" git placeholders) stays interactive throughout.
-    /// Kept separate from the base <see cref="ViewModelBase.IsBusy"/> (which mirrors the
-    /// repo service's scan state) so nothing else on the page is gated by a refresh.
-    /// </summary>
     [ObservableProperty]
     private bool _isRefreshing;
 
@@ -144,49 +74,16 @@ public partial class ReposViewModel : PageViewModelBase
     [ObservableProperty]
     private bool _isGitHubColumnVisible;
 
-    // --- GitHub totals (page-header summary) ---
+    // --- Header totals (page-header summary; the running sums live in RepoHeaderTotals) ---
 
-    /// <summary>
-    /// Running header totals. A repo count change folds its delta in (see
-    /// <see cref="AdjustTotal"/>) instead of re-summing every repo per event — a full
-    /// probe pass used to cost O(N²) enumerations of the repo set. Recomputed from
-    /// scratch and re-seeded whenever the repo set may have been replaced (see
-    /// <see cref="RefreshHeaderTotals"/>), so list membership changes cannot drift them.
-    /// </summary>
-    private int _totalPrCount;
-    private int _totalIssueCount;
-    private int _totalModifiedCount;
+    /// <summary>Total open pull requests across all known repos.</summary>
+    public int GitHubTotalPrCount => _totals.GitHubTotalPrCount;
 
-    /// <summary>
-    /// Per-repo last-known contributions to the totals above: the incremental fold needs
-    /// the previous value to subtract and <see cref="PropertyChangedEventArgs"/> carries
-    /// none. Keyed by instance (repos are shared references, no value equality); cleared
-    /// and re-seeded together with the totals.
-    /// </summary>
-    private readonly Dictionary<Repo, int> _prTotalContributions = new();
-    private readonly Dictionary<Repo, int> _issueTotalContributions = new();
-    private readonly Dictionary<Repo, int> _modifiedTotalContributions = new();
+    /// <summary>Total open issues across all known repos.</summary>
+    public int GitHubTotalIssueCount => _totals.GitHubTotalIssueCount;
 
-    /// <summary>
-    /// Guards the totals and their contribution dictionaries: the git/GitHub probes push
-    /// counts from background continuations, and a read-modify-write fold must not
-    /// interleave. Getters read plain ints (atomic), so the worst case under a concurrent
-    /// fold is a one-frame-stale total — which the previous per-event re-sum could show
-    /// just the same.
-    /// </summary>
-    private readonly object _totalsLock = new();
-
-    /// <summary>
-    /// Total open pull requests across all known repos — the at-a-glance summary beside
-    /// the page title. Unloaded and non-GitHub repos contribute zero. Incrementally
-    /// updated when a repo's GitHub counts change (see <see
-    /// cref="OnRepoPropertyChanged"/>) and recomputed after a scan replaces the repo set
-    /// (see <see cref="RefreshHeaderTotals"/>).
-    /// </summary>
-    public int GitHubTotalPrCount => _totalPrCount;
-
-    /// <summary>Total open issues across all known repos. See <see cref="GitHubTotalPrCount"/>.</summary>
-    public int GitHubTotalIssueCount => _totalIssueCount;
+    /// <summary>Total uncommitted file changes across all known repos.</summary>
+    public int GitTotalModifiedCount => _totals.GitTotalModifiedCount;
 
     /// <summary>
     /// Whether the header summary shows at all: the GitHub column must be enabled and at
@@ -195,20 +92,6 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     public bool HasGitHubTotals => IsGitHubColumnVisible
         && (GitHubTotalPrCount > 0 || GitHubTotalIssueCount > 0);
-
-    partial void OnIsGitHubColumnVisibleChanged(bool value)
-    {
-        OnPropertyChanged(nameof(HasGitHubTotals));
-        OnPropertyChanged(nameof(HasHeaderStats));
-    }
-
-    /// <summary>
-    /// Total uncommitted file changes across all known repos — the red third of the
-    /// header stat row. Starts at zero and fills in as the background git status probes
-    /// push their counts onto the entities (see <see cref="AdjustTotal"/>, wired from
-    /// <see cref="OnRepoPropertyChanged"/>).
-    /// </summary>
-    public int GitTotalModifiedCount => _totalModifiedCount;
 
     /// <summary>
     /// Whether the changes stat shows: a red zero is pure noise, so unlike the GitHub
@@ -223,47 +106,15 @@ public partial class ReposViewModel : PageViewModelBase
     /// </summary>
     public bool HasHeaderStats => HasGitHubTotals || HasChangesTotal;
 
-    /// <summary>
-    /// Recomputes the running header totals from the current repo set in one pass and
-    /// re-seeds the per-repo contributions to match, then re-raises every header total.
-    /// Called after the repo set may have been replaced wholesale (initial load, rescan):
-    /// the fresh entities start at zero, so previously non-zero stats must drop without
-    /// any single entity carrying a change notification — and only a full recompute here
-    /// keeps the incremental folds correct across list membership changes.
-    /// </summary>
-    private void RefreshHeaderTotals()
+    partial void OnIsGitHubColumnVisibleChanged(bool value)
     {
-        lock (_totalsLock)
-        {
-            _prTotalContributions.Clear();
-            _issueTotalContributions.Clear();
-            _modifiedTotalContributions.Clear();
-
-            var pr = 0;
-            var issues = 0;
-            var modified = 0;
-            foreach (var repo in _repoService.Repos)
-            {
-                pr += repo.GitHubPrCount;
-                issues += repo.GitHubIssueCount;
-                modified += repo.GitModifiedCount;
-                _prTotalContributions[repo] = repo.GitHubPrCount;
-                _issueTotalContributions[repo] = repo.GitHubIssueCount;
-                _modifiedTotalContributions[repo] = repo.GitModifiedCount;
-            }
-
-            _totalPrCount = pr;
-            _totalIssueCount = issues;
-            _totalModifiedCount = modified;
-        }
-
-        OnPropertyChanged(nameof(GitHubTotalPrCount));
-        OnPropertyChanged(nameof(GitHubTotalIssueCount));
         OnPropertyChanged(nameof(HasGitHubTotals));
-        OnPropertyChanged(nameof(GitTotalModifiedCount));
-        OnPropertyChanged(nameof(HasChangesTotal));
         OnPropertyChanged(nameof(HasHeaderStats));
     }
+
+    /// <summary>Recomputes the running header totals from the current repo set — the
+    /// post-scan reseed that keeps the incremental folds drift-free.</summary>
+    private void RefreshHeaderTotals() => _totals.Recalculate(_repoService.Repos);
 
     // --- Azure DevOps column visibility ---
 
@@ -329,6 +180,50 @@ public partial class ReposViewModel : PageViewModelBase
         HasOpenCode = IsOpenCodeEnabled;
     }
 
+    // --- List projection forwarding surface ---
+    // The projection owns the filter/sort machinery; the page's XAML (and the window's
+    // header search, which reads/writes FilterText in code-behind) keeps binding THIS
+    // VM, so the surface forwards both values and change notifications.
+
+    /// <summary>The sort orders offered in the toolbar selector, in dropdown order.</summary>
+    public static IReadOnlyList<RepoSortOption> SortOptions => RepoListProjection.SortOptions;
+
+    public string FilterText
+    {
+        get => _list.FilterText;
+        set => _list.FilterText = value;
+    }
+
+    /// <summary>
+    /// The currently selected entry of the toolbar sort selector. Seeded from the
+    /// persisted <see cref="ReposSettings.SortMode"/> on page load; a user pick
+    /// re-orders the list immediately and persists the mode back to settings.
+    /// </summary>
+    public RepoSortOption SelectedSortOption
+    {
+        get => _list.SelectedSortOption;
+        set => _list.SelectedSortOption = value;
+    }
+
+    public ObservableCollection<Repo> FilteredRepos => _list.FilteredRepos;
+
+    public ObservableCollection<TagFilter> TagFilters => _list.TagFilters;
+
+    /// <summary>Whether the tracked-repo list is empty altogether — the empty-state
+    /// overlay's "no repositories yet" variant (vs "the filters hid everything").</summary>
+    public bool HasNoRepos => _list.HasNoRepos;
+
+    /// <summary>Whether a search term or checked tag filter is currently applied —
+    /// drives the empty-state overlay's "Clear filters" action.</summary>
+    public bool IsFilterActive => _list.IsFilterActive;
+
+    /// <summary>Whether the table has no rows at all (overlay visibility).</summary>
+    public bool ShowReposEmptyNote => _list.ShowReposEmptyNote;
+
+    public ICommand ClearTagFiltersCommand => _list.ClearTagFiltersCommand;
+
+    public ICommand TagFilterChangedCommand => _list.TagFilterChangedCommand;
+
     public ReposViewModel(
         ISettingsService settingsService,
         IDialogService dialogService,
@@ -356,6 +251,25 @@ public partial class ReposViewModel : PageViewModelBase
         _notificationService = notificationService;
         _bottomBar = bottomBar;
 
+        _list = new RepoListProjection(repoService);
+        _list.Rebuilt += RefreshHeaderTotals;
+        _list.SortModePicked += PersistSortMode;
+        _list.RepoPropertyObserved += (repo, e) => _totals.HandleRepoProperty(repo, e.PropertyName);
+        _list.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(FilteredRepos)
+                or nameof(TagFilters)
+                or nameof(FilterText)
+                or nameof(SelectedSortOption)
+                or nameof(HasNoRepos)
+                or nameof(IsFilterActive)
+                or nameof(ShowReposEmptyNote))
+            {
+                OnPropertyChanged(e.PropertyName);
+            }
+        };
+        _totals.PropertyChanged += (_, _) => RaiseTotalsDerived();
+
         _repoService.Changed += OnRepoChanged;
         _repoService.TagsChanged += OnRepoChanged;
 
@@ -363,6 +277,18 @@ public partial class ReposViewModel : PageViewModelBase
         // per-row button availability when they change there. Detached on navigate-from
         // (the bar is a singleton; this VM is transient).
         bottomBar.OpenCodeStateChanged += OnBottomBarOpenCodeStateChanged;
+    }
+
+    /// <summary>Re-raises the totals and the flags derived from them — the tracker
+    /// raises on its own surface, the page binds this one.</summary>
+    private void RaiseTotalsDerived()
+    {
+        OnPropertyChanged(nameof(GitHubTotalPrCount));
+        OnPropertyChanged(nameof(GitHubTotalIssueCount));
+        OnPropertyChanged(nameof(GitTotalModifiedCount));
+        OnPropertyChanged(nameof(HasGitHubTotals));
+        OnPropertyChanged(nameof(HasChangesTotal));
+        OnPropertyChanged(nameof(HasHeaderStats));
     }
 
     /// <summary>
@@ -392,14 +318,11 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService.TagsChanged -= OnRepoChanged;
         _bottomBar.OpenCodeStateChanged -= OnBottomBarOpenCodeStateChanged;
 
-        // Detach the live-re-sort listeners: the repos are singleton-cached and would
-        // otherwise keep this Transient VM alive across navigations.
-        DetachSortListeners();
-
-        // Cancel any deferred filter/changed callbacks so a pending debounce does not fire
-        // its UI-thread update after this VM is no longer the active page.
-        _filterDebounce.Dispose();
-        _changedDebounce.Dispose();
+        // Detach the projection's live-re-sort listeners, cancel its debounces and drop
+        // the header totals' per-repo contributions: the repos are singleton-cached and
+        // would otherwise keep this Transient VM alive across navigations.
+        _list.Detach();
+        _totals.ClearContributions();
         return Task.CompletedTask;
     }
 
@@ -426,13 +349,12 @@ public partial class ReposViewModel : PageViewModelBase
         }
         RefreshShortcutAvailability();
         await _repoService.EnsureLoadedAsync(_reposSettings);
-        RebuildTagFilters();
-        RefreshSortListeners();
-        // The repos are singleton-cached and may still carry GitHub counts / git changes
-        // from an earlier page visit — seed the header totals from them (fresh loads
-        // start at zero, where this raise is a harmless no-op for the UI).
+        // The rebuild also re-seeds the header totals via Rebuilt: the repos are
+        // singleton-cached and may still carry GitHub counts / git changes from an
+        // earlier page visit (fresh loads start at zero, where the raise is a harmless
+        // no-op for the UI).
+        _list.Rebuild();
         RefreshHeaderTotals();
-        ApplyFilter();
 
         // Kick the local git status checks in the background — the cards render instantly
         // with a "checking…" placeholder and the counts fill in as each repo's probe
@@ -475,141 +397,10 @@ public partial class ReposViewModel : PageViewModelBase
         //
         // A single scan raises Changed several times (start, after replacing the repos,
         // and in the finally block). Debounce so those collapse into one rebuild pass
-        // rather than tearing the list down and rebuilding it per event.
-        ScheduleChangedDebounce();
-    }
-
-    /// <summary>
-    /// Coalesces a burst of <see cref="IRepoService.Changed"/> raises into a single
-    /// tag-filter rebuild + in-place list sync on the UI thread.
-    /// </summary>
-    private void ScheduleChangedDebounce()
-    {
-        _changedDebounce.Debounce(() =>
-        {
-            RebuildTagFilters();
-            // A rescan can replace repo instances — re-wire the live-re-sort listeners
-            // to the fresh set before re-ordering, and drop the header totals the
-            // orphaned entities were carrying.
-            RefreshSortListeners();
-            RefreshHeaderTotals();
-            ApplyFilter();
-        });
-    }
-
-    partial void OnFilterTextChanged(string value) => ScheduleFilterDebounce();
-
-    /// <summary>
-    /// Coalesces a burst of keystrokes into a single in-place list sync so the cards are
-    /// not torn down and rebuilt per character.
-    /// </summary>
-    private void ScheduleFilterDebounce()
-    {
-        _filterDebounce.Debounce(ApplyFilter);
-    }
-
-    /// <summary>
-    /// Clears the search box and every tag checkbox (does not touch the tags on the
-    /// repos themselves).
-    /// </summary>
-    [RelayCommand]
-    private void ClearTagFilters()
-    {
-        FilterText = string.Empty;
-        foreach (var tag in TagFilters)
-            tag.IsChecked = false;
-        ApplyFilter();
-    }
-
-    /// <summary>
-    /// Called from the view when a tag checkbox is toggled, since TagFilter.IsChecked
-    /// changes do not flow through this VM's own property-change pipeline.
-    /// </summary>
-    [RelayCommand]
-    private void TagFilterChanged() => ApplyFilter();
-
-    /// <summary>
-    /// Reconciles the checkable tag list with <see cref="IRepoService.AllTags"/>: reuses
-    /// the existing <see cref="TagFilter"/> instance per tag name (its check state
-    /// survives untouched), removes only vanished tags and adds only new ones. Most
-    /// debounced scan raises find an unchanged tag set, where the merge is a no-op — the
-    /// tags ItemsControl then rebuilds nothing, where the previous wholesale rebuild
-    /// churned every checkbox per raise.
-    /// </summary>
-    private void RebuildTagFilters()
-    {
-        var tags = _repoService.AllTags
-            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // Common case: same names in the same (sorted) order — keep the existing
-        // instances and collection untouched.
-        if (TagFilters.Count == tags.Count)
-        {
-            var identical = true;
-            for (var i = 0; i < tags.Count; i++)
-            {
-                if (string.Equals(TagFilters[i].Name, tags[i], StringComparison.OrdinalIgnoreCase)) continue;
-                identical = false;
-                break;
-            }
-
-            if (identical) return;
-        }
-
-        var reusable = new Dictionary<string, TagFilter>(StringComparer.OrdinalIgnoreCase);
-        foreach (var filter in TagFilters)
-            reusable[filter.Name] = filter;
-
-        var membershipChanged = false;
-        var merged = new List<TagFilter>(tags.Count);
-        foreach (var name in tags)
-        {
-            if (reusable.Remove(name, out var filter))
-            {
-                merged.Add(filter);
-            }
-            else
-            {
-                merged.Add(new TagFilter(name));
-                membershipChanged = true; // a tag appeared
-            }
-        }
-
-        // Whatever was not merged back belongs to a tag that vanished.
-        membershipChanged |= reusable.Count > 0;
-
-        if (membershipChanged)
-        {
-            // The rare case (a rescan added/removed tags): replace the collection, with
-            // the surviving tags keeping their instances — and thus their check states —
-            // without re-setting them.
-            TagFilters = new ObservableCollection<TagFilter>(merged);
-            return;
-        }
-
-        // Same tags, different order (virtually never — both sides sort the same way):
-        // reorder the existing collection with Move notifications instead of replacing
-        // it, so the checkboxes keep their containers.
-        for (var i = 0; i < merged.Count; i++)
-        {
-            var target = merged[i];
-            if (ReferenceEquals(TagFilters[i], target)) continue;
-
-            for (var j = i; j < TagFilters.Count; j++)
-            {
-                if (!ReferenceEquals(TagFilters[j], target)) continue;
-                TagFilters.Move(j, i);
-                break;
-            }
-        }
-    }
-
-    partial void OnSelectedSortOptionChanged(RepoSortOption? value)
-    {
-        if (value is null) return;
-        ApplyFilter();
-        PersistSortMode(value.Mode);
+        // rather than tearing the list down and rebuilding it per event. The rebuild's
+        // Rebuilt raise re-seeds the header totals (a rescan can replace repo instances
+        // — the totals the orphaned entities were carrying must drop).
+        _list.ScheduleChangedRebuild();
     }
 
     /// <summary>
@@ -638,226 +429,6 @@ public partial class ReposViewModel : PageViewModelBase
             Log.Logger.Warning(ex, "Failed to persist the Repos page sort mode");
         }
     }
-
-    /// <summary>
-    /// Re-wires the live-re-sort listeners to the repos the service currently knows.
-    /// Idempotent per pass; called on page load and after every scan so replaced repo
-    /// instances don't leave the set holding (and keeping alive) stale ones.
-    /// </summary>
-    private void RefreshSortListeners()
-    {
-        foreach (var repo in _sortObservedRepos)
-            repo.PropertyChanged -= OnRepoPropertyChanged;
-        _sortObservedRepos.Clear();
-
-        foreach (var repo in _repoService.Repos)
-            _sortObservedRepos.Add(repo);
-
-        foreach (var repo in _sortObservedRepos)
-            repo.PropertyChanged += OnRepoPropertyChanged;
-    }
-
-    private void DetachSortListeners()
-    {
-        foreach (var repo in _sortObservedRepos)
-            repo.PropertyChanged -= OnRepoPropertyChanged;
-        _sortObservedRepos.Clear();
-
-        // Same hygiene for the header totals: drop the per-repo contributions so the
-        // detached repos are not referenced from here anymore.
-        lock (_totalsLock)
-        {
-            _prTotalContributions.Clear();
-            _issueTotalContributions.Clear();
-            _modifiedTotalContributions.Clear();
-        }
-    }
-
-    private void OnRepoPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        // Only the properties the sort keys read can change the ordering; ignoring the
-        // rest (branch name, Azure counts, …) keeps a full probe pass from re-sorting for
-        // nothing. Reuses the filter debounce so a burst of probe completions collapses
-        // into one re-order.
-        if (e.PropertyName is nameof(Repo.GitLastCommitAt)
-            or nameof(Repo.GitModifiedCount)
-            or nameof(Repo.GitToPushCount)
-            or nameof(Repo.GitToPullCount))
-        {
-            ScheduleFilterDebounce();
-        }
-
-        if (sender is not Repo repo)
-        {
-            return;
-        }
-
-        // The GitHub / git probes push their counts from background continuations; the
-        // header totals are running sums, so each count change folds its delta in
-        // (subtract this repo's previous contribution, add the new value) and raises the
-        // same notifications per count kind as before. (Avalonia marshals the binding
-        // updates onto the UI thread, same as the per-row chips.)
-        if (e.PropertyName is nameof(Repo.GitHubPrCount))
-        {
-            AdjustTotal(_prTotalContributions, repo, repo.GitHubPrCount, ref _totalPrCount);
-            OnPropertyChanged(nameof(GitHubTotalPrCount));
-            OnPropertyChanged(nameof(HasGitHubTotals));
-            OnPropertyChanged(nameof(HasHeaderStats));
-        }
-        else if (e.PropertyName is nameof(Repo.GitHubIssueCount))
-        {
-            AdjustTotal(_issueTotalContributions, repo, repo.GitHubIssueCount, ref _totalIssueCount);
-            OnPropertyChanged(nameof(GitHubTotalIssueCount));
-            OnPropertyChanged(nameof(HasGitHubTotals));
-            OnPropertyChanged(nameof(HasHeaderStats));
-        }
-        else if (e.PropertyName is nameof(Repo.GitModifiedCount))
-        {
-            AdjustTotal(_modifiedTotalContributions, repo, repo.GitModifiedCount, ref _totalModifiedCount);
-            OnPropertyChanged(nameof(GitTotalModifiedCount));
-            OnPropertyChanged(nameof(HasChangesTotal));
-            OnPropertyChanged(nameof(HasHeaderStats));
-        }
-    }
-
-    /// <summary>
-    /// Folds one repo's new count into a running header total: subtracts the repo's
-    /// previous contribution (zero when never seen — a change arriving before the totals
-    /// were seeded contributes its current value only) and adds the new value. The next
-    /// <see cref="RefreshHeaderTotals"/> recomputes everything from the repo set, so no
-    /// drift survives a rebuild.
-    /// </summary>
-    private void AdjustTotal(Dictionary<Repo, int> contributions, Repo repo, int value, ref int total)
-    {
-        lock (_totalsLock)
-        {
-            contributions.TryGetValue(repo, out var previous);
-            total += value - previous;
-            contributions[repo] = value;
-        }
-    }
-
-    /// <summary>
-    /// Orders the filtered repos: favorites always float to the top (the star is a pin,
-    /// in every mode), then the selected sort mode orders the rest, with the name as the
-    /// stable tiebreaker. <see cref="Repo.GitLastCommitAt"/> nulls (not yet probed or no
-    /// commits) sort last because DateTimeOffset? ascending puts null smallest and the
-    /// ordering is descending.
-    /// </summary>
-    private IOrderedEnumerable<Repo> SortRepos(IEnumerable<Repo> repos)
-    {
-        // Repo.IsFavorite walks the Tags collection with .Any per read, and a comparison
-        // sort evaluates its primary key O(n log n) times — snapshot the flag once per
-        // repo before sorting and capture the snapshot in the comparator. One tag walk
-        // per repo, identical ordering (bool descending, stable, as before).
-        var snapshot = repos.ToList();
-        var favoriteFlags = new Dictionary<Repo, bool>(snapshot.Count);
-        foreach (var repo in snapshot)
-            favoriteFlags[repo] = repo.IsFavorite;
-
-        var favoritesFirst = snapshot.OrderByDescending(r => favoriteFlags[r]);
-        return SelectedSortOption.Mode switch
-        {
-            RepoSortMode.LastActivity => favoritesFirst
-                .ThenByDescending(r => r.GitLastCommitAt)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
-            RepoSortMode.Changes => favoritesFirst
-                .ThenByDescending(r => r.GitModifiedCount + r.GitToPushCount + r.GitToPullCount)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
-            RepoSortMode.PullRequests => favoritesFirst
-                .ThenByDescending(r => r.GitHubPrCount)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
-            RepoSortMode.Issues => favoritesFirst
-                .ThenByDescending(r => r.GitHubIssueCount)
-                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
-            _ => favoritesFirst.ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
-        };
-    }
-
-    private void ApplyFilter()
-    {
-        var filter = FilterText?.Trim();
-        var repos = _repoService.Repos;
-        var checkedTags = TagFilters
-            .Where(t => t.IsChecked)
-            .Select(t => t.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        // Empty-state overlays: "no repositories yet" vs "no matches" need to know
-        // whether the tracked set itself is empty and whether a filter is applied.
-        var noRepos = repos.Count == 0;
-        if (HasNoRepos != noRepos)
-        {
-            HasNoRepos = noRepos;
-        }
-
-        var filterActive = checkedTags.Count > 0 || !string.IsNullOrWhiteSpace(filter);
-        if (IsFilterActive != filterActive)
-        {
-            IsFilterActive = filterActive;
-        }
-
-        IEnumerable<Repo> result = repos;
-        if (checkedTags.Count > 0)
-        {
-            // OR: a repo passes if it has ANY of the checked tags.
-            result = result.Where(r => r.Tags.Any(t => checkedTags.Contains(t.Name)));
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter))
-        {
-            result = result.Where(r =>
-                r.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true
-                || r.FolderPath?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true
-                || r.SolutionPath?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true);
-        }
-
-        // Favorites always float to the top, then the selected sort mode (see SortRepos).
-        var ordered = SortRepos(result).ToList();
-
-        // Skip the sync when the projection is unchanged (e.g. adding a tag while no tag
-        // filter is checked, or a search term that matches the same set): Clear/Add would
-        // churn every recycled container and re-render the list for nothing. Same-count
-        // lists are compared by reference — repos are shared instances, and Repo has no
-        // value-equality that would catch a name/path edit anyway.
-        if (ordered.Count == FilteredRepos.Count)
-        {
-            var unchanged = true;
-            for (var i = 0; i < ordered.Count; i++)
-            {
-                if (ReferenceEquals(ordered[i], FilteredRepos[i])) continue;
-                unchanged = false;
-                break;
-            }
-
-            if (unchanged) return;
-        }
-
-        // Sync the existing collection in place rather than replacing it. Reassigning a new
-        // instance here would force every card container to be torn down and rebuilt (and
-        // with a non-virtualizing panel, re-realized up front). Clear/Add flow through
-        // CollectionChanged so the virtualized ListBox only recycles affected containers, and
-        // the count binding ({Binding FilteredRepos.Count}) updates from those same notifications.
-        FilteredRepos.Clear();
-        foreach (var repo in ordered)
-            FilteredRepos.Add(repo);
-
-        OnPropertyChanged(nameof(ShowReposEmptyNote));
-    }
-
-    /// <summary>Whether the tracked-repo list is empty altogether — the empty-state
-    /// overlay's "no repositories yet" variant (vs "the filters hid everything").</summary>
-    [ObservableProperty]
-    private bool _hasNoRepos;
-
-    /// <summary>Whether a search term or checked tag filter is currently applied —
-    /// drives the empty-state overlay's "Clear filters" action.</summary>
-    [ObservableProperty]
-    private bool _isFilterActive;
-
-    /// <summary>Whether the table has no rows at all (overlay visibility); raised by
-    /// <see cref="ApplyFilter"/> after the projection sync.</summary>
-    public bool ShowReposEmptyNote => FilteredRepos.Count == 0;
 
     // --- Launch commands ---
     // A double-click on a launch button would spawn two terminals/editors; a click on
@@ -1074,11 +645,8 @@ public partial class ReposViewModel : PageViewModelBase
             // its idle window would otherwise land the rebuilt list up to 100ms after
             // the busy state cleared, reading as data still trickling in. Cancel drops
             // the pending callback; the rebuild below is exactly what it would have run.
-            _changedDebounce.Cancel();
-            RebuildTagFilters();
-            RefreshSortListeners();
-            RefreshHeaderTotals();
-            ApplyFilter();
+            _list.CancelPendingRebuild();
+            _list.Rebuild(); // its Rebuilt raise re-seeds the header totals too
         }
         catch (Exception ex)
         {
@@ -1161,41 +729,9 @@ public partial class ReposViewModel : PageViewModelBase
                 return;
             }
 
-            // Both edited sections land in ONE save — the dialog returned a composite
-            // so this pre-dialog snapshot can't clobber either section. The OpenCode
-            // edit surface is the two model fields only: merge them into the existing
-            // section instead of replacing it, so flags the dialog doesn't show (e.g.
-            // EnableOpenCode) keep their stored values. Same merge discipline for the
-            // NuGet enable flag.
-            settings.Repos = edited.Repos;
-            settings.OpenCode ??= new OpenCodeSettings();
-            settings.OpenCode.DefaultModel = edited.OpenCode.DefaultModel;
-            settings.OpenCode.CommitModel = edited.OpenCode.CommitModel;
-            settings.NugetLocal ??= new NugetLocalSettings();
-            settings.NugetLocal.EnableNuget = edited.EnableNuget;
-            // The settings dialog doesn't touch the sort mode, but it may hand back a
-            // fresh instance — carry the live selection so the save doesn't revert it.
-            edited.Repos.SortMode = SelectedSortOption.Mode;
-            await _settingsService.SaveSettingsAsync(settings);
-
-            _reposSettings = edited.Repos;
-            IsGitHubColumnVisible = edited.Repos.EnableGitHub;
-            IsAzureDevOpsColumnVisible = edited.Repos.EnableAzureDevOps;
-            foreach (var activityService in _activityServices)
-            {
-                activityService.Configure(edited.Repos);
-            }
-            RefreshShortcutAvailability();
-            // The bottom bar's tab visibility (GitHub/Azure) follows the same save, and
-            // its OpenCode snapshot (default/commit model for the wand) is refreshed so
-            // the next quick-launch/wand run sees the new models without a restart.
-            _bottomBar.ApplySettings(edited.Repos);
-            _bottomBar.RefreshOpenCodeSnapshot(edited.OpenCode);
-            // The NuGet service re-reads the enable flag (stopping a running watch when
-            // disabled) and raises StateChanged, which flips the title-bar chip and the
-            // tools-menu entry live.
-            await _nugetLocalService.RefreshFromSettingsAsync();
-            await _repoService.RefreshAsync(_reposSettings);
+            await SaveEditedSettingsAsync(settings, edited);
+            ApplySavedSettings(edited);
+            await RefreshAfterSettingsSaveAsync();
             _notificationService.Show("Settings saved", NotificationKind.Success);
         }
         catch (Exception ex)
@@ -1203,5 +739,55 @@ public partial class ReposViewModel : PageViewModelBase
             Log.Logger.Error(ex, "Error opening repo settings");
             _notificationService.Show("Failed to save settings", NotificationKind.Error);
         }
+    }
+
+    /// <summary>
+    /// Lands both edited sections in ONE save — the dialog returned a composite so the
+    /// pre-dialog snapshot can't clobber either section. The OpenCode edit surface is
+    /// the two model fields only: they are merged into the existing section instead of
+    /// replacing it, so flags the dialog doesn't show (e.g. EnableOpenCode) keep their
+    /// stored values. Same merge discipline for the NuGet enable flag. The settings
+    /// dialog doesn't touch the sort mode, but it may hand back a fresh instance — the
+    /// live selection is carried over so the save doesn't revert it.
+    /// </summary>
+    private async Task SaveEditedSettingsAsync(AppSettings settings, ReposSettingsEditResult edited)
+    {
+        settings.Repos = edited.Repos;
+        settings.OpenCode ??= new OpenCodeSettings();
+        settings.OpenCode.DefaultModel = edited.OpenCode.DefaultModel;
+        settings.OpenCode.CommitModel = edited.OpenCode.CommitModel;
+        settings.NugetLocal ??= new NugetLocalSettings();
+        settings.NugetLocal.EnableNuget = edited.EnableNuget;
+        edited.Repos.SortMode = SelectedSortOption.Mode;
+        await _settingsService.SaveSettingsAsync(settings);
+    }
+
+    /// <summary>Points the page (and every service keyed off the same settings) at the
+    /// saved sections: column flags, activity services, launch shortcuts, the bottom
+    /// bar's tab visibility and OpenCode snapshot.</summary>
+    private void ApplySavedSettings(ReposSettingsEditResult edited)
+    {
+        _reposSettings = edited.Repos;
+        IsGitHubColumnVisible = edited.Repos.EnableGitHub;
+        IsAzureDevOpsColumnVisible = edited.Repos.EnableAzureDevOps;
+        foreach (var activityService in _activityServices)
+        {
+            activityService.Configure(edited.Repos);
+        }
+        RefreshShortcutAvailability();
+        // The bottom bar's tab visibility (GitHub/Azure) follows the same save, and
+        // its OpenCode snapshot (default/commit model for the wand) is refreshed so
+        // the next quick-launch/wand run sees the new models without a restart.
+        _bottomBar.ApplySettings(edited.Repos);
+        _bottomBar.RefreshOpenCodeSnapshot(edited.OpenCode);
+    }
+
+    /// <summary>The NuGet service re-reads the enable flag (stopping a running watch
+    /// when disabled) and raises StateChanged, which flips the title-bar chip and the
+    /// tools-menu entry live; the rescan pulls any newly added repositories in.</summary>
+    private async Task RefreshAfterSettingsSaveAsync()
+    {
+        await _nugetLocalService.RefreshFromSettingsAsync();
+        await _repoService.RefreshAsync(_reposSettings);
     }
 }
