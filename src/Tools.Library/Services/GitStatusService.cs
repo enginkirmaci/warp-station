@@ -18,7 +18,9 @@ namespace Tools.Library.Services;
 /// A follow-up <c>git log -1 --format=%cI</c> picks up the last commit date for the
 /// Last Activity column. Results are pushed onto the <see cref="Repo"/> entities from
 /// background threads — CommunityToolkit raises <c>PropertyChanged</c> and the bound
-/// cards update without the page VM being involved.
+/// cards update without the page VM being involved. A full pass probes every repo
+/// first and applies the snapshots in one burst afterwards, so the list takes a
+/// single update instead of a per-repo trickle.
 /// <para>
 /// The process mechanics live in <see cref="GitCommandRunner"/> and the output parsing
 /// in <see cref="GitOutputParser"/>; this class owns the orchestration — the coalesced
@@ -78,15 +80,26 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <summary>
-    /// One throttled refresh pass over every known repo. Per-repo failures never break
-    /// the pass: <see cref="RefreshRepoAsync"/> settles a failing repo to its zeroed
-    /// state, and anything still escaping is logged and swallowed here.
+    /// One throttled refresh pass over every known repo. Probes run concurrently and
+    /// only collect snapshots — once every probe has settled, the batch is applied in
+    /// one synchronous burst so the bound cards take a single update instead of a
+    /// per-repo trickle. Per-repo failures never break the pass: a failing probe
+    /// settles as zeroed, and anything still escaping is logged and swallowed here.
     /// </summary>
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await _coalescer.RunThrottledPassAsync(MaxParallelism, RefreshRepoAsync, cancellationToken);
+            var probes = new ConcurrentBag<RepoStatusProbe>();
+            await _coalescer.RunThrottledPassAsync(
+                MaxParallelism,
+                async (repo, token) => probes.Add(await ProbeRepoAsync(repo, token)),
+                cancellationToken);
+
+            foreach (var probe in probes)
+            {
+                ApplyProbe(probe);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -94,12 +107,17 @@ public sealed class GitStatusService : IGitStatusService
         }
     }
 
-    /// <summary>
-    /// Probes one repo and pushes the parsed result onto its entity. Any failure
-    /// (missing repo, git error, timeout) still marks the repo loaded with zeroed
-    /// counts so the card shows zeros instead of spinning "checking…" forever.
-    /// </summary>
+    /// <inheritdoc/>
     public async Task RefreshRepoAsync(Repo repo, CancellationToken cancellationToken)
+        => ApplyProbe(await ProbeRepoAsync(repo, cancellationToken));
+
+    /// <summary>
+    /// Fetches one repo's status without touching its entity: the status porcelain
+    /// parse, the last-commit date and the FETCH_HEAD seed all land in the returned
+    /// snapshot; <see cref="ApplyProbe"/> does the writing. A canceled token escapes —
+    /// the caller's batch is then discarded whole rather than half-applied.
+    /// </summary>
+    private async Task<RepoStatusProbe> ProbeRepoAsync(Repo repo, CancellationToken cancellationToken)
     {
         try
         {
@@ -109,10 +127,6 @@ public sealed class GitStatusService : IGitStatusService
                 cancellationToken);
 
             var status = GitOutputParser.ParsePorcelain(output);
-            repo.GitBranchName = status.BranchName;
-            repo.GitModifiedCount = status.ModifiedCount;
-            repo.GitToPushCount = status.AheadCount;
-            repo.GitToPullCount = status.BehindCount;
 
             // Second, cheap local probe for the Last Activity column. Kept separate from
             // the status call so a malformed date can never blank the status fields.
@@ -121,24 +135,40 @@ public sealed class GitStatusService : IGitStatusService
                 repo.FolderPath!,
                 "--no-optional-locks log -1 --format=%cI",
                 cancellationToken);
-            repo.GitLastCommitAt = DateTimeOffset.TryParse(
-                commitDate?.TrimEnd('\r', '\n'), out var at) ? at : null;
 
-            SeedLastFetchTime(repo);
+            return new RepoStatusProbe(
+                repo,
+                status.BranchName,
+                status.ModifiedCount,
+                status.AheadCount,
+                status.BehindCount,
+                DateTimeOffset.TryParse(commitDate?.TrimEnd('\r', '\n'), out var at) ? at : null,
+                ReadLastFetchSeed(repo));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Logger.Debug(ex, "Git status failed for {FolderPath}", repo.FolderPath);
-            repo.GitBranchName = null;
-            repo.GitModifiedCount = 0;
-            repo.GitToPushCount = 0;
-            repo.GitToPullCount = 0;
-            repo.GitLastCommitAt = null;
+            return new RepoStatusProbe(repo, null, 0, 0, 0, null, null);
         }
-        finally
+    }
+
+    /// <summary>
+    /// Pushes a probe's snapshot onto its entity. Batched passes run this once per repo
+    /// only after every probe has settled, so the whole list updates in one go.
+    /// </summary>
+    private void ApplyProbe(RepoStatusProbe probe)
+    {
+        var repo = probe.Repo;
+        repo.GitBranchName = probe.BranchName;
+        repo.GitModifiedCount = probe.ModifiedCount;
+        repo.GitToPushCount = probe.AheadCount;
+        repo.GitToPullCount = probe.BehindCount;
+        repo.GitLastCommitAt = probe.LastCommitAt;
+        if (probe.LastFetchAt is { } fetchAt && repo.GitLastFetchAt is null)
         {
-            repo.GitStatusLoaded = true;
+            repo.GitLastFetchAt = fetchAt;
         }
+        repo.GitStatusLoaded = true;
     }
 
     /// <inheritdoc/>
@@ -522,25 +552,24 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <summary>
-    /// Seeds <see cref="Repo.GitLastFetchAt"/> from <c>.git/FETCH_HEAD</c>'s last write
-    /// time when the app has not fetched itself yet — a repo fetched outside the app
-    /// still reports an honest age instead of "never".
+    /// Reads <c>.git/FETCH_HEAD</c>'s last write time as the seed candidate for
+    /// <see cref="Repo.GitLastFetchAt"/> — a repo fetched outside the app still reports
+    /// an honest age instead of "never". Null when unreadable; the entity write (and
+    /// the only-if-unset guard) happens in <see cref="ApplyProbe"/>.
     /// </summary>
-    private static void SeedLastFetchTime(Repo repo)
+    private static DateTimeOffset? ReadLastFetchSeed(Repo repo)
     {
-        if (repo.GitLastFetchAt is not null || repo.FolderPath is null) return;
+        if (repo.FolderPath is null) return null;
 
         try
         {
             var fetchHead = Path.Combine(repo.FolderPath, ".git", "FETCH_HEAD");
-            if (File.Exists(fetchHead))
-            {
-                repo.GitLastFetchAt = File.GetLastWriteTimeUtc(fetchHead);
-            }
+            return File.Exists(fetchHead) ? File.GetLastWriteTimeUtc(fetchHead) : null;
         }
         catch
         {
             // A missing/locked FETCH_HEAD just leaves the timestamp unset.
+            return null;
         }
     }
 
@@ -583,4 +612,19 @@ public sealed class GitStatusService : IGitStatusService
 
         return ok;
     }
+
+    /// <summary>
+    /// One repo's parsed status, captured during probing and applied to the entity
+    /// afterwards — a batched pass collects these for every repo first, then applies
+    /// them all in one burst so the UI takes a single update. A failed probe carries
+    /// zeroed values, which <see cref="ApplyProbe"/> settles the card to.
+    /// </summary>
+    private sealed record RepoStatusProbe(
+        Repo Repo,
+        string? BranchName,
+        int ModifiedCount,
+        int AheadCount,
+        int BehindCount,
+        DateTimeOffset? LastCommitAt,
+        DateTimeOffset? LastFetchAt);
 }

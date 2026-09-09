@@ -4,6 +4,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:entities="using:Tools.Library.Entities"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
@@ -16,7 +17,8 @@
     <!--
             Repo detail header (per the mockup): one top row with the favorite star,
             the repo name and the "• folder path" link (opens the folder), the actions
-            (kebab, X) right-aligned on the same line, then the tab row. The GitHub
+            (kebab, X) right-aligned on the same line, then the tag chip row (every
+            tag, removable, plus the add-tag flyout), then the tab row. The GitHub
             link lives in the kebab menu only. Lives INSIDE the bottom bar's
             expandable panel, above the active tab's content; the tabs drive that
             panel. The X button (far right) closes the whole bar until another row is
@@ -66,6 +68,21 @@
         <Style Selector="TextBlock.tab-badge">
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+        </Style>
+        <!--  Tag chip's remove ×: transparent icon button, muted glyph that brightens
+              on hover. Base values live here — a local Background would beat them.  -->
+        <Style Selector="Button.tag-remove">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.tag-remove Path">
+            <Setter Property="Fill" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.tag-remove:pointerover Path">
+            <Setter Property="Fill" Value="{DynamicResource TitleForegroundBrush}" />
         </Style>
     </UserControl.Styles>
 
@@ -203,6 +220,93 @@
                 </Button>
             </StackPanel>
         </Grid>
+
+        <!--  Tags row: every tag of the selected repo as a removable tint chip (the
+              × inside a chip removes it; colors come from TagChipBrushConverter /
+              ChipBrushes), plus the "Add tag" chip whose flyout takes the new name.
+              The chips bind the shell's SelectedRepoTags mirror — rebuilt on repo
+              switch and on the repo service's TagsChanged — and each × hands the
+              chip's RepoTag (which carries its owner) straight to the remove command.
+              A WrapPanel, so a long tag list wraps instead of clipping.  -->
+        <StackPanel
+            Margin="0,2,0,2"
+            Orientation="Horizontal"
+            IsVisible="{Binding HasSelectedRepo}">
+            <ItemsControl VerticalAlignment="Center" ItemsSource="{Binding SelectedRepoTags}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="entities:RepoTag">
+                        <Border
+                            Classes="tint-chip"
+                            Margin="0,2,6,2"
+                            Background="{Binding Name, Converter={StaticResource TagChipBrushConverter}, ConverterParameter=bg}"
+                            ToolTip.Tip="{Binding Name}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Foreground="{Binding Name, Converter={StaticResource TagChipBrushConverter}}"
+                                    Text="{Binding Name}" />
+                                <Button
+                                    Classes="tag-remove"
+                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).RemoveRepoTagCommand}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip.Tip="Remove tag">
+                                    <Path
+                                        Width="8"
+                                        Height="8"
+                                        Data="{tools:SvgPath icon-close}"
+                                        Stretch="Uniform" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button
+                x:Name="AddTagButton"
+                Classes="tint-chip"
+                VerticalAlignment="Center"
+                Background="{DynamicResource CardSubtleBackgroundBrush}"
+                Cursor="Hand"
+                ToolTip.Tip="Add a tag">
+                <StackPanel Orientation="Horizontal" Spacing="5">
+                    <Path
+                        Width="10"
+                        Height="10"
+                        VerticalAlignment="Center"
+                        Data="{tools:SvgPath icon-plus}"
+                        Fill="{DynamicResource MutedForegroundBrush}"
+                        Stretch="Uniform" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="12"
+                        Foreground="{DynamicResource MutedForegroundBrush}"
+                        Text="Add tag" />
+                </StackPanel>
+                <Button.Flyout>
+                    <Flyout Placement="BottomEdgeAlignedLeft" Opened="AddTagFlyout_OnOpened">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox
+                                x:Name="NewTagInput"
+                                Width="170"
+                                Watermark="New tag name"
+                                KeyDown="NewTagInput_OnKeyDown" />
+                            <Button
+                                x:Name="AddTagConfirmButton"
+                                Click="AddTagConfirm_OnClick"
+                                Content="Add"
+                                ToolTip.Tip="Add the tag to this repository" />
+                        </StackPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </StackPanel>
 
         <!--  Tabs: drive the bottom bar's panel; bottom margin keeps the active
               tab's underline off the tab content below.  -->

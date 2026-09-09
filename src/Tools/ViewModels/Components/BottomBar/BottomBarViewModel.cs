@@ -16,7 +16,7 @@ namespace Tools.ViewModels.Components.BottomBar;
 
 /// <summary>
 /// Binding adapter for the Repos page's bottom panels — the bar's SHELL. Owns the
-/// selected repo (the header, the tab badges and every panel target it), the tab
+/// selected repo (the header, the tag chips and every panel target it), the tab
 /// switching, the cross-panel aggregates (tab header totals, empty-state notes, the
 /// Overview card pipeline line) and the OpenCode integration snapshot; the per-tab
 /// state lives on the child view models it creates:
@@ -84,6 +84,10 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     private readonly UiPostOnce _reposRebuildPost = new();
 
+    /// <summary>Same coalescing for the tag-chip rebuild posted from
+    /// <see cref="IRepoService.TagsChanged"/> (tag edits and favorite toggles).</summary>
+    private readonly UiPostOnce _tagsRebuildPost = new();
+
     public BottomBarViewModel(
         ISettingsService settingsService,
         IRepoService repoService,
@@ -120,6 +124,7 @@ public partial class BottomBarViewModel : ObservableObject
         Azure.StateChanged += RaisePanelAggregates;
 
         _repoService.Changed += OnRepoServiceChanged;
+        _repoService.TagsChanged += OnRepoTagsChanged;
         _ = InitializeAsync();
     }
 
@@ -191,8 +196,10 @@ public partial class BottomBarViewModel : ObservableObject
                 _observedRepo.IsBarSelected = true;
             }
 
-            // Fresh repo: reload everything the open panel shows, plus the branch list.
+            // Fresh repo: reload everything the open panel shows, plus the branch list
+            // and the header's tag chips.
             _ = Changes.LoadBranchesAsync();
+            RebuildSelectedRepoTags();
             ReloadActiveTab();
         }
 
@@ -328,6 +335,64 @@ public partial class BottomBarViewModel : ObservableObject
         {
             _processLauncher.StartProcess(path);
         }
+    }
+
+    // --- Selected repo tags (the header's chip row: every tag, removable, plus add) ---
+
+    /// <summary>
+    /// The selected repo's tags, as the header's chip row binds them. A mirror rebuilt
+    /// from <see cref="Repo.Tags"/> on every selection change and on
+    /// <see cref="IRepoService.TagsChanged"/> (posted to the UI thread — the service
+    /// raises it from background scans too), so the row also follows tag edits made
+    /// elsewhere and the XAML never binds a nullable collection path.
+    /// </summary>
+    public ObservableCollection<RepoTag> SelectedRepoTags { get; } = new();
+
+    private void OnRepoTagsChanged(object? sender, EventArgs e)
+        => _tagsRebuildPost.Post(RebuildSelectedRepoTags);
+
+    /// <summary>Rebuilds the chip mirror from the selected repo's tags; selection
+    /// switches call this directly, tag edits arrive through the posted path.</summary>
+    private void RebuildSelectedRepoTags()
+    {
+        SelectedRepoTags.Clear();
+        if (SelectedRepo is { } repo)
+        {
+            foreach (var tag in repo.Tags)
+            {
+                SelectedRepoTags.Add(tag);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds a tag to the selected repo (the header's add-tag flyout). Empty/whitespace
+    /// is a no-op; a case-insensitive duplicate toasts a warning instead of vanishing
+    /// into <see cref="Repo.AddTag"/>'s silent dedupe. Returns true when the tag landed.
+    /// </summary>
+    public async Task<bool> AddRepoTagAsync(string? name)
+    {
+        if (SelectedRepo is not { } repo) return false;
+        var trimmed = name?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return false;
+        if (repo.Tags.Any(t => string.Equals(t.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            _notificationService.Show($"Tag \"{trimmed}\" already exists", NotificationKind.Warning);
+            return false;
+        }
+
+        await _repoService.AddTagAsync(repo, trimmed);
+        return true;
+    }
+
+    /// <summary>Removes the chip's tag from its repo (the chip's ×). The
+    /// <see cref="RepoTag"/> carries its owner, so a single parameter is enough.</summary>
+    [RelayCommand]
+    private async Task RemoveRepoTag(RepoTag? tag)
+    {
+        if (tag is null) return;
+        if (tag.Repo is not { } repo) return;
+        await _repoService.RemoveTagAsync(repo, tag.Name);
     }
 
     /// <summary>
