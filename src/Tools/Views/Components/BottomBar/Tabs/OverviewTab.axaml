@@ -10,6 +10,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:entities="using:Tools.Library.Entities"
+    xmlns:lib="using:Tools.Library.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
@@ -450,12 +451,54 @@
                                           because the button's content presenter hugs
                                           (SukiUI) and TextTrimming never fires under
                                           infinite measure.  -->
-                                    <TextBlock
+                                    <!--  Tail-trim like the repos table's branch
+                                          pills (the tail tells owner/repo apart);
+                                          TailTrimmingTextBlock is a TextBlock
+                                          subclass, so the TextBlock.detail-value
+                                          class style never matches it — set the
+                                          foreground directly.  -->
+                                    <lib:TailTrimmingTextBlock
                                         MaxWidth="{StaticResource GitHubUrlMaxWidth}"
                                         VerticalAlignment="Center"
-                                        Classes="detail-value"
-                                        Text="{Binding SelectedRepoGitHubDisplayUrl}"
-                                        TextTrimming="CharacterEllipsis" />
+                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                        FullText="{Binding SelectedRepoGitHubDisplayUrl}" />
+                                    <Path
+                                        Width="12"
+                                        Height="12"
+                                        VerticalAlignment="Center"
+                                        Data="{tools:SvgPath icon-open-in-new}"
+                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                        Stretch="Uniform" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <!--
+                            Folder row: the repo's local path, moved here from the
+                            header's name row. Clickable to open the file manager,
+                            like the GitHub row; also outside the details gate —
+                            the path exists with or without gh data.
+                        -->
+                        <Grid
+                            ColumnDefinitions="110,*"
+                            ColumnSpacing="10"
+                            IsVisible="{Binding HasSelectedRepo}">
+                            <TextBlock Classes="detail-key" Text="Folder" />
+                            <Button
+                                Grid.Column="1"
+                                Classes="detail-link"
+                                Command="{Binding OpenRepoFolderCommand}"
+                                HorizontalAlignment="Left"
+                                ToolTip.Tip="Open the repository folder">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <!--  Same tail-trim: a truncated folder path
+                                          keeps its repo-name end; the full path
+                                          stays on the tooltip.  -->
+                                    <lib:TailTrimmingTextBlock
+                                        MaxWidth="{StaticResource GitHubUrlMaxWidth}"
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                        FullText="{Binding SelectedRepoFolderPath}"
+                                        ToolTip.Tip="{Binding SelectedRepoFolderPath, TargetNullValue=''}" />
                                     <Path
                                         Width="12"
                                         Height="12"

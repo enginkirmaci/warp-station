@@ -36,11 +36,12 @@ public interface IGitStatusService
     Task RefreshRepoAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lists the repo's local branches (<c>git branch</c>), current branch included but
-    /// not specially marked — the caller already knows it from <see cref="Repo.GitBranchName"/>.
+    /// Lists the repo's branches (<c>git branch -a</c>): local branches first, then the
+    /// remote-tracking branches as of the last fetch. Current branch included but not
+    /// specially marked — the caller already knows it from <see cref="Repo.GitBranchName"/>.
     /// Returns an empty list on any failure.
     /// </summary>
-    Task<IReadOnlyList<string>> GetBranchesAsync(Repo repo, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GitBranchRef>> GetBranchesAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Checks out a local branch (<c>git checkout &lt;branch&gt;</c>) and refreshes the

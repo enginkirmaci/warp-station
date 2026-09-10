@@ -22,6 +22,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:entities="using:Tools.Library.Entities"
+    xmlns:lib="using:Tools.Library.Services"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
@@ -193,45 +194,45 @@
                                     Spacing="2"
                                     IsVisible="{Binding #ChangeRow.IsPointerOver}">
                                     <Button
-                                        Width="24"
-                                        Height="24"
+                                        Width="20"
+                                        Height="20"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).DiscardFileCommand}"
                                         CommandParameter="{Binding}"
                                         ToolTip.Tip="Discard this change — no undo">
                                         <Path
-                                            Width="14"
-                                            Height="14"
+                                            Width="18"
+                                            Height="18"
                                             Data="{tools:SvgPath icon-undo}"
                                             Fill="{DynamicResource MutedForegroundBrush}"
                                             Stretch="Uniform" />
                                     </Button>
                                     <Button
-                                        Width="24"
-                                        Height="24"
+                                        Width="20"
+                                        Height="20"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageFileCommand}"
                                         CommandParameter="{Binding}"
                                         IsVisible="{Binding !IsStaged}"
                                         ToolTip.Tip="Stage this file">
                                         <Path
-                                            Width="14"
-                                            Height="14"
+                                            Width="18"
+                                            Height="18"
                                             Data="{tools:SvgPath icon-plus}"
                                             Fill="{DynamicResource MutedForegroundBrush}"
                                             Stretch="Uniform" />
                                     </Button>
                                     <Button
-                                        Width="24"
-                                        Height="24"
+                                        Width="20"
+                                        Height="20"
                                         Classes="icon row-action"
                                         Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageFileCommand}"
                                         CommandParameter="{Binding}"
                                         IsVisible="{Binding IsStaged}"
                                         ToolTip.Tip="Unstage this file — the working tree keeps the change">
                                         <Path
-                                            Width="14"
-                                            Height="14"
+                                            Width="18"
+                                            Height="18"
                                             Data="{tools:SvgPath icon-minus}"
                                             Fill="{DynamicResource MutedForegroundBrush}"
                                             Stretch="Uniform" />
@@ -386,8 +387,10 @@
                               right. Its FIRST entry is "New branch…" (an
                               action, not a branch — picking it opens the
                               new-branch drawer); picking a branch checks it
-                              out. The popup grows with its widest entry under
-                              the cap, so full names show there.  -->
+                              out, a remote pick checking out its local
+                              tracking equivalent. The popup grows with its
+                              widest entry under the cap, so full names show
+                              there.  -->
                         <ComboBox
                             x:Name="BranchPicker"
                             Margin="12,12,12,0"
@@ -404,11 +407,16 @@
                                 </Style>
                             </ComboBox.Styles>
                             <!--
-                                The menu mixes two item types (the New branch sentinel
-                                and branch-name strings); one ItemTemplate hosting a
-                                ContentControl lets the typed inner templates pick the
-                                row shape — keeping a single ItemTemplate means no
-                                dependence on how the theme resolves DataTemplates.
+                                The menu mixes item types (the New branch sentinel and
+                                GitBranchRef rows: local branches, the "Remote" group
+                                label, remote-tracking branches); one ItemTemplate
+                                hosting a ContentControl lets the typed inner
+                                templates pick the row shape — keeping a single
+                                ItemTemplate means no dependence on how the theme
+                                resolves DataTemplates. The Remote label stays
+                                selectable-but-inert: picking it snaps the selection
+                                back in the view model (a container IsEnabled binding
+                                can't type-check across the sentinel and branch rows).
                             -->
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="x:Object">
@@ -427,26 +435,41 @@
                                                         Text="New branch…" />
                                                 </StackPanel>
                                             </DataTemplate>
-                                            <DataTemplate x:DataType="x:String">
+                                            <DataTemplate x:DataType="lib:GitBranchRef">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <Path
                                                         Width="12"
                                                         Height="12"
                                                         Data="{tools:SvgPath icon-source-branch}"
                                                         Fill="{DynamicResource MutedForegroundBrush}"
-                                                        Stretch="Uniform" />
+                                                        Stretch="Uniform"
+                                                        IsVisible="{Binding IsLocal}" />
+                                                    <Path
+                                                        Width="12"
+                                                        Height="12"
+                                                        Data="{tools:SvgPath icon-cloud-download}"
+                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                        Stretch="Uniform"
+                                                        IsVisible="{Binding IsRemote}" />
                                                     <!--
                                                         Explicit foreground: SukiUI brightens only TextBlocks that
                                                         are the ComboBoxItem's DIRECT content; inside this
                                                         StackPanel the inherited popup color is too dim. The
                                                         ellipsis bites only under the caps (the closed box's
                                                         width, the item's) — the popup sizes to the widest
-                                                        entry otherwise, so entries never trim in it.
+                                                        entry otherwise, so entries never trim in it. The
+                                                        group label renders muted and small, no icon.
                                                     -->
                                                     <TextBlock
                                                         Foreground="{DynamicResource BodyForegroundBrush}"
-                                                        Text="{Binding}"
-                                                        TextTrimming="CharacterEllipsis" />
+                                                        Text="{Binding Name}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        IsVisible="{Binding !IsHeader}" />
+                                                    <TextBlock
+                                                        Foreground="{DynamicResource MutedForegroundBrush}"
+                                                        FontSize="12"
+                                                        Text="{Binding Name}"
+                                                        IsVisible="{Binding IsHeader}" />
                                                 </StackPanel>
                                             </DataTemplate>
                                         </ContentControl.DataTemplates>

@@ -172,16 +172,25 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<string>> GetBranchesAsync(Repo repo, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<GitBranchRef>> GetBranchesAsync(Repo repo, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitBranchRef>();
 
-        var output = await RunGitAsync(repo.FolderPath, "branch --format=%(refname:short)", cancellationToken);
-        if (string.IsNullOrEmpty(output)) return Array.Empty<string>();
+        // git emits local branches first, then remote-tracking ones; %(refname) keeps the
+        // refs/ namespace so locals and remotes can be told apart (a local branch may
+        // itself contain slashes).
+        var output = await RunGitAsync(repo.FolderPath, "branch -a --format=%(refname)", cancellationToken);
+        if (string.IsNullOrEmpty(output)) return Array.Empty<GitBranchRef>();
 
         return output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(b => b.Length > 0)
+            .Select(r => r.StartsWith("refs/heads/", StringComparison.Ordinal)
+                ? new GitBranchRef(r["refs/heads/".Length..], GitBranchKind.Local)
+                : r.StartsWith("refs/remotes/", StringComparison.Ordinal)
+                    ? new GitBranchRef(r["refs/remotes/".Length..], GitBranchKind.Remote)
+                    : null)
+            .Where(b => b is { } && !b.Name.EndsWith("/HEAD", StringComparison.Ordinal))
+            .Select(b => b!)
             .ToList();
     }
 

@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Tools.Helpers;
 using Tools.Library.Entities;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services;
 using Tools.ViewModels.Windows;
@@ -115,20 +116,21 @@ public void RaiseRepoMirrors()
 
     // --- Git rail: branch dropdown, checkout, pull/push/fetch ---
 
-    /// <summary>The branch dropdown's menu: the New branch entry ahead of the selected
-    /// repo's local branches (strings). Rebuilt by <see cref="LoadBranchesAsync"/>.</summary>
+    /// <summary>The branch dropdown's menu: the New branch entry, the selected repo's
+    /// local branches, a "Remote" group label and the remote-tracking branches. Rebuilt
+    /// by <see cref="LoadBranchesAsync"/>.</summary>
     [ObservableProperty]
     private ObservableCollection<object> _branchMenuItems = new();
 
-    /// <summary>The dropdown's current selection: a branch string after a repo switch /
+    /// <summary>The dropdown's current selection: a branch row after a repo switch /
     /// checkout sync, or the <see cref="NewBranchEntry"/> sentinel while the user's pick
     /// of it is being handled. See <see cref="OnSelectedMenuItemChanged"/>.</summary>
     [ObservableProperty]
     private object? _selectedMenuItem;
 
     /// <summary>The selected branch in display form — the dropdown's tooltip. The
-    /// New branch sentinel is not a branch, so it reads as null.</summary>
-    public string? SelectedBranch => SelectedMenuItem as string;
+    /// New branch sentinel and the Remote label are not branches, so they read as null.</summary>
+    public string? SelectedBranch => (SelectedMenuItem as GitBranchRef)?.Name;
 
     /// <summary>True while a checkout is running; disables the branch dropdown.</summary>
     [ObservableProperty]
@@ -180,8 +182,10 @@ public void RaiseRepoMirrors()
 
     /// <summary>
     /// The branch dropdown is active: picking a branch checks it out in the selected
-    /// repo; picking the New branch entry opens the new-branch drawer and snaps the
-    /// dropdown back to the current branch (the entry is an action, not a selection).
+    /// repo (a remote pick checks out its local tracking equivalent); picking the New
+    /// branch entry opens the new-branch drawer and snaps the dropdown back to the
+    /// current branch (the entry is an action, not a selection) — same snap-back for
+    /// the Remote group label.
     /// Programmatic syncs (repo switch, checkout completion) pass through the
     /// <see cref="_updatingBranchSelection"/> guard; a failed checkout reverts the
     /// dropdown to the repo's actual branch.
@@ -197,8 +201,15 @@ public void RaiseRepoMirrors()
             return;
         }
 
-        if (Repo is null || value is not string branch || string.IsNullOrWhiteSpace(branch)) return;
-        if (string.Equals(branch, Repo.GitBranchName, StringComparison.Ordinal)) return;
+        if (value is not GitBranchRef branch) return;
+        if (branch.IsHeader)
+        {
+            SyncBranchSelection(Repo); // the label is not a branch — never leave it selected
+            return;
+        }
+
+        if (Repo is null) return;
+        if (branch.IsLocal && string.Equals(branch.Name, Repo.GitBranchName, StringComparison.Ordinal)) return;
         _ = CheckoutAsync(branch);
     }
 
@@ -225,17 +236,22 @@ public void RaiseRepoMirrors()
                 }));
     }
 
-    private Task CheckoutAsync(string branch)
+    private Task CheckoutAsync(GitBranchRef branch)
     {
         var repo = Repo;
         if (repo is null) return Task.CompletedTask;
 
+        // A remote pick checks out its local tracking equivalent: plain `git checkout
+        // <short>` creates a tracking local branch when none exists (DWIM), or switches
+        // to the existing local one. A local pick is its own target.
+        var target = branch.IsRemote ? branch.Name[(branch.Name.IndexOf('/') + 1)..] : branch.Name;
+
         return RunGitActionAsync(
             repo,
             value => IsCheckingOut = value,
-            r => Shell.GitStatusService.CheckoutAsync(r, branch),
-            $"Checked out {branch} in {repo.Name}",
-            () => $"Checkout of {branch} failed",
+            r => Shell.GitStatusService.CheckoutAsync(r, target),
+            $"Checked out {target} in {repo.Name}",
+            () => $"Checkout of {target} failed",
             onSuccess: () =>
             {
                 SyncBranchSelection(repo);
@@ -266,18 +282,17 @@ public void RaiseRepoMirrors()
 
             // Clear() resets the ComboBox's selection, and re-assigning an unchanged
             // SelectedMenuItem value afterwards raises no change — the placeholder would
-            // stick. Rebuild only when the list really changed, and drop the stale
-            // selection first (guarded: the null must not read as a user checkout pick).
-            // The comparison covers the real branches only — the New branch entry rides
-            // ahead of them and is always re-added on a rebuild.
-            var current = BranchMenuItems.OfType<string>().ToList();
-            if (current.Count != branches.Count || !current.SequenceEqual(branches))
+            // stick. Rebuild only when the menu really changed (the New branch entry and
+            // the Remote label are derived rows, so the whole menu shape compares), and
+            // drop the stale selection first (guarded: the null must not read as a user
+            // checkout pick).
+            var menu = BuildBranchMenu(branches);
+            if (!BranchMenuItems.SequenceEqual(menu))
             {
                 BranchMenuItems.Clear();
-                BranchMenuItems.Add(NewBranchEntry.Instance);
-                foreach (var branch in branches)
+                foreach (var item in menu)
                 {
-                    BranchMenuItems.Add(branch);
+                    BranchMenuItems.Add(item);
                 }
                 _updatingBranchSelection = true;
                 try
@@ -298,12 +313,30 @@ public void RaiseRepoMirrors()
         }
     }
 
+    /// <summary>
+    /// Shapes the service's branch rows into the dropdown menu: the New branch entry
+    /// rides ahead, and a non-selectable "Remote" label separates the local group from
+    /// the remote-tracking group (absent when the repo has no remotes fetched).
+    /// </summary>
+    private static List<object> BuildBranchMenu(IReadOnlyList<GitBranchRef> branches)
+    {
+        List<object> menu = [NewBranchEntry.Instance, .. branches];
+        var firstRemote = menu.FindIndex(o => o is GitBranchRef { IsRemote: true });
+        if (firstRemote >= 0)
+        {
+            menu.Insert(firstRemote, new GitBranchRef("Remote", GitBranchKind.Header));
+        }
+        return menu;
+    }
+
     private void SyncBranchSelection(Repo? repo)
     {
         _updatingBranchSelection = true;
         try
         {
-            SelectedMenuItem = repo?.GitBranchName;
+            SelectedMenuItem = repo?.GitBranchName is { } name
+                ? BranchMenuItems.OfType<GitBranchRef>().FirstOrDefault(b => b.IsLocal && b.Name == name)
+                : null;
         }
         finally
         {
@@ -335,6 +368,7 @@ public void RaiseRepoMirrors()
             {
                 SyncBranchSelection(repo);
                 RefreshGitCounts(repo);
+                _ = LoadBranchesAsync(); // a fetch can land new remote-tracking branches
             });
     }
 

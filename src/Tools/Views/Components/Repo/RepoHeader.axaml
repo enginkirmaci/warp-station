@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:entities="using:Tools.Library.Entities"
+    xmlns:lib="using:Tools.Library.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
@@ -16,13 +17,14 @@
 
     <!--
             Repo detail header (per the mockup): one top row with the favorite star,
-            the repo name and the "• folder path" link (opens the folder), the actions
-            (kebab, X) right-aligned on the same line, then the tag chip row (every
-            tag, removable, plus the add-tag flyout), then the tab row. The GitHub
-            link lives in the kebab menu only. Lives INSIDE the bottom bar's
-            expandable panel, above the active tab's content; the tabs drive that
-            panel. The X button (far right) closes the whole bar until another row is
-            picked from the table.
+            the repo name and the current branch as a pill (click copies the branch
+            name), the actions (kebab, X) right-aligned on the same line, then the
+            tag chip row (every tag, removable, plus the add-tag flyout), then the
+            tab row. The folder path lives in the Overview tab's Repository Details
+            card; the GitHub link lives in the kebab menu only. Lives INSIDE the
+            bottom bar's expandable panel, above the active tab's content; the tabs
+            drive that panel. The X button (far right) closes the whole bar until
+            another row is picked from the table.
     -->
     <UserControl.Styles>
         <!--  Quiet accent links (the branch-line folder link) use the app-wide
@@ -50,13 +52,12 @@
 
     <StackPanel Spacing="2">
 
-        <!--  Top row: favorite star, repo name, then "• folder path" as a link that
-              opens the folder; actions (kebab, panel close) right-aligned on the same
-              line. The path sits in a star cell so it trims there instead of pushing
-              into the actions, and its trimming survives the button (finite measure
-              from the grid cell, not an infinite StackPanel chain).  -->
+        <!--  Top row: favorite star, repo name, then the current branch as a pill
+              (click copies the branch name). The folder path moved to the Overview
+              tab's Repository Details card; actions (kebab, panel close) sit
+              right-aligned on the same line.  -->
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
+            <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10">
                 <Button
                     Grid.Column="0"
                     VerticalAlignment="Center"
@@ -78,34 +79,54 @@
                     Foreground="{DynamicResource TitleForegroundBrush}"
                     Text="{Binding SelectedRepoName}"
                     TextTrimming="CharacterEllipsis" />
-                <!--  Vertical hairline separator between the name and the folder
-                      path — same divider language as the toolbar, sized to the
-                      title row (full row height would reach into the star button).  -->
+                <!--  Vertical hairline between the name and the branch pill —
+                      same divider language as the toolbar, sized to the title
+                      row (full row height would reach into the star button).  -->
                 <Border
                     Grid.Column="2"
                     Height="16"
                     Classes="vertical-divider" />
+                <!--  Branch pill: the repo's current branch, colorized by the same
+                      BranchChipBrushConverter as the repos table's branch pills
+                      (main green / develop blue / release amber / master purple /
+                      else muted gray — text and glyph in the solid accent, pill in
+                      its translucent tint). Click copies the name; the tooltip
+                      doubles as the affordance label. Hidden until the status
+                      probe has produced a branch.  -->
                 <Button
                     Grid.Column="3"
+                    VerticalAlignment="Center"
                     Classes="detail-link"
-                    Command="{Binding OpenRepoFolderCommand}"
-                    HorizontalAlignment="Left"
-                    ToolTip.Tip="Open the repository folder">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock
-                            VerticalAlignment="Center"
-                            FontSize="13"
-                            Foreground="{DynamicResource BodyForegroundBrush}"
-                            Text="{Binding SelectedRepoFolderPath}"
-                            TextTrimming="CharacterEllipsis" />
-                        <Path
-                            Width="12"
-                            Height="12"
-                            VerticalAlignment="Center"
-                            Data="{tools:SvgPath icon-open-in-new}"
-                            Fill="{DynamicResource MutedForegroundBrush}"
-                            Stretch="Uniform" />
-                    </StackPanel>
+                    Command="{Binding CopyBranchNameCommand}"
+                    ToolTip.Tip="Copy branch name"
+                    IsVisible="{Binding HasSelectedRepoBranchName}">
+                    <Border
+                        Background="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"
+                        CornerRadius="{DynamicResource ChipRadius}"
+                        Padding="8,3">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Path
+                                Width="11"
+                                Height="11"
+                                VerticalAlignment="Center"
+                                Data="{tools:SvgPath icon-source-branch}"
+                                Fill="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                Stretch="Uniform" />
+                            <!--  Same tail-trim as the repos table's branch
+                                  pills: an over-long branch keeps its tail
+                                  ("..name") instead of losing it to end
+                                  ellipsis. Foreground set directly — the
+                                  TextBlock-scoped class styles can't match
+                                  this subclass.  -->
+                            <lib:TailTrimmingTextBlock
+                                MaxWidth="200"
+                                VerticalAlignment="Center"
+                                FontSize="13"
+                                FontWeight="SemiBold"
+                                Foreground="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}}"
+                                FullText="{Binding SelectedRepoBranchName}" />
+                        </StackPanel>
+                    </Border>
                 </Button>
             </Grid>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

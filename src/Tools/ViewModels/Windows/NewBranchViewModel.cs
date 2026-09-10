@@ -123,15 +123,17 @@ public partial class NewBranchViewModel : ObservableObject, IToolDrawerContextRe
             var branches = await _gitStatusService.GetBranchesAsync(repo);
             if (!ReferenceEquals(_repo, repo)) return;
 
+            // The base picker branches from local heads only — remote-tracking refs
+            // stay in the Changes tab's dropdown where they map to a checkout action.
             BaseBranches.Clear();
-            foreach (var branch in branches)
+            foreach (var branch in branches.Where(b => b.IsLocal).Select(b => b.Name))
             {
                 BaseBranches.Add(branch);
             }
 
-            SelectedBaseBranch = repo.GitBranchName is { } current && branches.Contains(current)
+            SelectedBaseBranch = repo.GitBranchName is { } current && BaseBranches.Contains(current)
                 ? current
-                : branches.FirstOrDefault();
+                : BaseBranches.FirstOrDefault();
         }
         catch (Exception ex)
         {

@@ -127,7 +127,7 @@
 		-->
 		<Button
 			x:Name="ToolsButton"
-			Width="38"
+			Width="70"
 			Height="26"
 			Margin="4,0"
 			Padding="0"
@@ -136,7 +136,7 @@
 			<StackPanel
 				VerticalAlignment="Center"
 				Orientation="Horizontal"
-				Spacing="3">
+				Spacing="4">
 				<Path
 					Width="14"
 					Height="14"
@@ -144,6 +144,11 @@
 					Data="{tools:SvgPath icon-tools}"
 					Fill="{DynamicResource BodyForegroundBrush}"
 					Stretch="Uniform" />
+				<TextBlock
+					VerticalAlignment="Center"
+					FontSize="13"
+					Foreground="{DynamicResource BodyForegroundBrush}"
+					Text="Tools" />
 				<!--
 					Center=False: the flat chevron's ink would be shrunk onto the square
 					design grid; raw bounds let it fill the box at its real aspect.

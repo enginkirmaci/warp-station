@@ -244,6 +244,8 @@ public partial class BottomBarViewModel : ObservableObject
         OnPropertyChanged(nameof(IssueCount));
         OnPropertyChanged(nameof(ShowIssueBadge));
         OnPropertyChanged(nameof(SelectedRepoFolderPath));
+        OnPropertyChanged(nameof(SelectedRepoBranchName));
+        OnPropertyChanged(nameof(HasSelectedRepoBranchName));
         OnPropertyChanged(nameof(HasSelectedRepoGitHubUrl));
         OnPropertyChanged(nameof(SelectedRepoGitHubDisplayUrl));
         Changes.RaiseRepoMirrors();
@@ -270,8 +272,14 @@ public partial class BottomBarViewModel : ObservableObject
 
     // --- Repo header (the page's title while a repo is selected) ---
 
-    /// <summary>Folder path of the selected repo — the header's location link.</summary>
+    /// <summary>Folder path of the selected repo — the Repository Details card's folder link.</summary>
     public string? SelectedRepoFolderPath => SelectedRepo?.FolderPath;
+
+    /// <summary>Current git branch of the selected repo (the header's branch pill).
+    /// Null until the status probe has reported one — the pill hides meanwhile.</summary>
+    public string? SelectedRepoBranchName => SelectedRepo?.GitBranchName;
+
+    public bool HasSelectedRepoBranchName => !string.IsNullOrWhiteSpace(SelectedRepo?.GitBranchName);
 
     /// <summary>Whether the header can offer GitHub entry points for the selected repo.</summary>
     public bool HasSelectedRepoGitHubUrl => !string.IsNullOrWhiteSpace(SelectedRepo?.GitHubRepoUrl);
@@ -327,13 +335,25 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    /// <summary>Opens the selected repo's folder (the header's location link) in the file manager.</summary>
+    /// <summary>Opens the selected repo's folder (the Repository Details card's folder
+    /// link) in the file manager.</summary>
     [RelayCommand]
     private void OpenRepoFolder()
     {
         if (SelectedRepo?.FolderPath is { } path)
         {
             _processLauncher.StartProcess(path);
+        }
+    }
+
+    /// <summary>Copies the selected repo's current branch name (the header's branch pill).</summary>
+    [RelayCommand]
+    private void CopyBranchName()
+    {
+        if (SelectedRepo?.GitBranchName is { } name)
+        {
+            _clipboardService.CopyText(name);
+            _notificationService.Show("Branch name copied", NotificationKind.Success);
         }
     }
 

@@ -214,3 +214,28 @@ internal static class GitOutputParser
         return fallback;
     }
 }
+
+/// <summary>What a <see cref="GitBranchRef"/> row in the branch dropdown represents.</summary>
+public enum GitBranchKind
+{
+    /// <summary>A local branch (<c>refs/heads/…</c>); selecting it checks it out.</summary>
+    Local,
+
+    /// <summary>A remote-tracking branch (<c>refs/remotes/…</c>, e.g. <c>origin/foo</c>); selecting it checks out the local tracking equivalent.</summary>
+    Remote,
+
+    /// <summary>A non-selectable group label (e.g. the "Remote" divider row).</summary>
+    Header,
+}
+
+/// <summary>
+/// One row of the branch dropdown: an immutable value type so list diffing can use
+/// plain sequence equality; the computed kind flags drive the row template without
+/// converters.
+/// </summary>
+public sealed record GitBranchRef(string Name, GitBranchKind Kind)
+{
+    public bool IsRemote => Kind == GitBranchKind.Remote;
+    public bool IsLocal => Kind == GitBranchKind.Local;
+    public bool IsHeader => Kind == GitBranchKind.Header;
+}
