@@ -393,19 +393,14 @@
                               there.  -->
                         <ComboBox
                             x:Name="BranchPicker"
-                            Margin="12,12,12,0"
+                            Margin="6,12,6,0"
                             Height="38"
                             FontSize="14"
                             ItemsSource="{Binding BranchMenuItems}"
                             PlaceholderText="branch"
                             SelectedItem="{Binding SelectedMenuItem, Mode=OneWay}"
                             SelectionChanged="OnBranchSelectionChanged"
-                            ToolTip.Tip="{Binding SelectedBranch}">
-                            <ComboBox.Styles>
-                                <Style Selector="ComboBoxItem">
-                                    <Setter Property="MaxWidth" Value="360" />
-                                </Style>
-                            </ComboBox.Styles>
+                            ToolTip.Tip="{Binding SelectedBranch}"> 
                             <!--
                                 The menu mixes item types (the New branch sentinel and
                                 GitBranchRef rows: local branches, the "Remote" group

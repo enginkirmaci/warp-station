@@ -57,18 +57,19 @@
 
         <Grid ColumnDefinitions="*" RowDefinitions="*,Auto">
                 <!--  Bottom margin 0 and no row spacing: the bar's divider row owns
-                      the table↔bar gap outright (one clean 16px drag band, dots
+                      the table↔bar gap outright (one clean 8px drag band, dots
                       centered) — extra card margins doubled it up.  -->
                 <Grid
                         Grid.Row="0"
-                        Margin="16,16,16,0"
+                        Margin="8,8,8,0"
                         ColumnDefinitions="*"
                         RowDefinitions="Auto,*">
 
                         <Grid
                                 Grid.Row="0"
                                 ColumnDefinitions="*,Auto"
-                                ColumnSpacing="8">
+                                ColumnSpacing="8"
+                                Margin="0,0,0,8">
                                 <StackPanel
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
@@ -1088,7 +1089,10 @@
 
                 <!--
                         Bottom bar: this page's footer (repo context, tabs, expandable
-                        panel), flush with the window bottom like the mockup. Hidden until
+                        panel), inset 8px from the window bottom like the page's other
+                        edges. This wrapper owns that bottom 8px outright — it stays
+                        reserved even while the bar is hidden, so the table card never
+                        stacks a second margin onto the same seam. Hidden until
                         a repo is selected from the table (the bar binds IsBarVisible and
                         paints its own hairlines). Its DataContext binds to the page's
                         BottomBarViewModel singleton property (assigned before
@@ -1097,7 +1101,7 @@
                         (declared against BottomBarViewModel) can never cast-fail, no
                         matter when the page's own DataContext is assigned.
                 -->
-                <Border Grid.Row="1">
+                <Border Grid.Row="1" Margin="0,0,0,8">
                         <components:BottomBar
                                 x:Name="BottomBarControl"
                                 DataContext="{Binding #Root.BottomBarViewModel}" />

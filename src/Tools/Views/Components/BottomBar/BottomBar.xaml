@@ -75,7 +75,7 @@
     -->
 
     <!--  The bar sits inset from the page edges, aligned with the table card above.  -->
-    <Grid IsVisible="{Binding IsBarVisible}" Margin="16,0,16,16" RowDefinitions="Auto,Auto">
+    <Grid IsVisible="{Binding IsBarVisible}" Margin="8,0,8,0" RowDefinitions="Auto,Auto">
 
         <!--  ============ Panel-top drag divider ====
               Three grip dots between the repo table and the bar; the WHOLE row (not just
@@ -89,7 +89,7 @@
         <controls:ResizeGrip
             Grid.Row="0"
             x:Name="PanelResizer"
-            Height="16"
+            Height="8"
             Orientation="Vertical" />
 
         <!--  ============ Expandable panel (repo header + active tab's content) ====
