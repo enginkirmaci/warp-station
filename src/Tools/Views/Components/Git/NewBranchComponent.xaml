@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    New Branch drawer component: opened from the Changes tab's branch dropdown
+    ("New branch…" first entry). The name field comes pre-typed with the settings'
+    branch-name prefix (closed by its separator), the base picker starts at the repo's
+    current branch, and Create runs git branch / checkout -b; duplicate and invalid
+    names surface as an inline note under the field. Follows the shared drawer
+    vocabulary: grouped card with field labels, footer band with Cancel/Create.
+-->
+<UserControl
+    x:Class="Tools.Views.Components.Git.NewBranchComponent"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Tools.ViewModels.Windows"
+    d:DesignHeight="480"
+    d:DesignWidth="520"
+    x:CompileBindings="True"
+    x:DataType="vm:NewBranchViewModel"
+    mc:Ignorable="d">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,4,16,12" Spacing="12">
+
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="New Branch" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Branch Name"
+                                ToolTip.Tip="The configured prefix is pre-typed; complete it with the branch's own name" />
+                            <TextBox
+                                x:Name="NameBox"
+                                Text="{Binding BranchName, UpdateSourceTrigger=PropertyChanged}"
+                                TextChanged="OnNameBoxTextChanged"
+                                Watermark="feature/my-change" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding HasError}"
+                                Foreground="{DynamicResource WarningAccentBrush}"
+                                Text="{Binding ErrorText}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Base Branch"
+                                ToolTip.Tip="The branch (or its head) the new one starts from" />
+                            <ComboBox
+                                ItemsSource="{Binding BaseBranches}"
+                                PlaceholderText="branch"
+                                SelectedItem="{Binding SelectedBaseBranch, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock
+                                            Foreground="{DynamicResource BodyForegroundBrush}"
+                                            Text="{Binding}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock
+                                Classes="subtle"
+                                Text="The new branch starts at the selected base — the repo's current branch unless you pick another."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <CheckBox
+                            Content="Check out after creating"
+                            IsChecked="{Binding CheckoutAfterCreate, Mode=TwoWay}"
+                            ToolTip.Tip="On: creates and switches to the branch (git checkout -b). Off: only creates it (git branch)." />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  Footer with action buttons (outside scroll area)  -->
+        <Border
+            Grid.Row="1"
+            Padding="16,12"
+            BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0">
+            <StackPanel
+                HorizontalAlignment="Right"
+                Classes="actions">
+                <Button Command="{Binding CancelCommand}" Content="Cancel" />
+                <Button
+                    Command="{Binding CreateCommand}"
+                    Classes="Outlined"
+                    Content="Create"
+                    IsDefault="True"
+                    IsEnabled="{Binding !IsCreating}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -69,6 +69,10 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _zCodeExecutable = ReposSettings.DefaultZCodeExecutable;
 
+    /// <summary>The branch-name prefix pre-typed into the new-branch drawer's name field.</summary>
+    [ObservableProperty]
+    private string _branchNamePrefix = ReposSettings.DefaultBranchNamePrefix;
+
     /// <summary>Whether the terminal launch button shows (no installation probing).</summary>
     [ObservableProperty]
     private bool _enableTerminal = true;
@@ -158,6 +162,7 @@ public partial class ReposSettingsViewModel :
             IdeExecutable = IdeExecutable?.Trim() ?? string.Empty,
             OpenCodeExecutable = WithDefault(OpenCodeExecutable, ReposSettings.DefaultOpenCodeExecutable),
             ZCodeExecutable = WithDefault(ZCodeExecutable, ReposSettings.DefaultZCodeExecutable),
+            BranchNamePrefix = BranchNamePrefix?.Trim() ?? string.Empty, // no default on blank: clearing disables the pre-typed prefix
             EnableTerminal = EnableTerminal,
             EnableVSCode = EnableVSCode,
             EnableVisualStudio = EnableVisualStudio,
@@ -203,6 +208,7 @@ public partial class ReposSettingsViewModel :
         IdeExecutable = settings.IdeExecutable ?? string.Empty;
         OpenCodeExecutable = settings.OpenCodeExecutable ?? ReposSettings.DefaultOpenCodeExecutable;
         ZCodeExecutable = settings.ZCodeExecutable ?? ReposSettings.DefaultZCodeExecutable;
+        BranchNamePrefix = settings.BranchNamePrefix ?? string.Empty;
         EnableTerminal = settings.EnableTerminal;
         EnableVSCode = settings.EnableVSCode;
         EnableVisualStudio = settings.EnableVisualStudio;

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Tools.Views.Components;
+using Tools.Views.Components.Git;
 using Tools.Views.Components.History;
 using Tools.Views.Components.Repo;
 using Tools.Views.Components.Settings;
@@ -36,6 +37,9 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the History commit-detail component (opened by a History row click).</summary>
     public const string CommitHistoryKey = "CommitHistoryDialog";
 
+    /// <summary>Drawer key of the New Branch component (opened by the Changes tab's branch dropdown).</summary>
+    public const string NewBranchKey = "NewBranchDialog";
+
     /// <summary>Drawer key of the OpenCode settings component (opened by the row options icon and the tools dropdown).</summary>
     public const string OpenCodeKey = "OpenCodePage";
 
@@ -67,6 +71,7 @@ public static class ToolComponentMapper
         new ToolDefinition(AddRepositoriesKey, typeof(AddRepositoryComponent), "Add Repositories", "icon-plus"),
         new ToolDefinition(RepoSettingsKey, typeof(ReposSettingsComponent), "Repo Settings", "icon-cog"),
         new ToolDefinition(CommitHistoryKey, typeof(CommitHistoryComponent), "History", "icon-clock"),
+        new ToolDefinition(NewBranchKey, typeof(NewBranchComponent), "New Branch", "icon-source-branch"),
     ];
 
     /// <summary>All drawer-hostable tools in menu order.</summary>

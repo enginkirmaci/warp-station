@@ -190,6 +190,24 @@
                     </StackPanel>
                 </Border>
 
+                <!--  Git: new-branch preferences  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Git" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Branch Name Prefix"
+                                ToolTip.Tip="Pre-typed into the new-branch drawer's name field" />
+                            <TextBox Text="{Binding BranchNamePrefix, UpdateSourceTrigger=PropertyChanged}" Watermark="users/enginkirmaci" />
+                            <TextBlock
+                                Classes="subtle"
+                                Text="Typed into the branch name field when you open the new-branch drawer (Changes tab → branch dropdown → New branch…), so you only complete it with the branch's own name. Empty disables the prefix."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!--  Columns: GitHub / Azure DevOps toggles and their credentials  -->
                 <Border Classes="card">
                     <StackPanel Spacing="8">

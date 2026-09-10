@@ -19,6 +19,18 @@ namespace Tools.ViewModels.Components.BottomBar;
 public sealed record ChangeSectionRow(string Title, int Count, bool IsUnstaged);
 
 /// <summary>
+/// The branch dropdown's first entry — an action, not a branch: picking it opens the
+/// new-branch drawer (the sidebar component) instead of checking anything out. Rides
+/// in <see cref="ChangesTabViewModel.BranchMenuItems"/> ahead of the real branches so
+/// the stock ComboBox renders it as a row like any other.
+/// </summary>
+public sealed record NewBranchEntry
+{
+    /// <summary>The shared instance the dropdown menu carries.</summary>
+    public static readonly NewBranchEntry Instance = new();
+}
+
+/// <summary>
 /// The Changes tab (commit workspace): the staged/unstaged tree as one virtualized
 /// merged list, the staging buttons, the commit message box (with the opencode
 /// wand) and the git rail beside it — a menu of git actions (fetch, pull, push,
@@ -103,12 +115,20 @@ public void RaiseRepoMirrors()
 
     // --- Git rail: branch dropdown, checkout, pull/push/fetch ---
 
-    /// <summary>Local branches of the selected repo for the branch dropdown.</summary>
+    /// <summary>The branch dropdown's menu: the New branch entry ahead of the selected
+    /// repo's local branches (strings). Rebuilt by <see cref="LoadBranchesAsync"/>.</summary>
     [ObservableProperty]
-    private ObservableCollection<string> _branches = new();
+    private ObservableCollection<object> _branchMenuItems = new();
 
+    /// <summary>The dropdown's current selection: a branch string after a repo switch /
+    /// checkout sync, or the <see cref="NewBranchEntry"/> sentinel while the user's pick
+    /// of it is being handled. See <see cref="OnSelectedMenuItemChanged"/>.</summary>
     [ObservableProperty]
-    private string? _selectedBranch;
+    private object? _selectedMenuItem;
+
+    /// <summary>The selected branch in display form — the dropdown's tooltip. The
+    /// New branch sentinel is not a branch, so it reads as null.</summary>
+    public string? SelectedBranch => SelectedMenuItem as string;
 
     /// <summary>True while a checkout is running; disables the branch dropdown.</summary>
     [ObservableProperty]
@@ -160,16 +180,49 @@ public void RaiseRepoMirrors()
 
     /// <summary>
     /// The branch dropdown is active: picking a branch checks it out in the selected
-    /// repo. Programmatic syncs (repo switch, checkout completion) pass through the
+    /// repo; picking the New branch entry opens the new-branch drawer and snaps the
+    /// dropdown back to the current branch (the entry is an action, not a selection).
+    /// Programmatic syncs (repo switch, checkout completion) pass through the
     /// <see cref="_updatingBranchSelection"/> guard; a failed checkout reverts the
     /// dropdown to the repo's actual branch.
     /// </summary>
-    partial void OnSelectedBranchChanged(string? value)
+    partial void OnSelectedMenuItemChanged(object? value)
     {
+        OnPropertyChanged(nameof(SelectedBranch));
         if (_updatingBranchSelection || IsCheckingOut) return;
-        if (string.IsNullOrWhiteSpace(value) || Repo is null) return;
-        if (string.Equals(value, Repo.GitBranchName, StringComparison.Ordinal)) return;
-        _ = CheckoutAsync(value);
+
+        if (value is NewBranchEntry)
+        {
+            OpenNewBranchDrawer();
+            return;
+        }
+
+        if (Repo is null || value is not string branch || string.IsNullOrWhiteSpace(branch)) return;
+        if (string.Equals(branch, Repo.GitBranchName, StringComparison.Ordinal)) return;
+        _ = CheckoutAsync(branch);
+    }
+
+    /// <summary>
+    /// Opens the new-branch drawer on the selected repo, seeding it with the settings'
+    /// branch-name prefix (pre-typed into the drawer's name field) and the hook that
+    /// re-syncs this dropdown once the branch landed (and was checked out).
+    /// </summary>
+    private void OpenNewBranchDrawer()
+    {
+        var repo = Repo;
+        SyncBranchSelection(repo); // the entry is an action — never leave it selected
+        if (repo is null) return;
+
+        Shell.Drawers.Open(
+            ToolComponentMapper.NewBranchKey,
+            new NewBranchContext(
+                repo,
+                Shell.ReposSettings.BranchNamePrefix,
+                OnCreated: () =>
+                {
+                    SyncBranchSelection(repo);
+                    _ = LoadBranchesAsync();
+                }));
     }
 
     private Task CheckoutAsync(string branch)
@@ -201,7 +254,7 @@ public void RaiseRepoMirrors()
         var repo = Repo;
         if (repo is null)
         {
-            Branches.Clear();
+            BranchMenuItems.Clear();
             SyncBranchSelection(null);
             return;
         }
@@ -212,20 +265,24 @@ public void RaiseRepoMirrors()
             if (!ReferenceEquals(Shell.SelectedRepo, repo)) return; // repo switched while loading
 
             // Clear() resets the ComboBox's selection, and re-assigning an unchanged
-            // SelectedBranch value afterwards raises no change — the placeholder would
+            // SelectedMenuItem value afterwards raises no change — the placeholder would
             // stick. Rebuild only when the list really changed, and drop the stale
             // selection first (guarded: the null must not read as a user checkout pick).
-            if (Branches.Count != branches.Count || !Branches.SequenceEqual(branches))
+            // The comparison covers the real branches only — the New branch entry rides
+            // ahead of them and is always re-added on a rebuild.
+            var current = BranchMenuItems.OfType<string>().ToList();
+            if (current.Count != branches.Count || !current.SequenceEqual(branches))
             {
-                Branches.Clear();
+                BranchMenuItems.Clear();
+                BranchMenuItems.Add(NewBranchEntry.Instance);
                 foreach (var branch in branches)
                 {
-                    Branches.Add(branch);
+                    BranchMenuItems.Add(branch);
                 }
                 _updatingBranchSelection = true;
                 try
                 {
-                    SelectedBranch = null;
+                    SelectedMenuItem = null;
                 }
                 finally
                 {
@@ -246,7 +303,7 @@ public void RaiseRepoMirrors()
         _updatingBranchSelection = true;
         try
         {
-            SelectedBranch = repo?.GitBranchName;
+            SelectedMenuItem = repo?.GitBranchName;
         }
         finally
         {

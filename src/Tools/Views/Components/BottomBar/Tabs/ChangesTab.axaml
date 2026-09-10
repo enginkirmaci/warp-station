@@ -383,17 +383,19 @@
                         <!--  Branch dropdown — the stock SukiUI ComboBox (same
                               look as the repos page's sort selector): filled
                               box, branch icon + name, chevron square at the
-                              right. Picking a branch checks it out. The
-                              popup grows with its widest entry under the
-                              cap, so full names show there.  -->
+                              right. Its FIRST entry is "New branch…" (an
+                              action, not a branch — picking it opens the
+                              new-branch drawer); picking a branch checks it
+                              out. The popup grows with its widest entry under
+                              the cap, so full names show there.  -->
                         <ComboBox
                             x:Name="BranchPicker"
                             Margin="12,12,12,0"
                             Height="38"
                             FontSize="14"
-                            ItemsSource="{Binding Branches}"
+                            ItemsSource="{Binding BranchMenuItems}"
                             PlaceholderText="branch"
-                            SelectedItem="{Binding SelectedBranch, Mode=OneWay}"
+                            SelectedItem="{Binding SelectedMenuItem, Mode=OneWay}"
                             SelectionChanged="OnBranchSelectionChanged"
                             ToolTip.Tip="{Binding SelectedBranch}">
                             <ComboBox.Styles>
@@ -401,28 +403,54 @@
                                     <Setter Property="MaxWidth" Value="360" />
                                 </Style>
                             </ComboBox.Styles>
+                            <!--
+                                The menu mixes two item types (the New branch sentinel
+                                and branch-name strings); one ItemTemplate hosting a
+                                ContentControl lets the typed inner templates pick the
+                                row shape — keeping a single ItemTemplate means no
+                                dependence on how the theme resolves DataTemplates.
+                            -->
                             <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Path
-                                            Width="12"
-                                            Height="12"
-                                            Data="{tools:SvgPath icon-source-branch}"
-                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                            Stretch="Uniform" />
-                                        <!--
-                                            Explicit foreground: SukiUI brightens only TextBlocks that
-                                            are the ComboBoxItem's DIRECT content; inside this
-                                            StackPanel the inherited popup color is too dim. The
-                                            ellipsis bites only under the caps (the closed box's
-                                            width, the item's) — the popup sizes to the widest
-                                            entry otherwise, so entries never trim in it.
-                                        -->
-                                        <TextBlock
-                                            Foreground="{DynamicResource BodyForegroundBrush}"
-                                            Text="{Binding}"
-                                            TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
+                                <DataTemplate x:DataType="x:Object">
+                                    <ContentControl Content="{Binding}">
+                                        <ContentControl.DataTemplates>
+                                            <DataTemplate x:DataType="vm:NewBranchEntry">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Path
+                                                        Width="12"
+                                                        Height="12"
+                                                        Data="{tools:SvgPath icon-plus}"
+                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                        Stretch="Uniform" />
+                                                    <TextBlock
+                                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                                        Text="New branch…" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <Path
+                                                        Width="12"
+                                                        Height="12"
+                                                        Data="{tools:SvgPath icon-source-branch}"
+                                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                                        Stretch="Uniform" />
+                                                    <!--
+                                                        Explicit foreground: SukiUI brightens only TextBlocks that
+                                                        are the ComboBoxItem's DIRECT content; inside this
+                                                        StackPanel the inherited popup color is too dim. The
+                                                        ellipsis bites only under the caps (the closed box's
+                                                        width, the item's) — the popup sizes to the widest
+                                                        entry otherwise, so entries never trim in it.
+                                                    -->
+                                                    <TextBlock
+                                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                                        Text="{Binding}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ContentControl.DataTemplates>
+                                    </ContentControl>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>

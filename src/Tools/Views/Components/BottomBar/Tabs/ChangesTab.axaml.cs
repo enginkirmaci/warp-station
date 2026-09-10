@@ -30,15 +30,16 @@ public partial class ChangesTab : UserControl
     }
 
     /// <summary>
-    /// Commits a branch pick: the ViewModel checks out the branch (see
-    /// <see cref="BottomBarViewModel.OnSelectedBranchChanged"/>). Programmatic syncs
+    /// Commits a dropdown pick: the ViewModel checks the branch out, or — for the New
+    /// branch sentinel — opens the new-branch drawer and snaps the selection back (see
+    /// <see cref="ChangesTabViewModel.OnSelectedMenuItemChanged"/>). Programmatic syncs
     /// re-commit the current branch and are ignored there.
     /// </summary>
     private void OnBranchSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (e.AddedItems.Count > 0 && e.AddedItems[0] is string branch && ViewModel is { } vm)
+        if (e.AddedItems.Count > 0 && ViewModel is { } vm)
         {
-            vm.SelectedBranch = branch;
+            vm.SelectedMenuItem = e.AddedItems[0];
         }
     }
 

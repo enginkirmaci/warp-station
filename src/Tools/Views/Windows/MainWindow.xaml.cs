@@ -418,6 +418,9 @@ public partial class MainWindow : SukiWindow
                 case IToolDrawerContextReceiver<CommitHistoryContext> commitHistory:
                     await commitHistory.OnDrawerContextAsync(context as CommitHistoryContext);
                     break;
+                case IToolDrawerContextReceiver<NewBranchContext> newBranch:
+                    await newBranch.OnDrawerContextAsync(context as NewBranchContext);
+                    break;
                 case IToolDrawerContextReceiver<OpenCodeSettingsContext> openCodeSettings:
                     await openCodeSettings.OnDrawerContextAsync(context as OpenCodeSettingsContext);
                     break;

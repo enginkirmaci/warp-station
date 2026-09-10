@@ -102,6 +102,9 @@ public class ReposSettings
     /// <summary>Canonical default for <see cref="MaxScanDepth"/>.</summary>
     public const int DefaultMaxScanDepth = 3;
 
+    /// <summary>Canonical default for <see cref="BranchNamePrefix"/>.</summary>
+    public const string DefaultBranchNamePrefix = "users/enginkirmaci";
+
     /// <summary>
     /// Gets a fresh <see cref="ReposSettings"/> carrying the canonical defaults. The
     /// per-field constants above are the single source of truth — the per-property
@@ -120,7 +123,8 @@ public class ReposSettings
         OpenCodeExecutable = DefaultOpenCodeExecutable,
         ZCodeExecutable = DefaultZCodeExecutable,
         GitHubExecutable = DefaultGitHubExecutable,
-        MaxScanDepth = DefaultMaxScanDepth
+        MaxScanDepth = DefaultMaxScanDepth,
+        BranchNamePrefix = DefaultBranchNamePrefix
     };
 
     /// <summary>
@@ -271,6 +275,14 @@ public class ReposSettings
     /// and ignores this value. Defaults to 3.
     /// </summary>
     public int MaxScanDepth { get; set; } = DefaultMaxScanDepth;
+
+    /// <summary>
+    /// Gets or sets the branch name prefix pre-typed into the new-branch drawer's name
+    /// field (the drawer appends the path separator, so the user's first keystroke
+    /// continues after it, e.g. <c>users/enginkirmaci/</c>). When empty the field starts
+    /// empty. Defaults to <see cref="DefaultBranchNamePrefix"/>.
+    /// </summary>
+    public string? BranchNamePrefix { get; set; } = DefaultBranchNamePrefix;
 }
 
 /// <summary>

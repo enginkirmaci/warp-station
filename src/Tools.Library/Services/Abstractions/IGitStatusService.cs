@@ -50,6 +50,20 @@ public interface IGitStatusService
     Task<bool> CheckoutAsync(Repo repo, string branch, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates a new branch (<c>git branch &lt;name&gt;</c>) or creates and checks it
+    /// out (<c>git checkout -b &lt;name&gt;</c> when <paramref name="checkout"/>), from
+    /// <paramref name="startPoint"/> when given (a branch or hash; null = current HEAD),
+    /// and refreshes the repo's status. Returns the outcome carrying git's actionable
+    /// stderr line on failure (duplicate name, invalid name, timeout).
+    /// </summary>
+    Task<GitSyncResult> CreateBranchAsync(
+        Repo repo,
+        string branch,
+        string? startPoint = null,
+        bool checkout = true,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fetches the repo's remotes (<c>git fetch --prune</c>) and refreshes its status so
     /// the ahead/behind counts (measured against local upstream refs and therefore stale
     /// until a fetch) become current. On success stamps

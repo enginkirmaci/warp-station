@@ -13,6 +13,7 @@ using Tools.Services.Abstractions;
 using Tools.ViewModels.Pages;
 using Tools.ViewModels.Windows;
 using Tools.Views.Components;
+using Tools.Views.Components.Git;
 using Tools.Views.Components.History;
 using Tools.Views.Components.Repo;
 using Tools.Views.Components.Settings;
@@ -135,6 +136,7 @@ public partial class App : Application
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
         RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
         RegisterPageWithViewModel<CommitHistoryComponent, CommitHistoryViewModel>(services);
+        RegisterPageWithViewModel<NewBranchComponent, NewBranchViewModel>(services);
         // Drawer-component factory: MainWindow resolves drawer views through this
         // intention-revealing delegate instead of holding the service container.
         // Resolution matches the former GetService(ViewType) exactly — a fresh

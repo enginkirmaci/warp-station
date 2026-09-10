@@ -194,6 +194,33 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public async Task<GitSyncResult> CreateBranchAsync(
+        Repo repo,
+        string branch,
+        string? startPoint = null,
+        bool checkout = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(branch))
+        {
+            return new GitSyncResult(false, null);
+        }
+
+        var quoted = GitCommandRunner.Quote(branch);
+        var command = checkout ? $"checkout -b {quoted}" : $"branch {quoted}";
+        if (!string.IsNullOrWhiteSpace(startPoint))
+        {
+            command += $" {GitCommandRunner.Quote(startPoint.Trim())}";
+        }
+
+        // Branch creation fails most often on a duplicate/invalid name — exactly the
+        // failures the drawer wants to show inline, so git's fatal line is captured.
+        var stderr = new List<string>();
+        var ok = await RunAndRefreshAsync(repo, command, cancellationToken, stderrSink: stderr);
+        return ok ? GitSyncResult.Ok() : new GitSyncResult(false, GitOutputParser.SummarizeSyncError(stderr));
+    }
+
+    /// <inheritdoc/>
     public Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
         => SyncAsync(
             repo,
