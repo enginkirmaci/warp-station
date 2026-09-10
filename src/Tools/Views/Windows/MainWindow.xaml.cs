@@ -421,6 +421,9 @@ public partial class MainWindow : SukiWindow
                 case IToolDrawerContextReceiver<NewBranchContext> newBranch:
                     await newBranch.OnDrawerContextAsync(context as NewBranchContext);
                     break;
+                case IToolDrawerContextReceiver<CloneFromUrlContext> cloneFromUrl:
+                    await cloneFromUrl.OnDrawerContextAsync(context as CloneFromUrlContext);
+                    break;
                 case IToolDrawerContextReceiver<OpenCodeSettingsContext> openCodeSettings:
                     await openCodeSettings.OnDrawerContextAsync(context as OpenCodeSettingsContext);
                     break;

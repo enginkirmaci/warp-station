@@ -65,6 +65,20 @@ public interface IGitStatusService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Clones a repository URL into <paramref name="parentDirectory"/>&lt;repoName&gt;
+    /// (<c>git clone &lt;url&gt; &lt;repoName&gt;</c> — the folder is created by git).
+    /// This is the one service call that runs outside any existing repo: the working
+    /// directory is the destination's parent. Returns the outcome carrying git's
+    /// actionable stderr line on failure (unknown host, missing credentials, existing
+    /// destination, timeout — clones get the longest bound, ten minutes).
+    /// </summary>
+    Task<GitSyncResult> CloneAsync(
+        string url,
+        string parentDirectory,
+        string repoName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fetches the repo's remotes (<c>git fetch --prune</c>) and refreshes its status so
     /// the ahead/behind counts (measured against local upstream refs and therefore stale
     /// until a fetch) become current. On success stamps

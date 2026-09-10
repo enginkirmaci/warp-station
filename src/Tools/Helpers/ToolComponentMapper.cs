@@ -40,6 +40,9 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the New Branch component (opened by the Changes tab's branch dropdown).</summary>
     public const string NewBranchKey = "NewBranchDialog";
 
+    /// <summary>Drawer key of the Clone from URL component (opened by the repos page toolbar).</summary>
+    public const string CloneFromUrlKey = "CloneFromUrlDialog";
+
     /// <summary>Drawer key of the OpenCode settings component (opened by the row options icon and the tools dropdown).</summary>
     public const string OpenCodeKey = "OpenCodePage";
 
@@ -72,6 +75,7 @@ public static class ToolComponentMapper
         new ToolDefinition(RepoSettingsKey, typeof(ReposSettingsComponent), "Repo Settings", "icon-cog"),
         new ToolDefinition(CommitHistoryKey, typeof(CommitHistoryComponent), "History", "icon-clock"),
         new ToolDefinition(NewBranchKey, typeof(NewBranchComponent), "New Branch", "icon-source-branch"),
+        new ToolDefinition(CloneFromUrlKey, typeof(CloneFromUrlComponent), "Clone from URL", "icon-cloud-download"),
     ];
 
     /// <summary>All drawer-hostable tools in menu order.</summary>

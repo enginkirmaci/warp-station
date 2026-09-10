@@ -230,6 +230,34 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public async Task<GitSyncResult> CloneAsync(
+        string url,
+        string parentDirectory,
+        string repoName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(parentDirectory)
+            || string.IsNullOrWhiteSpace(repoName))
+        {
+            return new GitSyncResult(false, null);
+        }
+
+        // Clone fails most often on an unreachable URL or an existing destination —
+        // exactly the failures the drawer wants to show inline, so git's fatal line is
+        // captured. The working directory is the destination's PARENT: this is the one
+        // command that runs outside any existing repo, and the transfer may legitimately
+        // run for minutes, so it gets the longest bound.
+        var stderr = new List<string>();
+        var ok = await RunGitAsync(
+                parentDirectory,
+                $"clone {GitCommandRunner.Quote(url.Trim())} {GitCommandRunner.Quote(repoName.Trim())}",
+                cancellationToken,
+                GitCommandRunner.CloneTimeout,
+                stderr) is not null;
+        return ok ? GitSyncResult.Ok() : new GitSyncResult(false, GitOutputParser.SummarizeSyncError(stderr));
+    }
+
+    /// <inheritdoc/>
     public Task<GitSyncResult> FetchAsync(Repo repo, CancellationToken cancellationToken = default)
         => SyncAsync(
             repo,

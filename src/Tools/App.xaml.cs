@@ -137,6 +137,7 @@ public partial class App : Application
         RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
         RegisterPageWithViewModel<CommitHistoryComponent, CommitHistoryViewModel>(services);
         RegisterPageWithViewModel<NewBranchComponent, NewBranchViewModel>(services);
+        RegisterPageWithViewModel<CloneFromUrlComponent, CloneFromUrlViewModel>(services);
         // Drawer-component factory: MainWindow resolves drawer views through this
         // intention-revealing delegate instead of holding the service container.
         // Resolution matches the former GetService(ViewType) exactly — a fresh

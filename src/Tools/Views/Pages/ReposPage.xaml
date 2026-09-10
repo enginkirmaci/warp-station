@@ -283,6 +283,28 @@
                                                         <TextBlock VerticalAlignment="Center" Text="Add Repository" />
                                                 </StackPanel>
                                         </Button>
+                                        <!--
+                                                Clone from URL: clones a repository from its URL
+                                                into a destination folder and tracks it (drawer
+                                                via IToolDrawerService; the clone registers itself
+                                                through the drawer's completion hook)
+                                        -->
+                                        <Button
+                                                VerticalAlignment="Center"
+                                                Classes="Outlined"
+                                                Command="{Binding OpenCloneFromUrlCommand}"
+                                                ToolTip.Tip="Clone a git repository from a URL and add it to the list">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <Path
+                                                                Width="14"
+                                                                Height="14"
+                                                                VerticalAlignment="Center"
+                                                                Data="{tools:SvgPath icon-cloud-download}"
+                                                                Fill="{Binding $parent[Button].Foreground}"
+                                                                Stretch="Uniform" />
+                                                        <TextBlock VerticalAlignment="Center" Text="Clone from URL" />
+                                                </StackPanel>
+                                        </Button>
                                         <Button
                                                 Classes="icon"
                                                 Command="{Binding OpenSettingsCommand}"

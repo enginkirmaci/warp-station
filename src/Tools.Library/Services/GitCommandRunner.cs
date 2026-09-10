@@ -22,6 +22,13 @@ internal sealed class GitCommandRunner
     public static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>
+    /// Upper bound for clone: a full history download can legitimately run for
+    /// minutes, and the runner reports completion-only (no progress streaming), so the
+    /// bound must cover the slow realistic case rather than a nice UX latency.
+    /// </summary>
+    public static readonly TimeSpan CloneTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>
     /// Environment for every git child: never block on credential/passphrase prompts —
     /// fail fast instead.
     /// </summary>

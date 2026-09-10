@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -12,6 +13,7 @@ using Tools.Library.Services.Abstractions;
 using Tools.Services.Abstractions;
 using Tools.ViewModels.Components;
 using Tools.ViewModels.Components.BottomBar;
+using Tools.ViewModels.Windows;
 
 namespace Tools.ViewModels.Pages;
 
@@ -31,6 +33,7 @@ public partial class ReposViewModel : PageViewModelBase
 {
     private readonly ISettingsService _settingsService;
     private readonly IDialogService _dialogService;
+    private readonly IToolDrawerService _toolDrawer;
     private readonly IRepoService _repoService;
     private readonly IGitStatusService _gitStatusService;
     private readonly IGitHubService _gitHubService;
@@ -227,6 +230,7 @@ public partial class ReposViewModel : PageViewModelBase
     public ReposViewModel(
         ISettingsService settingsService,
         IDialogService dialogService,
+        IToolDrawerService toolDrawer,
         IRepoService repoService,
         IGitStatusService gitStatusService,
         IGitHubService gitHubService,
@@ -240,6 +244,7 @@ public partial class ReposViewModel : PageViewModelBase
     {
         _settingsService = settingsService;
         _dialogService = dialogService;
+        _toolDrawer = toolDrawer;
         _repoService = repoService;
         _gitStatusService = gitStatusService;
         _gitHubService = gitHubService;
@@ -709,6 +714,74 @@ public partial class ReposViewModel : PageViewModelBase
         {
             Log.Logger.Error(ex, "Error adding repositories");
             _notificationService.Show("Failed to add repositories", NotificationKind.Error);
+        }
+    }
+
+    // --- Clone from URL ---
+
+    /// <summary>
+    /// Opens the Clone from URL drawer: the user pastes a repository URL, the drawer
+    /// clones it, and the cloned repo is registered here — its folder appended to the
+    /// scan roots — so the rescan pulls it into the list and the bottom bar opens on
+    /// it. The drawer's destination field comes pre-typed with the first existing scan
+    /// root's parent folder, so the default clone lands next to the repos the page
+    /// already tracks (the roots are repo folders themselves — cloning into one would
+    /// nest a repo inside another repo's working tree).
+    /// </summary>
+    [RelayCommand]
+    private void OpenCloneFromUrl()
+    {
+        var destination = (_reposSettings.RepoScanFolders ?? Array.Empty<string>())
+            .FirstOrDefault(Directory.Exists) is { } root
+                ? Path.GetDirectoryName(root.TrimEnd(Path.DirectorySeparatorChar)) ?? root
+                : null;
+
+        _toolDrawer.Open(
+            ToolComponentMapper.CloneFromUrlKey,
+            new CloneFromUrlContext(
+                DefaultDestination: destination,
+                OnCloned: RegisterClonedRepoAsync));
+    }
+
+    /// <summary>
+    /// Registers the repository the clone drawer just created: its folder joins the
+    /// persisted scan roots (the roots are repo folders — the depth-1 listing scan
+    /// finds each root's own .git, which is exactly how the Add Repositories dialog
+    /// tracks its picks), then one rescan lands it in the list and the bar opens on
+    /// it — the fresh repo's Overview, same as a row press would show. Runs after the
+    /// drawer has closed; failures toast without touching the cloned folder itself.
+    /// </summary>
+    private async Task RegisterClonedRepoAsync(string clonedPath)
+    {
+        try
+        {
+            var roots = new List<string>(_reposSettings.RepoScanFolders ?? Array.Empty<string>());
+            if (roots.All(existing => !RepoPath.SamePath(existing, clonedPath)))
+            {
+                roots.Add(clonedPath);
+                _reposSettings.RepoScanFolders = roots.ToArray();
+                await PersistReposSettingsAsync();
+            }
+
+            await _repoService.RefreshAsync(_reposSettings);
+
+            // Settle the projection NOW instead of leaving it to the Changed debounce
+            // (the same tail RefreshCommand runs): the bar should open on a row that
+            // already exists on screen.
+            _list.CancelPendingRebuild();
+            _list.Rebuild();
+
+            var cloned = _repoService.Repos.FirstOrDefault(repo =>
+                repo.FolderPath is not null && RepoPath.SamePath(repo.FolderPath, clonedPath));
+            if (cloned is not null)
+            {
+                _bottomBar.OpenForRepo(cloned);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to register the cloned repository at {Path}", clonedPath);
+            _notificationService.Show("The clone landed but could not be added to the list", NotificationKind.Error);
         }
     }
 
