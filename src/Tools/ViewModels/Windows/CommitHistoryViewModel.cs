@@ -10,21 +10,21 @@ using Tools.Library.Services.Abstractions;
 namespace Tools.ViewModels.Windows;
 
 /// <summary>
-/// The open payload for the History drawer component: the repo whose commit is shown
+/// The open payload for the bar's commit-detail view: the repo whose commit is shown
 /// plus the History row the user clicked.
 /// </summary>
 public sealed record CommitHistoryContext(Repo Repo, GitCommitInfo Commit);
 
 /// <summary>
-/// One History drawer: the clicked commit's subject/hash/author, its actions
-/// (checkout, revert, copy SHA), the per-file changed list with expandable patches,
-/// and the "View Full Diff" jump to the GitHub/Azure DevOps web page.
+/// The Changes tab's commit detail (opened by clicking a History row in the bar):
+/// the clicked commit's subject/hash/author, its actions (checkout, revert, copy
+/// SHA), the per-file changed list with expandable patches, and the "View Full
+/// Diff" jump to the GitHub/Azure DevOps web page.
 /// </summary>
-public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerContextReceiver<CommitHistoryContext>
+public partial class CommitHistoryViewModel : ObservableObject
 {
     private readonly IGitStatusService _gitStatusService;
     private readonly IProcessLauncher _processLauncher;
-    private readonly IToolDrawerService _toolDrawer;
     private readonly INotificationService _notificationService;
     private readonly IClipboardService _clipboardService;
 
@@ -33,16 +33,18 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     public CommitHistoryViewModel(
         IGitStatusService gitStatusService,
         IProcessLauncher processLauncher,
-        IToolDrawerService toolDrawer,
         INotificationService notificationService,
         IClipboardService clipboardService)
     {
         _gitStatusService = gitStatusService;
         _processLauncher = processLauncher;
-        _toolDrawer = toolDrawer;
         _notificationService = notificationService;
         _clipboardService = clipboardService;
     }
+
+    /// <summary>Raised by the back link: the hosting tab view-model hides this view
+    /// (returns to the History list).</summary>
+    public event Action? CloseRequested;
 
     /// <summary>The clicked commit (subject, hash, author, time).</summary>
     [ObservableProperty]
@@ -169,13 +171,8 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
     }
 
     /// <inheritdoc/>
-    public Task OnDrawerContextAsync(CommitHistoryContext? context)
+    public void Open(CommitHistoryContext context)
     {
-        if (context is null)
-        {
-            return Task.CompletedTask;
-        }
-
         _repo = context.Repo;
         Commit = context.Commit;
         Files.Clear();
@@ -189,7 +186,6 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         ComputeWebUrl();
         _ = LoadDetailsAsync();
         _ = EvaluateWebUrlAsync();
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -272,11 +268,12 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
         }
     }
 
-    /// <summary>Drawer back link: mirrors the header's X close.</summary>
+    /// <summary>Back link: returns from the commit detail to the History list —
+    /// the hosting tab view-model hides this view.</summary>
     [RelayCommand]
     private void Close()
     {
-        _toolDrawer.Close();
+        CloseRequested?.Invoke();
     }
 
     /// <summary>
@@ -295,7 +292,7 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
                 action,
                 () => successText,
                 () => errorText,
-                logContext: $"history drawer for {Commit?.Hash}");
+                logContext: $"commit detail for {Commit?.Hash}");
         }
         finally
         {
@@ -372,7 +369,7 @@ public partial class CommitHistoryViewModel : ObservableObject, IToolDrawerConte
 }
 
 /// <summary>
-/// One file row of the History drawer: the changed file with its +/− counts and an
+/// One file row of the commit detail: the changed file with its +/− counts and an
 /// expandable patch. The patch loads from <c>git show &lt;hash&gt; -- &lt;path&gt;</c>
 /// the first time the row is expanded.
 /// </summary>

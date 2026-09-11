@@ -51,7 +51,25 @@ public partial class ChangesTabViewModel : BottomBarPanelViewModel
         : base(shell)
     {
         _messageGenerator = messageGenerator;
+
+        // The History list's drill-down: clicking a commit shows the detail over the
+        // list inside the bar; the detail's back link returns to the list.
+        CommitDetail = new CommitHistoryViewModel(
+            Shell.GitStatusService,
+            Shell.ProcessLauncher,
+            Shell.Notifications,
+            Shell.Clipboard);
+        CommitDetail.CloseRequested += () => ShowCommitDetail = false;
     }
+
+    /// <summary>The clicked commit's detail view (subject, actions, per-file changes),
+    /// shown over the History list while <see cref="ShowCommitDetail"/> is set.</summary>
+    public CommitHistoryViewModel CommitDetail { get; }
+
+    /// <summary>Whether the History list's commit detail is shown (the detail's back
+    /// link clears it; a repo switch or the History toggle closes it with the list).</summary>
+    [ObservableProperty]
+    private bool _showCommitDetail;
 
 // --- Repo-derived mirrors ---
 // Flat mirrors of the selected repo's state so the rail's binding paths never
@@ -96,8 +114,10 @@ public void RaiseRepoMirrors()
             _messageGenerator.Cancel();
             CommitMessage = string.Empty;
 
-            // An open History view must not outlive its repo: drop the old rows
-            // and reload for the new one (an empty pass is fine — the note shows).
+            // An open History view (and its commit detail) must not outlive its repo:
+            // drop the detail and the old rows, reload for the new one (an empty pass
+            // is fine — the note shows).
+            ShowCommitDetail = false;
             GitCommits.Clear();
             OnPropertyChanged(nameof(ShowCommitsEmpty));
             if (ShowHistoryView)
@@ -369,6 +389,7 @@ public void RaiseRepoMirrors()
                 SyncBranchSelection(repo);
                 RefreshGitCounts(repo);
                 _ = LoadBranchesAsync(); // a fetch can land new remote-tracking branches
+                ReloadGitData(); // the refresh click must show the tree as it is now
             });
     }
 
@@ -407,6 +428,7 @@ public void RaiseRepoMirrors()
             {
                 SyncBranchSelection(repo);
                 RefreshGitCounts(repo);
+                ReloadGitData(); // a pull can land commits — the lists and history must follow
             });
     }
 
@@ -478,6 +500,7 @@ public void RaiseRepoMirrors()
             {
                 SyncBranchSelection(repo);
                 RefreshGitCounts(repo);
+                ReloadGitData(); // same tail as pull: the sync's pull half can land commits
             });
     }
 
@@ -1013,16 +1036,17 @@ public void RaiseRepoMirrors()
     }
 
     /// <summary>
-    /// Opens the History drawer on a clicked commit: subject, actions (checkout /
-    /// revert / copy SHA), the per-file change list and the web jump. The drawer
-    /// receives this bar's selected repo together with the clicked row's commit.
+    /// Opens the commit detail over the History list: subject, actions (checkout /
+    /// revert / copy SHA), the per-file change list and the web jump. The detail gets
+    /// this bar's selected repo together with the clicked row's commit.
     /// </summary>
     [RelayCommand]
     private void OpenCommitDetail(GitCommitInfo? commit)
     {
         var repo = Repo;
         if (commit is null || repo is null) return;
-        Shell.Drawers.Open(ToolComponentMapper.CommitHistoryKey, new CommitHistoryContext(repo, commit));
+        ShowCommitDetail = true;
+        CommitDetail.Open(new CommitHistoryContext(repo, commit));
     }
 
     /// <summary>The selected repo's recent commits, newest first.</summary>
@@ -1055,12 +1079,38 @@ public void RaiseRepoMirrors()
         }
     }
 
-    /// <summary>Rail History row / back link: opens and closes the History view.</summary>
+    /// <summary>Rail History row / back link: opens and closes the History view. An
+    /// open commit detail belongs to the list — it closes with it.</summary>
     [RelayCommand]
     private Task ToggleHistoryAsync()
     {
+        ShowCommitDetail = false;
         ShowHistoryView = !ShowHistoryView;
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Reloads the commit list when the History view is open. Closed history needs
+    /// nothing here — every open re-fetches the commits anyway.
+    /// </summary>
+    public void ReloadOpenHistory()
+    {
+        if (ShowHistoryView)
+        {
+            _ = LoadRecentCommitsAsync();
+        }
+    }
+
+    /// <summary>
+    /// Reloads everything the tab derives from git after an operation that may have
+    /// moved it (fetch, pull, sync, a refresh click): the change lists plus any open
+    /// History view. Fire-and-forget; each loader guards itself against a repo
+    /// switch mid-load.
+    /// </summary>
+    public void ReloadGitData()
+    {
+        LoadTabAsync();
+        ReloadOpenHistory();
     }
 
     /// <summary>Loads the recent commit list for the History section.</summary>

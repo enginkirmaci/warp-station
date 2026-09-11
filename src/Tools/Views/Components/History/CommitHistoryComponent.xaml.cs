@@ -6,24 +6,15 @@ using Tools.ViewModels.Windows;
 namespace Tools.Views.Components.History;
 
 /// <summary>
-/// History commit-detail component, hosted in the main window's floating tool drawer
-/// and opened by clicking a History row in the Changes tab. A thin view: all state and
-/// git actions live in <see cref="CommitHistoryViewModel"/>, which receives the
-/// clicked commit through the drawer context.
+/// Commit-detail view of the Changes tab's History list, hosted by the bottom bar
+/// shell and opened by clicking a History row. A thin view: all state and git
+/// actions live in <see cref="CommitHistoryViewModel"/>, which the hosting tab
+/// view-model opens with the clicked commit.
 /// </summary>
 public partial class CommitHistoryComponent : UserControl
 {
-    public CommitHistoryViewModel ViewModel { get; }
-
     public CommitHistoryComponent()
     {
-        InitializeComponent();
-    }
-
-    public CommitHistoryComponent(CommitHistoryViewModel viewModel)
-    {
-        ViewModel = viewModel;
-        DataContext = viewModel;
         InitializeComponent();
     }
 

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-    History commit-detail drawer component: opened by clicking a History row in the
-    Changes tab. Shows the clicked commit's subject, hash/author/time, the actions
+    Commit-detail view of the Changes tab's History list (hosted by the bar shell,
+    covering the tab row and content above the History list). Opened by clicking a
+    History row. Shows the clicked commit's subject, hash/author/time, the actions
     (checkout, revert, copy SHA), the per-file changed list with expandable per-file
     patches, and the "View Full Diff" jump to the commit's GitHub/Azure DevOps page.
 -->
@@ -13,13 +14,21 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Windows"
-    d:DesignHeight="620"
-    d:DesignWidth="520"
+    d:DesignHeight="400"
+    d:DesignWidth="1200"
     x:CompileBindings="True"
     x:DataType="vm:CommitHistoryViewModel"
     mc:Ignorable="d">
 
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarResources.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
     <UserControl.Styles>
+        <StyleInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarStyles.axaml" />
         <!--  Armed confirm state for the destructive actions (Checkout / Revert):
               the first click arms — the button turns warning-colored and relabels to
               the confirm verb; the second click executes (see the VM's arm flags).  -->
@@ -35,15 +44,17 @@
               focus ring — matching the repos table, which nulls FocusAdorner too.  -->
     </UserControl.Styles>
 
-    <Grid RowDefinitions="*,Auto">
+    <!--  Same chrome as the History list behind it: one ov-card inset.  -->
+    <Border Classes="ov-card">
+        <Grid Margin="6,4,6,6" RowDefinitions="*,Auto">
 
     <!--  Header content (back link, commit meta, actions, summary) is a fixed top
           block; the per-file list below it is a virtualizing ListBox that owns the
-          remaining height. A big commit can list thousands of files — inside the
-          old whole-drawer ScrollViewer every row was realized up front, which made
-          this drawer the worst RAM offender; the bounded viewport realizes only
-          what is on screen. The result/failed notes pin under the list.  -->
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16,4,16,12">
+          remaining height. A big commit can list thousands of files — every row
+          realized up front made this view the worst RAM offender; the bounded
+          viewport realizes only what is on screen. The result/failed notes pin
+          under the list.  -->
+    <Grid RowDefinitions="Auto,*,Auto" Margin="0,0,0,12">
 
         <!--  Back link: returns from the commit detail to the History list  -->
         <StackPanel Grid.Row="0" Spacing="12">
@@ -268,11 +279,12 @@
         <!--  Footer: jump to the commit's web page (GitHub or Azure DevOps)  -->
         <Border
             Grid.Row="1"
-            Padding="16,8,16,12"
+            Padding="0,8,0,0"
             BorderBrush="{DynamicResource DividerBrush}"
             BorderThickness="0,1,0,0"
             IsVisible="{Binding HasWebUrl}">
             <Button HorizontalAlignment="Right" Command="{Binding OpenFullDiffCommand}" Content="View Full Diff" />
         </Border>
-    </Grid>
+        </Grid>
+    </Border>
 </UserControl>

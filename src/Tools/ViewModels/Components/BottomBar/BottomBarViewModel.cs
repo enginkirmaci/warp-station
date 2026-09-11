@@ -376,6 +376,13 @@ public partial class BottomBarViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<RepoTag> SelectedRepoTags { get; } = new();
 
+    /// <summary>
+    /// Every tag known across the tracked repos (the reserved favorites/platform tags
+    /// included) — the add-tag flyout's picker source. Unsorted here; the flyout sorts
+    /// and filters out the selected repo's own tags where it displays them.
+    /// </summary>
+    public IReadOnlyCollection<string> AvailableTags => _repoService.AllTags;
+
     private void OnRepoTagsChanged(object? sender, EventArgs e)
         => _tagsRebuildPost.Post(RebuildSelectedRepoTags);
 
@@ -632,7 +639,10 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>Refreshes the open panel's data (the header's refresh button): awaits
     /// the active tab's loader under a gate so it can't be spammed into concurrent
     /// reloads. The GitHub tabs' loader fans out internally and returns early — their
-    /// in-flight refreshes are guarded inside the panels' refresh twins.</summary>
+    /// in-flight refreshes are guarded inside the panels' refresh twins. The selected
+    /// repo's status is re-probed too: the loaders re-read git for their lists, but
+    /// the branch pill / ahead-behind / change counts only move when a probe writes
+    /// them. An open History view is reloaded as well — no tab loader covers it.</summary>
     [RelayCommand(CanExecute = nameof(CanRefreshPanel))]
     private async Task RefreshPanelAsync()
     {
@@ -641,7 +651,13 @@ public partial class BottomBarViewModel : ObservableObject
         IsPanelRefreshing = true;
         try
         {
+            if (SelectedRepo is { } repo)
+            {
+                await _gitStatusService.RefreshRepoAsync(repo);
+            }
+
             await load();
+            Changes.ReloadOpenHistory();
         }
         finally
         {

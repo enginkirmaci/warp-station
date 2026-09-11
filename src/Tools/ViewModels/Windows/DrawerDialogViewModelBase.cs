@@ -38,9 +38,12 @@ public abstract partial class DrawerDialogViewModelBase<TContext, TResult> :
     /// <summary>
     /// Drawer open payload: stores the context's completion source for the confirm path
     /// and seeds the dialog state so every open starts from a clean sheet. Null
-    /// deliveries (an open without this payload) are ignored.
+    /// deliveries (an open without this payload) are ignored. Virtual so a dialog can
+    /// extend the delivery with its own async seeding (the Repo Settings drawer loads
+    /// the OpenCode model catalog after the synchronous base seed) — the override still
+    /// calls base first, and the synchronous prefix runs inline ahead of it.
     /// </summary>
-    public Task OnDrawerContextAsync(TContext? context)
+    public virtual Task OnDrawerContextAsync(TContext? context)
     {
         if (context is null)
         {

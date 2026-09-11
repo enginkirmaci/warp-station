@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:Tools.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:history="using:Tools.Views.Components.History"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:repo="using:Tools.Views.Components.Repo"
     xmlns:tabs="using:Tools.Views.Components.BottomBar.Tabs"
@@ -202,7 +203,9 @@
                       (rows 1-2) while the Changes tab's git rail has toggled
                       History on — it reads as a page over the tabs, not a
                       section under them. Only on the Changes tab; bound to the
-                      Changes child VM like the tab itself.  -->
+                      Changes child VM like the tab itself. The commit detail
+                      (a clicked History row) stacks above it as the second
+                      overlay level; its back link returns to the list.  -->
                 <Grid
                     Grid.Row="1"
                     Grid.RowSpan="2"
@@ -210,6 +213,9 @@
                     <tabs:ChangesHistoryView
                         DataContext="{Binding Changes}"
                         IsVisible="{Binding ShowHistoryView}" />
+                    <Grid IsVisible="{Binding Changes.ShowCommitDetail}">
+                        <history:CommitHistoryComponent DataContext="{Binding Changes.CommitDetail}" />
+                    </Grid>
                 </Grid>
             </Grid>
         </Border>

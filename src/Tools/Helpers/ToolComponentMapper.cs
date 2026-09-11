@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Tools.Views.Components;
 using Tools.Views.Components.Git;
-using Tools.Views.Components.History;
 using Tools.Views.Components.Repo;
 using Tools.Views.Components.Settings;
 using Tools.Views.Components.Tools;
@@ -33,9 +32,6 @@ public static class ToolComponentMapper
 
     /// <summary>Drawer key of the Repo Settings component (opened by DialogService).</summary>
     public const string RepoSettingsKey = "ReposSettingsDialog";
-
-    /// <summary>Drawer key of the History commit-detail component (opened by a History row click).</summary>
-    public const string CommitHistoryKey = "CommitHistoryDialog";
 
     /// <summary>Drawer key of the New Branch component (opened by the Changes tab's branch dropdown).</summary>
     public const string NewBranchKey = "NewBranchDialog";
@@ -73,7 +69,6 @@ public static class ToolComponentMapper
         // DialogService in place of the former modal windows.
         new ToolDefinition(AddRepositoriesKey, typeof(AddRepositoryComponent), "Add Repositories", "icon-plus"),
         new ToolDefinition(RepoSettingsKey, typeof(ReposSettingsComponent), "Repo Settings", "icon-cog"),
-        new ToolDefinition(CommitHistoryKey, typeof(CommitHistoryComponent), "History", "icon-clock"),
         new ToolDefinition(NewBranchKey, typeof(NewBranchComponent), "New Branch", "icon-source-branch"),
         new ToolDefinition(CloneFromUrlKey, typeof(CloneFromUrlComponent), "Clone from URL", "icon-cloud-download"),
     ];

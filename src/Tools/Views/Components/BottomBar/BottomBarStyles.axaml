@@ -19,15 +19,15 @@
         </Style>
         <!--  The quiet accent link class (Button.detail-link — the History rows' hash
               links and the commit-message wand) lives app-wide in AppStyles.axaml so
-              the History drawer's Back link, hosted outside the bar's style scope,
-              resolves the same class.  -->
+              views beyond this file's StyleInclude scope resolve the same class.  -->
         <!--  History rows: hover tint (same RowHoverBackgroundBrush as the repos
               table's rows) so the clickable rows read as interactive; they are
-              focusable too (Enter/Space open the drawer) but paint no focus ring.
-              The transparent base background is a STYLE, not a local attribute —
-              a local value would beat the :pointerover setter below. It exists so
-              the whole row hit-tests (null-background Grids only hit-test on
-              their children, which killed hover/tooltip outside the texts).  -->
+              focusable too (Enter/Space open the commit detail) but paint no focus
+              ring. The transparent base background is a STYLE, not a local
+              attribute — a local value would beat the :pointerover setter below.
+              It exists so the whole row hit-tests (null-background Grids only
+              hit-test on their children, which killed hover/tooltip outside the
+              texts).  -->
         <Style Selector="Grid.history-row">
             <Setter Property="Background" Value="Transparent" />
         </Style>

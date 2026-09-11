@@ -2,12 +2,13 @@
 <!--
     Changes History view: the full-width card that covers the bottom bar's tab
     row and content while the Changes tab's git rail has toggled History on.
-    The back link mirrors the History drawer's (detail-link, arrow-left +
+    The back link mirrors the commit detail's (detail-link, arrow-left +
     label) and returns to the commit workspace; every open re-fetches the
     list (the tab's view-model does that on ShowHistoryView). One row per
     commit: initials avatar + subject + author/time info line, the hash copy
-    link and a chevron that opens the commit-detail drawer. Row handlers
-    (tap / Enter / Space open the drawer) live in this view's code-behind.
+    link and a chevron that opens the commit detail over the list. Row
+    handlers (tap / Enter / Space open the detail) live in this view's
+    code-behind.
 -->
 <UserControl
     x:Class="Tools.Views.Components.BottomBar.Tabs.ChangesHistoryView"

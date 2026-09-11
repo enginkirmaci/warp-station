@@ -128,7 +128,7 @@
                         <Grid
                             ColumnDefinitions="*,*"
                             ColumnSpacing="16"
-                            RowDefinitions="Auto,Auto,Auto,Auto"
+                            RowDefinitions="Auto,Auto,Auto"
                             RowSpacing="8">
                             <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                                 <TextBlock
@@ -172,21 +172,53 @@
                                     ToolTip.Tip="Path or command for zcode; AppImage opens the desktop app" />
                                 <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
                             </StackPanel>
-                            <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="OpenCode Model (default)"
-                                    ToolTip.Tip="Model the opencode quick-launch button starts; passed verbatim" />
-                                <TextBox Text="{Binding OpenCodeDefaultModel, UpdateSourceTrigger=PropertyChanged}" Watermark="provider/model, e.g. opencode-go/glm-5.3-flash" />
-                            </StackPanel>
-                            <StackPanel Grid.Row="3" Grid.Column="1" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="OpenCode Commit Model (wand)"
-                                    ToolTip.Tip="Model for the commit-message wand; empty = default model" />
-                                <TextBox Text="{Binding OpenCodeCommitModel, UpdateSourceTrigger=PropertyChanged}" Watermark="(empty = default model)" />
-                            </StackPanel>
                         </Grid>
+                        <!--
+                            Model fields: the launch drawer's editable model ComboBoxes over
+                            the shared `opencode models` catalog (searchable dropdown; the
+                            box text is the saved value, so custom ids stay verbatim and
+                            clearing the commit box restores the default-model fallback).
+                        -->
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="OpenCode Model (default)"
+                                ToolTip.Tip="Model the opencode quick-launch button starts; pick from the loaded catalog or type any model id" />
+                            <ComboBox
+                                Name="DefaultModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding DefaultModelPicker.FilteredModels}"
+                                PlaceholderText="provider/model, e.g. opencode-go/glm-5.3-flash"
+                                SelectedItem="{Binding DefaultModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnDefaultModelSelectionChanged"
+                                Text="{Binding DefaultModelPicker.Filter, Mode=TwoWay}" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding !DefaultModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="OpenCode Commit Model (wand)"
+                                ToolTip.Tip="Model for the commit-message wand; empty = default model" />
+                            <ComboBox
+                                Name="CommitModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding CommitModelPicker.FilteredModels}"
+                                PlaceholderText="(empty = default model)"
+                                SelectedItem="{Binding CommitModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnCommitModelSelectionChanged"
+                                Text="{Binding CommitModelPicker.Filter, Mode=TwoWay}" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding !CommitModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

@@ -26,9 +26,9 @@ public partial class ChangesHistoryView : UserControl
     }
 
     /// <summary>
-    /// A History row was tapped: open the commit-detail drawer on that commit. Taps on
+    /// A History row was tapped: open the commit detail over this list. Taps on
     /// the row's hash Button are skipped — that button's own command (copy the full
-    /// SHA) should not also open the drawer.
+    /// SHA) should not also open the detail.
     /// </summary>
     private void OnHistoryRowTapped(object? sender, TappedEventArgs e)
     {

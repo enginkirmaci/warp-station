@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 using Tools.Services;
@@ -14,6 +15,13 @@ namespace Tools.ViewModels.Windows;
 /// model the quick-launch passes verbatim and the wand's commit model — moved here
 /// from the OpenCode drawer, which is a per-launch surface now), translating between
 /// text and settings on load/save.
+/// <para>
+/// The two model fields are the launch drawer's editable model ComboBoxes (one
+/// <see cref="OpenCodeModelPickerViewModel"/> each over the shared
+/// <c>opencode models</c> catalog): the cached catalog seeds the lists synchronously on
+/// open, the fresh catalog follows async. Save resolves each picker's box text through
+/// the catalog with custom ids kept verbatim.
+/// </para>
 /// </summary>
 public partial class ReposSettingsViewModel :
     DrawerDialogViewModelBase<ReposSettingsDrawerContext, ReposSettingsEditResult>
@@ -58,13 +66,23 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _openCodeExecutable = ReposSettings.DefaultOpenCodeExecutable;
 
-    /// <summary>The default model quick-launch passes to opencode (provider/model id).</summary>
-    [ObservableProperty]
-    private string _openCodeDefaultModel = string.Empty;
+    /// <summary>The saved default model this open edits (the pickers' seed value).</summary>
+    private string _savedDefaultModel = string.Empty;
 
-    /// <summary>The wand's model; empty means the wand falls back to the default model.</summary>
-    [ObservableProperty]
-    private string _openCodeCommitModel = string.Empty;
+    /// <summary>The saved wand commit model this open edits (the picker's seed value).</summary>
+    private string _savedCommitModel = string.Empty;
+
+    /// <summary>
+    /// The default-model field: the launch drawer's editable model ComboBox over the
+    /// shared <c>opencode models</c> catalog.
+    /// </summary>
+    public OpenCodeModelPickerViewModel DefaultModelPicker { get; } = new();
+
+    /// <summary>The commit-model field (empty = the wand falls back to the default model).</summary>
+    public OpenCodeModelPickerViewModel CommitModelPicker { get; } = new();
+
+    /// <summary>The model catalog loader behind both pickers.</summary>
+    private readonly IOpenCodeModelService _openCodeModelService;
 
     [ObservableProperty]
     private string _zCodeExecutable = ReposSettings.DefaultZCodeExecutable;
@@ -113,9 +131,10 @@ public partial class ReposSettingsViewModel :
     /// Initializes a new instance. Editing state is seeded per open through
     /// <see cref="OnDrawerContextAsync"/> (the component is resolved fresh from DI each time).
     /// </summary>
-    public ReposSettingsViewModel(IToolDrawerService toolDrawer)
+    public ReposSettingsViewModel(IToolDrawerService toolDrawer, IOpenCodeModelService openCodeModelService)
         : base(toolDrawer)
     {
+        _openCodeModelService = openCodeModelService;
     }
 
     /// <summary>The open context's completion source the Save command resolves.</summary>
@@ -128,9 +147,54 @@ public partial class ReposSettingsViewModel :
         LoadFrom(context.Current ?? new ReposSettings());
 
         var openCode = context.OpenCode ?? new OpenCodeSettings();
-        OpenCodeDefaultModel = openCode.DefaultModel ?? string.Empty;
-        OpenCodeCommitModel = openCode.CommitModel ?? string.Empty;
+        _savedDefaultModel = openCode.DefaultModel ?? string.Empty;
+        _savedCommitModel = openCode.CommitModel ?? string.Empty;
         EnableNuget = context.NugetEnabled;
+    }
+
+    /// <summary>
+    /// After the synchronous seed, loads the model catalog behind both pickers: the
+    /// cached list applies synchronously ahead of the first await (the lists paint
+    /// filled), then the <c>opencode models</c> refresh lands (the service's TTL decides
+    /// whether the CLI actually re-runs). The guard spans both applies per picker, so the
+    /// rebuilds' phantom picks never commit.
+    /// </summary>
+    public override async Task OnDrawerContextAsync(ReposSettingsDrawerContext? context)
+    {
+        await base.OnDrawerContextAsync(context);
+        if (context is null)
+        {
+            return;
+        }
+
+        try
+        {
+            DefaultModelPicker.BeginCatalogRefresh();
+            CommitModelPicker.BeginCatalogRefresh();
+            try
+            {
+                ApplyCatalogs(_openCodeModelService.GetCachedModels(_savedDefaultModel));
+
+                var models = await _openCodeModelService.GetModelsAsync(OpenCodeExecutable, _savedDefaultModel);
+                ApplyCatalogs(models);
+            }
+            finally
+            {
+                DefaultModelPicker.EndCatalogRefresh();
+                CommitModelPicker.EndCatalogRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Repo settings drawer: OpenCode model catalog load failed");
+        }
+    }
+
+    /// <summary>Applies one catalog snapshot to both pickers, each seeded with the saved value it edits.</summary>
+    private void ApplyCatalogs(IReadOnlyList<string> models)
+    {
+        DefaultModelPicker.ApplyCatalog(models, _savedDefaultModel);
+        CommitModelPicker.ApplyCatalog(models, _savedCommitModel);
     }
 
     /// <summary>
@@ -177,15 +241,19 @@ public partial class ReposSettingsViewModel :
     }
 
     /// <summary>
-    /// Builds the edited OpenCode section: the model ids are kept trimmed verbatim (an
-    /// empty default is legal — quick-launch then alerts instead of guessing a model).
+    /// Builds the edited OpenCode section: each model id resolves from its picker's box
+    /// text (an exact catalog match snaps to the list's casing; a custom id is kept
+    /// trimmed verbatim — an empty default is legal, quick-launch then alerts instead of
+    /// guessing a model, and an empty commit model means the wand uses the default).
     /// </summary>
     public OpenCodeSettings BuildOpenCodeSettings()
     {
+        var defaultModel = DefaultModelPicker.ResolveCommittedValue();
+        var commitModel = CommitModelPicker.ResolveCommittedValue();
         return new OpenCodeSettings
         {
-            DefaultModel = OpenCodeDefaultModel?.Trim() ?? string.Empty,
-            CommitModel = string.IsNullOrWhiteSpace(OpenCodeCommitModel) ? null : OpenCodeCommitModel.Trim()
+            DefaultModel = defaultModel,
+            CommitModel = string.IsNullOrWhiteSpace(commitModel) ? null : commitModel
         };
     }
 
