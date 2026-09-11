@@ -3,11 +3,13 @@ namespace Tools.Library.Entities;
 /// <summary>
 /// The full detail of one commit, parsed from <c>git show --numstat</c> for the
 /// History drawer: every changed file with its added/deleted line counts (nulls for
-/// binary files).
+/// binary files), plus the commit's message body — everything after the subject
+/// block (null when the message is subject-only).
 /// </summary>
 public sealed record GitCommitDetails(
     string Hash,
-    IReadOnlyList<GitChangedFile> Files)
+    IReadOnlyList<GitChangedFile> Files,
+    string? Body = null)
 {
     /// <summary>The "N files changed" count.</summary>
     public int FileCount => Files.Count;

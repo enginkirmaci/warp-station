@@ -314,7 +314,16 @@ public sealed class GitStatusService : IGitStatusService
         var files = counts
             .Select(entry => new GitChangedFile(entry.Key, string.Empty, entry.Value.Additions, entry.Value.Deletions))
             .ToList();
-        return new GitCommitDetails(hash, files);
+
+        // The message body (%b — everything after the subject block) renders under the
+        // detail's subject line; a subject-only message reports an empty body.
+        var body = (await RunGitAsync(
+            repo.FolderPath,
+            $"log -1 --format=%b {GitCommandRunner.Quote(hash)}",
+            cancellationToken,
+            maxOutputChars: CommitBodyReadCap))?.Trim();
+
+        return new GitCommitDetails(hash, files, string.IsNullOrEmpty(body) ? null : body);
     }
 
     /// <inheritdoc/>
@@ -686,6 +695,11 @@ public sealed class GitStatusService : IGitStatusService
     /// far past what the drawer's fixed-height box usefully shows, and it bounds the
     /// TextBox's text layout to match.</summary>
     private const int CommitPatchReadCap = 64 * 1024;
+
+    /// <summary>Read cap for a commit-detail message body: bodies are prose rendered
+    /// in the header's capped scroll box, so 16K chars bounds the fetch far past
+    /// anything displayed.</summary>
+    private const int CommitBodyReadCap = 16 * 1024;
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default)

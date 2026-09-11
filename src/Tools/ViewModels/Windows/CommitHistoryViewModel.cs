@@ -17,9 +17,10 @@ public sealed record CommitHistoryContext(Repo Repo, GitCommitInfo Commit);
 
 /// <summary>
 /// The Changes tab's commit detail (opened by clicking a History row in the bar):
-/// the clicked commit's subject/hash/author, its actions (checkout, revert, copy
-/// SHA), the per-file changed list with expandable patches, and the "View Full
-/// Diff" jump to the GitHub/Azure DevOps web page.
+/// the clicked commit's subject/hash/author (plus its multi-line message body),
+/// its actions (checkout, revert, copy SHA), the per-file changed list with
+/// expandable patches, and the "View Full Diff" jump to the GitHub/Azure DevOps
+/// web page.
 /// </summary>
 public partial class CommitHistoryViewModel : ObservableObject
 {
@@ -68,6 +69,19 @@ public partial class CommitHistoryViewModel : ObservableObject
     public string? CommitAuthor => Commit?.Author;
 
     public string? CommitRelativeTime => Commit?.RelativeTime;
+
+    /// <summary>The commit's message body — everything after the subject block; null
+    /// while the details load or the message is subject-only.</summary>
+    [ObservableProperty]
+    private string? _commitBody;
+
+    partial void OnCommitBodyChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasCommitBody));
+    }
+
+    /// <summary>Whether the multi-line message body should render under the subject line.</summary>
+    public bool HasCommitBody => !string.IsNullOrWhiteSpace(CommitBody);
 
     /// <summary>True while the commit's file list is being loaded.</summary>
     [ObservableProperty]
@@ -175,6 +189,7 @@ public partial class CommitHistoryViewModel : ObservableObject
     {
         _repo = context.Repo;
         Commit = context.Commit;
+        CommitBody = null;
         Files.Clear();
         IsLoading = false;
         IsBusy = false;
@@ -249,6 +264,7 @@ public partial class CommitHistoryViewModel : ObservableObject
 
             _totalAdditions = details.Additions;
             _totalDeletions = details.Deletions;
+            CommitBody = details.Body;
             RaiseTotals();
         }
         catch (Exception ex)

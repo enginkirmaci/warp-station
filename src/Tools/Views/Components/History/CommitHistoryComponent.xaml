@@ -2,9 +2,12 @@
 <!--
     Commit-detail view of the Changes tab's History list (hosted by the bar shell,
     covering the tab row and content above the History list). Opened by clicking a
-    History row. Shows the clicked commit's subject, hash/author/time, the actions
-    (checkout, revert, copy SHA), the per-file changed list with expandable per-file
-    patches, and the "View Full Diff" jump to the commit's GitHub/Azure DevOps page.
+    History row. Two panels side by side: the changed files on the left (summary
+    header + per-file list with expandable patches) and the commit info on the
+    right — back link to the History list, subject, hash/author/time, the actions
+    (checkout, revert, copy SHA), the full multi-line message body, and the
+    "View Full Diff" jump to the commit's GitHub/Azure DevOps page pinned at the
+    bottom of the panel.
 -->
 <UserControl
     x:Class="Tools.Views.Components.History.CommitHistoryComponent"
@@ -44,247 +47,257 @@
               focus ring — matching the repos table, which nulls FocusAdorner too.  -->
     </UserControl.Styles>
 
-    <!--  Same chrome as the History list behind it: one ov-card inset.  -->
+    <!--  Same chrome as the History list behind it: one ov-card holding the two
+          panels. The files column is slightly wider — diffs want the room.  -->
     <Border Classes="ov-card">
-        <Grid Margin="6,4,6,6" RowDefinitions="*,Auto">
+        <Grid Margin="6,4,6,6" ColumnDefinitions="11*,10*" ColumnSpacing="12">
 
-    <!--  Header content (back link, commit meta, actions, summary) is a fixed top
-          block; the per-file list below it is a virtualizing ListBox that owns the
-          remaining height. A big commit can list thousands of files — every row
-          realized up front made this view the worst RAM offender; the bounded
-          viewport realizes only what is on screen. The result/failed notes pin
-          under the list.  -->
-    <Grid RowDefinitions="Auto,*,Auto" Margin="0,0,0,12">
+            <!--  LEFT: the changed files card  -->
+            <Border Grid.Column="0" Classes="card">
+                <DockPanel>
 
-        <!--  Back link: returns from the commit detail to the History list  -->
-        <StackPanel Grid.Row="0" Spacing="12">
-            <Button
-                HorizontalAlignment="Left"
-                Padding="0"
-                Background="Transparent"
-                BorderThickness="0"
-                Classes="detail-link"
-                Command="{Binding CloseCommand}"
-                ToolTip.Tip="Back to the history list">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Path
-                        Width="12"
-                        Height="12"
-                        VerticalAlignment="Center"
-                        Data="{tools:SvgPath icon-arrow-left}"
-                        Fill="{Binding $parent[Button].Foreground}"
-                        Stretch="Uniform" />
-                    <TextBlock VerticalAlignment="Center" Text="History" />
-                </StackPanel>
-            </Button>
-
-            <!--  Subject + meta line  -->
-            <StackPanel Spacing="4">
-                <TextBlock
-                    FontSize="15"
-                    FontWeight="SemiBold"
-                    Foreground="{DynamicResource BodyForegroundBrush}"
-                    Text="{Binding CommitSubject}"
-                    TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Classes="mono" Classes.subtle="True" Text="{Binding CommitShortHash}" />
-                    <TextBlock Classes="subtle" Text="·" />
-                    <TextBlock
-                        Classes="subtle"
-                        IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                        Text="{Binding CommitAuthor}" />
-                    <TextBlock
-                        Classes="subtle"
-                        IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                        Text="·" />
-                    <TextBlock Classes="subtle" Text="{Binding CommitRelativeTime}" />
-                </StackPanel>
-            </StackPanel>
-
-            <!--  Actions  -->
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button
-                    Classes.armed="{Binding IsCheckoutArmed}"
-                    Command="{Binding CheckoutCommand}"
-                    Content="{Binding CheckoutLabel}"
-                    IsEnabled="{Binding !IsBusy}"
-                    ToolTip.Tip="{Binding CheckoutTooltip}" />
-                <Button
-                    Classes.armed="{Binding IsRevertArmed}"
-                    Command="{Binding RevertCommand}"
-                    Content="{Binding RevertLabel}"
-                    IsEnabled="{Binding !IsBusy}"
-                    ToolTip.Tip="{Binding RevertTooltip}" />
-                <Button
-                    Command="{Binding CopyShaCommand}"
-                    Content="Copy SHA"
-                    ToolTip.Tip="Copy the full commit hash" />
-            </StackPanel>
-
-            <!--  Files-changed summary  -->
-            <Border Classes="card">
-                <StackPanel Spacing="4">
-                    <TextBlock Classes="card-title" Text="Changes" />
-                    <TextBlock
-                        Classes="subtle"
-                        IsVisible="{Binding IsLoading}"
-                        Text="Loading files…" />
-                    <Grid
-                        ColumnDefinitions="*,Auto,Auto"
-                        ColumnSpacing="8"
-                        IsVisible="{Binding !IsLoading}">
+                    <!--  Summary header: title + "N files changed", +/− totals right  -->
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="4">
+                        <TextBlock Classes="card-title" Text="Changes" />
                         <TextBlock
-                            Grid.Column="0"
                             Classes="subtle"
-                            Text="{Binding FilesChangedText}" />
-                        <TextBlock
-                            Grid.Column="1"
-                            Classes="mono"
-                            Foreground="{DynamicResource AddedCountBrush}"
-                            IsVisible="{Binding TotalAdditions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                            Text="{Binding TotalAdditions, StringFormat='+{0}'}" />
-                        <TextBlock
-                            Grid.Column="2"
-                            Classes="mono"
-                            Foreground="{DynamicResource RemovedCountBrush}"
-                            IsVisible="{Binding TotalDeletions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                            Text="{Binding TotalDeletions, StringFormat='−{0}'}" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-        </StackPanel>
-
-        <!--  Per-file list with expandable patches (virtualized — see the header
-              comment above)  -->
-        <ListBox
-            Grid.Row="1"
-            Margin="0,12,0,0"
-            Classes="plain-list"
-            ItemsSource="{Binding Files}">
-            <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:CommitFileRowViewModel">
-                    <StackPanel Spacing="4">
-                        <!--  The WHOLE row toggles the patch (OnFileRowTapped in the
-                              code-behind — a Button here would hug its content, and
-                              the chevron is only the state indicator). The delta
-                              pills ride in FIXED-width 48px columns — additions
-                              right-aligned, deletions left-aligned so the pair
-                              hugs together, same geometry as the Changes tab's
-                              numstat pills — an Auto pill column drifts row to
-                              row with the path length.  -->
+                            IsVisible="{Binding IsLoading}"
+                            Text="Loading files…" />
                         <Grid
-                            Classes="file-row"
-                            ColumnDefinitions="Auto,*,48,48"
+                            ColumnDefinitions="*,Auto,Auto"
                             ColumnSpacing="8"
-                            Cursor="Hand"
-                            Focusable="True"
-                            KeyDown="OnFileRowKeyDown"
-                            Tapped="OnFileRowTapped">
-                            <Panel
+                            IsVisible="{Binding !IsLoading}">
+                            <TextBlock
                                 Grid.Column="0"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="Show / hide this file's patch">
-                                <!--  boxes sized to the chevron's ink aspect (12x7.4
-                                      ink → 16x10 box keeps it on the vertical center)  -->
-                                <Path
-                                    Width="16"
-                                    Height="10"
-                                    HorizontalAlignment="Center"
-                                    Data="{tools:SvgPath icon-chevron-right}"
-                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                    IsVisible="{Binding !IsExpanded}"
-                                    Stretch="Uniform" />
-                                <Path
-                                    Width="16"
-                                    Height="10"
-                                    HorizontalAlignment="Center"
-                                    Data="{tools:SvgPath icon-chevron-down}"
-                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                    IsVisible="{Binding IsExpanded}"
-                                    Stretch="Uniform" />
-                            </Panel>
+                                Classes="subtle"
+                                Text="{Binding FilesChangedText}" />
                             <TextBlock
                                 Grid.Column="1"
-                                VerticalAlignment="Center"
                                 Classes="mono"
-                                Classes.subtle="True"
-                                Text="{Binding Path}"
-                                TextTrimming="CharacterEllipsis"
-                                ToolTip.Tip="{Binding Path}" />
-                            <Border
+                                Foreground="{DynamicResource AddedCountBrush}"
+                                IsVisible="{Binding TotalAdditions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                Text="{Binding TotalAdditions, StringFormat='+{0}'}" />
+                            <TextBlock
                                 Grid.Column="2"
-                                Padding="6,1"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center"
-                                Background="{DynamicResource AddedCountChipBrush}"
-                                CornerRadius="{DynamicResource ChipRadius}"
-                                IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                <TextBlock
-                                    Classes="mono"
-                                    Foreground="{DynamicResource AddedCountBrush}"
-                                    Text="{Binding AddedText}" />
-                            </Border>
-                            <Border
-                                Grid.Column="3"
-                                Padding="6,1"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Center"
-                                Background="{DynamicResource RemovedCountChipBrush}"
-                                CornerRadius="{DynamicResource ChipRadius}"
-                                IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
-                                <TextBlock
-                                    Classes="mono"
-                                    Foreground="{DynamicResource RemovedCountBrush}"
-                                    Text="{Binding RemovedText}" />
-                            </Border>
-                        </Grid>
-                        <!--  Expanded per-file patch  -->
-                        <StackPanel
-                            Margin="20,0,0,0"
-                            IsVisible="{Binding IsExpanded}">
-                            <TextBox
                                 Classes="mono"
-                                Height="180"
-                                HorizontalContentAlignment="Left"
-                                IsReadOnly="True"
-                                PlaceholderText="Patch unavailable"
-                                Text="{Binding Patch, Mode=OneWay}"
-                                TextWrapping="NoWrap"
-                                VerticalContentAlignment="Top"
-                                IsVisible="{Binding !IsLoadingPatch}" />
+                                Foreground="{DynamicResource RemovedCountBrush}"
+                                IsVisible="{Binding TotalDeletions, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                Text="{Binding TotalDeletions, StringFormat='−{0}'}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!--  Empty-state / failure notes pin under the list  -->
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" Spacing="4">
+                        <TextBlock
+                            Classes="subtle"
+                            HorizontalAlignment="Center"
+                            IsVisible="{Binding ShowNoFilesNote}"
+                            Text="No file changes reported for this commit" />
+                        <TextBlock
+                            Classes="subtle"
+                            HorizontalAlignment="Center"
+                            Foreground="{DynamicResource WarningAccentBrush}"
+                            IsVisible="{Binding LoadFailed}"
+                            Text="Loading this commit's files failed — see the logs" />
+                    </StackPanel>
+
+                    <!--  Per-file list with expandable patches (virtualized — a big
+                          commit can list thousands of files; the bounded viewport
+                          realizes only what is on screen)  -->
+                    <ListBox
+                        Classes="plain-list"
+                        ItemsSource="{Binding Files}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CommitFileRowViewModel">
+                                <StackPanel Spacing="4">
+                                    <!--  The WHOLE row toggles the patch (OnFileRowTapped in the
+                                          code-behind — a Button here would hug its content, and
+                                          the chevron is only the state indicator). The delta
+                                          pills ride in FIXED-width 48px columns — additions
+                                          right-aligned, deletions left-aligned so the pair
+                                          hugs together, same geometry as the Changes tab's
+                                          numstat pills — an Auto pill column drifts row to
+                                          row with the path length.  -->
+                                    <Grid
+                                        Classes="file-row"
+                                        ColumnDefinitions="Auto,*,48,48"
+                                        ColumnSpacing="8"
+                                        Cursor="Hand"
+                                        Focusable="True"
+                                        KeyDown="OnFileRowKeyDown"
+                                        Tapped="OnFileRowTapped">
+                                        <Panel
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            ToolTip.Tip="Show / hide this file's patch">
+                                            <!--  boxes sized to the chevron's ink aspect (12x7.4
+                                                  ink → 16x10 box keeps it on the vertical center)  -->
+                                            <Path
+                                                Width="16"
+                                                Height="10"
+                                                HorizontalAlignment="Center"
+                                                Data="{tools:SvgPath icon-chevron-right}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                IsVisible="{Binding !IsExpanded}"
+                                                Stretch="Uniform" />
+                                            <Path
+                                                Width="16"
+                                                Height="10"
+                                                HorizontalAlignment="Center"
+                                                Data="{tools:SvgPath icon-chevron-down}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                IsVisible="{Binding IsExpanded}"
+                                                Stretch="Uniform" />
+                                        </Panel>
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Classes="mono"
+                                            Classes.subtle="True"
+                                            Text="{Binding Path}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTip.Tip="{Binding Path}" />
+                                        <Border
+                                            Grid.Column="2"
+                                            Padding="6,1"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Background="{DynamicResource AddedCountChipBrush}"
+                                            CornerRadius="{DynamicResource ChipRadius}"
+                                            IsVisible="{Binding AddedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                            <TextBlock
+                                                Classes="mono"
+                                                Foreground="{DynamicResource AddedCountBrush}"
+                                                Text="{Binding AddedText}" />
+                                        </Border>
+                                        <Border
+                                            Grid.Column="3"
+                                            Padding="6,1"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Background="{DynamicResource RemovedCountChipBrush}"
+                                            CornerRadius="{DynamicResource ChipRadius}"
+                                            IsVisible="{Binding RemovedText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}">
+                                            <TextBlock
+                                                Classes="mono"
+                                                Foreground="{DynamicResource RemovedCountBrush}"
+                                                Text="{Binding RemovedText}" />
+                                        </Border>
+                                    </Grid>
+                                    <!--  Expanded per-file patch  -->
+                                    <StackPanel
+                                        Margin="20,0,0,0"
+                                        IsVisible="{Binding IsExpanded}">
+                                        <TextBox
+                                            Classes="mono"
+                                            Height="180"
+                                            HorizontalContentAlignment="Left"
+                                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                            IsReadOnly="True"
+                                            PlaceholderText="Patch unavailable"
+                                            Text="{Binding Patch, Mode=OneWay}"
+                                            TextWrapping="NoWrap"
+                                            VerticalContentAlignment="Top"
+                                            IsVisible="{Binding !IsLoadingPatch}" />
+                                        <TextBlock
+                                            Classes="subtle"
+                                            IsVisible="{Binding IsLoadingPatch}"
+                                            Text="Loading patch…" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!--  RIGHT: the commit info card  -->
+            <Border Grid.Column="1" Classes="card">
+                <DockPanel>
+
+                    <!--  Back link: returns from the commit detail to the History list  -->
+                    <Button
+                        DockPanel.Dock="Top"
+                        HorizontalAlignment="Left"
+                        Margin="0,0,0,12"
+                        Padding="0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Classes="detail-link"
+                        Command="{Binding CloseCommand}"
+                        ToolTip.Tip="Back to the history list">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Path
+                                Width="12"
+                                Height="12"
+                                VerticalAlignment="Center"
+                                Data="{tools:SvgPath icon-arrow-left}"
+                                Fill="{Binding $parent[Button].Foreground}"
+                                Stretch="Uniform" />
+                            <TextBlock VerticalAlignment="Center" Text="History" />
+                        </StackPanel>
+                    </Button>
+
+                    <!--  Footer: jump to the commit's web page, pinned at the bottom  -->
+                    <Border
+                        DockPanel.Dock="Bottom"
+                        Padding="0,10,0,0"
+                        BorderBrush="{DynamicResource DividerBrush}"
+                        BorderThickness="0,1,0,0"
+                        IsVisible="{Binding HasWebUrl}">
+                        <Button HorizontalAlignment="Right" Command="{Binding OpenFullDiffCommand}" Content="View Full Diff" />
+                    </Border>
+
+                    <!--  Subject, meta, actions, then the full message filling the rest
+                          (scrolls when a long body outgrows the panel)  -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                FontSize="15"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource BodyForegroundBrush}"
+                                Text="{Binding CommitSubject}"
+                                TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Classes="mono" Classes.subtle="True" Text="{Binding CommitShortHash}" />
+                                <TextBlock Classes="subtle" Text="·" />
+                                <TextBlock
+                                    Classes="subtle"
+                                    IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                    Text="{Binding CommitAuthor}" />
+                                <TextBlock
+                                    Classes="subtle"
+                                    IsVisible="{Binding CommitAuthor, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                    Text="·" />
+                                <TextBlock Classes="subtle" Text="{Binding CommitRelativeTime}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Classes.armed="{Binding IsCheckoutArmed}"
+                                    Command="{Binding CheckoutCommand}"
+                                    Content="{Binding CheckoutLabel}"
+                                    IsEnabled="{Binding !IsBusy}"
+                                    ToolTip.Tip="{Binding CheckoutTooltip}" />
+                                <Button
+                                    Classes.armed="{Binding IsRevertArmed}"
+                                    Command="{Binding RevertCommand}"
+                                    Content="{Binding RevertLabel}"
+                                    IsEnabled="{Binding !IsBusy}"
+                                    ToolTip.Tip="{Binding RevertTooltip}" />
+                                <Button
+                                    Command="{Binding CopyShaCommand}"
+                                    Content="Copy SHA"
+                                    ToolTip.Tip="Copy the full commit hash" />
+                            </StackPanel>
                             <TextBlock
                                 Classes="subtle"
-                                IsVisible="{Binding IsLoadingPatch}"
-                                Text="Loading patch…" />
+                                IsVisible="{Binding HasCommitBody}"
+                                Text="{Binding CommitBody}"
+                                TextWrapping="Wrap" />
                         </StackPanel>
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-        <StackPanel Grid.Row="2" Margin="0,6,0,0" Spacing="4">
-            <TextBlock
-                Classes="subtle"
-                HorizontalAlignment="Center"
-                IsVisible="{Binding ShowNoFilesNote}"
-                Text="No file changes reported for this commit" />
-            <TextBlock
-                Classes="subtle"
-                HorizontalAlignment="Center"
-                Foreground="{DynamicResource WarningAccentBrush}"
-                IsVisible="{Binding LoadFailed}"
-                Text="Loading this commit's files failed — see the logs" />
-        </StackPanel>
-    </Grid>
-
-        <!--  Footer: jump to the commit's web page (GitHub or Azure DevOps)  -->
-        <Border
-            Grid.Row="1"
-            Padding="0,8,0,0"
-            BorderBrush="{DynamicResource DividerBrush}"
-            BorderThickness="0,1,0,0"
-            IsVisible="{Binding HasWebUrl}">
-            <Button HorizontalAlignment="Right" Command="{Binding OpenFullDiffCommand}" Content="View Full Diff" />
-        </Border>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
         </Grid>
     </Border>
 </UserControl>
