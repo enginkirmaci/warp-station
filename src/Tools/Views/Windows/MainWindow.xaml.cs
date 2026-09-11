@@ -169,10 +169,14 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>
-    /// Hosts the Repositories page as the window's permanent content and starts its
-    /// ViewModel lifecycle. The page is a plain constructor dependency: the original
-    /// reason for a composition-root hook (ReposPage → DialogService → MainWindow was
-    /// a DI cycle) is gone since DialogService reaches the window through
+    /// Hosts the Repositories page as the window's permanent content. The ViewModel
+    /// lifecycle starts only when the window is actually on screen (<see
+    /// cref="OnMainWindowOpened"/>): the first paint must never wait on data work, and
+    /// the page's own sequence behind it is repo list first, git status pass behind
+    /// that (fire-and-forget, plus the status service's scan-completion re-check). The
+    /// page is a plain constructor dependency: the original reason for a
+    /// composition-root hook (ReposPage → DialogService → MainWindow was a DI cycle) is
+    /// gone since DialogService reaches the window through
     /// <see cref="IMainWindowProvider"/> at call time. There is no navigation stack.
     /// </summary>
     private void AttachRepositoriesPage(ReposPage reposPage)
@@ -182,7 +186,24 @@ public partial class MainWindow : SukiWindow
         if (reposPage.DataContext is ReposViewModel viewModel)
         {
             viewModel.PropertyChanged += OnReposViewModelPropertyChanged;
+            Opened += OnMainWindowOpened;
+        }
+    }
+
+    /// <summary>
+    /// One-shot <see cref="Window.Opened"/> handler that starts the app's data lifecycles
+    /// on first show (see <see cref="AttachRepositoriesPage"/>): the Repos page's
+    /// lifecycle and the bottom bar's session load — the bar's constructor deliberately
+    /// does not self-start it, or the repo-list load and the git-status pass would race
+    /// the first paint.
+    /// </summary>
+    private void OnMainWindowOpened(object? sender, EventArgs e)
+    {
+        Opened -= OnMainWindowOpened;
+        if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel } page)
+        {
             FireLifecycle(() => viewModel.OnNavigatedToAsync());
+            FireLifecycle(page.BottomBarViewModel.InitializeAsync);
         }
     }
 

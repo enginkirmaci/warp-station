@@ -125,7 +125,6 @@ public partial class BottomBarViewModel : ObservableObject
 
         _repoService.Changed += OnRepoServiceChanged;
         _repoService.TagsChanged += OnRepoTagsChanged;
-        _ = InitializeAsync();
     }
 
     /// <summary>Re-raises the shell's cross-panel bindings: the tab header totals, the
@@ -139,7 +138,16 @@ public partial class BottomBarViewModel : ObservableObject
         RaisePipelineStatus();
     }
 
-    private async Task InitializeAsync()
+    /// <summary>
+    /// Starts the bar's session load: settings snapshot, tab visibility and the shared
+    /// <see cref="IRepoService.EnsureLoadedAsync"/> (cache render + session scan kick).
+    /// Called by the window once it is on screen — startup must paint the frame before
+    /// any data work, and this load's cache raise is what arms the background git-status
+    /// pass, so a constructor self-start here would put list loading and probes back in
+    /// front of first paint. Safe against the page's own load: EnsureLoadedAsync is
+    /// once-per-session on both sides.
+    /// </summary>
+    public async Task InitializeAsync()
     {
         try
         {

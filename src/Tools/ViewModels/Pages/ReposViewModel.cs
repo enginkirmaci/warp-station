@@ -220,8 +220,14 @@ public partial class ReposViewModel : PageViewModelBase
     /// drives the empty-state overlay's "Clear filters" action.</summary>
     public bool IsFilterActive => _list.IsFilterActive;
 
-    /// <summary>Whether the table has no rows at all (overlay visibility).</summary>
-    public bool ShowReposEmptyNote => _list.ShowReposEmptyNote;
+    /// <summary>Whether the table has no rows at all (overlay visibility). Held back
+    /// until the first list load has landed: the page loads after the window is
+    /// visible, so an unconditional note would flash "No repositories yet" across the
+    /// frames the cache read is in flight.</summary>
+    public bool ShowReposEmptyNote => _hasCompletedFirstListLoad && _list.ShowReposEmptyNote;
+
+    /// <summary>Whether the first list load has completed (see <see cref="ShowReposEmptyNote"/>).</summary>
+    private bool _hasCompletedFirstListLoad;
 
     public ICommand ClearTagFiltersCommand => _list.ClearTagFiltersCommand;
 
@@ -360,6 +366,10 @@ public partial class ReposViewModel : PageViewModelBase
         // no-op for the UI).
         _list.Rebuild();
         RefreshHeaderTotals();
+        // The first load has landed — release the empty-state note (a fresh raise, so
+        // the note appears even when the rebuild above found nothing to change).
+        _hasCompletedFirstListLoad = true;
+        OnPropertyChanged(nameof(ShowReposEmptyNote));
 
         // Kick the local git status checks in the background — the cards render instantly
         // with a "checking…" placeholder and the counts fill in as each repo's probe
