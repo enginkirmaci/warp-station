@@ -169,6 +169,10 @@ public partial class App : Application
             desktop.ShutdownRequested += OnShutdownRequested;
             // Start minimized to the taskbar if configured
             _ = ApplyStartMinimizedAsync(services, _mainWindow);
+            // Reconcile the sign-in registration with the configured StartAtBoot flag
+            // (honors hand-edited settings.json and repairs stale registrations even
+            // when the supervisor never runs, e.g. the AppImage layout)
+            _ = SyncStartAtBootAsync(services);
             // Auto-start SnapIt if configured
             _ = InitializeSnapItAsync(services);
         }
@@ -235,6 +239,26 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Logger.Error(ex, "Failed to apply start minimized");
+        }
+    }
+
+    /// <summary>
+    /// Mirrors the supervisor's launch reconcile: registers or clears the OS sign-in
+    /// entry (registry Run key on Windows, XDG autostart elsewhere) to match
+    /// General.StartAtBoot, targeting <see cref="Tools.Library.Helpers.AutoStartHelper.ResolveBootTarget"/>.
+    /// </summary>
+    private static async Task SyncStartAtBootAsync(IServiceProvider services)
+    {
+        try
+        {
+            var settingsService = services.GetRequiredService<ISettingsService>();
+            var appSettings = await settingsService.GetSettingsAsync();
+            var startAtBoot = appSettings.General?.StartAtBoot == true;
+            Tools.Library.Helpers.AutoStartHelper.Sync(startAtBoot, Tools.Library.Helpers.AutoStartHelper.ResolveBootTarget());
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to sync the launch-at-sign-in registration");
         }
     }
 }

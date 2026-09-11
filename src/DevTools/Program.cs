@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Tools.Library.Extensions;
+using Tools.Library.Helpers;
 using Tools.Library.Services.Abstractions;
 using DevTools.Services;
 
@@ -53,7 +54,8 @@ Log.Information("DevTools stopped");
 
 // Reconciles the OS autostart registration (registry Run key on Windows, XDG autostart
 // entry elsewhere) with the configured StartAtBoot flag, so settings.json remains the
-// single source of truth for launch-at-sign-in.
+// single source of truth for launch-at-sign-in. The registration points at this
+// supervisor (ResolveBootTarget finds it first), which launches Tools with it.
 async Task SyncStartAtBootAsync(IServiceProvider services)
 {
     try
@@ -61,7 +63,10 @@ async Task SyncStartAtBootAsync(IServiceProvider services)
         var settingsService = services.GetRequiredService<ISettingsService>();
         var appSettings = await settingsService.GetSettingsAsync();
         var startAtBoot = appSettings.General?.StartAtBoot == true;
-        DevTools.Helpers.AutoStartHelper.Sync(startAtBoot);
+        if (!AutoStartHelper.Sync(startAtBoot, AutoStartHelper.ResolveBootTarget()))
+        {
+            Log.Warning("Launch-at-sign-in registration could not be updated");
+        }
     }
     catch (Exception ex)
     {

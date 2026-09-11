@@ -352,7 +352,11 @@ public class GeneralSettings
 
     /// <summary>
     /// Gets or sets a value indicating whether the app should launch automatically
-    /// when the user signs in (synced to the Windows registry Run key on startup).
+    /// when the user signs in. Configured via settings.json (no GUI surface); both the
+    /// DevTools supervisor and the Tools GUI reconcile the OS registration to this flag
+    /// on every launch (Windows: per-user registry Run key; other platforms: XDG
+    /// autostart entry, each targeting <c>AutoStartHelper.ResolveBootTarget()</c> —
+    /// the DevTools supervisor when it sits next to the app, otherwise the app itself).
     /// </summary>
     public bool StartAtBoot { get; set; }
 }
