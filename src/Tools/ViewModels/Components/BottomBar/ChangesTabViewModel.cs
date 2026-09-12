@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -18,6 +19,17 @@ namespace Tools.ViewModels.Components.BottomBar;
 /// as a flag so the single row template can branch icon, count and button.
 /// </summary>
 public sealed record ChangeSectionRow(string Title, int Count, bool IsUnstaged);
+
+/// <summary>
+/// One row of the History list: either a day header (<see cref="Commit"/> null,
+/// <see cref="DayLabel"/> set) grouping the commits below it, or a commit with its
+/// unpushed flag — computed at list-build time from the batched unpushed check;
+/// false also when the check could not answer (no remote, git error).
+/// </summary>
+public sealed record CommitHistoryRow(string? DayLabel, GitCommitInfo? Commit, bool IsUnpushed)
+{
+    public bool IsHeader => Commit is null;
+}
 
 /// <summary>
 /// The branch dropdown's first entry — an action, not a branch: picking it opens the
@@ -119,6 +131,7 @@ public void RaiseRepoMirrors()
             // is fine — the note shows).
             ShowCommitDetail = false;
             GitCommits.Clear();
+            HistoryRows.Clear();
             OnPropertyChanged(nameof(ShowCommitsEmpty));
             if (ShowHistoryView)
             {
@@ -1120,6 +1133,7 @@ public void RaiseRepoMirrors()
         if (repo is null)
         {
             GitCommits.Clear();
+            HistoryRows.Clear();
             OnPropertyChanged(nameof(ShowCommitsEmpty));
             return Task.CompletedTask;
         }
@@ -1131,9 +1145,52 @@ public void RaiseRepoMirrors()
                 var commits = await FetchIfCurrentAsync(repo, r => Shell.GitStatusService.GetRecentCommitsAsync(r));
                 if (commits is null) return;
                 ReplaceItems(GitCommits, commits);
+
+                // Best-effort: null (no remote / git error) leaves every row's
+                // unpushed flag false and the dots hidden.
+                var unpushed = await FetchIfCurrentAsync(repo, r => Shell.GitStatusService.GetUnpushedCommitHashesAsync(r));
+                RebuildHistoryRows(commits, unpushed);
             },
             () => OnPropertyChanged(nameof(ShowCommitsEmpty)),
             () => $"Could not load the recent commits of {repo.Name}");
+    }
+
+    /// <summary>The History list's display rows: day headers interleaved above each
+    /// run of same-day commits, then the commits with their unpushed flags.</summary>
+    [ObservableProperty]
+    private ObservableCollection<CommitHistoryRow> _historyRows = new();
+
+    /// <summary>Rebuilds <see cref="HistoryRows"/> from the freshly loaded commits.
+    /// The list binds these rows (not <see cref="GitCommits"/>) so headers ride in
+    /// the same items collection.</summary>
+    private void RebuildHistoryRows(IReadOnlyList<GitCommitInfo> commits, IReadOnlySet<string>? unpushed)
+    {
+        var rows = new List<CommitHistoryRow>(commits.Count + 4);
+        string? lastLabel = null;
+        foreach (var commit in commits)
+        {
+            var label = HistoryDayLabel(commit.Date);
+            if (label != lastLabel)
+            {
+                rows.Add(new CommitHistoryRow(label, null, false));
+                lastLabel = label;
+            }
+
+            rows.Add(new CommitHistoryRow(null, commit, unpushed?.Contains(commit.Hash) == true));
+        }
+
+        ReplaceItems(HistoryRows, rows);
+    }
+
+    /// <summary>Day anchor for the History list's grouping headers: Today/Yesterday,
+    /// then "d MMM" (with the year once it isn't the current one).</summary>
+    private static string HistoryDayLabel(DateTimeOffset date)
+    {
+        var local = date.ToLocalTime().Date;
+        var today = DateTime.Today;
+        if (local == today) return "Today";
+        if (local == today.AddDays(-1)) return "Yesterday";
+        return local.ToString(local.Year == today.Year ? "d MMM" : "d MMM yyyy", CultureInfo.InvariantCulture);
     }
 
     // --- Commit-message wand (the mechanics live in CommitMessageGenerator) ---

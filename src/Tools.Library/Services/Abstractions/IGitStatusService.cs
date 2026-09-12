@@ -131,6 +131,15 @@ public interface IGitStatusService
     Task<bool> IsCommitPushedAsync(Repo repo, string hash, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The batched form of <see cref="IsCommitPushedAsync"/> for the History list: the
+    /// hashes of every commit reachable from a local branch but from no remote-tracking
+    /// ref, in one call. Null when the indicator cannot be answered honestly — no
+    /// remote configured (nowhere to push) or a git error; an empty set means all
+    /// listed commits are pushed.
+    /// </summary>
+    Task<IReadOnlySet<string>?> GetUnpushedCommitHashesAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lists the repo's working-tree changes file by file (modified, renamed, unmerged
     /// and untracked; every untracked file individually) with each entry's porcelain
     /// status code and — where git reports them — the file's added/deleted line counts.

@@ -57,6 +57,7 @@ public partial class CommitHistoryViewModel : ObservableObject
         OnPropertyChanged(nameof(CommitShortHash));
         OnPropertyChanged(nameof(CommitAuthor));
         OnPropertyChanged(nameof(CommitRelativeTime));
+        OnPropertyChanged(nameof(CommitInitials));
     }
 
     /// <summary>Null-safe header mirrors of <see cref="Commit"/> — the drawer's bindings
@@ -69,6 +70,8 @@ public partial class CommitHistoryViewModel : ObservableObject
     public string? CommitAuthor => Commit?.Author;
 
     public string? CommitRelativeTime => Commit?.RelativeTime;
+
+    public string? CommitInitials => Commit?.Initials;
 
     /// <summary>The commit's message body — everything after the subject block; null
     /// while the details load or the message is subject-only.</summary>
@@ -118,11 +121,12 @@ public partial class CommitHistoryViewModel : ObservableObject
         OnPropertyChanged(nameof(RevertTooltip));
     }
 
-    /// <summary>The checkout button's two-state label (arm → confirm).</summary>
-    public string CheckoutLabel => IsCheckoutArmed ? "Confirm checkout" : "Checkout";
+    /// <summary>The checkout button's two-state label (arm → confirm), kept short
+    /// for the identity bar's compact buttons.</summary>
+    public string CheckoutLabel => IsCheckoutArmed ? "Confirm" : "Checkout";
 
     /// <summary>The revert button's two-state label (arm → confirm).</summary>
-    public string RevertLabel => IsRevertArmed ? "Confirm revert" : "Revert";
+    public string RevertLabel => IsRevertArmed ? "Confirm" : "Revert";
 
     public string CheckoutTooltip => IsCheckoutArmed
         ? $"Click again to check out {CommitShortHash} (detached HEAD)"
@@ -147,6 +151,12 @@ public partial class CommitHistoryViewModel : ObservableObject
     private bool _hasWebUrl;
 
     private string? _webUrl;
+
+    /// <summary>True when the repo has a web-page target but this commit is on no
+    /// remote-tracking ref yet — the header's amber chip says so, which also explains
+    /// the missing "View Full Diff" button in the actions row.</summary>
+    [ObservableProperty]
+    private bool _isCommitUnpushed;
 
     /// <summary>"4 files changed" summary line; empty while loading or with no files.</summary>
     public string FilesChangedText => Files.Count == 0
@@ -196,6 +206,7 @@ public partial class CommitHistoryViewModel : ObservableObject
         LoadFailed = false;
         DisarmActions();
         HasWebUrl = false;
+        IsCommitUnpushed = false;
         _webUrl = null;
 
         ComputeWebUrl();
@@ -244,6 +255,9 @@ public partial class CommitHistoryViewModel : ObservableObject
         if (ReferenceEquals(Commit, commit))
         {
             HasWebUrl = pushed;
+            // Only meaningful when a web-page target exists at all — without one the
+            // commit could be pushed and the header would still show no chip.
+            IsCommitUnpushed = _webUrl is not null && !pushed;
         }
     }
 

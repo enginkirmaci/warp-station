@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
-using Tools.Library.Entities;
 using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.Views.Components.BottomBar.Tabs;
@@ -63,7 +62,7 @@ public partial class ChangesHistoryView : UserControl
 
     private bool OpenHistoryRow(object? sender)
     {
-        if (sender is Control { DataContext: GitCommitInfo commit } && DataContext is ChangesTabViewModel vm)
+        if (sender is Control { DataContext: CommitHistoryRow { Commit: { } commit } } && DataContext is ChangesTabViewModel vm)
         {
             vm.OpenCommitDetailCommand.Execute(commit);
             return true;

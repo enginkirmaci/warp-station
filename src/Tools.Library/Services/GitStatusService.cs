@@ -367,6 +367,32 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlySet<string>?> GetUnpushedCommitHashesAsync(Repo repo, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return null;
+
+        // A repo with no remote has nowhere to push — the History rows' unpushed
+        // indicator stays off instead of flagging every commit.
+        var remotes = await RunGitAsync(repo.FolderPath, "remote", cancellationToken);
+        if (string.IsNullOrWhiteSpace(remotes)) return null;
+
+        // Commits reachable from local branches but from no remote-tracking ref (=
+        // unpushed) — the batched form of IsCommitPushedAsync's "contained in some
+        // remote ref" semantics, one call for the whole History list. A git error
+        // (null) returns null: the caller hides the indicator rather than guess.
+        var output = await RunGitAsync(repo.FolderPath, "log --format=%H --branches --not --remotes", cancellationToken);
+        if (output is null) return null;
+
+        var hashes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            hashes.Add(line.Trim());
+        }
+
+        return hashes;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<GitChangedFile>> GetChangedFilesAsync(Repo repo, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitChangedFile>();

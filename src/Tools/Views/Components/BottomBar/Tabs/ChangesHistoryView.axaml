@@ -4,11 +4,11 @@
     row and content while the Changes tab's git rail has toggled History on.
     The back link mirrors the commit detail's (detail-link, arrow-left +
     label) and returns to the commit workspace; every open re-fetches the
-    list (the tab's view-model does that on ShowHistoryView). One row per
-    commit: initials avatar + subject + author/time info line, the hash copy
-    link and a chevron that opens the commit detail over the list. Row
-    handlers (tap / Enter / Space open the detail) live in this view's
-    code-behind.
+    list (the tab's view-model does that on ShowHistoryView). Rows are day-
+    grouped (Today / Yesterday / d MMM headers between the commits) and each
+    commit row carries an amber dot when it has not been pushed to any
+    remote. Row handlers (tap / Enter / Space open the detail) live in this
+    view's code-behind; header rows are inert by type.
 -->
 <UserControl
     x:Class="Tools.Views.Components.BottomBar.Tabs.ChangesHistoryView"
@@ -33,6 +33,12 @@
     </UserControl.Resources>
     <UserControl.Styles>
         <StyleInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarStyles.axaml" />
+        <!--  Day-group header ("Today" / "Yesterday" / "d MMM") between commits  -->
+        <Style Selector="TextBlock.history-day">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
     </UserControl.Styles>
 
     <Border Classes="ov-card">
@@ -76,98 +82,118 @@
                         Classes="list-note subtle"
                         IsVisible="{Binding ShowCommitsEmpty}"
                         Text="No commits yet" />
-                    <ItemsControl ItemsSource="{Binding GitCommits}">
+                    <ItemsControl ItemsSource="{Binding HistoryRows}">
                         <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="entities:GitCommitInfo">
-                                <Grid
-                                    Margin="0,4"
-                                    Classes="history-row"
-                                    ColumnDefinitions="Auto,*,Auto,Auto"
-                                    ColumnSpacing="10"
-                                    RowDefinitions="Auto,Auto"
-                                    RowSpacing="3"
-                                    Cursor="Hand"
-                                    Focusable="True"
-                                    KeyDown="OnHistoryRowKeyDown"
-                                    Tapped="OnHistoryRowTapped"
-                                    ToolTip.Tip="Open this commit's details">
-                                    <!--  Author-initials avatar: tinted circle (the
-                                          tint is a nested layer so the initials
-                                          keep full opacity).  -->
-                                    <Border
-                                        Grid.RowSpan="2"
-                                        Width="30"
-                                        Height="30"
-                                        VerticalAlignment="Center">
-                                        <Grid>
-                                            <Border
-                                                Background="{DynamicResource MutedForegroundBrush}"
-                                                CornerRadius="15"
-                                                Opacity="0.24" />
+                            <DataTemplate x:DataType="vm:CommitHistoryRow">
+                                <StackPanel>
+                                    <!--  Day anchor: groups the commits below it; inert  -->
+                                    <TextBlock
+                                        Classes="history-day"
+                                        Margin="0,10,0,2"
+                                        IsVisible="{Binding IsHeader}"
+                                        Text="{Binding DayLabel}" />
+                                    <Grid
+                                        IsVisible="{Binding !IsHeader}"
+                                        Margin="0,4"
+                                        Classes="history-row"
+                                        ColumnDefinitions="Auto,*,Auto,Auto,Auto"
+                                        ColumnSpacing="10"
+                                        RowDefinitions="Auto,Auto"
+                                        RowSpacing="3"
+                                        Cursor="Hand"
+                                        Focusable="True"
+                                        KeyDown="OnHistoryRowKeyDown"
+                                        Tapped="OnHistoryRowTapped"
+                                        ToolTip.Tip="Open this commit's details">
+                                        <!--  Author-initials avatar: tinted circle (the
+                                              tint is a nested layer so the initials
+                                              keep full opacity).  -->
+                                        <Border
+                                            Grid.RowSpan="2"
+                                            Width="30"
+                                            Height="30"
+                                            VerticalAlignment="Center">
+                                            <Grid>
+                                                <Border
+                                                    Background="{DynamicResource MutedForegroundBrush}"
+                                                    CornerRadius="15"
+                                                    Opacity="0.24" />
+                                                <TextBlock
+                                                    Classes="subtle"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Text="{Binding Commit.Initials}" />
+                                            </Grid>
+                                        </Border>
+                                        <TextBlock
+                                            Grid.Row="0"
+                                            Grid.Column="1"
+                                            Foreground="{DynamicResource BodyForegroundBrush}"
+                                            Text="{Binding Commit.Subject}"
+                                            MaxLines="2"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="Wrap" />
+                                        <!--  The info line: author • relative time.  -->
+                                        <StackPanel
+                                            Grid.Row="1"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Spacing="5">
                                             <TextBlock
                                                 Classes="subtle"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Center"
-                                                FontSize="11"
-                                                FontWeight="SemiBold"
-                                                Text="{Binding Initials}" />
-                                        </Grid>
-                                    </Border>
-                                    <TextBlock
-                                        Grid.Row="0"
-                                        Grid.Column="1"
-                                        Foreground="{DynamicResource BodyForegroundBrush}"
-                                        Text="{Binding Subject}"
-                                        MaxLines="2"
-                                        TextTrimming="CharacterEllipsis"
-                                        TextWrapping="Wrap" />
-                                    <!--  The info line: author • relative time.  -->
-                                    <StackPanel
-                                        Grid.Row="1"
-                                        Grid.Column="1"
-                                        Orientation="Horizontal"
-                                        Spacing="5">
-                                        <TextBlock
-                                            Classes="subtle"
-                                            IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                            Text="{Binding Author}" />
-                                        <TextBlock
-                                            Classes="subtle"
-                                            IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                            Text="•" />
-                                        <TextBlock
-                                            Classes="subtle"
-                                            Text="{Binding RelativeTime}" />
-                                    </StackPanel>
-                                    <!--  the hash is a quiet link: click copies the
-                                          full SHA. It spans both text rows and
-                                          centers vertically — aligned with the
-                                          chevron beside it.  -->
-                                    <Button
-                                        Grid.RowSpan="2"
-                                        Grid.Column="2"
-                                        VerticalAlignment="Center"
-                                        Classes="detail-link"
-                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).CopyCommitHashCommand}"
-                                        CommandParameter="{Binding}"
-                                        ToolTip.Tip="Copy commit hash">
-                                        <TextBlock
-                                            Classes="mono"
-                                            Foreground="{DynamicResource MutedForegroundBrush}"
-                                            Text="{Binding ShortHash}" />
-                                    </Button>
-                                    <!--  box sized to the chevron's ink aspect
-                                          (12x7.4): 16x10 keeps it centered  -->
-                                    <Path
-                                        Grid.RowSpan="2"
-                                        Grid.Column="3"
-                                        Width="16"
-                                        Height="10"
-                                        VerticalAlignment="Center"
-                                        Data="{tools:SvgPath icon-chevron-right}"
-                                        Fill="{DynamicResource MutedForegroundBrush}"
-                                        Stretch="Uniform" />
-                                </Grid>
+                                                IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                Text="{Binding Commit.Author}" />
+                                            <TextBlock
+                                                Classes="subtle"
+                                                IsVisible="{Binding Commit.Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                Text="•" />
+                                            <TextBlock
+                                                Classes="subtle"
+                                                Text="{Binding Commit.RelativeTime}" />
+                                        </StackPanel>
+                                        <!--  the hash is a quiet link: click copies the
+                                              full SHA. It spans both text rows and
+                                              centers vertically — aligned with the
+                                              chevron beside it.  -->
+                                        <Button
+                                            Grid.RowSpan="2"
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Classes="detail-link"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).CopyCommitHashCommand}"
+                                            CommandParameter="{Binding Commit}"
+                                            ToolTip.Tip="Copy commit hash">
+                                            <TextBlock
+                                                Classes="mono"
+                                                Foreground="{DynamicResource MutedForegroundBrush}"
+                                                Text="{Binding Commit.ShortHash}" />
+                                        </Button>
+                                        <!--  Unpushed: reachable from no remote-tracking ref
+                                              (unknown / no remote keeps it hidden)  -->
+                                        <Ellipse
+                                            Grid.RowSpan="2"
+                                            Grid.Column="3"
+                                            Width="7"
+                                            Height="7"
+                                            VerticalAlignment="Center"
+                                            Fill="{DynamicResource WarningAccentBrush}"
+                                            IsVisible="{Binding IsUnpushed}"
+                                            ToolTip.Tip="Not pushed yet" />
+                                        <!--  box sized to the chevron's ink aspect
+                                              (12x7.4): 16x10 keeps it centered  -->
+                                        <Path
+                                            Grid.RowSpan="2"
+                                            Grid.Column="4"
+                                            Width="16"
+                                            Height="10"
+                                            VerticalAlignment="Center"
+                                            Data="{tools:SvgPath icon-chevron-right}"
+                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                            Stretch="Uniform" />
+                                    </Grid>
+                                </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
