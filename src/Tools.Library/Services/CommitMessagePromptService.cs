@@ -5,8 +5,8 @@ using Tools.Library.Services.Abstractions;
 namespace Tools.Library.Services;
 
 /// <summary>
-/// Loads the commit-message prompt template from the user's settings folder and fills
-/// its placeholders. The user file (<c>%USERPROFILE%\.devtools\settings\commit-message.md</c>)
+/// Loads the commit-message prompt template from the user's opencode folder and fills
+/// its placeholders. The user file (<c>%USERPROFILE%\.devtools\opencode\commit-message.md</c>)
 /// is seeded once from the shipped default (<c>&lt;install&gt;/settings/commit-message.md</c>)
 /// so upgrades never clobber user edits; if both are missing the built-in default below is
 /// used and written back, so the file a user can edit always materializes. Re-read on
@@ -14,8 +14,11 @@ namespace Tools.Library.Services;
 /// </summary>
 public class CommitMessagePromptService : ICommitMessagePromptService
 {
-    /// <summary>The user-editable template, inside the settings folder.</summary>
-    private static readonly string UserFilePath = UserPaths.GetUserDataFile("settings", "commit-message.md");
+    /// <summary>The user-editable template, inside the opencode folder.</summary>
+    private static readonly string UserFilePath = UserPaths.GetUserDataFile("opencode", "commit-message.md");
+
+    /// <summary>Pre-flatten location of the user template; migrated once on load.</summary>
+    private static readonly string LegacyUserFilePath = UserPaths.GetUserDataFile("settings", "commit-message.md");
 
     /// <summary>Shipped default under the install directory's settings folder.</summary>
     private const string ShippedRelPath = "commit-message.md";
@@ -77,6 +80,7 @@ public class CommitMessagePromptService : ICommitMessagePromptService
     {
         try
         {
+            MigrateLegacyFile();
             UserPaths.SeedFromDefault(UserFilePath, ShippedRelPath);
             if (File.Exists(UserFilePath))
             {
@@ -92,5 +96,20 @@ public class CommitMessagePromptService : ICommitMessagePromptService
         }
 
         return DefaultTemplate;
+    }
+
+    /// <summary>
+    /// One-time move of the template from the pre-flatten settings folder to the opencode
+    /// folder, so an upgraded install keeps its edited template instead of being re-seeded
+    /// from the shipped default. Best-effort: any failure leaves the old file in place and
+    /// the seed/fallback logic proceeds.
+    /// </summary>
+    private static void MigrateLegacyFile()
+    {
+        if (File.Exists(UserFilePath) || !File.Exists(LegacyUserFilePath))
+            return;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(UserFilePath)!);
+        File.Move(LegacyUserFilePath, UserFilePath);
     }
 }

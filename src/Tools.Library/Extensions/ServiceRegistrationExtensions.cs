@@ -58,7 +58,7 @@ public static class ServiceRegistrationExtensions
         // opencode one-shot prompt run (the Changes tab's commit-message wand)
         services.AddSingleton<IOpenCodeRunService, OpenCodeRunService>();
 
-        // commit-message wand's prompt template (settings-folder MD, user-editable)
+        // commit-message wand's prompt template (opencode-folder MD, user-editable)
         services.AddSingleton<ICommitMessagePromptService, CommitMessagePromptService>();
 
         return services;

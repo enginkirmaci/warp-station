@@ -2,7 +2,7 @@ namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
 /// Builds the wand's commit-message prompt from the user-editable template at
-/// <c>%USERPROFILE%\.devtools\settings\commit-message.md</c> (seeded from the shipped
+/// <c>%USERPROFILE%\.devtools\opencode\commit-message.md</c> (seeded from the shipped
 /// default on first run). The template's <c>{file_list}</c>, <c>{diff}</c> and
 /// <c>{context}</c> placeholders are filled per run.
 /// </summary>
