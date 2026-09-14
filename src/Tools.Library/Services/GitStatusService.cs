@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Globalization;
 using System.Text.RegularExpressions;
 using Serilog;
 using Tools.Library.Entities;
@@ -9,22 +8,18 @@ using Tools.Library.Services.Abstractions;
 namespace Tools.Library.Services;
 
 /// <summary>
-/// Default <see cref="IGitStatusService"/>. Runs a single
-/// <c>git status --porcelain=v2 --branch --untracked-files=all</c> per repo (bounded
-/// parallelism, per-process timeout) and parses the machine-readable output: header
-/// lines carry the branch name and ahead/behind counts, every non-header line is one
-/// working-tree change. <c>--untracked-files=all</c> counts every untracked file
-/// individually — by default git collapses an untracked directory into a single entry.
-/// A follow-up <c>git log -1 --format=%cI</c> picks up the last commit date for the
-/// Last Activity column. Results are pushed onto the <see cref="Repo"/> entities from
-/// background threads — CommunityToolkit raises <c>PropertyChanged</c> and the bound
-/// cards update without the page VM being involved. A full pass probes every repo
-/// first and applies the snapshots in one burst afterwards, so the list takes a
-/// single update instead of a per-repo trickle.
+/// Default <see cref="IGitStatusService"/>. Probes every repo with one in-process
+/// libgit2 status (bounded parallelism; see <see cref="GitReadService"/>) — branch,
+/// change count, ahead/behind and the last commit date land on the <see cref="Repo"/>
+/// entities from background threads — CommunityToolkit raises <c>PropertyChanged</c>
+/// and the bound cards update without the page VM being involved. A full pass probes
+/// every repo first and applies the snapshots in one burst afterwards, so the list
+/// takes a single update instead of a per-repo trickle.
 /// <para>
-/// The process mechanics live in <see cref="GitCommandRunner"/> and the output parsing
-/// in <see cref="GitOutputParser"/>; this class owns the orchestration — the coalesced
-/// refresh loop, the probe/push cadence and the Changes tab's shared snapshot probe.
+/// Local reads run in-process; only mutations, syncs and clones shell out to the git
+/// CLI through <see cref="GitCommandRunner"/>, where hooks, gpg signing and credential
+/// helpers keep applying. This class owns the orchestration — the coalesced refresh
+/// loop, the probe/push cadence and the Changes tab's shared snapshot probe.
 /// </para>
 /// <para>
 /// A refresh is kicked automatically when <see cref="IRepoService"/> raises
@@ -34,11 +29,12 @@ namespace Tools.Library.Services;
 /// </summary>
 public sealed class GitStatusService : IGitStatusService
 {
-    /// <summary>How many repos are probed concurrently; keeps process storms off the UI machine.</summary>
+    /// <summary>How many repos are probed concurrently; keeps read bursts off the UI machine.</summary>
     private const int MaxParallelism = 4;
 
     private readonly IRepoService _repoService;
     private readonly GitCommandRunner _runner = new();
+    private readonly GitReadService _reads = new();
 
     /// <summary>
     /// Owns the coalescing refresh loop and the throttled pass over every repo; this
@@ -48,8 +44,8 @@ public sealed class GitStatusService : IGitStatusService
 
     /// <summary>
     /// In-flight change-probe runs per folder, shared by the Changes tab's two
-    /// concurrent loads (file list + staged/unstaged split) so one tab load spawns one
-    /// set of git processes, not two. Entries remove themselves the moment the probes
+    /// concurrent loads (file list + staged/unstaged split) so one tab load runs one
+    /// shared read, not two. Entries remove themselves the moment the probes
     /// settle — nothing is cached, so a later load (after a stage/unstage, say) always
     /// re-probes and a git failure is never sticky.
     /// </summary>
@@ -75,9 +71,13 @@ public sealed class GitStatusService : IGitStatusService
     /// <inheritdoc/>
     public async Task RefreshAllAsync(CancellationToken cancellationToken = default)
     {
-        if (_runner.IsUnavailable) return;
+        // No availability gate: the in-process reads need no git binary. Only the CLI
+        // operations (mutations, syncs, clones) fail per call when git is missing.
         await _coalescer.RunCoalescedAsync(RefreshCoreAsync, cancellationToken);
     }
+
+    /// <inheritdoc/>
+    public void Stop() => _runner.Stop();
 
     /// <summary>
     /// One throttled refresh pass over every known repo. Probes run concurrently and
@@ -112,37 +112,24 @@ public sealed class GitStatusService : IGitStatusService
         => ApplyProbe(await ProbeRepoAsync(repo, cancellationToken));
 
     /// <summary>
-    /// Fetches one repo's status without touching its entity: the status porcelain
-    /// parse, the last-commit date and the FETCH_HEAD seed all land in the returned
-    /// snapshot; <see cref="ApplyProbe"/> does the writing. A canceled token escapes —
-    /// the caller's batch is then discarded whole rather than half-applied.
+    /// Fetches one repo's status without touching its entity: the branch, counts and
+    /// last-commit date land in the returned probe; <see cref="ApplyProbe"/> does the
+    /// writing. The read itself never throws — an unreadable repository settles as a
+    /// zeroed snapshot, same as a failed CLI probe did.
     /// </summary>
     private async Task<RepoStatusProbe> ProbeRepoAsync(Repo repo, CancellationToken cancellationToken)
     {
         try
         {
-            var output = await RunGitAsync(
-                repo.FolderPath!,
-                "--no-optional-locks status --porcelain=v2 --branch --untracked-files=all",
-                cancellationToken);
-
-            var status = GitOutputParser.ParsePorcelain(output);
-
-            // Second, cheap local probe for the Last Activity column. Kept separate from
-            // the status call so a malformed date can never blank the status fields.
-            // An empty output (repo with no commits) parses to null.
-            var commitDate = await RunGitAsync(
-                repo.FolderPath!,
-                "--no-optional-locks log -1 --format=%cI",
-                cancellationToken);
+            var snapshot = await _reads.ProbeAsync(repo.FolderPath!);
 
             return new RepoStatusProbe(
                 repo,
-                status.BranchName,
-                status.ModifiedCount,
-                status.AheadCount,
-                status.BehindCount,
-                DateTimeOffset.TryParse(commitDate?.TrimEnd('\r', '\n'), out var at) ? at : null,
+                snapshot?.BranchName,
+                snapshot?.ModifiedCount ?? 0,
+                snapshot?.AheadCount ?? 0,
+                snapshot?.BehindCount ?? 0,
+                snapshot?.LastCommitAt,
                 ReadLastFetchSeed(repo));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -176,22 +163,10 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitBranchRef>();
 
-        // git emits local branches first, then remote-tracking ones; %(refname) keeps the
-        // refs/ namespace so locals and remotes can be told apart (a local branch may
-        // itself contain slashes).
-        var output = await RunGitAsync(repo.FolderPath, "branch -a --format=%(refname)", cancellationToken);
-        if (string.IsNullOrEmpty(output)) return Array.Empty<GitBranchRef>();
-
-        return output
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(r => r.StartsWith("refs/heads/", StringComparison.Ordinal)
-                ? new GitBranchRef(r["refs/heads/".Length..], GitBranchKind.Local)
-                : r.StartsWith("refs/remotes/", StringComparison.Ordinal)
-                    ? new GitBranchRef(r["refs/remotes/".Length..], GitBranchKind.Remote)
-                    : null)
-            .Where(b => b is { } && !b.Name.EndsWith("/HEAD", StringComparison.Ordinal))
-            .Select(b => b!)
-            .ToList();
+        // Local branches first, then remote-tracking ones; the read layer keeps the
+        // same shape the %(refname) parse produced (locals and remotes told apart, a
+        // local branch may itself contain slashes, HEAD aliases dropped).
+        return await _reads.BranchesAsync(repo.FolderPath) ?? Array.Empty<GitBranchRef>();
     }
 
     /// <inheritdoc/>
@@ -248,13 +223,24 @@ public sealed class GitStatusService : IGitStatusService
         // command that runs outside any existing repo, and the transfer may legitimately
         // run for minutes, so it gets the longest bound.
         var stderr = new List<string>();
-        var ok = await RunGitAsync(
-                parentDirectory,
-                $"clone {GitCommandRunner.Quote(url.Trim())} {GitCommandRunner.Quote(repoName.Trim())}",
-                cancellationToken,
-                GitCommandRunner.CloneTimeout,
-                stderr) is not null;
-        return ok ? GitSyncResult.Ok() : new GitSyncResult(false, GitOutputParser.SummarizeSyncError(stderr));
+        var output = await RunGitAsync(
+            parentDirectory,
+            $"clone {GitCommandRunner.Quote(url.Trim())} {GitCommandRunner.Quote(repoName.Trim())}",
+            cancellationToken,
+            GitCommandRunner.CloneTimeout,
+            stderr);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // The cancelled (tree-killed) clone leaves a partial worktree behind; remove
+            // it so a retried clone finds its target slot free again. Best effort:
+            // Windows can still hold file locks for a beat after the kill.
+            try { Directory.Delete(Path.Combine(parentDirectory, repoName), recursive: true); }
+            catch { /* partial folder cleanup is best effort */ }
+            return new GitSyncResult(false, null, Cancelled: true);
+        }
+
+        return output is not null ? GitSyncResult.Ok() : new GitSyncResult(false, GitOutputParser.SummarizeSyncError(stderr));
     }
 
     /// <inheritdoc/>
@@ -279,8 +265,8 @@ public sealed class GitStatusService : IGitStatusService
     /// Runs one network sync command (fetch/pull/push) in the repo and refreshes its
     /// status on success. Unlike the local git calls, a sync's failure reason matters to
     /// the user (no upstream, rejected non-fast-forward, conflicts…), so stderr is
-    /// captured and summarized into the result. Transfers can legitimately run past the
-    /// 10 s probe timeout, so syncs get their own longer bound.
+    /// captured and summarized into the result. Transfers can legitimately run far
+    /// longer than a local mutation, so syncs get their own longer bound.
     /// </summary>
     private async Task<GitSyncResult> SyncAsync(
         Repo repo,
@@ -304,26 +290,8 @@ public sealed class GitStatusService : IGitStatusService
             return new GitCommitDetails(hash ?? string.Empty, Array.Empty<GitChangedFile>());
         }
 
-        // "--format=" drops the commit header; --numstat already suppresses the patch
-        // body (any explicit diff format does), so the output is just the
-        // "added\tdeleted\tpath" lines (a rename's path renders as "old => new" —
-        // ParseNumstat takes the resolved tail, which is also the path the patch
-        // command needs). Verified: adding --no-patch here EMPTIES the numstat too.
-        var output = await RunGitAsync(repo.FolderPath, $"show --numstat --format= {GitCommandRunner.Quote(hash)}", cancellationToken);
-        var counts = GitOutputParser.ParseNumstat(output);
-        var files = counts
-            .Select(entry => new GitChangedFile(entry.Key, string.Empty, entry.Value.Additions, entry.Value.Deletions))
-            .ToList();
-
-        // The message body (%b — everything after the subject block) renders under the
-        // detail's subject line; a subject-only message reports an empty body.
-        var body = (await RunGitAsync(
-            repo.FolderPath,
-            $"log -1 --format=%b {GitCommandRunner.Quote(hash)}",
-            cancellationToken,
-            maxOutputChars: CommitBodyReadCap))?.Trim();
-
-        return new GitCommitDetails(hash, files, string.IsNullOrEmpty(body) ? null : body);
+        return await _reads.CommitDetailsAsync(repo.FolderPath, hash)
+               ?? new GitCommitDetails(hash, Array.Empty<GitChangedFile>());
     }
 
     /// <inheritdoc/>
@@ -334,15 +302,9 @@ public sealed class GitStatusService : IGitStatusService
             return null;
         }
 
-        // Capped: the patch renders in a fixed-height read-only box, and the TextBox
-        // pays for every character with text layout — a single generated file's
-        // multi-MB patch would spike the drawer for content nobody scrolls to.
-        return await RunGitAsync(
-            repo.FolderPath,
-            $"show --format= {GitCommandRunner.Quote(hash)} -- {GitCommandRunner.Quote(path)}",
-            cancellationToken,
-            maxOutputChars: CommitPatchReadCap,
-            truncationSuffix: "\n… (patch truncated)");
+        // The read layer caps the patch for the drawer's fixed-height box the same way
+        // the capped CLI read did.
+        return await _reads.CommitFilePatchAsync(repo.FolderPath, hash, path);
     }
 
     /// <inheritdoc/>
@@ -358,12 +320,10 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash)) return false;
 
-        // Remote-tracking branches containing the commit: non-empty = reachable from
-        // some fetched remote ref (= pushed). Note the list is only as fresh as the
-        // last fetch. A git error (null) fails open — the web link hides only on a
-        // positive "no remote ref contains it".
-        var output = await RunGitAsync(repo.FolderPath, $"branch -r --contains {GitCommandRunner.Quote(hash)}", cancellationToken);
-        return output is null || output.Trim().Length > 0;
+        // Reachability from a fetched remote-tracking ref (= pushed). The read fails
+        // open on errors — the web link hides only on a positive "no remote ref
+        // contains it". Only as fresh as the last fetch, like the CLI form was.
+        return await _reads.CommitPushedAsync(repo.FolderPath, hash);
     }
 
     /// <inheritdoc/>
@@ -371,25 +331,11 @@ public sealed class GitStatusService : IGitStatusService
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return null;
 
-        // A repo with no remote has nowhere to push — the History rows' unpushed
-        // indicator stays off instead of flagging every commit.
-        var remotes = await RunGitAsync(repo.FolderPath, "remote", cancellationToken);
-        if (string.IsNullOrWhiteSpace(remotes)) return null;
-
-        // Commits reachable from local branches but from no remote-tracking ref (=
-        // unpushed) — the batched form of IsCommitPushedAsync's "contained in some
-        // remote ref" semantics, one call for the whole History list. A git error
-        // (null) returns null: the caller hides the indicator rather than guess.
-        var output = await RunGitAsync(repo.FolderPath, "log --format=%H --branches --not --remotes", cancellationToken);
-        if (output is null) return null;
-
-        var hashes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            hashes.Add(line.Trim());
-        }
-
-        return hashes;
+        // The batched form of IsCommitPushedAsync's "contained in some remote ref"
+        // semantics, one walk for the whole History list. Null when the indicator
+        // cannot be answered honestly (no remote, unreadable repository): the caller
+        // hides the indicator rather than guess.
+        return await _reads.UnpushedHashesAsync(repo.FolderPath);
     }
 
     /// <inheritdoc/>
@@ -484,59 +430,14 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <summary>
-    /// Runs the three git probes the Changes tab needs once — status (porcelain v2),
-    /// worktree numstat, staged numstat — and parses the status output into the two
-    /// views (<see cref="GitChangedFile"/> list, staged/unstaged split). An empty status
-    /// (clean repo, or git failing outright) short-circuits to the empty snapshot
-    /// without spawning the diff probes, exactly like the pre-merge code.
+    /// Runs the shared change read the Changes tab needs once — status, worktree
+    /// numstat, staged numstat — and shapes the status entries into the two views
+    /// (<see cref="GitChangedFile"/> list, staged/unstaged split). An empty status
+    /// short-circuits to the empty snapshot without running the diff probes, exactly
+    /// like the CLI version skipped them on empty porcelain output.
     /// </summary>
     private async Task<GitChangeSnapshot> RunChangeProbesAsync(string folderPath)
-    {
-        var statusOutput = await RunGitAsync(
-            folderPath,
-            "--no-optional-locks status --porcelain=v2 --untracked-files=all",
-            CancellationToken.None);
-        if (string.IsNullOrEmpty(statusOutput)) return EmptyChangeSnapshot;
-
-        var statusFiles = new List<GitChangedFile>();
-        var staged = new List<GitChangedFile>();
-        var unstaged = new List<GitChangedFile>();
-        GitOutputParser.ForEachLine(statusOutput, line =>
-        {
-            if (line.IsEmpty || line[0] == '#') return;
-            GitOutputParser.ParseStatusLine(line, statusFiles, staged, unstaged);
-        });
-
-        return new GitChangeSnapshot(
-            statusFiles,
-            staged,
-            unstaged,
-            GitOutputParser.ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --numstat", CancellationToken.None)),
-            GitOutputParser.ParseNumstat(await RunGitAsync(folderPath, "--no-optional-locks diff --cached --numstat", CancellationToken.None)));
-    }
-
-    /// <summary>
-    /// One repo's parsed change probes: the status lines already shaped for the two
-    /// views plus the raw per-side numstat dictionaries, which the views apply with
-    /// different merge rules (the file list layers the cached counts over the worktree
-    /// counts; the split view keeps them per side). Instances are shared between the
-    /// two concurrent views — the projections only read the snapshot and build their
-    /// own lists on top.
-    /// </summary>
-    private sealed record GitChangeSnapshot(
-        IReadOnlyList<GitChangedFile> StatusFiles,
-        IReadOnlyList<GitChangedFile> StagedFiles,
-        IReadOnlyList<GitChangedFile> UnstagedFiles,
-        Dictionary<string, (int? Additions, int? Deletions)> WorktreeCounts,
-        Dictionary<string, (int? Additions, int? Deletions)> CachedCounts);
-
-    /// <summary>The shared empty snapshot for an empty status output.</summary>
-    private static readonly GitChangeSnapshot EmptyChangeSnapshot = new(
-        [],
-        [],
-        [],
-        new Dictionary<string, (int?, int?)>(StringComparer.Ordinal),
-        new Dictionary<string, (int?, int?)>(StringComparer.Ordinal));
+        => await _reads.ChangeSnapshotAsync(folderPath) ?? GitChangeSnapshot.Empty;
 
     /// <inheritdoc/>
     public async Task<bool> StageAsync(Repo repo, string path, CancellationToken cancellationToken = default)
@@ -599,10 +500,11 @@ public sealed class GitStatusService : IGitStatusService
             return false;
         }
 
-        // Split by index membership: ls-files lists exactly the paths the index knows.
-        var listed = await RunGitAsync(repo.FolderPath!, $"ls-files -- {quotedAll}", cancellationToken) ?? string.Empty;
-        var inIndex = listed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToHashSet(StringComparer.Ordinal);
+        // Split by index membership: exactly the paths the index knows (the in-process
+        // form of the ls-files probe; a failed read lists nothing, which routes every
+        // path to the untracked side, same as a failed ls-files did).
+        var inIndex = await _reads.IndexedPathsAsync(repo.FolderPath!, paths)
+                      ?? new HashSet<string>(StringComparer.Ordinal);
 
         var tracked = paths.Where(inIndex.Contains).ToList();
         var untracked = paths.Where(p => !inIndex.Contains(p)).ToList();
@@ -644,8 +546,7 @@ public sealed class GitStatusService : IGitStatusService
 
         // In the index → revert the working tree to it; not in the index → the file
         // is untracked (or was a staged addition just unstaged above): delete it.
-        var inIndex = await RunGitAsync(repo.FolderPath!, $"ls-files -- {quoted}", cancellationToken) is { } hit
-            && hit.Trim().Length > 0;
+        var inIndex = await _reads.IsTrackedAsync(repo.FolderPath!, path);
 
         return await RunAndRefreshAsync(
             repo,
@@ -684,58 +585,21 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
-    public async Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default)
+    public Task<string?> GetStagedPatchAsync(Repo repo, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return null;
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Task.FromResult<string?>(null);
 
-        // The only consumer (the commit-message prompt) truncates the patch to 8,000
-        // chars anyway, so the read stops at a fixed head instead of materializing a
-        // multi-megabyte diff (LOH churn on every wand press).
-        return await RunGitAsync(
-            repo.FolderPath,
-            "--no-optional-locks diff --cached",
-            cancellationToken,
-            maxOutputChars: StagedPatchReadCap);
+        // The read layer caps the patch head (the only consumer, the commit-message
+        // prompt, truncates far below it anyway).
+        return _reads.StagedPatchAsync(repo.FolderPath);
     }
-
-    /// <summary>Read cap for the staged patch: comfortably past the prompt's own
-    /// 8,000-char truncation point, yet far under LOH size for any real diff.</summary>
-    private const int StagedPatchReadCap = 48 * 1024;
-
-    /// <summary>Read cap for one History drawer file patch: 64K chars is ~4,000 lines —
-    /// far past what the drawer's fixed-height box usefully shows, and it bounds the
-    /// TextBox's text layout to match.</summary>
-    private const int CommitPatchReadCap = 64 * 1024;
-
-    /// <summary>Read cap for a commit-detail message body: bodies are prose rendered
-    /// in the header's capped scroll box, so 16K chars bounds the fetch far past
-    /// anything displayed.</summary>
-    private const int CommitBodyReadCap = 16 * 1024;
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath)) return Array.Empty<GitCommitInfo>();
 
-        var output = await RunGitAsync(
-            repo.FolderPath,
-            "log -10 --pretty=format:%H%x09%s%x09%an%x09%cI",
-            cancellationToken);
-        if (string.IsNullOrEmpty(output)) return Array.Empty<GitCommitInfo>();
-
-        var commits = new List<GitCommitInfo>();
-        foreach (var rawLine in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = rawLine.TrimEnd('\r').Split('\t', 4);
-            if (parts.Length < 4) continue;
-            if (!DateTimeOffset.TryParse(parts[3], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date))
-            {
-                continue;
-            }
-            commits.Add(new GitCommitInfo(parts[0], parts[1], parts[2], date));
-        }
-
-        return commits;
+        return await _reads.RecentCommitsAsync(repo.FolderPath) ?? Array.Empty<GitCommitInfo>();
     }
 
     /// <summary>

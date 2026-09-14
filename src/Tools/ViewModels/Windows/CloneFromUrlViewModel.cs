@@ -30,6 +30,9 @@ public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContex
     /// <summary>The page's post-clone hook (register the repo, open the bar on it).</summary>
     private Func<string, Task>? _onCloned;
 
+    /// <summary>Cancels the in-flight clone (its git process tree dies with it); null while idle.</summary>
+    private CancellationTokenSource? _cloneCts;
+
     public CloneFromUrlViewModel(
         IGitStatusService gitStatusService,
         IToolDrawerService toolDrawer,
@@ -77,6 +80,8 @@ public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContex
         }
 
         _onCloned = context.OnCloned;
+        _cloneCts?.Dispose();
+        _cloneCts = null;
         ErrorText = null;
         IsCloning = false;
         RepositoryUrl = null;
@@ -146,9 +151,19 @@ public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContex
 
         ErrorText = null;
         IsCloning = true;
+        using var cts = new CancellationTokenSource();
+        _cloneCts = cts;
         try
         {
-            var result = await _gitStatusService.CloneAsync(url, destination, name);
+            var result = await _gitStatusService.CloneAsync(url, destination, name, cts.Token);
+            if (result.Cancelled)
+            {
+                // The Cancel button usually closed the drawer already; the note only
+                // shows when the drawer is somehow still open.
+                ErrorText = "Clone cancelled.";
+                return;
+            }
+
             if (!result.Success)
             {
                 ErrorText = result.Error is { } detail
@@ -166,11 +181,24 @@ public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContex
         }
         finally
         {
+            _cloneCts = null;
             IsCloning = false;
         }
     }
 
-    /// <summary>Drawer back link / footer Cancel: mirrors the header's X close.</summary>
+    /// <summary>
+    /// Drawer back link / footer Cancel: mirrors the header's X close. While a clone
+    /// runs, Cancel aborts it first — the token fires and the whole git clone tree is
+    /// killed (with the partial destination removed) instead of running on toward its
+    /// ten minute bound.
+    /// </summary>
     [RelayCommand]
-    private void Cancel() => _toolDrawer.Close();
+    private void Cancel()
+    {
+        if (IsCloning)
+        {
+            _cloneCts?.Cancel();
+        }
+        _toolDrawer.Close();
+    }
 }

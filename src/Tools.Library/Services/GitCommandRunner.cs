@@ -9,6 +9,14 @@ namespace Tools.Library.Services;
 /// plumbing and the argument quoting. A missing git binary latches the runner
 /// unavailable for the rest of the session instead of failing every repo on every
 /// refresh. Pure process work — no parsing, no entity mutation.
+/// <para>
+/// In-process reads (status, diffs, history) bypass this runner entirely (see
+/// <see cref="GitReadService"/>); only mutations, syncs and clones shell out, so the
+/// user's hooks, gpg signing and credential helpers keep applying. Every spawn kills
+/// its whole process tree when its bound expires OR the wait is cancelled, and
+/// <see cref="Stop"/> cancels everything at app shutdown — so no git process outlives
+/// the app.
+/// </para>
 /// </summary>
 internal sealed class GitCommandRunner
 {
@@ -37,17 +45,27 @@ internal sealed class GitCommandRunner
         ["GIT_TERMINAL_PROMPT"] = "0",
     };
 
-    /// <summary>Set once <c>git</c> is missing on PATH; subsequent refreshes become no-ops.</summary>
+    /// <summary>Set once <c>git</c> is missing on PATH; subsequent runs become no-ops.</summary>
     private volatile bool _unavailable;
 
     public bool IsUnavailable => _unavailable;
 
     /// <summary>
+    /// One-way shutdown switch: once cancelled, no new git process is spawned and every
+    /// in-flight one is killed (the spawns' kill-on-cancel rides the linked token).
+    /// Wired to app shutdown via <see cref="Abstractions.IGitStatusService.Stop"/> so no
+    /// git process outlives the app.
+    /// </summary>
+    private readonly CancellationTokenSource _shutdownCts = new();
+
+    public void Stop() => _shutdownCts.Cancel();
+
+    /// <summary>
     /// Runs <c>git</c> with the given arguments in <paramref name="workingDir"/> and
     /// returns stdout, or <see langword="null"/> on any failure (non-zero exit, timeout,
-    /// missing binary). Prompts are disabled (<c>GIT_TERMINAL_PROMPT=0</c>) and locks are
-    /// not taken (<c>--no-optional-locks</c> is the caller's argument prefix) so probing
-    /// never interferes with the user's own git operations.
+    /// missing binary, cancellation). Prompts are disabled (<c>GIT_TERMINAL_PROMPT=0</c>)
+    /// and locks are not taken (<c>--no-optional-locks</c> is the caller's argument
+    /// prefix) so commands never interfere with the user's own git operations.
     /// </summary>
     public async Task<string?> RunAsync(
         string workingDir,
@@ -58,9 +76,12 @@ internal sealed class GitCommandRunner
         int? maxOutputChars = null,
         string? truncationSuffix = null)
     {
+        if (_shutdownCts.IsCancellationRequested) return null;
+
         ProcessRunResult result;
         try
         {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
             result = await ProcessRunner.RunAsync(new ProcessRunOptions
             {
                 FileName = "git",
@@ -69,7 +90,8 @@ internal sealed class GitCommandRunner
                 Timeout = timeout ?? ProcessTimeout,
                 EnvironmentVariables = GitEnvironment,
                 MaxOutputChars = maxOutputChars,
-            }, cancellationToken);
+                KillOnCancel = true,
+            }, linkedCts.Token);
         }
         catch (Win32Exception ex)
         {
@@ -77,6 +99,13 @@ internal sealed class GitCommandRunner
             // app run instead of failing every repo on every refresh.
             _unavailable = true;
             Log.Logger.Debug(ex, "git executable not found; git status checks disabled");
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            // External cancel (caller token or app shutdown): the kill-on-cancel
+            // registration already took the process tree down; degrade like any other
+            // failed run instead of throwing past the fire-and-forget call sites.
             return null;
         }
 

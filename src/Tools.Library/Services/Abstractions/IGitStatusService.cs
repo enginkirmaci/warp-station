@@ -70,7 +70,9 @@ public interface IGitStatusService
     /// This is the one service call that runs outside any existing repo: the working
     /// directory is the destination's parent. Returns the outcome carrying git's
     /// actionable stderr line on failure (unknown host, missing credentials, existing
-    /// destination, timeout — clones get the longest bound, ten minutes).
+    /// destination, timeout — clones get the longest bound, ten minutes). A cancelled
+    /// token kills the transfer's whole process tree, reports a cancelled outcome, and
+    /// removes the partial destination folder.
     /// </summary>
     Task<GitSyncResult> CloneAsync(
         string url,
@@ -228,4 +230,13 @@ public interface IGitStatusService
     /// short hash, subject, author and commit date. Returns an empty list on any failure.
     /// </summary>
     Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// App-shutdown switch: cancels the runner's shutdown token, which stops any new
+    /// CLI git spawn and kills every in-flight one's whole process tree (clone, fetch,
+    /// push, a mid-run commit) so no git process outlives the app. In-process reads
+    /// need no switch: the app process taking them down is the cleanup. One-way; the
+    /// service is a singleton, so this runs once per app lifetime.
+    /// </summary>
+    void Stop();
 }

@@ -48,6 +48,17 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
     /// <summary>Set once <c>gh</c> is missing; subsequent refreshes become no-ops.</summary>
     private volatile bool _ghUnavailable;
 
+    /// <summary>
+    /// One-way shutdown switch: once cancelled, no new gh process is spawned and every
+    /// in-flight one is killed (the spawns' kill-on-cancel rides the linked token).
+    /// Wired to app shutdown via <see cref="IGitHubService.Stop"/> so no gh process
+    /// outlives the app.
+    /// </summary>
+    private readonly CancellationTokenSource _shutdownCts = new();
+
+    /// <inheritdoc/>
+    public void Stop() => _shutdownCts.Cancel();
+
     /// <summary>Absolute gh path resolved at Configure time; <c>null</c> when not resolvable.</summary>
     private volatile string? _ghPath;
 
@@ -287,13 +298,17 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
     /// <summary>
     /// Runs <c>gh</c> with the given arguments inside <paramref name="workingDir"/> and
     /// returns stdout, or <see langword="null"/> on any failure (non-zero exit, timeout,
-    /// missing binary). Terminal prompts are disabled so probing never blocks.
+    /// missing binary, cancellation). Terminal prompts are disabled so probing never
+    /// blocks.
     /// </summary>
     private async Task<string?> RunGhAsync(string ghPath, string workingDir, string arguments, CancellationToken cancellationToken)
     {
+        if (_shutdownCts.IsCancellationRequested) return null;
+
         ProcessRunResult result;
         try
         {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
             result = await ProcessRunner.RunAsync(new ProcessRunOptions
             {
                 FileName = ghPath,
@@ -301,7 +316,8 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
                 WorkingDirectory = workingDir,
                 Timeout = ProcessTimeout,
                 EnvironmentVariables = GhEnvironment,
-            }, cancellationToken);
+                KillOnCancel = true,
+            }, linkedCts.Token);
         }
         catch (Win32Exception ex)
         {
@@ -309,6 +325,12 @@ public sealed class GitHubService : RepoActivityServiceBase<GitHubActivity>, IGi
             // instead of failing every repo on every refresh.
             _ghUnavailable = true;
             Log.Logger.Debug(ex, "gh executable not found; GitHub queries disabled");
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            // External cancel (caller token or app shutdown): the kill-on-cancel
+            // registration already took the process tree down; report as a failed run.
             return null;
         }
 

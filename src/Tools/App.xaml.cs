@@ -191,6 +191,10 @@ public partial class App : Application
             // thread — without it a mid-generation CLI outlives the closed app.
             services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>()
                 .CancelCommitMessageGeneration();
+            // Same story for every CLI git spawn (clone, fetch, push, a mid-run commit)
+            // and each gh probe: the shutdown token kills the whole process tree.
+            services.GetRequiredService<IGitStatusService>().Stop();
+            services.GetRequiredService<IGitHubService>().Stop();
             services.GetRequiredService<ISnapItService>().Stop();
             services.GetRequiredService<INugetLocalService>().Stop();
         }

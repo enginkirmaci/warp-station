@@ -145,27 +145,42 @@ public static class ProcessRunner
                 timeoutCts.CancelAfter(timeout);
             }
 
+            // Hoisted so the external-cancel catch can await them: the kill closes the
+            // pipes, and a faulted read left unobserved behind a disposed wrapper would
+            // only resurface as unobserved-task-exception noise.
+            Task<string>[] drains = [];
             try
             {
                 var maxChars = options.MaxOutputChars;
-                var stdoutTask = maxChars is null
-                    ? process.StandardOutput.ReadToEndAsync(timeoutCts.Token)
-                    : ReadCappedAsync(process.StandardOutput, maxChars.Value, process);
-                var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+                drains =
+                [
+                    maxChars is null
+                        ? process.StandardOutput.ReadToEndAsync(timeoutCts.Token)
+                        : ReadCappedAsync(process.StandardOutput, maxChars.Value, process),
+                    process.StandardError.ReadToEndAsync(timeoutCts.Token),
+                ];
                 await process.WaitForExitAsync(timeoutCts.Token);
-                await Task.WhenAll(stdoutTask, stderrTask);
+                await Task.WhenAll(drains);
                 return new ProcessRunResult(
                     process.ExitCode,
-                    stdoutTask.Result,
-                    stderrTask.Result,
+                    drains[0].Result,
+                    drains[1].Result,
                     TimedOut: false,
-                    Truncated: maxChars is { } cap && stdoutTask.Result.Length >= cap);
+                    Truncated: maxChars is { } cap && drains[0].Result.Length >= cap);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Timeout, not an external cancel: kill the stray child and report.
                 try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
                 return new ProcessRunResult(ExitCode: null, string.Empty, string.Empty, TimedOut: true);
+            }
+            catch (OperationCanceledException)
+            {
+                // External cancel: the kill-on-cancel registration (when the caller opted
+                // in) already took the tree down. Let the drains observe the closed
+                // pipes before the wrapper is disposed, then propagate.
+                try { await Task.WhenAll(drains); } catch { /* killed or cancelled alike */ }
+                throw;
             }
         }
     }

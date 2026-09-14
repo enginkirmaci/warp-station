@@ -36,4 +36,12 @@ public interface IGitHubService : IRepoActivityService
     /// hides in that case. Cached: repeated opens cost no process spawn.
     /// </summary>
     Task<GitHubRepoDetails?> GetRepoDetailsAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// App-shutdown switch: cancels the service's shutdown token, which stops any new
+    /// gh spawn and kills every in-flight one's whole process tree so no gh process
+    /// outlives the app. One-way; the service is a singleton, so this runs once per
+    /// app lifetime.
+    /// </summary>
+    void Stop();
 }

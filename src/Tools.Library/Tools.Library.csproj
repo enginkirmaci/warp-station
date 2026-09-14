@@ -21,11 +21,17 @@
 		<PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
 		<PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
 		<PackageReference Include="Tmds.DBus" Version="0.23.0" />
+		<PackageReference Include="LibGit2Sharp" Version="0.32.0" />
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="Serilog" Version="4.3.1" />
 		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 		<PackageReference Include="System.Windows.Extensions" Version="10.0.8" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.8" />
+	</ItemGroup>
+	<!-- Parity/runtime harness seam: the internal read layer is probeable from the
+	     throwaway /tmp console tests without exposing it beyond the machine. -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="GitParity" />
 	</ItemGroup>
 
 </Project>
