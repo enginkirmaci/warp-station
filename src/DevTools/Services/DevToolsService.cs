@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -110,12 +109,6 @@ public class DevToolsService : IDisposable
                 // Monitor Tools.exe process
                 _ = Task.Run(() => MonitorToolsProcessAsync());
             }
-        }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) // ERROR_CANCELLED: user dismissed the UAC prompt
-        {
-            Log.Warning("[DevToolsService] Tools.exe elevation was cancelled by the user, shutting down DevTools");
-            Stop();
-            _lifetime.StopApplication();
         }
         catch (Exception ex)
         {

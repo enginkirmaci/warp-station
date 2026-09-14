@@ -32,31 +32,23 @@ var devToolsService = host.Services.GetRequiredService<DevToolsService>();
 // autostart entry on Linux)
 await SyncStartAtBootAsync(host.Services);
 
-// Get application lifetime to handle shutdown
-var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
-
 // Handle Ctrl+C and graceful shutdown
 Console.CancelKeyPress += (sender, e) =>
 {
     e.Cancel = true;
     Log.Information("Shutting down DevTools...");
     devToolsService.Stop();
-    lifetime.StopApplication();
 };
+
+// Get application lifetime to handle shutdown
+var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
 
 // Start the service
 await devToolsService.StartAsync();
 
 // Keep running until shutdown
 Log.Information("DevTools is running. Press Ctrl+C to stop.");
-try
-{
-    await Task.Delay(Timeout.Infinite, lifetime.ApplicationStopping);
-}
-catch (TaskCanceledException)
-{
-    // Graceful shutdown: Tools exited, elevation was cancelled, or the host was stopped.
-}
+await Task.Delay(Timeout.Infinite, lifetime.ApplicationStopping);
 
 Log.Information("DevTools stopped");
 
