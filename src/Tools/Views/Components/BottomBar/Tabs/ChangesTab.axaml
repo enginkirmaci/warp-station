@@ -425,7 +425,6 @@
                                             <DataTemplate x:DataType="vm:BranchSearchEntry">
                                                 <TextBox
                                                     MinWidth="180"
-                                                    Margin="2"
                                                     FontSize="13"
                                                     Watermark="Search branches…"
                                                     TextChanged="OnBranchSearchTextChanged"

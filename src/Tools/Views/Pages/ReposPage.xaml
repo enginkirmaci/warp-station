@@ -291,7 +291,6 @@
                                         -->
                                         <Button
                                                 VerticalAlignment="Center"
-                                                Classes="Outlined"
                                                 Command="{Binding OpenCloneFromUrlCommand}"
                                                 ToolTip.Tip="Clone a git repository from a URL and add it to the list">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -309,7 +308,7 @@
                                                 Classes="icon"
                                                 Click="OnSettingsClick"
                                                 ToolTip.Tip="Settings">
-                                                <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
+                                                <Path Classes="icon" Data="{tools:SvgPath icon-options}" />
                                         </Button>
                                 </StackPanel>
                         </Grid>

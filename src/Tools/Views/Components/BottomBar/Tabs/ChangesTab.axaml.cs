@@ -67,7 +67,10 @@ public partial class ChangesTab : UserControl
             {
                 // The search row's container is reused across opens and the TextBox is
                 // unbound (its DataContext is the row record) — mirror the view model's
-                // (cleared) filter into it on every open.
+                // (cleared) filter into it on every open. The container padding is
+                // zeroed so the box spans the popup instead of sitting inset like the
+                // selectable rows.
+                row.Padding = new Thickness(0);
                 search.Text = ViewModel?.BranchSearchText ?? string.Empty;
                 search.Focus();
             }

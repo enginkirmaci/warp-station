@@ -47,7 +47,7 @@
                 <Path
                     Width="14"
                     Height="14"
-                    Data="{tools:SvgPath icon-chevron-left}"
+                    Data="{tools:SvgPath icon-arrow-left}"
                     Fill="{DynamicResource BodyForegroundBrush}"
                     Stretch="Uniform" />
             </Button>
@@ -100,92 +100,95 @@
                             Content="Start at boot"
                             IsChecked="{Binding StartAtBoot, Mode=TwoWay}"
                             ToolTip.Tip="Launch automatically when the user signs in (applies at next launch)" />
+                        <TextBlock
+                            Classes="subtle"
+                            Text="Start-at-boot and start-minimized are applied at the next launch, where the app also reconciles the OS registration to these flags."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+    <!--  Scanning  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Repository Scanning" />
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"
-                                Text="Settings Folder" />
-                            <Button
-                                Classes="bar-item"
-                                Command="{Binding OpenSettingsFolderCommand}"
-                                ToolTip.Tip="Open the settings folder in the file explorer">
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                    <Path
-                                        Width="14"
-                                        Height="14"
-                                        Data="{tools:SvgPath icon-cog}"
-                                        Fill="{DynamicResource MutedForegroundBrush}"
-                                        Stretch="Uniform" />
-                                    <TextBlock Text="Open settings folder in file explorer" />
-                                </Grid>
-                            </Button>
+                                Text="Repo Scan Folders"
+                                ToolTip.Tip="Folders to scan for repositories (one per line)" />
+                            <TextBox
+                                Height="240"
+                                AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
+                                Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths, one per line" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Excluded Folders"
+                                ToolTip.Tip="Folders to exclude from scanning (one per line)" />
+                            <TextBox
+                                Height="100"
+                                AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
+                                Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths to exclude, one per line" />
+                        </StackPanel>
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto"
+                            RowSpacing="8">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Git Folder Pattern"
+                                    ToolTip.Tip="Pattern to search for git folders" />
+                                <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Solution File Pattern"
+                                    ToolTip.Tip="Solution file patterns, comma-separated (e.g. *.sln,*.slnx)" />
+                                <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Platform Folder Name"
+                                    ToolTip.Tip="Path marker used to auto-tag platform repos" />
+                                <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+    <!--  Git  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Git" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Branch Name Prefix"
+                                ToolTip.Tip="Pre-typed into the new-branch drawer's name field" />
+                            <TextBox Text="{Binding BranchNamePrefix, UpdateSourceTrigger=PropertyChanged}" Watermark="users/enginkirmaci" />
                             <TextBlock
                                 Classes="subtle"
-                                Text="Start-at-boot and start-minimized are applied at the next launch, where the app also reconciles the OS registration to these flags."
+                                Text="Typed into the branch name field when you open the new-branch drawer (Changes tab → branch dropdown → New branch…), so you only complete it with the branch's own name. Empty disables the prefix."
                                 TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
-    <!--  OpenCode integration  -->
-                <Border Classes="card">
-                    <StackPanel Spacing="8">
-                        <TextBlock Classes="card-title" Text="OpenCode" />
-                        <CheckBox
-                            Content="Enable OpenCode"
-                            IsChecked="{Binding EnableOpenCode, Mode=TwoWay}"
-                            ToolTip.Tip="Show the OpenCode launch panel and the commit-message wand" />
-                        <!--
-                            Model fields: editable model ComboBoxes over the shared
-                            `opencode models` catalog (searchable dropdown; the box text
-                            is the saved value, so custom ids stay verbatim and clearing
-                            the commit box restores the default-model fallback).
-                        -->
-                        <StackPanel Spacing="4">
-                            <TextBlock
-                                Classes="field-label"
-                                Text="OpenCode Model (default)"
-                                ToolTip.Tip="Model the opencode quick-launch button starts; pick from the loaded catalog or type any model id" />
-                            <ComboBox
-                                Name="DefaultModelPicker"
-                                HorizontalAlignment="Stretch"
-                                IsEditable="True"
-                                ItemsSource="{Binding DefaultModelPicker.FilteredModels}"
-                                PlaceholderText="provider/model, e.g. opencode-go/glm-5.3-flash"
-                                SelectedItem="{Binding DefaultModelPicker.SelectedModel, Mode=OneWay}"
-                                SelectionChanged="OnDefaultModelSelectionChanged"
-                                Text="{Binding DefaultModelPicker.Filter, Mode=TwoWay}" />
-                            <TextBlock
-                                Classes="subtle"
-                                IsVisible="{Binding !DefaultModelPicker.HasModels}"
-                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                        <StackPanel Spacing="4">
-                            <TextBlock
-                                Classes="field-label"
-                                Text="OpenCode Commit Model (wand)"
-                                ToolTip.Tip="Model for the commit-message wand; empty = default model" />
-                            <ComboBox
-                                Name="CommitModelPicker"
-                                HorizontalAlignment="Stretch"
-                                IsEditable="True"
-                                ItemsSource="{Binding CommitModelPicker.FilteredModels}"
-                                PlaceholderText="(empty = default model)"
-                                SelectedItem="{Binding CommitModelPicker.SelectedModel, Mode=OneWay}"
-                                SelectionChanged="OnCommitModelSelectionChanged"
-                                Text="{Binding CommitModelPicker.Filter, Mode=TwoWay}" />
-                            <TextBlock
-                                Classes="subtle"
-                                IsVisible="{Binding !CommitModelPicker.HasModels}"
-                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                        <TextBlock
-                            Classes="subtle"
-                            Text="Disabling OpenCode hides every OpenCode surface; the model fields keep their saved values. Executable path lives under Repository Scanning → External Tools."
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
+                </StackPanel>
+
+                <!--  Right column  -->
+                <StackPanel Grid.Column="1" Spacing="12">
 
     <!--  External tools  -->
                 <Border Classes="card">
@@ -278,86 +281,64 @@
                     </StackPanel>
                 </Border>
 
-                </StackPanel>
-
-                <!--  Right column  -->
-                <StackPanel Grid.Column="1" Spacing="12">
-
-    <!--  Scanning  -->
+    <!--  OpenCode integration  -->
                 <Border Classes="card">
                     <StackPanel Spacing="8">
-                        <TextBlock Classes="card-title" Text="Repository Scanning" />
+                        <TextBlock Classes="card-title" Text="OpenCode" />
+                        <CheckBox
+                            Content="Enable OpenCode"
+                            IsChecked="{Binding EnableOpenCode, Mode=TwoWay}"
+                            ToolTip.Tip="Show the OpenCode launch panel and the commit-message wand" />
+                        <!--
+                            Model fields: editable model ComboBoxes over the shared
+                            `opencode models` catalog (searchable dropdown; the box text
+                            is the saved value, so custom ids stay verbatim and clearing
+                            the commit box restores the default-model fallback).
+                        -->
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"
-                                Text="Repo Scan Folders"
-                                ToolTip.Tip="Folders to scan for repositories (one per line)" />
-                            <TextBox
-                                Height="120"
-                                AcceptsReturn="True"
-                                VerticalContentAlignment="Top"
-                                Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
-                                TextWrapping="Wrap"
-                                Watermark="Enter folder paths, one per line" />
-                        </StackPanel>
-                        <StackPanel Spacing="4">
-                            <TextBlock
-                                Classes="field-label"
-                                Text="Excluded Folders"
-                                ToolTip.Tip="Folders to exclude from scanning (one per line)" />
-                            <TextBox
-                                Height="100"
-                                AcceptsReturn="True"
-                                VerticalContentAlignment="Top"
-                                Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
-                                TextWrapping="Wrap"
-                                Watermark="Enter folder paths to exclude, one per line" />
-                        </StackPanel>
-                        <Grid
-                            ColumnDefinitions="*,*"
-                            ColumnSpacing="16"
-                            RowDefinitions="Auto,Auto"
-                            RowSpacing="8">
-                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="Git Folder Pattern"
-                                    ToolTip.Tip="Pattern to search for git folders" />
-                                <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
-                            </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="Solution File Pattern"
-                                    ToolTip.Tip="Solution file patterns, comma-separated (e.g. *.sln,*.slnx)" />
-                                <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
-                                <TextBlock
-                                    Classes="field-label"
-                                    Text="Platform Folder Name"
-                                    ToolTip.Tip="Path marker used to auto-tag platform repos" />
-                                <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-    <!--  Git  -->
-                <Border Classes="card">
-                    <StackPanel Spacing="8">
-                        <TextBlock Classes="card-title" Text="Git" />
-                        <StackPanel Spacing="4">
-                            <TextBlock
-                                Classes="field-label"
-                                Text="Branch Name Prefix"
-                                ToolTip.Tip="Pre-typed into the new-branch drawer's name field" />
-                            <TextBox Text="{Binding BranchNamePrefix, UpdateSourceTrigger=PropertyChanged}" Watermark="users/enginkirmaci" />
+                                Text="OpenCode Model (default)"
+                                ToolTip.Tip="Model the opencode quick-launch button starts; pick from the loaded catalog or type any model id" />
+                            <ComboBox
+                                Name="DefaultModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding DefaultModelPicker.FilteredModels}"
+                                PlaceholderText="provider/model, e.g. opencode-go/glm-5.3-flash"
+                                SelectedItem="{Binding DefaultModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnDefaultModelSelectionChanged"
+                                Text="{Binding DefaultModelPicker.Filter, Mode=TwoWay}" />
                             <TextBlock
                                 Classes="subtle"
-                                Text="Typed into the branch name field when you open the new-branch drawer (Changes tab → branch dropdown → New branch…), so you only complete it with the branch's own name. Empty disables the prefix."
+                                IsVisible="{Binding !DefaultModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
                                 TextWrapping="Wrap" />
                         </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="OpenCode Commit Model (wand)"
+                                ToolTip.Tip="Model for the commit-message wand; empty = default model" />
+                            <ComboBox
+                                Name="CommitModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding CommitModelPicker.FilteredModels}"
+                                PlaceholderText="(empty = default model)"
+                                SelectedItem="{Binding CommitModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnCommitModelSelectionChanged"
+                                Text="{Binding CommitModelPicker.Filter, Mode=TwoWay}" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding !CommitModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <TextBlock
+                            Classes="subtle"
+                            Text="Disabling OpenCode hides every OpenCode surface; the model fields keep their saved values. Executable path lives under Repository Scanning → External Tools."
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
 
