@@ -43,7 +43,8 @@
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
 		<PackageReference Include="Serilog" Version="4.3.1" />
-		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" /> 
+		<PackageReference Include="LibGit2Sharp" Version="0.32.0" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -63,6 +64,5 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>settings\opencode\commit-message.md</Link>
 		</Content>
-	</ItemGroup>
-
+	</ItemGroup> 
 </Project>
