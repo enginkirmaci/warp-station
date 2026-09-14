@@ -139,6 +139,7 @@ public partial class App : Application
         RegisterPageWithViewModel<OpenCodeSettingsComponent, OpenCodeSettingsViewModel>(services);
         // Drawer-hosted dialogs (opened by DialogService instead of modal windows)
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
+        RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
         RegisterPageWithViewModel<NewBranchComponent, NewBranchViewModel>(services);
         RegisterPageWithViewModel<CloneFromUrlComponent, CloneFromUrlViewModel>(services);
         // Drawer-component factory: MainWindow resolves drawer views through this

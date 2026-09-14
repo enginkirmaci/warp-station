@@ -1,13 +1,11 @@
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Tools.Library.Entities;
 using Tools.ViewModels.Components;
 using Tools.ViewModels.Components.BottomBar;
 using Tools.ViewModels.Pages;
-using Tools.ViewModels.Windows;
 
 namespace Tools.Views.Pages;
 
@@ -18,10 +16,6 @@ public partial class ReposPage : UserControl
     /// <summary>The bottom bar's singleton ViewModel; row presses hand their repo to it.</summary>
     public BottomBarViewModel BottomBarViewModel { get; }
 
-    /// <summary>Window-level commands: the header gear opens the dedicated Settings page
-    /// through the view model's request event (the window swaps the page in).</summary>
-    private readonly MainWindowViewModel _mainWindowViewModel;
-
     private ListBox? _reposList;
 
     public ReposPage()
@@ -29,7 +23,7 @@ public partial class ReposPage : UserControl
         InitializeComponent();
     }
 
-    public ReposPage(ReposViewModel viewModel, BottomBarViewModel bottomBarViewModel, MainWindowViewModel mainWindowViewModel)
+    public ReposPage(ReposViewModel viewModel, BottomBarViewModel bottomBarViewModel)
     {
         // Both ViewModels are assigned before InitializeComponent: the bottom bar's
         // DataContext binds to BottomBarViewModel in XAML ({Binding
@@ -39,7 +33,6 @@ public partial class ReposPage : UserControl
         // bindings regardless of order.
         ViewModel = viewModel;
         BottomBarViewModel = bottomBarViewModel;
-        _mainWindowViewModel = mainWindowViewModel;
         InitializeComponent();
         _reposList = this.FindControl<ListBox>("ReposList");
         // The bar owns its singleton ViewModel (repo context, repo header, tabs);
@@ -51,12 +44,6 @@ public partial class ReposPage : UserControl
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
-    }
-
-    /// <summary>The header's gear: requests the dedicated Settings page.</summary>
-    private void OnSettingsClick(object? sender, RoutedEventArgs e)
-    {
-        _mainWindowViewModel.OpenSettingsCommand.Execute(null);
     }
 
     /// <summary>

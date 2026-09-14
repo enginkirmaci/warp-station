@@ -304,10 +304,18 @@
                                                         <TextBlock VerticalAlignment="Center" Text="Clone from URL" />
                                                 </StackPanel>
                                         </Button>
+                                        <!--
+                                                Repo settings drawer: the sliders open the
+                                                floating drawer over the repos list (scan
+                                                folders, external tools, git, columns, the
+                                                OpenCode models and the NuGet toggle). The
+                                                title-bar cog stays on the dedicated
+                                                Settings page.
+                                        -->
                                         <Button
                                                 Classes="icon"
-                                                Click="OnSettingsClick"
-                                                ToolTip.Tip="Settings">
+                                                Command="{Binding OpenSettingsCommand}"
+                                                ToolTip.Tip="Repo settings">
                                                 <Path Classes="icon" Data="{tools:SvgPath icon-options}" />
                                         </Button>
                                 </StackPanel>
