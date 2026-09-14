@@ -21,7 +21,6 @@ public class Settings
 	public bool EnableAutomaticWindowCornering { get; set; } = false;
 	public Dictionary<string, string> ScreensLayouts { get; set; }
 	public List<string> DeactivedScreens { get; set; }
-	public bool RunAsAdmin { get; set; } = true;
 	public bool MouseHoverAnimation { get; set; } = false;
 	public SnapAreaTheme Theme { get; set; } = new SnapAreaTheme();
 }

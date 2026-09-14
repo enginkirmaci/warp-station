@@ -17,12 +17,10 @@ public static class Dev
 	public const bool IsActive = false;
 	public const bool ShowSnapWindowOnStartup = false;
 	public const bool IsTopmostDisabled = false;
-	public const bool SkipRunAsAdmin = true;
 #else
     public const bool IsActive = false;
     public const bool ShowSnapWindowOnStartup = false;
     public const bool IsTopmostDisabled = false;
-    public const bool SkipRunAsAdmin = false;
 #endif
 
 	public static void Log(object message = null, bool showTime = false, [CallerLineNumber] int lineNumber = 0, [CallerMemberName] string caller = null)
