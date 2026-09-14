@@ -192,14 +192,6 @@ public interface IGitStatusService
     Task<bool> DiscardFileAsync(Repo repo, string path, bool isStaged, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Discards every working-tree change: <c>git reset --hard HEAD</c> drops the
-    /// staged and unstaged edits on tracked files, then <c>git clean -fd</c> deletes
-    /// untracked files and folders — the usual "discard all" semantics, and there is
-    /// no undo. Refreshes the repo's status; returns false on any failure.
-    /// </summary>
-    Task<GitSyncResult> DiscardAllAsync(Repo repo, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Discards the working-tree side of the given unstaged paths: tracked files
     /// revert to the index (<c>git checkout --</c>) — a partially staged file keeps
     /// its staged edits — and untracked files are deleted (<c>git clean -f</c>).

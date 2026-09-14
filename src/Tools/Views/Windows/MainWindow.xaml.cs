@@ -144,12 +144,15 @@ public partial class MainWindow : SukiWindow
         IToolDrawerService toolDrawer,
         ToolViewResolver resolveToolView,
         ReposPage reposPage,
+        SettingsPage settingsPage,
         IClipboardPasswordService clipboardPasswordService,
         INotificationService notificationService)
     {
         _toolDrawer = toolDrawer;
         _resolveToolView = resolveToolView;
         _clipboardPasswordService = clipboardPasswordService;
+        _reposPage = reposPage;
+        _settingsPage = settingsPage;
 
         // Initialize helper classes (Dependency Inversion Principle)
         _messageHandler = new WindowMessageHandler(clipboardPasswordService);
@@ -159,6 +162,11 @@ public partial class MainWindow : SukiWindow
         InitializeComponent();
         InitializeWindow();
 
+        // The gears (title bar + Repositories header) request the Settings page; the
+        // page's back link returns to the Repositories one.
+        viewModel.SettingsRequested += OnSettingsRequested;
+        settingsPage.BackRequested += OnBackToRepositoriesRequested;
+
         // Wire the toast overlay: the service is its DataContext (provides DismissCommand)
         // and its Toasts collection is the items source.
         ToastHost.DataContext = notificationService;
@@ -166,6 +174,35 @@ public partial class MainWindow : SukiWindow
 
         // Host the permanent Repositories page content (runs its ViewModel lifecycle).
         AttachRepositoriesPage(reposPage);
+    }
+
+    private readonly ReposPage _reposPage;
+    private readonly SettingsPage _settingsPage;
+
+    /// <summary>Swaps the dedicated Settings page into the content area (no navigation
+    /// stack — the Repositories page instance stays alive and is swapped back whole).
+    /// The page reloads every edited section on each show.</summary>
+    private void OnSettingsRequested(object? sender, EventArgs e)
+    {
+        if (ContentArea.Content is SettingsPage)
+        {
+            return;
+        }
+
+        ContentArea.Content = _settingsPage;
+        if (_settingsPage.DataContext is SettingsPageViewModel viewModel)
+        {
+            FireLifecycle(viewModel.OnNavigatedToAsync);
+        }
+    }
+
+    /// <summary>The Settings page's back link: the Repositories page instance returns as-is.</summary>
+    private void OnBackToRepositoriesRequested(object? sender, EventArgs e)
+    {
+        if (ContentArea.Content is not ReposPage)
+        {
+            ContentArea.Content = _reposPage;
+        }
     }
 
     /// <summary>
@@ -432,9 +469,6 @@ public partial class MainWindow : SukiWindow
             {
                 case IToolDrawerContextReceiver<AddRepositoriesDrawerContext> addRepositories:
                     await addRepositories.OnDrawerContextAsync(context as AddRepositoriesDrawerContext);
-                    break;
-                case IToolDrawerContextReceiver<ReposSettingsDrawerContext> reposSettings:
-                    await reposSettings.OnDrawerContextAsync(context as ReposSettingsDrawerContext);
                     break;
                 case IToolDrawerContextReceiver<NewBranchContext> newBranch:
                     await newBranch.OnDrawerContextAsync(context as NewBranchContext);

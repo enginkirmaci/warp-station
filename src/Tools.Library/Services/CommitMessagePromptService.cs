@@ -7,7 +7,7 @@ namespace Tools.Library.Services;
 /// <summary>
 /// Loads the commit-message prompt template from the user's opencode folder and fills
 /// its placeholders. The user file (<c>%USERPROFILE%\.devtools\opencode\commit-message.md</c>)
-/// is seeded once from the shipped default (<c>&lt;install&gt;/settings/commit-message.md</c>)
+/// is seeded once from the shipped default (<c>&lt;install&gt;/settings/opencode/commit-message.md</c>)
 /// so upgrades never clobber user edits; if both are missing the built-in default below is
 /// used and written back, so the file a user can edit always materializes. Re-read on
 /// every wand run — no caching — so template edits take effect immediately.
@@ -20,8 +20,8 @@ public class CommitMessagePromptService : ICommitMessagePromptService
     /// <summary>Pre-flatten location of the user template; migrated once on load.</summary>
     private static readonly string LegacyUserFilePath = UserPaths.GetUserDataFile("settings", "commit-message.md");
 
-    /// <summary>Shipped default under the install directory's settings folder.</summary>
-    private const string ShippedRelPath = "commit-message.md";
+    /// <summary>Shipped default under the install directory's settings/opencode folder.</summary>
+    private const string ShippedRelPath = "opencode/commit-message.md";
 
     /// <summary>Placeholder tokens the template must carry.</summary>
     private const string FileListToken = "{file_list}";
@@ -101,8 +101,9 @@ public class CommitMessagePromptService : ICommitMessagePromptService
     /// <summary>
     /// One-time move of the template from the pre-flatten settings folder to the opencode
     /// folder, so an upgraded install keeps its edited template instead of being re-seeded
-    /// from the shipped default. Best-effort: any failure leaves the old file in place and
-    /// the seed/fallback logic proceeds.
+    /// from the shipped default. The legacy folder is then deleted if the move left it
+    /// empty. Best-effort: any failure leaves the old file in place and the seed/fallback
+    /// logic proceeds.
     /// </summary>
     private static void MigrateLegacyFile()
     {
@@ -111,5 +112,14 @@ public class CommitMessagePromptService : ICommitMessagePromptService
 
         Directory.CreateDirectory(Path.GetDirectoryName(UserFilePath)!);
         File.Move(LegacyUserFilePath, UserFilePath);
+        try
+        {
+            // Non-recursive: only succeeds when no other pre-flatten files remain.
+            Directory.Delete(Path.GetDirectoryName(LegacyUserFilePath)!);
+        }
+        catch
+        {
+            // Stale pre-flatten files still in there — leave them alone.
+        }
     }
 }

@@ -2,40 +2,60 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using Tools.Library.Configuration;
+using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
 using Tools.Services;
+using Tools.ViewModels.Windows;
 
-namespace Tools.ViewModels.Windows;
+namespace Tools.ViewModels.Pages;
 
 /// <summary>
-/// ViewModel for the <see cref="Views.Components.Repo.ReposSettingsComponent"/> (the former
-/// Repo Settings modal dialog, now hosted in the floating tool drawer). Holds the
-/// editing state for <see cref="ReposSettings"/> (multi-line text for the array
-/// fields, plain strings for the rest) and the OpenCode model fields (the default
-/// model the quick-launch passes verbatim and the wand's commit model — moved here
-/// from the OpenCode drawer, which is a per-launch surface now), translating between
-/// text and settings on load/save.
+/// ViewModel for the dedicated Settings page (opened from the title-bar gear or the
+/// Repositories page's gear; the page replaces the Repositories content until the
+/// back link is used). Absorbed the former Repo Settings drawer dialog: it edits the
+/// full <see cref="ReposSettings"/> section (the scan patterns, executables, launch
+/// toggles, GitHub/Azure DevOps columns, branch prefix), the OpenCode section — now
+/// INCLUDING its enable flag, which the drawer never showed — the NuGet enable flag,
+/// and the General flags (start minimized / at boot) that previously had no GUI at
+/// all. One Save lands every edited section in a single settings write and then
+/// live-applies them through <see cref="ReposViewModel.OnSettingsSavedAsync"/> — no
+/// restart needed, same as the drawer save.
 /// <para>
-/// The two model fields are the launch drawer's editable model ComboBoxes (one
-/// <see cref="OpenCodeModelPickerViewModel"/> each over the shared
-/// <c>opencode models</c> catalog): the cached catalog seeds the lists synchronously on
-/// open, the fresh catalog follows async. Save resolves each picker's box text through
-/// the catalog with custom ids kept verbatim.
+/// Merge discipline: the page edits every field of Repos/OpenCode/General, so those
+/// sections are rebuilt outright (SortMode is carried over from the live settings —
+/// the page doesn't edit it); NugetLocal is only mutated on its enable flag so the
+/// watch-folder fields survive; ClipboardPassword/SnapIt are never touched.
 /// </para>
 /// </summary>
-public partial class ReposSettingsViewModel :
-    DrawerDialogViewModelBase<ReposSettingsDrawerContext, ReposSettingsEditResult>
+public partial class SettingsPageViewModel : ObservableObject
 {
-    // Canonical defaults live on ReposSettings itself (the per-field Default* constants
-    // that also back ReposSettings.Defaults); no private duplicates are kept here.
+    private readonly ISettingsService _settingsService;
+    private readonly IOpenCodeModelService _openCodeModelService;
+    private readonly IProcessLauncher _processLauncher;
+    private readonly INotificationService _notifications;
+    private readonly ReposViewModel _reposViewModel;
 
     /// <summary>
-    /// The drawer has no depth field (the Add Repositories dialog owns that setting),
-    /// so the stored value is captured on open and re-emitted on save — the caller
-    /// replaces the whole Repos section with <see cref="BuildSettings"/>'s result.
+    /// Neither the page nor the old drawer edits the Add-Repositories scan depth, so
+    /// the stored value is captured on load and re-emitted on save (the caller replaces
+    /// the whole Repos section with <see cref="BuildReposSettings"/>'s result).
     /// </summary>
     private int _preservedMaxScanDepth = ReposSettings.DefaultMaxScanDepth;
 
+    /// <summary>The saved default model this load edits (the pickers' seed value).</summary>
+    private string _savedDefaultModel = string.Empty;
+
+    /// <summary>The saved wand commit model this load edits (the picker's seed value).</summary>
+    private string _savedCommitModel = string.Empty;
+
+    // ---- General ----
+    [ObservableProperty]
+    private bool _startMinimized;
+
+    [ObservableProperty]
+    private bool _startAtBoot;
+
+    // ---- Repos: scanning ----
     [ObservableProperty]
     private string _repoScanFoldersText = string.Empty;
 
@@ -51,6 +71,7 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _platformFolderName = ReposSettings.DefaultPlatformFolderName;
 
+    // ---- Repos: external tools ----
     [ObservableProperty]
     private string _vsCodeExecutable = ReposSettings.DefaultVSCodeExecutable;
 
@@ -66,48 +87,26 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private string _openCodeExecutable = ReposSettings.DefaultOpenCodeExecutable;
 
-    /// <summary>The saved default model this open edits (the pickers' seed value).</summary>
-    private string _savedDefaultModel = string.Empty;
-
-    /// <summary>The saved wand commit model this open edits (the picker's seed value).</summary>
-    private string _savedCommitModel = string.Empty;
-
-    /// <summary>
-    /// The default-model field: the launch drawer's editable model ComboBox over the
-    /// shared <c>opencode models</c> catalog.
-    /// </summary>
-    public OpenCodeModelPickerViewModel DefaultModelPicker { get; } = new();
-
-    /// <summary>The commit-model field (empty = the wand falls back to the default model).</summary>
-    public OpenCodeModelPickerViewModel CommitModelPicker { get; } = new();
-
-    /// <summary>The model catalog loader behind both pickers.</summary>
-    private readonly IOpenCodeModelService _openCodeModelService;
-
     [ObservableProperty]
     private string _zCodeExecutable = ReposSettings.DefaultZCodeExecutable;
 
-    /// <summary>The branch-name prefix pre-typed into the new-branch drawer's name field.</summary>
-    [ObservableProperty]
-    private string _branchNamePrefix = ReposSettings.DefaultBranchNamePrefix;
-
-    /// <summary>Whether the terminal launch button shows (no installation probing).</summary>
     [ObservableProperty]
     private bool _enableTerminal = true;
 
-    /// <summary>Whether the VS Code launch button shows (no installation probing).</summary>
     [ObservableProperty]
     private bool _enableVSCode = true;
 
-    /// <summary>Whether the Visual Studio (open solution) button shows — Windows only,
-    /// enforced by the page, so the checkbox hides nothing extra on other platforms.</summary>
     [ObservableProperty]
     private bool _enableVisualStudio = true;
 
-    /// <summary>Whether the zcode launch button shows (no installation probing).</summary>
     [ObservableProperty]
     private bool _enableZCode = true;
 
+    // ---- Repos: Git ----
+    [ObservableProperty]
+    private string _branchNamePrefix = ReposSettings.DefaultBranchNamePrefix;
+
+    // ---- Repos: columns ----
     [ObservableProperty]
     private bool _enableGitHub = true;
 
@@ -117,55 +116,66 @@ public partial class ReposSettingsViewModel :
     [ObservableProperty]
     private bool _enableAzureDevOps = true;
 
-    /// <summary>Whether the NuGet Local tool (tools menu entry, watch chip, watch) is enabled.</summary>
-    [ObservableProperty]
-    private bool _enableNuget = true;
-
     [ObservableProperty]
     private string _azureDevOpsPat = string.Empty;
 
     [ObservableProperty]
     private string _azureDevOpsUrl = string.Empty;
 
-    /// <summary>
-    /// Initializes a new instance. Editing state is seeded per open through
-    /// <see cref="OnDrawerContextAsync"/> (the component is resolved fresh from DI each time).
-    /// </summary>
-    public ReposSettingsViewModel(IToolDrawerService toolDrawer, IOpenCodeModelService openCodeModelService)
-        : base(toolDrawer)
+    // ---- OpenCode ----
+    /// <summary>Whether the OpenCode integration (repo-row launch panel, wand) is surfaced.</summary>
+    [ObservableProperty]
+    private bool _enableOpenCode;
+
+    /// <summary>The default-model field: the launch drawer's editable model ComboBox over the shared catalog.</summary>
+    public OpenCodeModelPickerViewModel DefaultModelPicker { get; } = new();
+
+    /// <summary>The commit-model field (empty = the wand falls back to the default model).</summary>
+    public OpenCodeModelPickerViewModel CommitModelPicker { get; } = new();
+
+    // ---- NuGet ----
+    /// <summary>Whether the NuGet Local tool (tools menu entry, watch chip, watch) is enabled.</summary>
+    [ObservableProperty]
+    private bool _enableNuget = true;
+
+    public SettingsPageViewModel(
+        ISettingsService settingsService,
+        IOpenCodeModelService openCodeModelService,
+        IProcessLauncher processLauncher,
+        INotificationService notifications,
+        ReposViewModel reposViewModel)
     {
+        _settingsService = settingsService;
         _openCodeModelService = openCodeModelService;
+        _processLauncher = processLauncher;
+        _notifications = notifications;
+        _reposViewModel = reposViewModel;
     }
 
-    /// <summary>The open context's completion source the Save command resolves.</summary>
-    protected override TaskCompletionSource<ReposSettingsEditResult?> GetCompletion(ReposSettingsDrawerContext context)
-        => context.Completion;
-
-    /// <inheritdoc/>
-    protected override void OnDrawerContext(ReposSettingsDrawerContext context)
+    /// <summary>
+    /// Navigation load (the window fires it whenever the page is shown): reads every
+    /// edited section into the fields, then loads the OpenCode model catalog behind
+    /// both pickers — the cached list applies synchronously so the lists paint filled,
+    /// the <c>opencode models</c> refresh lands async (the service's TTL decides
+    /// whether the CLI actually re-runs).
+    /// </summary>
+    public async Task OnNavigatedToAsync()
     {
-        LoadFrom(context.Current ?? new ReposSettings());
+        var settings = await _settingsService.GetSettingsAsync();
 
-        var openCode = context.OpenCode ?? new OpenCodeSettings();
+        var repos = settings.Repos ?? new ReposSettings();
+        LoadFrom(repos);
+
+        var openCode = settings.OpenCode ?? new OpenCodeSettings();
+        EnableOpenCode = openCode.EnableOpenCode;
         _savedDefaultModel = openCode.DefaultModel ?? string.Empty;
         _savedCommitModel = openCode.CommitModel ?? string.Empty;
-        EnableNuget = context.NugetEnabled;
-    }
 
-    /// <summary>
-    /// After the synchronous seed, loads the model catalog behind both pickers: the
-    /// cached list applies synchronously ahead of the first await (the lists paint
-    /// filled), then the <c>opencode models</c> refresh lands (the service's TTL decides
-    /// whether the CLI actually re-runs). The guard spans both applies per picker, so the
-    /// rebuilds' phantom picks never commit.
-    /// </summary>
-    public override async Task OnDrawerContextAsync(ReposSettingsDrawerContext? context)
-    {
-        await base.OnDrawerContextAsync(context);
-        if (context is null)
-        {
-            return;
-        }
+        EnableNuget = settings.NugetLocal?.EnableNuget ?? true;
+
+        var general = settings.General ?? new GeneralSettings();
+        StartMinimized = general.StartMinimized;
+        StartAtBoot = general.StartAtBoot;
 
         try
         {
@@ -186,7 +196,7 @@ public partial class ReposSettingsViewModel :
         }
         catch (Exception ex)
         {
-            Log.Logger.Warning(ex, "Repo settings drawer: OpenCode model catalog load failed");
+            Log.Logger.Warning(ex, "Settings page: OpenCode model catalog load failed");
         }
     }
 
@@ -198,18 +208,60 @@ public partial class ReposSettingsViewModel :
     }
 
     /// <summary>
-    /// Save: resolves the drawer context with the edited settings and closes the drawer
-    /// (shared confirm plumbing on the base).
+    /// Save: every edited section lands in one settings write (merge rules in the class
+    /// header), then the live surfaces re-apply the new values through the Repos page —
+    /// column flags, activity services, launch shortcuts, bottom-bar tabs, the OpenCode
+    /// snapshot. StartMinimized/StartAtBoot persist only: both are reconciled against
+    /// the OS registration on the next launch.
     /// </summary>
     [RelayCommand]
-    private void Save() => ConfirmWith(new ReposSettingsEditResult(BuildSettings(), BuildOpenCodeSettings(), EnableNuget));
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            var repos = BuildReposSettings();
+            // The page doesn't edit the list sort — carry the live selection over so
+            // the save doesn't revert it (the Repos toolbar owns that setting).
+            repos.SortMode = settings.Repos?.SortMode ?? RepoSortMode.Name;
+            settings.Repos = repos;
+            settings.OpenCode = BuildOpenCodeSettings();
+            settings.NugetLocal ??= new NugetLocalSettings();
+            settings.NugetLocal.EnableNuget = EnableNuget;
+            settings.General = new GeneralSettings
+            {
+                StartMinimized = StartMinimized,
+                StartAtBoot = StartAtBoot
+            };
+            await _settingsService.SaveSettingsAsync(settings);
+
+            await _reposViewModel.OnSettingsSavedAsync(
+                new ReposSettingsEditResult(repos, settings.OpenCode, EnableNuget));
+            _notifications.Show("Settings saved", NotificationKind.Success);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Settings page save failed");
+            _notifications.Show("Failed to save settings", NotificationKind.Error);
+        }
+    }
+
+    /// <summary>Opens the user settings folder (<c>~/.devtools</c>) in the OS file explorer
+    /// (created on demand), for direct edits to keys the GUI doesn't surface.</summary>
+    [RelayCommand]
+    private void OpenSettingsFolder()
+    {
+        var settingsDirectory = UserPaths.UserDataRoot;
+        Directory.CreateDirectory(settingsDirectory);
+        _processLauncher.StartProcess(settingsDirectory);
+    }
 
     /// <summary>
-    /// Builds a <see cref="ReposSettings"/> from the edited values, applying
-    /// defaults for blank fields and parsing the multi-line text fields back to arrays.
+    /// Builds a <see cref="ReposSettings"/> from the edited values, applying defaults
+    /// for blank fields, parsing the multi-line text fields back to arrays, and
+    /// preserving the Add-dialog's scan depth.
     /// </summary>
-    /// <returns>The edited repo settings.</returns>
-    public ReposSettings BuildSettings()
+    private ReposSettings BuildReposSettings()
     {
         return new ReposSettings
         {
@@ -246,12 +298,13 @@ public partial class ReposSettingsViewModel :
     /// trimmed verbatim — an empty default is legal, quick-launch then alerts instead of
     /// guessing a model, and an empty commit model means the wand uses the default).
     /// </summary>
-    public OpenCodeSettings BuildOpenCodeSettings()
+    private OpenCodeSettings BuildOpenCodeSettings()
     {
         var defaultModel = DefaultModelPicker.ResolveCommittedValue();
         var commitModel = CommitModelPicker.ResolveCommittedValue();
         return new OpenCodeSettings
         {
+            EnableOpenCode = EnableOpenCode,
             DefaultModel = defaultModel,
             CommitModel = string.IsNullOrWhiteSpace(commitModel) ? null : commitModel
         };

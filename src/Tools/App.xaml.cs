@@ -124,6 +124,12 @@ public partial class App : Application
         // Transient registration would leak a subscribed VM per future resolution.
         services.AddSingleton<ReposViewModel>();
         services.AddTransient<ReposPage>();
+        // The dedicated Settings page: swapped into the content area when a gear is
+        // clicked (title bar or Repositories header). Singleton ViewModel like the
+        // Repos page's — the page instance is created once and swapped in/out whole;
+        // its fields reload on every navigation.
+        services.AddSingleton<SettingsPageViewModel>();
+        services.AddTransient<SettingsPage>();
         // Register tool components (floating drawer) and their view models
         RegisterPageWithViewModel<FormattersComponent, FormattersViewModel>(services);
         RegisterPageWithViewModel<NugetLocalComponent, NugetLocalViewModel>(services);
@@ -133,7 +139,6 @@ public partial class App : Application
         RegisterPageWithViewModel<OpenCodeSettingsComponent, OpenCodeSettingsViewModel>(services);
         // Drawer-hosted dialogs (opened by DialogService instead of modal windows)
         RegisterPageWithViewModel<AddRepositoryComponent, AddRepositoryViewModel>(services);
-        RegisterPageWithViewModel<ReposSettingsComponent, ReposSettingsViewModel>(services);
         RegisterPageWithViewModel<NewBranchComponent, NewBranchViewModel>(services);
         RegisterPageWithViewModel<CloneFromUrlComponent, CloneFromUrlViewModel>(services);
         // Drawer-component factory: MainWindow resolves drawer views through this

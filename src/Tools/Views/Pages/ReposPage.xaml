@@ -307,7 +307,7 @@
                                         </Button>
                                         <Button
                                                 Classes="icon"
-                                                Command="{Binding OpenSettingsCommand}"
+                                                Click="OnSettingsClick"
                                                 ToolTip.Tip="Settings">
                                                 <Path Classes="icon" Data="{tools:SvgPath icon-cog}" />
                                         </Button>

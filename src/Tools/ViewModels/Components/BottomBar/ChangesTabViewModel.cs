@@ -44,10 +44,23 @@ public sealed record NewBranchEntry
 }
 
 /// <summary>
+/// The branch dropdown's filter row — the TextBox the user types into to narrow the
+/// branch list by name. It is a row only so the stock ComboBox carries it above the
+/// branches; it is never a selection: presses on its TextBox are marked handled in
+/// the tab's code-behind so the item container can't commit it (a committed search
+/// row would close the dropdown), and the close path re-syncs the selection.
+/// </summary>
+public sealed record BranchSearchEntry
+{
+    /// <summary>The shared instance every menu build carries.</summary>
+    public static readonly BranchSearchEntry Instance = new();
+}
+
+/// <summary>
 /// The Changes tab (commit workspace): the staged/unstaged tree as one virtualized
 /// merged list, the staging buttons, the commit message box (with the opencode
 /// wand) and the git rail beside it — a menu of git actions (fetch, pull, push,
-/// sync, discard-all, history toggle) over the branch dropdown, with the
+/// sync, history toggle) over the branch dropdown, with the
 /// last-fetched status pinned to the rail's bottom edge. Hangs off the bar shell
 /// — the selected repo lives there, the tab loads everything it shows for it.
 /// </summary>
@@ -144,7 +157,6 @@ public void RaiseRepoMirrors()
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
-        DiscardAllCommand.NotifyCanExecuteChanged();
     }
 
     // --- Git rail: branch dropdown, checkout, pull/push/fetch ---
@@ -154,6 +166,19 @@ public void RaiseRepoMirrors()
     /// by <see cref="LoadBranchesAsync"/>.</summary>
     [ObservableProperty]
     private ObservableCollection<object> _branchMenuItems = new();
+
+    /// <summary>The rows the dropdown renders: the <see cref="BranchSearchEntry"/> filter
+    /// row first, then <see cref="BranchMenuItems"/> narrowed by <see cref="BranchSearchText"/>.
+    /// Rebuilt by <see cref="RebuildFilteredBranchMenu"/>, which never moves index 0.</summary>
+    [ObservableProperty]
+    private ObservableCollection<object> _filteredBranchMenuItems = new();
+
+    /// <summary>The search row's text: filters the branch rows case-insensitively while
+    /// the menu is open; the close path (<see cref="OnBranchDropdownClosed"/>) clears it.</summary>
+    [ObservableProperty]
+    private string _branchSearchText = string.Empty;
+
+    partial void OnBranchSearchTextChanged(string value) => RebuildFilteredBranchMenu();
 
     /// <summary>The dropdown's current selection: a branch row after a repo switch /
     /// checkout sync, or the <see cref="NewBranchEntry"/> sentinel while the user's pick
@@ -185,10 +210,6 @@ public void RaiseRepoMirrors()
     [ObservableProperty]
     private bool _isSyncing;
 
-    /// <summary>True while discarding all changes is running; disables the discard row.</summary>
-    [ObservableProperty]
-    private bool _isDiscarding;
-
     /// <summary>Pull, push and sync exclude each other — concurrent syncs of one repo interleave badly.</summary>
     partial void OnIsPullingChanged(bool value)
     {
@@ -210,8 +231,6 @@ public void RaiseRepoMirrors()
         PushCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
     }
-
-    partial void OnIsDiscardingChanged(bool value) => DiscardAllCommand.NotifyCanExecuteChanged();
 
     /// <summary>
     /// The branch dropdown is active: picking a branch checks it out in the selected
@@ -304,6 +323,7 @@ public void RaiseRepoMirrors()
         if (repo is null)
         {
             BranchMenuItems.Clear();
+            RebuildFilteredBranchMenu();
             SyncBranchSelection(null);
             return;
         }
@@ -337,6 +357,10 @@ public void RaiseRepoMirrors()
                     _updatingBranchSelection = false;
                 }
             }
+            // The ComboBox renders FilteredBranchMenuItems, so the filtered view must be
+            // (re)filled BEFORE the selection syncs — assigning the current branch while
+            // the source is still empty leaves the closed pill on its placeholder.
+            RebuildFilteredBranchMenu();
             SyncBranchSelection(repo);
         }
         catch (Exception ex)
@@ -357,9 +381,98 @@ public void RaiseRepoMirrors()
         var firstRemote = menu.FindIndex(o => o is GitBranchRef { IsRemote: true });
         if (firstRemote >= 0)
         {
-            menu.Insert(firstRemote, new GitBranchRef("Remote", GitBranchKind.Header));
+            menu.Insert(firstRemote, new GitBranchRef(RemoteGroupLabel, GitBranchKind.Header));
         }
         return menu;
+    }
+
+    private const string RemoteGroupLabel = "Remote";
+    private const string NoMatchesLabel = "No matching branches";
+
+    /// <summary>
+    /// Rebuilds <see cref="FilteredBranchMenuItems"/> from the master menu and
+    /// <see cref="BranchSearchText"/>: the filter row first, then the New branch entry
+    /// (an action — reachable while filtering too), branch rows filtered
+    /// case-insensitively by name, the "Remote" group label only while a remote branch
+    /// matches, and a quiet "no matches" note when nothing does.
+    /// The row at index 0 is reconciled IN PLACE (never removed or re-added): its
+    /// container hosts the search TextBox, and destroying it on every keystroke would
+    /// drop the caret mid-word. Everything after it may churn freely — selection
+    /// re-resolves when the dropdown closes.
+    /// </summary>
+    private void RebuildFilteredBranchMenu()
+    {
+        List<object> rows;
+        var query = BranchSearchText.Trim();
+        if (query.Length == 0)
+        {
+            rows = [BranchSearchEntry.Instance, .. BranchMenuItems];
+        }
+        else
+        {
+            rows = [BranchSearchEntry.Instance, NewBranchEntry.Instance];
+            foreach (var item in BranchMenuItems)
+            {
+                if (item is GitBranchRef { IsHeader: true } or NewBranchEntry) continue;
+                if (item is not GitBranchRef { IsHeader: false } branch
+                    || !branch.Name.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
+
+                // The remote group's label re-emerges once its first branch matches
+                // (locals and remotes are consecutive in the master menu, so one
+                // lookahead at the group boundary is enough).
+                if (branch.IsRemote && rows[^1] is not GitBranchRef { IsHeader: true })
+                {
+                    rows.Add(new GitBranchRef(RemoteGroupLabel, GitBranchKind.Header));
+                }
+                rows.Add(branch);
+            }
+
+            if (rows.Count == 2)
+            {
+                rows.Add(new GitBranchRef(NoMatchesLabel, GitBranchKind.Header));
+            }
+        }
+
+        if (FilteredBranchMenuItems.Count == rows.Count && FilteredBranchMenuItems.SequenceEqual(rows))
+        {
+            return;
+        }
+
+        // The very first build starts from an empty collection: seed index 0 with the
+        // search row, which every later rebuild preserves in place.
+        if (FilteredBranchMenuItems.Count == 0)
+        {
+            FilteredBranchMenuItems.Add(rows[0]);
+        }
+        while (FilteredBranchMenuItems.Count > 1)
+        {
+            FilteredBranchMenuItems.RemoveAt(FilteredBranchMenuItems.Count - 1);
+        }
+        for (var i = 1; i < rows.Count; i++)
+        {
+            FilteredBranchMenuItems.Add(rows[i]);
+        }
+    }
+
+    /// <summary>
+    /// The dropdown closed: drop the search filter (the box restarts empty next open)
+    /// and re-assert the current branch — items rebuilt mid-search leave the ComboBox's
+    /// selection unresolved, and neither a stray search-row commit nor a filtered-out
+    /// current branch may show as the closed pill.
+    /// </summary>
+    public void OnBranchDropdownClosed()
+    {
+        BranchSearchText = string.Empty; // rebuilds the full menu via the filter hook
+        _updatingBranchSelection = true;
+        try
+        {
+            SelectedMenuItem = null;
+        }
+        finally
+        {
+            _updatingBranchSelection = false;
+        }
+        SyncBranchSelection(Repo);
     }
 
     private void SyncBranchSelection(Repo? repo)
@@ -518,30 +631,6 @@ public void RaiseRepoMirrors()
     }
 
     private bool CanSync() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
-
-    /// <summary>
-    /// Discards EVERY change in the working tree: <c>reset --hard</c> drops the staged
-    /// and unstaged edits on tracked files, <c>clean -fd</c> deletes untracked files
-    /// and folders — there is no undo, so the row only enables while there is
-    /// something to discard. Reloads the list on success (both sections empty).
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanDiscardAll))]
-    private Task DiscardAllAsync()
-    {
-        var repo = Repo;
-        if (repo is null) return Task.CompletedTask;
-
-        return RunGitActionAsync(
-            repo,
-            value => IsDiscarding = value,
-            async r => (await Shell.GitStatusService.DiscardAllAsync(r)).Success,
-            $"Discarded all changes in {repo.Name}",
-            () => $"Could not discard the changes of {repo.Name}",
-            onSuccess: () => _ = LoadTabAsync());
-    }
-
-    private bool CanDiscardAll() => !IsDiscarding && HasSelectedRepo
-        && (StagedFiles.Count > 0 || UnstagedFiles.Count > 0);
 
     /// <summary>
     /// Runs one git service call under <paramref name="setBusy"/> (null when the command
@@ -728,7 +817,6 @@ public void RaiseRepoMirrors()
         OnPropertyChanged(nameof(IsChangesTabLoading));
         CommitCommand.NotifyCanExecuteChanged();
         GenerateCommitMessageCommand.NotifyCanExecuteChanged();
-        DiscardAllCommand.NotifyCanExecuteChanged(); // CanDiscardAll reads both counts
     }
 
     private Task LoadChangeGroupsAsync()

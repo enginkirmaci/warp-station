@@ -6,13 +6,12 @@
     a + / − button; RIGHT — two side-by-side cards: the commit message box
     with the wand button and Commit, and the git rail in its own card — the
     branch dropdown (pick to check out), a hairline, then the action menu —
-    Fetch, Pull, Push, a hairline, Sync (pull then push), Discard all changes
-    (a hard reset plus untracked cleanup), the History toggle — and under one
-    more hairline the last-fetched dot + label with the fetch refresh button
-    pinned to the bottom edge. Toggling History swaps the whole tab body
-    (cards AND the tab row) for a full-width History view hosted by the bar
-    shell (back link "<- Changes" in its top-left, same pattern as the
-    History drawer).
+    Fetch, Pull, Push, a hairline, Sync (pull then push), the History toggle
+    — and under one more hairline the last-fetched dot + label with the
+    fetch refresh button pinned to the bottom edge. Toggling History swaps
+    the whole tab body (cards AND the tab row) for a full-width History view
+    hosted by the bar shell (back link "<- Changes" in its top-left, same
+    pattern as the History drawer).
     Handlers (branch pick, history rows, Ctrl+Enter commit) live in this tab's
     code-behind.
 -->
@@ -384,7 +383,8 @@
                         <!--  Branch dropdown — the stock SukiUI ComboBox (same
                               look as the repos page's sort selector): filled
                               box, branch icon + name, chevron square at the
-                              right. Its FIRST entry is "New branch…" (an
+                              right. Its FIRST entry is the search row (typing
+                              narrows the branches), then "New branch…" (an
                               action, not a branch — picking it opens the
                               new-branch drawer); picking a branch checks it
                               out, a remote pick checking out its local
@@ -396,27 +396,43 @@
                             Margin="6,12,6,0"
                             Height="38"
                             FontSize="14"
-                            ItemsSource="{Binding BranchMenuItems}"
+                            ItemsSource="{Binding FilteredBranchMenuItems}"
                             PlaceholderText="branch"
                             SelectedItem="{Binding SelectedMenuItem, Mode=OneWay}"
                             SelectionChanged="OnBranchSelectionChanged"
-                            ToolTip.Tip="{Binding SelectedBranch}"> 
+                            DropDownOpened="OnBranchPickerDropDownOpened"
+                            DropDownClosed="OnBranchPickerDropDownClosed"
+                            ToolTip.Tip="{Binding SelectedBranch}">
                             <!--
-                                The menu mixes item types (the New branch sentinel and
-                                GitBranchRef rows: local branches, the "Remote" group
-                                label, remote-tracking branches); one ItemTemplate
-                                hosting a ContentControl lets the typed inner
-                                templates pick the row shape — keeping a single
-                                ItemTemplate means no dependence on how the theme
-                                resolves DataTemplates. The Remote label stays
-                                selectable-but-inert: picking it snaps the selection
-                                back in the view model (a container IsEnabled binding
-                                can't type-check across the sentinel and branch rows).
+                                The menu mixes item types (the search row, the New branch
+                                sentinel and GitBranchRef rows: local branches, the "Remote"
+                                group label, remote-tracking branches); one ItemTemplate
+                                hosting a ContentControl lets the typed inner templates
+                                pick the row shape — keeping a single ItemTemplate means no
+                                dependence on how the theme resolves DataTemplates. The
+                                Remote label stays selectable-but-inert: picking it snaps
+                                the selection back in the view model (a container
+                                IsEnabled binding can't type-check across the sentinel and
+                                branch rows). The search row's TextBox commits its text
+                                through code-behind (its DataContext is the row record, not
+                                the tab view model) and marks its presses handled so the
+                                container can't select it and close the popup.
                             -->
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="x:Object">
                                     <ContentControl Content="{Binding}">
                                         <ContentControl.DataTemplates>
+                                            <DataTemplate x:DataType="vm:BranchSearchEntry">
+                                                <TextBox
+                                                    MinWidth="180"
+                                                    Margin="2"
+                                                    FontSize="13"
+                                                    Watermark="Search branches…"
+                                                    TextChanged="OnBranchSearchTextChanged"
+                                                    PointerPressed="OnBranchSearchPointerPressed"
+                                                    PointerReleased="OnBranchSearchPointerReleased"
+                                                    KeyDown="OnBranchSearchKeyDown" />
+                                            </DataTemplate>
                                             <DataTemplate x:DataType="vm:NewBranchEntry">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <Path
@@ -657,41 +673,6 @@
                                     FontSize="14"
                                     Foreground="{DynamicResource BodyForegroundBrush}"
                                     Text="Sync" />
-                            </Grid>
-                        </Button>
-                        <Button
-                            Padding="12,11"
-                            Classes="bar-item"
-                            Command="{Binding DiscardAllCommand}"
-                            ToolTip.Tip="Delete every staged, unstaged and untracked change — no undo">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                <Panel Width="16" Height="16" VerticalAlignment="Center">
-                                    <Path
-                                        Width="16"
-                                        Height="16"
-                                        Classes="icon"
-                                        Data="{tools:SvgPath icon-discard}"
-                                        IsVisible="{Binding !IsDiscarding}" />
-                                    <Path
-                                        Width="15"
-                                        Height="15"
-                                        Classes="spinner"
-                                        Data="{tools:SvgPath icon-spinner, Center=False}"
-                                        IsVisible="{Binding IsDiscarding}"
-                                        RenderTransformOrigin="50%,50%"
-                                        Stroke="{DynamicResource MutedForegroundBrush}"
-                                        StrokeThickness="2">
-                                        <Path.RenderTransform>
-                                            <RotateTransform />
-                                        </Path.RenderTransform>
-                                    </Path>
-                                </Panel>
-                                <TextBlock
-                                    Grid.Column="1"
-                                    VerticalAlignment="Center"
-                                    FontSize="14"
-                                    Foreground="{DynamicResource BodyForegroundBrush}"
-                                    Text="Discard all changes" />
                             </Grid>
                         </Button>
                         <Button

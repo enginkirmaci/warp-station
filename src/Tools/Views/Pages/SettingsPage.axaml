@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Dedicated Settings page (replaces the Repositories content while open — the
+    gear in the title bar and the gear on the Repositories header both land here;
+    "← Repositories" goes back). One scrollable surface with the General flags the
+    app previously had no GUI for, the full repository settings (the former Repo
+    Settings drawer's cards: scanning, external tools with the OpenCode model
+    pickers, Git, columns), the OpenCode enable flag, and the NuGet enable flag.
+    One Save persists every section and live-applies them — see the view model.
+    The two model ComboBoxes commit their selections through code-behind handlers
+    instead of TwoWay bindings so the in-place catalog rebuilds never write a
+    transient null back into the pickers (same as the drawer this page replaces).
+-->
+<UserControl
+    x:Class="Tools.Views.Pages.SettingsPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="using:Tools.ViewModels.Pages"
+    d:DesignHeight="900"
+    d:DesignWidth="1200"
+    x:CompileBindings="True"
+    x:DataType="vm:SettingsPageViewModel"
+    mc:Ignorable="d">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarResources.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!--  Identity bar: back link, title, folder jump, Save  -->
+        <Grid
+            Grid.Row="0"
+            Margin="16,10,16,6"
+            ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+            ColumnSpacing="12">
+            <Button
+                Grid.Column="0"
+                Classes="icon"
+                Click="OnBackClick"
+                ToolTip.Tip="Back to repositories">
+                <Path
+                    Width="14"
+                    Height="14"
+                    Data="{tools:SvgPath icon-chevron-left}"
+                    Fill="{DynamicResource BodyForegroundBrush}"
+                    Stretch="Uniform" />
+            </Button>
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="18"
+                FontWeight="SemiBold"
+                Text="Settings" />
+            <Button
+                Grid.Column="3"
+                Classes="icon"
+                Command="{Binding OpenSettingsFolderCommand}"
+                ToolTip.Tip="Open settings folder">
+                <Path
+                    Width="15"
+                    Height="15"
+                    Data="{tools:SvgPath icon-cog}"
+                    Fill="{DynamicResource BodyForegroundBrush}"
+                    Stretch="Uniform" />
+            </Button>
+            <Button
+                Grid.Column="4"
+                Classes="Outlined"
+                Command="{Binding SaveCommand}"
+                Content="Save"
+                IsDefault="True" />
+        </Grid>
+
+        <!--  Sections: two balanced columns of cards  -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid
+                Margin="16,4,16,16"
+                MaxWidth="1240"
+                ColumnDefinitions="*,*"
+                ColumnSpacing="12"
+                HorizontalAlignment="Stretch">
+                <!--  Left column  -->
+                <StackPanel Grid.Column="0" Spacing="12">
+
+    <!--  General  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="card-title" Text="General" />
+                        <CheckBox
+                            Content="Start minimized"
+                            IsChecked="{Binding StartMinimized, Mode=TwoWay}"
+                            ToolTip.Tip="Launch with the main window minimized to the taskbar" />
+                        <CheckBox
+                            Content="Start at boot"
+                            IsChecked="{Binding StartAtBoot, Mode=TwoWay}"
+                            ToolTip.Tip="Launch automatically when the user signs in (applies at next launch)" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Settings Folder" />
+                            <Button
+                                Classes="bar-item"
+                                Command="{Binding OpenSettingsFolderCommand}"
+                                ToolTip.Tip="Open the settings folder in the file explorer">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Path
+                                        Width="14"
+                                        Height="14"
+                                        Data="{tools:SvgPath icon-cog}"
+                                        Fill="{DynamicResource MutedForegroundBrush}"
+                                        Stretch="Uniform" />
+                                    <TextBlock Text="Open settings folder in file explorer" />
+                                </Grid>
+                            </Button>
+                            <TextBlock
+                                Classes="subtle"
+                                Text="Start-at-boot and start-minimized are applied at the next launch, where the app also reconciles the OS registration to these flags."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+    <!--  OpenCode integration  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="OpenCode" />
+                        <CheckBox
+                            Content="Enable OpenCode"
+                            IsChecked="{Binding EnableOpenCode, Mode=TwoWay}"
+                            ToolTip.Tip="Show the OpenCode launch panel and the commit-message wand" />
+                        <!--
+                            Model fields: editable model ComboBoxes over the shared
+                            `opencode models` catalog (searchable dropdown; the box text
+                            is the saved value, so custom ids stay verbatim and clearing
+                            the commit box restores the default-model fallback).
+                        -->
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="OpenCode Model (default)"
+                                ToolTip.Tip="Model the opencode quick-launch button starts; pick from the loaded catalog or type any model id" />
+                            <ComboBox
+                                Name="DefaultModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding DefaultModelPicker.FilteredModels}"
+                                PlaceholderText="provider/model, e.g. opencode-go/glm-5.3-flash"
+                                SelectedItem="{Binding DefaultModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnDefaultModelSelectionChanged"
+                                Text="{Binding DefaultModelPicker.Filter, Mode=TwoWay}" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding !DefaultModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="OpenCode Commit Model (wand)"
+                                ToolTip.Tip="Model for the commit-message wand; empty = default model" />
+                            <ComboBox
+                                Name="CommitModelPicker"
+                                HorizontalAlignment="Stretch"
+                                IsEditable="True"
+                                ItemsSource="{Binding CommitModelPicker.FilteredModels}"
+                                PlaceholderText="(empty = default model)"
+                                SelectedItem="{Binding CommitModelPicker.SelectedModel, Mode=OneWay}"
+                                SelectionChanged="OnCommitModelSelectionChanged"
+                                Text="{Binding CommitModelPicker.Filter, Mode=TwoWay}" />
+                            <TextBlock
+                                Classes="subtle"
+                                IsVisible="{Binding !CommitModelPicker.HasModels}"
+                                Text="No models loaded — type the id verbatim, or check the OpenCode executable."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <TextBlock
+                            Classes="subtle"
+                            Text="Disabling OpenCode hides every OpenCode surface; the model fields keep their saved values. Executable path lives under Repository Scanning → External Tools."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+    <!--  External tools  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="External Tools" />
+                        <!--
+                            Launch-button visibility: pure settings toggles — the app
+                            never probes whether an executable is installed. Visual
+                            Studio additionally only exists on Windows.
+                        -->
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="10">
+                            <CheckBox
+                                Grid.Row="0" Grid.Column="0"
+                                Content="Enable Visual Studio"
+                                IsChecked="{Binding EnableVisualStudio, Mode=TwoWay}"
+                                ToolTip.Tip="Show the open-solution button (Windows only)" />
+                            <CheckBox
+                                Grid.Row="0" Grid.Column="1"
+                                Content="Enable VS Code"
+                                IsChecked="{Binding EnableVSCode, Mode=TwoWay}"
+                                ToolTip.Tip="Show the VS Code button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="1" Grid.Column="0"
+                                Content="Enable Terminal"
+                                IsChecked="{Binding EnableTerminal, Mode=TwoWay}"
+                                ToolTip.Tip="Show the terminal button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="1" Grid.Column="1"
+                                Content="Enable ZCode"
+                                IsChecked="{Binding EnableZCode, Mode=TwoWay}"
+                                ToolTip.Tip="Show the zcode button on the repo rows" />
+                            <CheckBox
+                                Grid.Row="2" Grid.Column="0"
+                                Content="Enable NuGet"
+                                IsChecked="{Binding EnableNuget, Mode=TwoWay}"
+                                ToolTip.Tip="Show the NuGet package tool and allow its folder watch" />
+                        </Grid>
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="8">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="VS Code Executable"
+                                    ToolTip.Tip="Path or command for VS Code" />
+                                <TextBox Text="{Binding VsCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="code" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="VS Code Profile"
+                                    ToolTip.Tip="VS Code profile to launch with (--profile); empty = default" />
+                                <TextBox Text="{Binding VsCodeProfile, UpdateSourceTrigger=PropertyChanged}" Watermark="Leave empty for default profile" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Terminal Executable"
+                                    ToolTip.Tip="Terminal path/command; 'wt' (default) auto-detects on Linux" />
+                                <TextBox Text="{Binding TerminalExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="wt" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="IDE Executable"
+                                    ToolTip.Tip="IDE used to open solutions; empty = .sln association (Windows)" />
+                                <TextBox Text="{Binding IdeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="Empty = .sln association" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="OpenCode Executable"
+                                    ToolTip.Tip="Path or command for OpenCode" />
+                                <TextBox Text="{Binding OpenCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="opencode" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="ZCode Executable"
+                                    ToolTip.Tip="Path or command for zcode; AppImage opens the desktop app" />
+                                <TextBox Text="{Binding ZCodeExecutable, UpdateSourceTrigger=PropertyChanged}" Watermark="zcode" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                </StackPanel>
+
+                <!--  Right column  -->
+                <StackPanel Grid.Column="1" Spacing="12">
+
+    <!--  Scanning  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Repository Scanning" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Repo Scan Folders"
+                                ToolTip.Tip="Folders to scan for repositories (one per line)" />
+                            <TextBox
+                                Height="120"
+                                AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
+                                Text="{Binding RepoScanFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths, one per line" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Excluded Folders"
+                                ToolTip.Tip="Folders to exclude from scanning (one per line)" />
+                            <TextBox
+                                Height="100"
+                                AcceptsReturn="True"
+                                VerticalContentAlignment="Top"
+                                Text="{Binding ExcludedFoldersText, UpdateSourceTrigger=PropertyChanged}"
+                                TextWrapping="Wrap"
+                                Watermark="Enter folder paths to exclude, one per line" />
+                        </StackPanel>
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="16"
+                            RowDefinitions="Auto,Auto"
+                            RowSpacing="8">
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Git Folder Pattern"
+                                    ToolTip.Tip="Pattern to search for git folders" />
+                                <TextBox Text="{Binding GitFolderPattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.git" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Solution File Pattern"
+                                    ToolTip.Tip="Solution file patterns, comma-separated (e.g. *.sln,*.slnx)" />
+                                <TextBox Text="{Binding SolutionFilePattern, UpdateSourceTrigger=PropertyChanged}" Watermark="*.sln,*.slnx" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Spacing="4">
+                                <TextBlock
+                                    Classes="field-label"
+                                    Text="Platform Folder Name"
+                                    ToolTip.Tip="Path marker used to auto-tag platform repos" />
+                                <TextBox Text="{Binding PlatformFolderName, UpdateSourceTrigger=PropertyChanged}" Watermark="platform" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+    <!--  Git  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Git" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Branch Name Prefix"
+                                ToolTip.Tip="Pre-typed into the new-branch drawer's name field" />
+                            <TextBox Text="{Binding BranchNamePrefix, UpdateSourceTrigger=PropertyChanged}" Watermark="users/enginkirmaci" />
+                            <TextBlock
+                                Classes="subtle"
+                                Text="Typed into the branch name field when you open the new-branch drawer (Changes tab → branch dropdown → New branch…), so you only complete it with the branch's own name. Empty disables the prefix."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+    <!--  Columns  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="card-title" Text="Columns" />
+                        <CheckBox
+                            Content="Show GitHub column"
+                            IsChecked="{Binding EnableGitHub, Mode=TwoWay}"
+                            ToolTip.Tip="Show the GitHub column on the Repos page (uses the gh CLI)" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="GitHub CLI Executable"
+                                ToolTip.Tip="Path or command for the gh CLI (GitHub column)" />
+                            <TextBox
+                                IsEnabled="{Binding EnableGitHub}"
+                                Text="{Binding GitHubExecutable, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="gh" />
+                        </StackPanel>
+                        <CheckBox
+                            Content="Show Azure DevOps column"
+                            IsChecked="{Binding EnableAzureDevOps, Mode=TwoWay}"
+                            ToolTip.Tip="Show the Azure DevOps column on the Repos page" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Azure DevOps URL"
+                                ToolTip.Tip="Custom server URL, e.g. https://devops.company.com (empty = public)" />
+                            <TextBox
+                                IsEnabled="{Binding EnableAzureDevOps}"
+                                Text="{Binding AzureDevOpsUrl, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="https://devops.company.com/DefaultCollection" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Azure DevOps Token"
+                                ToolTip.Tip="Azure DevOps PAT; empty = AZURE_DEVOPS_PAT env variable" />
+                            <TextBox
+                                IsEnabled="{Binding EnableAzureDevOps}"
+                                PasswordChar="•"
+                                Text="{Binding AzureDevOpsPat, UpdateSourceTrigger=PropertyChanged}"
+                                Watermark="personal access token" />
+                        </StackPanel>
+                        <TextBlock
+                            Classes="subtle"
+                            Text="Repos are matched to Azure DevOps by their git remote; query the REST API with a personal access token (Build/Code/Work Items read scopes). Company-hosted servers are matched too when a custom server URL is set. Falls back to the AZURE_DEVOPS_PAT environment variable when empty."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

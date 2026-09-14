@@ -1,4 +1,3 @@
-using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Tools.Helpers;
@@ -17,7 +16,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ISnapItService _snapItService;
     private readonly INugetLocalService _nugetLocalService;
     private readonly ISettingsService _settingsService;
-    private readonly IProcessLauncher _processLauncher;
     private readonly IToolDrawerService _toolDrawer;
 
     /// <summary>
@@ -119,13 +117,11 @@ public partial class MainWindowViewModel : ViewModelBase
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         ISettingsService settingsService,
-        IProcessLauncher processLauncher,
         IToolDrawerService toolDrawer)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _settingsService = settingsService;
-        _processLauncher = processLauncher;
         _toolDrawer = toolDrawer;
 
         // Load the dropdown visibility flags off the constructor path: the FIRST
@@ -255,17 +251,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Opens the user settings folder (<c>%USERPROFILE%\.devtools</c>) in the OS
-    /// file explorer. ProcessLauncher uses <c>UseShellExecute=true</c>, so passing a folder
-    /// path opens it in the default explorer. The folder is created on demand by the
-    /// settings service when it persists settings, and is created here as a safety net so
-    /// the button always opens something rather than erroring on first use.
+    /// Opens the dedicated Settings page. The window subscribes to
+    /// <see cref="SettingsRequested"/> and swaps its content — the title-bar gear and
+    /// the Repositories page's gear both route here.
     /// </summary>
+    public event EventHandler? SettingsRequested;
+
+    /// <summary>Raises <see cref="SettingsRequested"/> (command surface for the gears).</summary>
     [RelayCommand]
-    private void OpenSettingsFolder()
-    {
-        var settingsDirectory = UserPaths.UserDataRoot;
-        Directory.CreateDirectory(settingsDirectory);
-        _processLauncher.StartProcess(settingsDirectory);
-    }
+    private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
 }

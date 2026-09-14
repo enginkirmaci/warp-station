@@ -19,6 +19,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:controls="using:Tools.Library.Controls"
+    xmlns:v="using:Tools.Views.Components.History"
     xmlns:vm="using:Tools.ViewModels.Windows"
     d:DesignHeight="400"
     d:DesignWidth="1200"
@@ -315,20 +316,14 @@
                                                     Text="{Binding RemovedText}" />
                                             </Border>
                                         </Grid>
-                                        <!--  Expanded per-file patch  -->
+                                        <!--  Expanded per-file patch: the colored diff
+                                              viewer (green adds / red dels / accent
+                                              hunks), fed by the lazily loaded text  -->
                                         <StackPanel
                                             Margin="20,0,0,0"
                                             IsVisible="{Binding IsExpanded}">
-                                            <TextBox
-                                                Classes="mono"
-                                                Height="180"
-                                                HorizontalContentAlignment="Left"
-                                                ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                                IsReadOnly="True"
-                                                PlaceholderText="Patch unavailable"
+                                            <v:DiffViewer
                                                 Text="{Binding Patch, Mode=OneWay}"
-                                                TextWrapping="NoWrap"
-                                                VerticalContentAlignment="Top"
                                                 IsVisible="{Binding !IsLoadingPatch}" />
                                             <TextBlock
                                                 Classes="subtle"

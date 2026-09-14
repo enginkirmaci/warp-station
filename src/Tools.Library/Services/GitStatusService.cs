@@ -571,21 +571,6 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
-    public async Task<GitSyncResult> DiscardAllAsync(Repo repo, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return new GitSyncResult(false, null);
-
-        // Both steps go through the sync path (their failure reason is summarized into
-        // the result), and each refreshes the repo's status — the clean's refresh is
-        // the one the UI ends on, with untracked files gone from the list too.
-        var reset = await SyncAsync(repo, "reset --hard HEAD", cancellationToken);
-        if (!reset.Success) return reset;
-
-        var clean = await SyncAsync(repo, "clean -fd", cancellationToken);
-        return clean.Success ? GitSyncResult.Ok() : clean;
-    }
-
-    /// <inheritdoc/>
     public Task<bool> DiscardUnstagedAsync(Repo repo, IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
         => DiscardPathsAsync(repo, paths, resetFirst: false, cancellationToken);
 

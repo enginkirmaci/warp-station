@@ -103,15 +103,15 @@
 			Margin="2,0"
 			VerticalAlignment="Center"
 			Background="{DynamicResource HairlineBrush}" />
-		<!--  Open the settings folder  -->
+		<!--  Dedicated settings page  -->
 		<Button
 			Width="26"
 			Height="26"
 			Margin="4,0"
 			Padding="0"
 			Classes="icon"
-			Command="{Binding OpenSettingsFolderCommand}"
-			ToolTip.Tip="Open settings folder">
+			Command="{Binding OpenSettingsCommand}"
+			ToolTip.Tip="Settings">
 			<Path
 				Width="15"
 				Height="15"

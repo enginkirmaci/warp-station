@@ -1,41 +1,38 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using Tools.ViewModels.Windows;
+using Tools.ViewModels.Pages;
 
-namespace Tools.Views.Components.Repo;
+namespace Tools.Views.Pages;
 
 /// <summary>
-/// Repo Settings component, hosted in the main window's floating tool drawer (the
-/// former modal dialog). A thin view: all editing state and the array/string
-/// translation live in <see cref="ReposSettingsViewModel"/>, which receives the
-/// settings to edit through the drawer context and resolves the edited settings on Save.
+/// Dedicated Settings page (see the XAML header). A thin view: the editing state and
+/// the text↔settings translation live in <see cref="SettingsPageViewModel"/>; the
+/// window swaps this page in for the Repositories one when a gear is clicked, and
+/// swaps back on <see cref="BackRequested"/> (the header's ← link).
 /// <para>
 /// The two OpenCode model ComboBoxes commit their selections through code-behind
 /// handlers instead of TwoWay bindings so the in-place ItemsSource rebuilds (model
-/// catalog refresh) never write a transient null back into the pickers — same pattern
-/// as the OpenCode launch drawer's picker.
+/// catalog refresh) never write a transient null back into the pickers — same
+/// pattern as the drawer this page replaces.
 /// </para>
 /// </summary>
-public partial class ReposSettingsComponent : UserControl
+public partial class SettingsPage : UserControl
 {
-    /// <summary>
-    /// Set while a model ComboBox is committing a selection so the auto-open-on-type
-    /// handler doesn't re-pop that dropdown right after the user picks an item.
-    /// </summary>
+    /// <summary>Raised by the header's ← link; the window swaps the Repositories page back in.</summary>
+    public event EventHandler? BackRequested;
+
+    /// <summary>Set while a model ComboBox is committing a selection so the auto-open-on-type
+    /// handler doesn't re-pop that dropdown right after the user picks an item.</summary>
     private bool _suppressDefaultModelAutoOpen;
     private bool _suppressCommitModelAutoOpen;
 
-    public ReposSettingsViewModel ViewModel { get; }
-
-    public ReposSettingsComponent()
+    public SettingsPage()
     {
         InitializeComponent();
-        WireModelPickers();
     }
 
-    public ReposSettingsComponent(ReposSettingsViewModel viewModel)
+    public SettingsPage(SettingsPageViewModel viewModel)
     {
-        ViewModel = viewModel;
         DataContext = viewModel;
         InitializeComponent();
         WireModelPickers();
@@ -64,9 +61,14 @@ public partial class ReposSettingsComponent : UserControl
         }
     }
 
+    private void OnBackClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        BackRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnDefaultModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is ComboBox { SelectedItem: string model } && DataContext is ReposSettingsViewModel vm)
+        if (sender is ComboBox { SelectedItem: string model } && DataContext is SettingsPageViewModel vm)
         {
             // The filter update inside the commit changes the box text and would otherwise
             // re-open the dropdown that the selection just closed; suppress that for this
@@ -85,7 +87,7 @@ public partial class ReposSettingsComponent : UserControl
 
     private void OnCommitModelSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is ComboBox { SelectedItem: string model } && DataContext is ReposSettingsViewModel vm)
+        if (sender is ComboBox { SelectedItem: string model } && DataContext is SettingsPageViewModel vm)
         {
             _suppressCommitModelAutoOpen = true;
             try
@@ -104,7 +106,7 @@ public partial class ReposSettingsComponent : UserControl
     /// Only fires for user-initiated edits (the box has keyboard focus) so programmatic
     /// text changes don't pop the dropdown open.
     /// </summary>
-    private void OnDefaultModelTextChanged(object? sender, TextChangedEventArgs e)
+    private void OnDefaultModelTextChanged(object? sender, Avalonia.Controls.TextChangedEventArgs e)
     {
         if (_suppressDefaultModelAutoOpen)
         {
@@ -120,7 +122,7 @@ public partial class ReposSettingsComponent : UserControl
         }
     }
 
-    private void OnCommitModelTextChanged(object? sender, TextChangedEventArgs e)
+    private void OnCommitModelTextChanged(object? sender, Avalonia.Controls.TextChangedEventArgs e)
     {
         if (_suppressCommitModelAutoOpen)
         {

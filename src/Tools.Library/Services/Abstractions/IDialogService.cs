@@ -3,13 +3,9 @@ using Tools.Library.Configuration;
 namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
-/// The Repo Settings drawer's confirmed result: the edited Repos section, the OpenCode
-/// model fields (moved there from the OpenCode drawer — the record carries only those;
-/// the caller merges them into the stored OpenCode section so flags the dialog doesn't
-/// show keep their values) and the NuGet enable flag (same story — merged into the
-/// stored NugetLocal section). One composite so the caller persists everything in a
-/// single <c>SaveSettingsAsync</c> — two separate saves on a pre-dialog snapshot would
-/// let the second overwrite the first's section.
+/// A confirmed settings edit: the edited Repos section, the edited OpenCode section
+/// and the NuGet enable flag. One composite so the caller applies everything together
+/// (live surfaces + one settings write) instead of section by section.
 /// </summary>
 public sealed record ReposSettingsEditResult(ReposSettings Repos, OpenCodeSettings OpenCode, bool EnableNuget);
 
@@ -29,17 +25,6 @@ public interface IDialogService
     /// <param name="title">The title of the folder picker dialog.</param>
     /// <returns>The selected folder path, or <c>null</c>.</returns>
     Task<string?> PickFolderAsync(string title);
-
-    /// <summary>
-    /// Shows the modal repo settings dialog for editing.
-    /// </summary>
-    /// <param name="current">The current repo settings to edit.</param>
-    /// <param name="openCode">The current OpenCode settings (models) to edit.</param>
-    /// <param name="nugetEnabled">The current NuGet enable flag to edit.</param>
-    /// <returns>
-    /// The edited sections if the user confirmed, or <c>null</c> if the user cancelled.
-    /// </returns>
-    Task<ReposSettingsEditResult?> ShowReposSettingsDialogAsync(ReposSettings current, OpenCodeSettings openCode, bool nugetEnabled);
 
     /// <summary>
     /// Shows the modal Add Repositories dialog: the user picks or types a folder, the

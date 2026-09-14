@@ -795,54 +795,17 @@ public partial class ReposViewModel : PageViewModelBase
         }
     }
 
-    [RelayCommand]
-    private async Task OpenSettingsAsync()
-    {
-        try
-        {
-            var settings = await _settingsService.GetSettingsAsync();
-
-            var edited = await _dialogService.ShowReposSettingsDialogAsync(
-                settings.Repos ?? new ReposSettings(),
-                settings.OpenCode ?? new OpenCodeSettings(),
-                settings.NugetLocal?.EnableNuget ?? true);
-            if (edited == null)
-            {
-                // User cancelled the dialog.
-                return;
-            }
-
-            await SaveEditedSettingsAsync(settings, edited);
-            ApplySavedSettings(edited);
-            await RefreshAfterSettingsSaveAsync();
-            _notificationService.Show("Settings saved", NotificationKind.Success);
-        }
-        catch (Exception ex)
-        {
-            Log.Logger.Error(ex, "Error opening repo settings");
-            _notificationService.Show("Failed to save settings", NotificationKind.Error);
-        }
-    }
-
     /// <summary>
-    /// Lands both edited sections in ONE save — the dialog returned a composite so the
-    /// pre-dialog snapshot can't clobber either section. The OpenCode edit surface is
-    /// the two model fields only: they are merged into the existing section instead of
-    /// replacing it, so flags the dialog doesn't show (e.g. EnableOpenCode) keep their
-    /// stored values. Same merge discipline for the NuGet enable flag. The settings
-    /// dialog doesn't touch the sort mode, but it may hand back a fresh instance — the
-    /// live selection is carried over so the save doesn't revert it.
+    /// Applies a settings save made OUTSIDE this page (the dedicated Settings page
+    /// owns the editing now): persists nothing — the caller already saved — but runs
+    /// the live re-application (column flags, activity services, launch shortcuts,
+    /// bottom-bar tabs, OpenCode snapshot) plus the NuGet service and rescan refresh,
+    /// exactly like the former Repo Settings drawer's save did.
     /// </summary>
-    private async Task SaveEditedSettingsAsync(AppSettings settings, ReposSettingsEditResult edited)
+    public async Task OnSettingsSavedAsync(ReposSettingsEditResult edited)
     {
-        settings.Repos = edited.Repos;
-        settings.OpenCode ??= new OpenCodeSettings();
-        settings.OpenCode.DefaultModel = edited.OpenCode.DefaultModel;
-        settings.OpenCode.CommitModel = edited.OpenCode.CommitModel;
-        settings.NugetLocal ??= new NugetLocalSettings();
-        settings.NugetLocal.EnableNuget = edited.EnableNuget;
-        edited.Repos.SortMode = SelectedSortOption.Mode;
-        await _settingsService.SaveSettingsAsync(settings);
+        ApplySavedSettings(edited);
+        await RefreshAfterSettingsSaveAsync();
     }
 
     /// <summary>Points the page (and every service keyed off the same settings) at the

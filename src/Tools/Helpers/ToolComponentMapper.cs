@@ -31,7 +31,6 @@ public static class ToolComponentMapper
     public const string AddRepositoriesKey = "AddRepositoryDialog";
 
     /// <summary>Drawer key of the Repo Settings component (opened by DialogService).</summary>
-    public const string RepoSettingsKey = "ReposSettingsDialog";
 
     /// <summary>Drawer key of the New Branch component (opened by the Changes tab's branch dropdown).</summary>
     public const string NewBranchKey = "NewBranchDialog";
@@ -68,7 +67,6 @@ public static class ToolComponentMapper
         // Drawer-hosted dialogs: not in the tools dropdown, opened programmatically by
         // DialogService in place of the former modal windows.
         new ToolDefinition(AddRepositoriesKey, typeof(AddRepositoryComponent), "Add Repositories", "icon-plus"),
-        new ToolDefinition(RepoSettingsKey, typeof(ReposSettingsComponent), "Repo Settings", "icon-cog"),
         new ToolDefinition(NewBranchKey, typeof(NewBranchComponent), "New Branch", "icon-source-branch"),
         new ToolDefinition(CloneFromUrlKey, typeof(CloneFromUrlComponent), "Clone from URL", "icon-cloud-download"),
     ];
