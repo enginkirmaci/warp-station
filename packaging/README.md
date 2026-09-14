@@ -18,14 +18,31 @@ that launches the GUI) and `bin/Tools.exe` (the Avalonia GUI).
 
 - `linux/build-appimage.sh` — self-contained linux-x64 AppImage
 - `linux/tools.desktop` — desktop entry bundled into the AppImage
+- `linux/install-desktop.sh` — register the AppImage with the desktop
+  launcher (Omarchy app library, wofi, GNOME, KDE, ...) per-user, no sudo
 
 ```sh
 packaging/linux/build-appimage.sh            # portable/Tools-0.0.0-dev-x86_64.AppImage
 packaging/linux/build-appimage.sh 1.2.3
+packaging/linux/install-desktop.sh           # newest AppImage in portable/ → launcher
+packaging/linux/install-desktop.sh portable/Tools-1.2.3-x86_64.AppImage
+packaging/linux/install-desktop.sh remove
 ```
+
+`install-desktop.sh` copies the AppImage to `~/Applications/Tools.AppImage`
+(override with `APPIMAGE_INSTALL_DIR`), extracts the icon into the user
+hicolor icon theme and writes `~/.local/share/applications/tools.desktop`.
+Re-running it after a rebuild refreshes all three in place.
 
 Packages ONLY the `Tools` GUI: the `DevTools` supervisor is Windows-only (named
 pipes + autostart) and not needed here — `AppRun` execs `usr/bin/Tools`
 directly. User data lives in `~/.devtools`, seeded from the bundled `settings/`
 tree. Launching the produced AppImage needs FUSE2 (`fuse2` on Arch/CachyOS);
-without it: `./Tools-*.AppImage --appimage-extract-and-run`.
+without it: `./Tools-*.AppImage --appimage-extract-and-run` (the desktop
+entry picks this fallback automatically).
+
+Known gap: the Avalonia.Wayland backend (12.1.x) never sends
+`xdg_toplevel.set_app_id`, so under a Wayland session the running window
+reports an empty class/app_id — launchers and bars that match windows to
+desktop entries by app_id can't link the running window to this entry. The
+launcher entry itself is unaffected.
