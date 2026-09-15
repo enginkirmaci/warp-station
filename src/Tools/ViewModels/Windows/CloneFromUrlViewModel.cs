@@ -21,7 +21,8 @@ public sealed record CloneFromUrlContext(string? DefaultDestination, Func<string
 /// through <see cref="IGitStatusService.CloneAsync"/>; failures (unknown host, missing
 /// credentials, existing destination) surface as an inline note under the fields.
 /// </summary>
-public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContextReceiver<CloneFromUrlContext>
+public partial class CloneFromUrlViewModel : ObservableObject,
+    IToolDrawerContextReceiver<CloneFromUrlContext>, IToolDrawerTeardown
 {
     private readonly IGitStatusService _gitStatusService;
     private readonly IToolDrawerService _toolDrawer;
@@ -200,5 +201,19 @@ public partial class CloneFromUrlViewModel : ObservableObject, IToolDrawerContex
             _cloneCts?.Cancel();
         }
         _toolDrawer.Close();
+    }
+
+    /// <summary>
+    /// Runs when the drawer stops showing this component by ANY close path (header X,
+    /// backdrop, Escape, another tool picked) — previously only the footer Cancel
+    /// cancelled the clone, so a dismissed drawer kept cloning toward its ten minute
+    /// bound and wrote into the destination folder after the user walked away.
+    /// </summary>
+    public void OnDrawerClosed()
+    {
+        if (IsCloning)
+        {
+            _cloneCts?.Cancel();
+        }
     }
 }

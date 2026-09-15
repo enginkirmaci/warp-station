@@ -418,11 +418,22 @@ public partial class MainWindow : SukiWindow
     private void OnToolDrawerChanged()
     {
         // Teardown the current component first: its ViewModel detaches from singleton
-        // services in OnNavigatedFromAsync.
-        if (ToolDrawerHost.Content is Control previous
-            && previous.DataContext is PageViewModelBase outgoingVm)
+        // services in OnNavigatedFromAsync, and plain-ObservableObject tool components
+        // (the clone drawer) cancel their in-flight work in OnDrawerClosed.
+        if (ToolDrawerHost.Content is Control previous)
         {
-            FireLifecycle(() => outgoingVm.OnNavigatedFromAsync());
+            if (previous.DataContext is PageViewModelBase outgoingVm)
+            {
+                FireLifecycle(() => outgoingVm.OnNavigatedFromAsync());
+            }
+            if (previous.DataContext is IToolDrawerTeardown outgoingTeardown)
+            {
+                FireLifecycle(() =>
+                {
+                    outgoingTeardown.OnDrawerClosed();
+                    return Task.CompletedTask;
+                });
+            }
         }
 
         if (!_toolDrawer.IsOpen

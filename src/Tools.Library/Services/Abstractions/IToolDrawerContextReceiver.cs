@@ -31,3 +31,18 @@ public interface IToolDrawerContextReceiver<TContext> : IToolDrawerContextReceiv
     /// </param>
     Task OnDrawerContextAsync(TContext? context);
 }
+
+/// <summary>
+/// A tool-drawer component whose ViewModel needs to run when the drawer stops showing
+/// it — closed by any path (footer Cancel, header X, backdrop, Escape) or swapped for
+/// another tool. The drawer host checks the OUTGOING component's ViewModel against
+/// this interface, so long-running work (the clone-from-URL's in-flight git clone)
+/// can be cancelled instead of running on toward its bound. Page-shaped ViewModels
+/// get lifecycle hooks already; this covers the plain-ObservableObject tool components.
+/// </summary>
+public interface IToolDrawerTeardown
+{
+    /// <summary>Called once when the drawer stops showing this component. Cancel
+    /// in-flight work here; keep it fast and non-throwing.</summary>
+    void OnDrawerClosed();
+}
