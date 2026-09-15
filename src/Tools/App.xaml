@@ -4,6 +4,7 @@
 	xmlns="https://github.com/avaloniaui"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 	xmlns:conv="using:Tools.Library.Converters"
+	xmlns:media="using:Tools.Library.Media"
 	xmlns:suki="https://github.com/kikipoulet/SukiUI"
 	RequestedThemeVariant="Dark">
 	<!--  Resources must come before Styles: SukiTheme writes its runtime  -->
@@ -32,9 +33,10 @@
                 The favorite star's bool-to-brush pair, via the shared parameterized
                 BoolToBrushConverter (the dedicated converter class is gone): a
                 favorited repo paints the star gold, everything else (unchecked, or
-                no repo selected) the muted gray.
+                no repo selected) the muted gray. The brushes come from ChipBrushes —
+                the single cached source pill/chip coloring mandates.
             -->
-			<conv:BoolToBrushConverter x:Key="FavoriteStarBrushConverter" TrueBrush="#F5B400" FalseBrush="#8B90A0" NullBrush="#8B90A0" />
+			<conv:BoolToBrushConverter x:Key="FavoriteStarBrushConverter" TrueBrush="{x:Static media:ChipBrushes.GoldBright}" FalseBrush="{x:Static media:ChipBrushes.StarMuted}" NullBrush="{x:Static media:ChipBrushes.StarMuted}" />
 			<conv:BranchChipBrushConverter x:Key="BranchChipBrushConverter" />
 			<conv:TagChipBrushConverter x:Key="TagChipBrushConverter" />
 			<conv:GitStatusBrushConverter x:Key="GitStatusBrushConverter" />

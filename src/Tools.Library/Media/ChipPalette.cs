@@ -87,4 +87,10 @@ public static class ChipPalette
 
     /// <summary>Bright blue — readable blue on dark surfaces.</summary>
     public const string BlueBright = "#6E9BF7";
+
+    /// <summary>Bright gold — the favorite star's active glyph.</summary>
+    public const string GoldBright = "#F5B400";
+
+    /// <summary>Muted slate — the favorite star's inactive glyph (deliberately dimmer than the fallback Gray).</summary>
+    public const string StarMuted = "#8B90A0";
 }

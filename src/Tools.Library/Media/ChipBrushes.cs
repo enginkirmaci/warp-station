@@ -17,6 +17,8 @@ public static class ChipBrushes
     public static readonly ImmutableSolidColorBrush AmberBright = new(Color.Parse(ChipPalette.AmberBright));
     public static readonly ImmutableSolidColorBrush PurpleBright = new(Color.Parse(ChipPalette.PurpleBright));
     public static readonly ImmutableSolidColorBrush BlueBright = new(Color.Parse(ChipPalette.BlueBright));
+    public static readonly ImmutableSolidColorBrush GoldBright = new(Color.Parse(ChipPalette.GoldBright));
+    public static readonly ImmutableSolidColorBrush StarMuted = new(Color.Parse(ChipPalette.StarMuted));
     public static readonly ImmutableSolidColorBrush Gray = new(Color.Parse(ChipPalette.Gray));
     public static readonly ImmutableSolidColorBrush RedStrong = new(Color.Parse(ChipPalette.RedStrong));
     public static readonly ImmutableSolidColorBrush RedDeleted = new(Color.Parse(ChipPalette.RedDeleted));
