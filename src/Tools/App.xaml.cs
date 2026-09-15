@@ -189,8 +189,9 @@ public partial class App : Application
         {
             // Cancelling makes the run service kill the opencode process tree on this
             // thread — without it a mid-generation CLI outlives the closed app.
-            services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>()
-                .CancelCommitMessageGeneration();
+            var bar = services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>();
+            bar.CancelCommitMessageGeneration();
+            bar.CancelReadmeGeneration();
             // Same story for every CLI git spawn (clone, fetch, push, a mid-run commit)
             // and each gh probe: the shutdown token kills the whole process tree.
             services.GetRequiredService<IGitStatusService>().Stop();

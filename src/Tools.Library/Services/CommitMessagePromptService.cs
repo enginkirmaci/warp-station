@@ -1,28 +1,15 @@
-using System.IO;
-using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services;
 
 /// <summary>
 /// Loads the commit-message prompt template from the user's opencode folder and fills
-/// its placeholders. The user file (<c>%USERPROFILE%\.devtools\opencode\commit-message.md</c>)
-/// is seeded once from the shipped default (<c>&lt;install&gt;/settings/opencode/commit-message.md</c>)
-/// so upgrades never clobber user edits; if both are missing the built-in default below is
-/// used and written back, so the file a user can edit always materializes. Re-read on
-/// every wand run — no caching — so template edits take effect immediately.
+/// its placeholders. Template storage follows <see cref="UserPromptTemplateService"/>
+/// (user-editable <c>commit-message.md</c>, seeded from the shipped default, built-in
+/// constant as last resort). Re-read on every wand run — no caching.
 /// </summary>
-public class CommitMessagePromptService : ICommitMessagePromptService
+public class CommitMessagePromptService : UserPromptTemplateService, ICommitMessagePromptService
 {
-    /// <summary>The user-editable template, inside the opencode folder.</summary>
-    private static readonly string UserFilePath = UserPaths.GetUserDataFile("opencode", "commit-message.md");
-
-    /// <summary>Pre-flatten location of the user template; migrated once on load.</summary>
-    private static readonly string LegacyUserFilePath = UserPaths.GetUserDataFile("settings", "commit-message.md");
-
-    /// <summary>Shipped default under the install directory's settings/opencode folder.</summary>
-    private const string ShippedRelPath = "opencode/commit-message.md";
-
     /// <summary>Placeholder tokens the template must carry.</summary>
     private const string FileListToken = "{file_list}";
     private const string DiffToken = "{diff}";
@@ -62,64 +49,15 @@ public class CommitMessagePromptService : ICommitMessagePromptService
         {context}
         """;
 
+    public CommitMessagePromptService() : base("commit-message.md", "opencode/commit-message.md", DefaultTemplate)
+    {
+    }
+
     public string BuildPrompt(string fileList, string diff, string context)
     {
-        var template = LoadTemplate();
-        return template
+        return LoadTemplate()
             .Replace(FileListToken, fileList)
             .Replace(DiffToken, diff)
             .Replace(ContextToken, context);
-    }
-
-    /// <summary>
-    /// Resolves the template text: the user's file wins; the shipped default seeds it;
-    /// the built-in constant is the last resort (and writes itself back so the editable
-    /// file exists). Read errors fall back to the built-in constant.
-    /// </summary>
-    private static string LoadTemplate()
-    {
-        try
-        {
-            MigrateLegacyFile();
-            UserPaths.SeedFromDefault(UserFilePath, ShippedRelPath);
-            if (File.Exists(UserFilePath))
-            {
-                return File.ReadAllText(UserFilePath);
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(UserFilePath)!);
-            File.WriteAllText(UserFilePath, DefaultTemplate);
-        }
-        catch
-        {
-            // A broken template location must not kill the wand — use the built-in text.
-        }
-
-        return DefaultTemplate;
-    }
-
-    /// <summary>
-    /// One-time move of the template from the pre-flatten settings folder to the opencode
-    /// folder, so an upgraded install keeps its edited template instead of being re-seeded
-    /// from the shipped default. The legacy folder is then deleted if the move left it
-    /// empty. Best-effort: any failure leaves the old file in place and the seed/fallback
-    /// logic proceeds.
-    /// </summary>
-    private static void MigrateLegacyFile()
-    {
-        if (File.Exists(UserFilePath) || !File.Exists(LegacyUserFilePath))
-            return;
-
-        Directory.CreateDirectory(Path.GetDirectoryName(UserFilePath)!);
-        File.Move(LegacyUserFilePath, UserFilePath);
-        try
-        {
-            // Non-recursive: only succeeds when no other pre-flatten files remain.
-            Directory.Delete(Path.GetDirectoryName(LegacyUserFilePath)!);
-        }
-        catch
-        {
-            // Stale pre-flatten files still in there — leave them alone.
-        }
     }
 }

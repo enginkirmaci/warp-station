@@ -61,6 +61,9 @@ public static class ServiceRegistrationExtensions
         // commit-message wand's prompt template (opencode-folder MD, user-editable)
         services.AddSingleton<ICommitMessagePromptService, CommitMessagePromptService>();
 
+        // README wand's prompt template (same storage contract)
+        services.AddSingleton<IReadmePromptService, ReadmePromptService>();
+
         return services;
     }
 }

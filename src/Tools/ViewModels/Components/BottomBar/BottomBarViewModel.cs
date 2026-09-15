@@ -88,6 +88,9 @@ public partial class BottomBarViewModel : ObservableObject
     /// <see cref="IRepoService.TagsChanged"/> (tag edits and favorite toggles).</summary>
     private readonly UiPostOnce _tagsRebuildPost = new();
 
+    /// <summary>The Overview README pane's wand (prompt + opencode run + cleanup).</summary>
+    private readonly ReadmeGenerator _readmeGenerator;
+
     public BottomBarViewModel(
         ISettingsService settingsService,
         IRepoService repoService,
@@ -97,6 +100,7 @@ public partial class BottomBarViewModel : ObservableObject
         IProcessLauncher processLauncher,
         IOpenCodeRunService openCodeRunService,
         ICommitMessagePromptService commitMessagePromptService,
+        IReadmePromptService readmePromptService,
         INotificationService notificationService,
         IClipboardService clipboardService,
         IToolDrawerService toolDrawerService)
@@ -115,6 +119,7 @@ public partial class BottomBarViewModel : ObservableObject
 
         var messageGenerator = new CommitMessageGenerator(openCodeRunService, commitMessagePromptService);
         Changes = new ChangesTabViewModel(this, messageGenerator);
+        _readmeGenerator = new ReadmeGenerator(openCodeRunService, readmePromptService);
         GitHub = new GitHubPanelViewModel(this);
         Azure = new AzurePanelViewModel(this);
 
@@ -209,7 +214,11 @@ public partial class BottomBarViewModel : ObservableObject
             _ = Changes.LoadBranchesAsync();
             RebuildSelectedRepoTags();
             ReloadActiveTab();
+            _readmeGenerator.Cancel();
             _ = LoadReadmeAsync();
+            // The pane's wands gate on HasSelectedRepo — requery after the switch.
+            GenerateReadmeCommand.NotifyCanExecuteChanged();
+            SaveReadmeCommand.NotifyCanExecuteChanged();
         }
 
         OnPropertyChanged(nameof(HasSelectedRepo));
@@ -281,13 +290,53 @@ public partial class BottomBarViewModel : ObservableObject
 
     // --- Overview README pane ---
 
-    /// <summary>Body text of the selected repo's root readme.md, null when the repo has none.</summary>
+    /// <summary>Body text of the README pane: the repo's readme.md from disk, or a
+    /// generated draft not yet saved. Null while the repo has neither.</summary>
     [ObservableProperty]
     private string? _readmeText;
 
     public bool HasReadme => !string.IsNullOrWhiteSpace(ReadmeText);
 
-    partial void OnReadmeTextChanged(string? value) => OnPropertyChanged(nameof(HasReadme));
+    /// <summary>The pane's wand affordance: visible whenever the OpenCode integration
+    /// is on — first run generates, later runs regenerate.</summary>
+    public bool ShowReadmeWand => HasOpenCode;
+
+    /// <summary>The wand's tooltip, per state: regenerate over an existing readme,
+    /// plain generate for the first one.</summary>
+    public string ReadmeWandToolTip => HasReadme
+        ? "Regenerate README.md"
+        : "Generate README.md";
+
+    /// <summary>The pane content differs from the file on disk (generated or edited) —
+    /// the save affordance shows.</summary>
+    public bool ReadmeDirty => !string.Equals(ReadmeText, _readmeOnDisk, StringComparison.Ordinal);
+
+    partial void OnReadmeTextChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasReadme));
+        OnPropertyChanged(nameof(ShowReadmeWand));
+        OnPropertyChanged(nameof(ReadmeWandToolTip));
+        OnPropertyChanged(nameof(ReadmeDirty));
+        GenerateReadmeCommand.NotifyCanExecuteChanged();
+        SaveReadmeCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>True while opencode writes the README; disables the pane's wands.</summary>
+    [ObservableProperty]
+    private bool _isGeneratingReadme;
+
+    private bool CanGenerateReadme() => HasOpenCode && HasSelectedRepo && !IsGeneratingReadme;
+
+    partial void OnIsGeneratingReadmeChanged(bool value)
+    {
+        GenerateReadmeCommand.NotifyCanExecuteChanged();
+        SaveReadmeCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>The readme file on disk (its exact casing, so Save updates in place)
+    /// and its content — the baseline <see cref="ReadmeDirty"/> compares against.</summary>
+    private string? _readmePath;
+    private string? _readmeOnDisk;
 
     /// <summary>Guards readme reads against a repo switch landing mid-read.</summary>
     private int _readmeLoadGeneration;
@@ -296,29 +345,104 @@ public partial class BottomBarViewModel : ObservableObject
     {
         int generation = ++_readmeLoadGeneration;
         string? folder = SelectedRepo?.FolderPath;
-        string? text = await Task.Run(() =>
+        (string? Path, string? Text) loaded = await Task.Run(() =>
         {
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
-                return null;
+                return (null, null);
             try
             {
                 // The *.md probe plus case-insensitive name check covers every
                 // casing (README.md / readme.md / Readme.MD) on both filesystems.
-                string? path = Directory.EnumerateFiles(folder, "*.md")
+                var path = Directory.EnumerateFiles(folder, "*.md")
                     .FirstOrDefault(f => Path.GetFileName(f).Equals("readme.md", StringComparison.OrdinalIgnoreCase));
-                return path is null ? null : File.ReadAllText(path);
+                return (path, path is null ? null : File.ReadAllText(path));
             }
             catch
             {
-                return null;
+                return (null, null);
             }
         });
         if (generation != _readmeLoadGeneration)
             return;
-        if (text is { Length: > 200_000 })
-            text = text[..200_000];
-        ReadmeText = text;
+        _readmePath = loaded.Path;
+        _readmeOnDisk = CapReadme(loaded.Text);
+        ReadmeText = _readmeOnDisk;
+        // ReadmeText may be unchanged across repos — the derived flags still must
+        // re-evaluate (the setter raises nothing when the value is identical).
+        OnPropertyChanged(nameof(ReadmeDirty));
+        OnPropertyChanged(nameof(ShowReadmeWand));
+        OnPropertyChanged(nameof(ReadmeWandToolTip));
     }
+
+    /// <summary>Keeps pathological files out of the TextBlock; the disk copy stays intact.</summary>
+    private static string? CapReadme(string? text) =>
+        text is { Length: > 200_000 } ? text[..200_000] : text;
+
+    /// <summary>
+    /// The pane's wand: asks opencode to write a README.md from the repo's name and
+    /// file tree, dropping the markdown into the pane (Save persists it).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanGenerateReadme))]
+    private async Task GenerateReadmeAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo?.FolderPath is null) return;
+
+        var token = _readmeGenerator.Begin();
+        IsGeneratingReadme = true;
+        try
+        {
+            var readme = await _readmeGenerator.TryGenerateAsync(
+                token, repo, ReposSettings.OpenCodeExecutable, ResolveWandModel());
+            if (!ReferenceEquals(SelectedRepo, repo)) return; // repo switched while generating
+            if (readme is null)
+            {
+                Notifications.Show("Could not generate a README", NotificationKind.Error);
+                return;
+            }
+
+            ReadmeText = readme;
+        }
+        catch (OperationCanceledException)
+        {
+            // Repo switch or app shutdown: the opencode child is already dead, the
+            // pane must stay untouched — drop the run without an error toast.
+        }
+        finally
+        {
+            _readmeGenerator.End();
+            IsGeneratingReadme = false;
+        }
+    }
+
+    /// <summary>Persists the pane content to the repo's readme.md (the loaded file's
+    /// exact casing, README.md when creating one).</summary>
+    [RelayCommand(CanExecute = nameof(CanSaveReadme))]
+    private async Task SaveReadmeAsync()
+    {
+        var repo = SelectedRepo;
+        if (repo?.FolderPath is null || ReadmeText is null) return;
+
+        var path = _readmePath ?? Path.Combine(repo.FolderPath, "README.md");
+        try
+        {
+            await File.WriteAllTextAsync(path, ReadmeText);
+            _readmePath = path;
+            _readmeOnDisk = ReadmeText;
+            OnPropertyChanged(nameof(ReadmeDirty));
+            Notifications.Show("README.md saved", NotificationKind.Success);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "README save failed for {Path}", path);
+            Notifications.Show("Could not save README.md", NotificationKind.Error);
+        }
+    }
+
+    private bool CanSaveReadme() => HasSelectedRepo && HasReadme && ReadmeDirty && !IsGeneratingReadme;
+
+    /// <summary>Cancels any in-flight README generation (repo switch, app shutdown).</summary>
+    public void CancelReadmeGeneration() => _readmeGenerator.Cancel();
 
     // --- Repo header (the page's title while a repo is selected) ---
 
@@ -898,6 +1022,11 @@ public partial class BottomBarViewModel : ObservableObject
     private void RefreshOpenCodeAvailability()
     {
         HasOpenCode = IsOpenCodeEnabled;
+        // The pane wands bound while HasOpenCode was still false (pre-initialize);
+        // Avalonia never requeries CanExecute on its own.
+        OnPropertyChanged(nameof(ShowReadmeWand));
+        OnPropertyChanged(nameof(ReadmeWandToolTip));
+        GenerateReadmeCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnHasOpenCodeChanged(bool value)

@@ -30,18 +30,16 @@
         <StyleInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarStyles.axaml" />
     </UserControl.Styles>
 
-    <DockPanel>
+    <Grid ColumnDefinitions="6*,4*" ColumnSpacing="10">
         <!--  Sidebar: the three count tiles in a row over the Repository
               Details card. Spacing comes from the buttons' top margins —
               Grid row spacing survives collapsed rows, so GitHub-off would
-              leave phantom gaps above the hidden PR/Issues cards. Docked
-              Right at a fixed width BEFORE the fill child: when space runs
-              short the README pane clips its content instead of pushing the
-              sidebar's border out of the panel.  -->
+              leave phantom gaps above the hidden PR/Issues cards. The grid
+              gives it a 4* share — the README pane takes the other six —
+              so no fixed column exists to push a border out when space
+              runs short.  -->
         <Grid
-            DockPanel.Dock="Right"
-            Width="380"
-            Margin="10,0,0,0"
+            Grid.Column="1"
             RowDefinitions="Auto,*">
             <!--  The three count tiles sit above the details card, three
                   across; side margins instead of UniformGrid spacing (which
@@ -112,35 +110,28 @@
                                 Grid.Column="1"
                                 Classes="detail-link"
                                 Command="{Binding OpenGitHubRepoCommand}"
-                                HorizontalAlignment="Left"
+                                HorizontalContentAlignment="Left"
                                 ToolTip.Tip="Open the repository's GitHub page">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <!--  The cap is a named resource (GitHubUrlMaxWidth in
-                                          BottomBarResources): the sidebar is a fixed 380px
-                                          column, so after the 110px key + paddings the value
-                                          cell has ~234px and the cap keeps ~24px slack —
-                                          the URL must be capped explicitly because the
-                                          button's content presenter hugs (SukiUI) and
-                                          TextTrimming never fires under infinite measure.  -->
-                                    <!--  Tail-trim like the repos table's branch
-                                          pills (the tail tells owner/repo apart);
-                                          TailTrimmingTextBlock is a TextBlock
-                                          subclass, so the TextBlock.detail-value
-                                          class style never matches it — set the
-                                          foreground directly.  -->
+                                <!--  *,Auto grid instead of a hugging StackPanel: the text cell gets finite
+                                      measure, so TailTrimmingTextBlock trims to whatever the sidebar
+                                      actually offers — a fixed cap would over-trim when the column
+                                      widens. The control is a TextBlock subclass, so the
+                                      TextBlock.detail-value class style never matches it — set the
+                                      foreground directly.  -->
+                                <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Left">
                                     <lib:TailTrimmingTextBlock
-                                        MaxWidth="{StaticResource GitHubUrlMaxWidth}"
                                         VerticalAlignment="Center"
                                         Foreground="{DynamicResource BodyForegroundBrush}"
                                         FullText="{Binding SelectedRepoGitHubDisplayUrl}" />
                                     <Path
+                                        Grid.Column="1"
                                         Width="12"
                                         Height="12"
                                         VerticalAlignment="Center"
                                         Data="{tools:SvgPath icon-open-in-new}"
                                         Fill="{DynamicResource MutedForegroundBrush}"
                                         Stretch="Uniform" />
-                                </StackPanel>
+                                </Grid>
                             </Button>
                         </Grid>
                         <!--
@@ -158,26 +149,25 @@
                                 Grid.Column="1"
                                 Classes="detail-link"
                                 Command="{Binding OpenRepoFolderCommand}"
-                                HorizontalAlignment="Left"
+                                HorizontalContentAlignment="Left"
                                 ToolTip.Tip="Open the repository folder">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <!--  Same tail-trim: a truncated folder path
-                                          keeps its repo-name end; the full path
-                                          stays on the tooltip.  -->
+                                <!--  Same *,Auto cell: the folder path trims to the offered width (tail
+                                      visible) and the button stretches with the sidebar.  -->
+                                <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Left">
                                     <lib:TailTrimmingTextBlock
-                                        MaxWidth="{StaticResource GitHubUrlMaxWidth}"
                                         VerticalAlignment="Center"
                                         Foreground="{DynamicResource BodyForegroundBrush}"
                                         FullText="{Binding SelectedRepoFolderPath}"
                                         ToolTip.Tip="{Binding SelectedRepoFolderPath, TargetNullValue=''}" />
                                     <Path
+                                        Grid.Column="1"
                                         Width="12"
                                         Height="12"
                                         VerticalAlignment="Center"
                                         Data="{tools:SvgPath icon-open-in-new}"
                                         Fill="{DynamicResource MutedForegroundBrush}"
                                         Stretch="Uniform" />
-                                </StackPanel>
+                                </Grid>
                             </Button>
                         </Grid>
                         <Grid
@@ -265,24 +255,110 @@
         </Border>
         </Grid>
 
-        <!--  README pane: the selected repo's root readme.md as wrapped plain
-              text. The DockPanel's fill child, so it takes everything left of
-              the sidebar and disappears entirely when the repo has no readme
-              (HasReadme false) or no repo selected.  -->
-        <Border Classes="ov-card" IsVisible="{Binding HasReadme}">
+        <!--  README pane: the selected repo's README.md — generated in place with the
+              wand (opencode) when missing, saved back with the Save button once the
+              content is generated or ahead of disk. The pane itself stays up whether
+              or not the repo has a readme, so the area never reflows; it fills the
+              6* column of the root grid — a 60/40 split with the sidebar.  -->
+        <Border
+            Grid.Column="0"
+            Classes="ov-card"
+            MinHeight="140"
+            IsVisible="{Binding HasSelectedRepo}">
             <DockPanel>
-                <TextBlock
-                    Margin="0,0,0,6"
-                    Classes="ov-card-title"
-                    DockPanel.Dock="Top"
-                    Text="README" />
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                    <SelectableTextBlock
-                        Foreground="{DynamicResource BodyForegroundBrush}"
-                        Text="{Binding ReadmeText}"
-                        TextWrapping="Wrap" />
-                </ScrollViewer>
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6" DockPanel.Dock="Top">
+                    <TextBlock Classes="ov-card-title" Text="README.md" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button
+                            Classes="detail-link"
+                            Padding="6,2"
+                            IsVisible="{Binding ReadmeDirty}"
+                            Command="{Binding SaveReadmeCommand}"
+                            ToolTip.Tip="Save README.md to the repository folder">
+                            <TextBlock Text="Save" />
+                        </Button>
+                        <Button
+                            Classes="detail-link"
+                            Padding="4"
+                            IsVisible="{Binding ShowReadmeWand}"
+                            Command="{Binding GenerateReadmeCommand}"
+                            ToolTip.Tip="{Binding ReadmeWandToolTip}">
+                            <!--  same ring recipe as the commit wand: element-space arc,
+                                  no Stretch, rotation pivoting on the center  -->
+                            <Grid>
+                                <Path
+                                    Width="16"
+                                    Height="16"
+                                    IsVisible="{Binding IsGeneratingReadme}"
+                                    Classes="spinner"
+                                    RenderTransformOrigin="50%,50%"
+                                    Data="M 8 1 A 7 7 0 1 1 1 8"
+                                    Stroke="{DynamicResource AccentPrimaryBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                                <Path
+                                    Width="16"
+                                    Height="16"
+                                    IsVisible="{Binding !IsGeneratingReadme}"
+                                    Data="{tools:SvgPath icon-wand}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+                <Grid>
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasReadme}">
+                        <SelectableTextBlock
+                            Foreground="{DynamicResource BodyForegroundBrush}"
+                            Text="{Binding ReadmeText}"
+                            TextWrapping="Wrap" />
+                    </ScrollViewer>
+                    <StackPanel
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="10"
+                        IsVisible="{Binding !HasReadme}">
+                        <Button
+                            HorizontalAlignment="Center"
+                            Classes="detail-link"
+                            Padding="10"
+                            IsVisible="{Binding HasOpenCode}"
+                            Command="{Binding GenerateReadmeCommand}"
+                            ToolTip.Tip="{Binding ReadmeWandToolTip}">
+                            <Grid>
+                                <Path
+                                    Width="22"
+                                    Height="22"
+                                    IsVisible="{Binding IsGeneratingReadme}"
+                                    Classes="spinner"
+                                    RenderTransformOrigin="50%,50%"
+                                    Data="M 11 1.5 A 9.5 9.5 0 1 1 1.5 11"
+                                    Stroke="{DynamicResource AccentPrimaryBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                                <Path
+                                    Width="22"
+                                    Height="22"
+                                    IsVisible="{Binding !IsGeneratingReadme}"
+                                    Data="{tools:SvgPath icon-wand}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                            </Grid>
+                        </Button>
+                        <TextBlock
+                            Classes="subtle"
+                            HorizontalAlignment="Center"
+                            Text="No README.md yet — generate one for this project" />
+                    </StackPanel>
+                </Grid>
             </DockPanel>
         </Border>
-    </DockPanel>
+    </Grid>
 </UserControl>

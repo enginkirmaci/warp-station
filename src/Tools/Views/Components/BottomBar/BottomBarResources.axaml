@@ -95,94 +95,115 @@
         </Grid>
     </DataTemplate>
 
-    <!--  Overview stat tiles: the sidebar's three count tiles, laid out
-          vertically to fit three-across in the 380px column. Only the
-          Button's command / visibility differ per site. The icon badge is
-          Border.stat-badge, the count rides the card's title brush.  -->
+    <!--  Overview stat tiles: the sidebar's three count tiles — badge and
+          count on one row, label beneath. Only the Button's command /
+          visibility differ per site. The icon badge is Border.stat-badge.  -->
     <DataTemplate x:Key="StatCardChanges" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Spacing="6">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,Auto">
             <Grid
-                Width="28"
-                Height="28">
+                Grid.Row="0"
+                Grid.Column="0"
+                Width="24"
+                Height="24"
+                Margin="0,0,7,0">
                 <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
                 <Path
-                    Width="14"
-                    Height="14"
+                    Width="12"
+                    Height="12"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-source-branch}"
                     Fill="{DynamicResource WarningAccentBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="1">
-                <TextBlock
-                    FontSize="20"
-                    FontWeight="Bold"
-                    Foreground="{DynamicResource TitleForegroundBrush}"
-                    Text="{Binding ChangesCount}" />
-                <TextBlock
-                    Classes="subtle"
-                    FontSize="11"
-                    Text="Changes" />
-            </StackPanel>
-        </StackPanel>
+            <TextBlock
+                Grid.Row="0"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="18"
+                FontWeight="Bold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding ChangesCount}" />
+            <TextBlock
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                Margin="0,4,0,0"
+                Classes="subtle"
+                FontSize="10.5"
+                Text="Changes" />
+        </Grid>
     </DataTemplate>
     <DataTemplate x:Key="StatCardPullRequests" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Spacing="6">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,Auto">
             <Grid
-                Width="28"
-                Height="28">
+                Grid.Row="0"
+                Grid.Column="0"
+                Width="24"
+                Height="24"
+                Margin="0,0,7,0">
                 <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
                 <Path
-                    Width="14"
-                    Height="14"
+                    Width="12"
+                    Height="12"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-git-pull-request}"
                     Fill="{DynamicResource PurpleAccentBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="1">
-                <TextBlock
-                    FontSize="20"
-                    FontWeight="Bold"
-                    Foreground="{DynamicResource TitleForegroundBrush}"
-                    Text="{Binding PullRequestCount}" />
-                <TextBlock
-                    Classes="subtle"
-                    FontSize="11"
-                    Text="Pull Requests" />
-            </StackPanel>
-        </StackPanel>
+            <TextBlock
+                Grid.Row="0"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="18"
+                FontWeight="Bold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding PullRequestCount}" />
+            <TextBlock
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                Margin="0,4,0,0"
+                Classes="subtle"
+                FontSize="10.5"
+                Text="Pull Requests" />
+        </Grid>
     </DataTemplate>
     <DataTemplate x:Key="StatCardIssues" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Spacing="6">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,Auto">
             <Grid
-                Width="28"
-                Height="28">
+                Grid.Row="0"
+                Grid.Column="0"
+                Width="24"
+                Height="24"
+                Margin="0,0,7,0">
                 <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
                 <Path
-                    Width="14"
-                    Height="14"
+                    Width="12"
+                    Height="12"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-issue}"
                     Fill="{DynamicResource StatusActiveBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="1">
-                <TextBlock
-                    FontSize="20"
-                    FontWeight="Bold"
-                    Foreground="{DynamicResource TitleForegroundBrush}"
-                    Text="{Binding IssueCount}" />
-                <TextBlock
-                    Classes="subtle"
-                    FontSize="11"
-                    Text="Issues" />
-            </StackPanel>
-        </StackPanel>
+            <TextBlock
+                Grid.Row="0"
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                FontSize="18"
+                FontWeight="Bold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="{Binding IssueCount}" />
+            <TextBlock
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                Margin="0,4,0,0"
+                Classes="subtle"
+                FontSize="10.5"
+                Text="Issues" />
+        </Grid>
     </DataTemplate>
+
 
     <!--  GitHub label pill: same pill chrome as the state chips
           (Border.state-chip) plus a local right gap; tinted by
@@ -322,13 +343,5 @@
           a HairlineBrush edge lands on a half-pixel at this display scale and
           reads as clipped; one step stronger keeps the edge visible.  -->
     <SolidColorBrush x:Key="BarCardBorderBrush" Color="{DynamicResource SukiMediumBorderBrush}" />
-
-    <!--  GitHub URL cap in the Overview sidebar's link row — coupled to the
-          sidebar's fixed 380px width + the 110px key column + paddings (the
-          value cell has ~234px; the cap keeps ~24px slack so fractional-scale
-          rounding can never push the row past the card). The cap must be
-          explicit because the button's content presenter hugs (SukiUI), so
-          TextTrimming never sees a finite measure width without it.  -->
-    <x:Double x:Key="GitHubUrlMaxWidth">210</x:Double>
 
 </ResourceDictionary>
