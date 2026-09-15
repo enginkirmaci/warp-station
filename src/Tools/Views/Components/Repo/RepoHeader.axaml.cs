@@ -38,17 +38,26 @@ public partial class RepoHeader : UserControl
     }
 
     /// <summary>Adds the input box's text as a tag on the selected repo (Enter and the
-    /// Add button both land here). Keeps the flyout open for back-to-back entries.</summary>
+    /// Add button both land here). Keeps the flyout open for back-to-back entries.
+    /// async void is forced by the KeyDown/Tapped wiring — a throw here would kill the
+    /// process, so the await is guarded like the other fire-and-forget paths.</summary>
     private async void AddTagFromInput()
     {
         if (DataContext is not BottomBarViewModel vm) return;
         if (this.FindControl<TextBox>("NewTagInput") is not { } input) return;
 
-        var added = await vm.AddRepoTagAsync(input.Text);
-        if (added)
+        try
         {
-            input.Text = string.Empty;
-            RebuildAvailableTags();
+            var added = await vm.AddRepoTagAsync(input.Text);
+            if (added)
+            {
+                input.Text = string.Empty;
+                RebuildAvailableTags();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Error(ex, "Adding a tag from the repo header input threw");
         }
 
         input.Focus();
@@ -83,15 +92,23 @@ public partial class RepoHeader : UserControl
     }
 
     /// <summary>A picker chip click adds that existing tag through the same VM path as
-    /// a typed name (dedupe check, TagsChanged) and drops the chip from the picker.</summary>
+    /// a typed name (dedupe check, TagsChanged) and drops the chip from the picker.
+    /// Guarded like <see cref="AddTagFromInput"/> — a throw from async void exits.</summary>
     private async void AvailableTag_OnTapped(object? sender, TappedEventArgs e)
     {
         if (DataContext is not BottomBarViewModel vm) return;
         if (sender is not Control { DataContext: string tag }) return;
 
-        if (await vm.AddRepoTagAsync(tag))
+        try
         {
-            RebuildAvailableTags();
+            if (await vm.AddRepoTagAsync(tag))
+            {
+                RebuildAvailableTags();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Logger.Error(ex, "Adding a tag from the repo header picker threw");
         }
     }
 

@@ -56,6 +56,13 @@ public partial class MainWindow : SukiWindow
     private readonly UiDebounce _searchDebounce = new(HeaderSearchDebounceMs);
 
     /// <summary>
+    /// The repos VM whose PropertyChanged this window subscribes to (see
+    /// <see cref="AttachRepositoriesPage"/>); kept so window close can detach it
+    /// even when another page has since replaced ContentArea.Content.
+    /// </summary>
+    private ReposViewModel? _reposViewModel;
+
+    /// <summary>
     /// Open timer: fires while the pointer rests on the tools button. Close timer:
     /// fires after the pointer has left both the button and the flyout. The flyout's
     /// own move-away dismiss (TransientWithDismissOnPointerMoveAway) is NOT used — it
@@ -222,6 +229,7 @@ public partial class MainWindow : SukiWindow
 
         if (reposPage.DataContext is ReposViewModel viewModel)
         {
+            _reposViewModel = viewModel;
             viewModel.PropertyChanged += OnReposViewModelPropertyChanged;
             Opened += OnMainWindowOpened;
         }
@@ -300,9 +308,12 @@ public partial class MainWindow : SukiWindow
         _toolsFlyoutOpenTimer?.Stop();
         _toolsFlyoutCloseTimer?.Stop();
 
-        if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel })
+        // Detach the repos VM subscription regardless of which page is showing — the
+        // Settings page swaps ContentArea.Content but the subscription lives on the VM.
+        if (_reposViewModel is { } reposViewModel)
         {
-            viewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
+            reposViewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
+            _reposViewModel = null;
         }
         // An open drawer hosts a transient ViewModel subscribed to singleton services;
         // Close() routes the teardown through OnToolDrawerChanged so the VM is not

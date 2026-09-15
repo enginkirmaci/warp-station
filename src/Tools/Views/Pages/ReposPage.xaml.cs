@@ -18,9 +18,16 @@ public partial class ReposPage : UserControl
 
     private ListBox? _reposList;
 
+    /// <summary>
+    /// XAML infrastructure requires a public parameterless ctor on the x:Class type;
+    /// runtime construction must go through the DI one — both ViewModels have to be
+    /// set BEFORE InitializeComponent (the bottom bar's XAML binds
+    /// #Root.BottomBarViewModel). Never call this.
+    /// </summary>
     public ReposPage()
     {
-        InitializeComponent();
+        throw new InvalidOperationException(
+            "ReposPage requires (ReposViewModel, BottomBarViewModel) — resolve it through DI.");
     }
 
     public ReposPage(ReposViewModel viewModel, BottomBarViewModel bottomBarViewModel)
