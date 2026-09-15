@@ -37,6 +37,14 @@ public class RepoService : IRepoService, IDisposable
     /// </summary>
     private Task? _scanTask;
 
+    // Scan-slot state (guarded by _scanLock): _busy claims the slot; a StartScan call
+    // arriving mid-scan records a pending rescan with the newer settings, which
+    // ScanCoreAsync's tail restarts with instead of silently dropping the request.
+    private readonly object _scanLock = new();
+    private bool _rescanPending;
+    private ReposSettings? _pendingScanSettings;
+    private ReposSettings? _runningScanSettings;
+
     // Write-behind persistence state (guarded by _persistLock).
     private static readonly TimeSpan FlushDelay = TimeSpan.FromMilliseconds(400);
     private readonly object _persistLock = new();
@@ -89,11 +97,16 @@ public class RepoService : IRepoService, IDisposable
     /// <inheritdoc/>
     public event EventHandler? TagsChanged;
 
-    /// <inheritdoc/>
-    public async Task EnsureLoadedAsync(ReposSettings settings)
+    /// <summary>
+    /// The in-flight (or completed) first cache load, so concurrent
+    /// <see cref="EnsureLoadedAsync"/> callers join one deserialization. Nulled again
+    /// if the load faults so the next navigation retries.
+    /// </summary>
+    private Task? _cacheLoadTask;
+
+    private async Task LoadCacheAsync()
     {
-        // Load cache once if we have no data yet, so the UI renders instantly.
-        if (!_cacheLoaded && _repos.Count == 0)
+        try
         {
             var cache = await _cacheStore.LoadAsync();
             if (cache?.Repos != null)
@@ -108,9 +121,29 @@ public class RepoService : IRepoService, IDisposable
                         repo.AddTag(name);
                 }
                 _repos = cache.Repos;
-                _cacheLoaded = true;
                 RaiseChanged();
             }
+            // Also when the file is absent or empty: there is nothing more to load;
+            // the session scan fills the list in.
+            _cacheLoaded = true;
+        }
+        catch
+        {
+            _cacheLoadTask = null;
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task EnsureLoadedAsync(ReposSettings settings)
+    {
+        // Load cache once if we have no data yet, so the UI renders instantly. The
+        // shared task joins concurrent first calls (page + bottom bar fire together
+        // at startup) onto a single deserialization instead of a check-then-await
+        // race loading the cache twice into two separate Repo graphs.
+        if (!_cacheLoaded)
+        {
+            await (_cacheLoadTask ??= LoadCacheAsync());
         }
 
         // Scan once per app session: the background scan is disk-bound (folder walk
@@ -129,8 +162,8 @@ public class RepoService : IRepoService, IDisposable
     public async Task RefreshAsync(ReposSettings settings)
     {
         // Keep the in-memory repos so the UI does not blank out during a manual refresh;
-        // the scan replaces them once it completes.
-        _cacheLoaded = false;
+        // the scan replaces them once it completes. The cache is deliberately NOT
+        // reloaded here — the scan is the refresh.
         _scannedThisSession = false;
         RaiseChanged();
         await EnsureLoadedAsync(settings);
@@ -138,10 +171,11 @@ public class RepoService : IRepoService, IDisposable
         // EnsureLoadedAsync kicks the rescan fire-and-forget (page navigations must not
         // wait on it); the manual refresh has to — its caller's busy state (the Repos
         // page's Refresh button) spans the whole scan + git-status cycle, so the data on
-        // screen is final the moment the busy state clears. The task is current here:
-        // this call just started the scan, or an earlier one is still settling. It never
-        // faults — ScanCoreAsync catches, logs and settles internally.
-        if (_scanTask is { IsCompleted: false })
+        // screen is final the moment the busy state clears. If a scan was already in
+        // flight, StartScan recorded a pending rescan with these settings; loop so this
+        // refresh also outwaits the restart that used them. Tasks never fault —
+        // ScanCoreAsync catches, logs and settles internally.
+        while (_scanTask is { IsCompleted: false })
         {
             await _scanTask;
         }
@@ -179,16 +213,46 @@ public class RepoService : IRepoService, IDisposable
     /// <summary>
     /// Claims the scan slot and starts the session scan, recording the running task in
     /// <see cref="_scanTask"/> for <see cref="RefreshAsync"/>. A call arriving while a
-    /// scan is in flight is a no-op that leaves the field alone — the in-flight task
-    /// stays the current one (assigning a rejected no-op over it would let a waiting
-    /// refresh return before the real scan finished).
+    /// scan is in flight records a pending rescan with the newer settings —
+    /// <see cref="ScanCoreAsync"/>'s tail restarts with them — instead of a no-op that
+    /// would leave a mid-scan refresh awaiting a scan that never used its settings.
     /// </summary>
     private void StartScan(ReposSettings settings)
     {
-        if (_busy) return;
-        _busy = true;
+        lock (_scanLock)
+        {
+            if (_busy)
+            {
+                // Identical inputs (the page and the bar racing on the same settings)
+                // need no restart — the in-flight scan already covers them.
+                if (ScanInputsEqual(_runningScanSettings, settings)) return;
+                _rescanPending = true;
+                _pendingScanSettings = settings;
+                return;
+            }
+            _busy = true;
+            _runningScanSettings = settings;
+        }
         RaiseChanged();
         _scanTask = ScanCoreAsync(settings);
+    }
+
+    /// <summary>Whether two settings instances would produce the same listing scan
+    /// (the inputs ScanCoreAsync actually reads on this path).</summary>
+    private static bool ScanInputsEqual(ReposSettings? a, ReposSettings? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return string.Equals(a.GitFolderPattern, b.GitFolderPattern, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(a.SolutionFilePattern, b.SolutionFilePattern, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(a.PlatformFolderName, b.PlatformFolderName, StringComparison.OrdinalIgnoreCase)
+            && SequenceEquals(a.RepoScanFolders, b.RepoScanFolders);
+
+        static bool SequenceEquals(string[]? x, string[]? y)
+        {
+            if (x is null || y is null) return x is null && y is null;
+            return x.SequenceEqual(y, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -274,8 +338,31 @@ public class RepoService : IRepoService, IDisposable
         }
         finally
         {
-            _busy = false;
+            ReposSettings? restart;
+            lock (_scanLock)
+            {
+                if (_rescanPending)
+                {
+                    // A scan was requested while this one ran (e.g. a manual refresh
+                    // with changed scan roots). Keep the slot claimed and restart with
+                    // the newer settings so the pending request is actually served.
+                    _rescanPending = false;
+                    restart = _pendingScanSettings;
+                    _pendingScanSettings = null;
+                    _runningScanSettings = restart;
+                }
+                else
+                {
+                    _busy = false;
+                    _runningScanSettings = null;
+                    restart = null;
+                }
+            }
             RaiseChanged();
+            if (restart is not null)
+            {
+                _scanTask = ScanCoreAsync(restart);
+            }
         }
     }
 
