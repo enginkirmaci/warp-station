@@ -115,7 +115,21 @@ public class RepoScanner : IRepoScanner
         var solutionFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var pattern in patterns)
         {
-            foreach (var file in Directory.GetFiles(directory, pattern))
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(directory, pattern);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                // The folder vanished or became unreadable between the directory walk
+                // and this lookup; treat it as solution-less instead of aborting the
+                // whole scan (every retry would fail the same way).
+                Log.Logger.Debug(ex, "Solution lookup failed for {Directory}", directory);
+                continue;
+            }
+
+            foreach (var file in files)
             {
                 solutionFiles.Add(file);
             }
@@ -162,8 +176,11 @@ public class RepoScanner : IRepoScanner
             {
                 var subDirName = Path.GetFileName(subDir);
 
+                // Exclusions are configured as folder NAMES (e.g. "node_modules"),
+                // so they must match the leaf name — comparing them against the full
+                // path (the old behavior) could never match anything.
                 if (subDirName.Equals(searchPattern, StringComparison.OrdinalIgnoreCase) ||
-                    excludedFolders.Any(ex => ex.Equals(subDir, StringComparison.OrdinalIgnoreCase)))
+                    excludedFolders.Any(ex => ex.Equals(subDirName, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
