@@ -235,6 +235,8 @@ public class RepoService : IRepoService, IDisposable
                     repo.GitToPushCount = prev.GitToPushCount;
                     repo.GitToPullCount = prev.GitToPullCount;
                     repo.GitStatusLoaded = prev.GitStatusLoaded;
+                    repo.GitLastCommitAt = prev.GitLastCommitAt;
+                    repo.GitLastFetchAt = prev.GitLastFetchAt;
 
                     // Same carry-over for the GitHub column cells.
                     repo.GitHubRepoUrl = prev.GitHubRepoUrl;
@@ -242,6 +244,16 @@ public class RepoService : IRepoService, IDisposable
                     repo.GitHubIssueCount = prev.GitHubIssueCount;
                     repo.GitHubLoaded = prev.GitHubLoaded;
                     repo.GitHubAvailable = prev.GitHubAvailable;
+
+                    // And the Azure DevOps column cells, which reset to "checking" the
+                    // same way when a rescan replaces the entity mid-pass.
+                    repo.AzureDevOpsRepoUrl = prev.AzureDevOpsRepoUrl;
+                    repo.AzureDevOpsPrCount = prev.AzureDevOpsPrCount;
+                    repo.AzureDevOpsWorkItemCount = prev.AzureDevOpsWorkItemCount;
+                    repo.AzureDevOpsPipelineState = prev.AzureDevOpsPipelineState;
+                    repo.AzureDevOpsPipelineInfo = prev.AzureDevOpsPipelineInfo;
+                    repo.AzureDevOpsLoaded = prev.AzureDevOpsLoaded;
+                    repo.AzureDevOpsAvailable = prev.AzureDevOpsAvailable;
                 }
             }
 

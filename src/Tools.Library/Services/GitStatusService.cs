@@ -151,7 +151,10 @@ public sealed class GitStatusService : IGitStatusService
         repo.GitToPushCount = probe.AheadCount;
         repo.GitToPullCount = probe.BehindCount;
         repo.GitLastCommitAt = probe.LastCommitAt;
-        if (probe.LastFetchAt is { } fetchAt && repo.GitLastFetchAt is null)
+        // Newer-wins rather than only-if-null: rescans carry the previous entity's
+        // fetch time over, so a FETCH_HEAD touched by an external fetch since then
+        // must still win over the older carried value.
+        if (probe.LastFetchAt is { } fetchAt && (repo.GitLastFetchAt is null || fetchAt > repo.GitLastFetchAt))
         {
             repo.GitLastFetchAt = fetchAt;
         }
