@@ -95,85 +95,91 @@
         </Grid>
     </DataTemplate>
 
-    <!--  Overview stat-card bodies. The cards are written twice (4-column grid with
-          the Pipelines slot, 3-column without it); only the Button's command /
-          visibility differ per site, so the bodies live here. The icon badge is
+    <!--  Overview stat tiles: the sidebar's three count tiles, laid out
+          vertically to fit three-across in the 380px column. Only the
+          Button's command / visibility differ per site. The icon badge is
           Border.stat-badge, the count rides the card's title brush.  -->
     <DataTemplate x:Key="StatCardChanges" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Orientation="Horizontal" Spacing="12">
+        <StackPanel Spacing="6">
             <Grid
-                Width="36"
-                Height="36"
-                VerticalAlignment="Top">
+                Width="28"
+                Height="28">
                 <Border Background="{DynamicResource WarningAccentBrush}" Classes="stat-badge" />
                 <Path
-                    Width="18"
-                    Height="18"
+                    Width="14"
+                    Height="14"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-source-branch}"
                     Fill="{DynamicResource WarningAccentBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="1">
                 <TextBlock
-                    FontSize="22"
+                    FontSize="20"
                     FontWeight="Bold"
                     Foreground="{DynamicResource TitleForegroundBrush}"
                     Text="{Binding ChangesCount}" />
-                <TextBlock Classes="subtle" Text="Local Changes" />
+                <TextBlock
+                    Classes="subtle"
+                    FontSize="11"
+                    Text="Changes" />
             </StackPanel>
         </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="StatCardPullRequests" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Orientation="Horizontal" Spacing="12">
+        <StackPanel Spacing="6">
             <Grid
-                Width="36"
-                Height="36"
-                VerticalAlignment="Top">
+                Width="28"
+                Height="28">
                 <Border Background="{DynamicResource PurpleAccentBrush}" Classes="stat-badge" />
                 <Path
-                    Width="18"
-                    Height="18"
+                    Width="14"
+                    Height="14"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-git-pull-request}"
                     Fill="{DynamicResource PurpleAccentBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="1">
                 <TextBlock
-                    FontSize="22"
+                    FontSize="20"
                     FontWeight="Bold"
                     Foreground="{DynamicResource TitleForegroundBrush}"
                     Text="{Binding PullRequestCount}" />
-                <TextBlock Classes="subtle" Text="Open Pull Requests" />
+                <TextBlock
+                    Classes="subtle"
+                    FontSize="11"
+                    Text="Pull Requests" />
             </StackPanel>
         </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="StatCardIssues" x:DataType="vm:BottomBarViewModel">
-        <StackPanel Orientation="Horizontal" Spacing="12">
+        <StackPanel Spacing="6">
             <Grid
-                Width="36"
-                Height="36"
-                VerticalAlignment="Top">
+                Width="28"
+                Height="28">
                 <Border Background="{DynamicResource StatusActiveBrush}" Classes="stat-badge" />
                 <Path
-                    Width="18"
-                    Height="18"
+                    Width="14"
+                    Height="14"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Data="{tools:SvgPath icon-issue}"
                     Fill="{DynamicResource StatusActiveBrush}"
                     Stretch="Uniform" />
             </Grid>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="1">
                 <TextBlock
-                    FontSize="22"
+                    FontSize="20"
                     FontWeight="Bold"
                     Foreground="{DynamicResource TitleForegroundBrush}"
                     Text="{Binding IssueCount}" />
-                <TextBlock Classes="subtle" Text="Open Issues" />
+                <TextBlock
+                    Classes="subtle"
+                    FontSize="11"
+                    Text="Issues" />
             </StackPanel>
         </StackPanel>
     </DataTemplate>
@@ -312,11 +318,17 @@
                 TextTrimming="CharacterEllipsis" />
         </Grid>
     </DataTemplate>
+    <!--  Bar cards sit against the panel's padding with nothing after them, so
+          a HairlineBrush edge lands on a half-pixel at this display scale and
+          reads as clipped; one step stronger keeps the edge visible.  -->
+    <SolidColorBrush x:Key="BarCardBorderBrush" Color="{DynamicResource SukiMediumBorderBrush}" />
+
     <!--  GitHub URL cap in the Overview sidebar's link row — coupled to the
-          sidebar's fixed 290px width + the 110px key column + paddings (the
-          value cell has ~130px). The cap must be explicit because the button's
-          content presenter hugs (SukiUI), so TextTrimming never sees a finite
-          measure width without it.  -->
-    <x:Double x:Key="GitHubUrlMaxWidth">126</x:Double>
+          sidebar's fixed 380px width + the 110px key column + paddings (the
+          value cell has ~234px; the cap keeps ~24px slack so fractional-scale
+          rounding can never push the row past the card). The cap must be
+          explicit because the button's content presenter hugs (SukiUI), so
+          TextTrimming never sees a finite measure width without it.  -->
+    <x:Double x:Key="GitHubUrlMaxWidth">210</x:Double>
 
 </ResourceDictionary>

@@ -209,6 +209,7 @@ public partial class BottomBarViewModel : ObservableObject
             _ = Changes.LoadBranchesAsync();
             RebuildSelectedRepoTags();
             ReloadActiveTab();
+            _ = LoadReadmeAsync();
         }
 
         OnPropertyChanged(nameof(HasSelectedRepo));
@@ -277,6 +278,47 @@ public partial class BottomBarViewModel : ObservableObject
         + (SelectedRepo?.AzureDevOpsWorkItemCount ?? 0);
 
     public bool ShowIssueBadge => IssueCount > 0;
+
+    // --- Overview README pane ---
+
+    /// <summary>Body text of the selected repo's root readme.md, null when the repo has none.</summary>
+    [ObservableProperty]
+    private string? _readmeText;
+
+    public bool HasReadme => !string.IsNullOrWhiteSpace(ReadmeText);
+
+    partial void OnReadmeTextChanged(string? value) => OnPropertyChanged(nameof(HasReadme));
+
+    /// <summary>Guards readme reads against a repo switch landing mid-read.</summary>
+    private int _readmeLoadGeneration;
+
+    private async Task LoadReadmeAsync()
+    {
+        int generation = ++_readmeLoadGeneration;
+        string? folder = SelectedRepo?.FolderPath;
+        string? text = await Task.Run(() =>
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return null;
+            try
+            {
+                // The *.md probe plus case-insensitive name check covers every
+                // casing (README.md / readme.md / Readme.MD) on both filesystems.
+                string? path = Directory.EnumerateFiles(folder, "*.md")
+                    .FirstOrDefault(f => Path.GetFileName(f).Equals("readme.md", StringComparison.OrdinalIgnoreCase));
+                return path is null ? null : File.ReadAllText(path);
+            }
+            catch
+            {
+                return null;
+            }
+        });
+        if (generation != _readmeLoadGeneration)
+            return;
+        if (text is { Length: > 200_000 })
+            text = text[..200_000];
+        ReadmeText = text;
+    }
 
     // --- Repo header (the page's title while a repo is selected) ---
 
@@ -541,28 +583,23 @@ public partial class BottomBarViewModel : ObservableObject
 
     public bool IsPanelOpen => ActiveTab != BottomBarTab.None;
 
-    // Per-tab panel heights: every tab shares the Overview-sized height except Changes,
-    // which carries the full commit workspace (staged/unstaged lists, commit message box
-    // and the recent-commits list) and starts taller. The panel's top-edge divider
-    // (BottomBar's PanelResizer) drags these values around.
+    // One shared panel height for every tab — switching tabs never resizes the
+    // panel. The panel's top-edge divider (BottomBar's PanelResizer) drags it.
     private const double MinPanelHeight = 260d;
     private const double MaxPanelHeight = 780d;
-    private double _overviewPanelHeight = 440d;
-    private double _changesPanelHeight = 560d;
+    private double _panelHeight = 440d;
 
-    /// <summary>The expanded panel's height — the active tab's own value (see above).</summary>
-    public double PanelHeight => ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight;
+    /// <summary>The expanded panel's height, shared by all tabs.</summary>
+    public double PanelHeight => _panelHeight;
 
-    /// <summary>Applies a drag delta (positive = taller) to the active tab's panel height.</summary>
+    /// <summary>Applies a drag delta (positive = taller) to the panel height.</summary>
     public void AdjustPanelHeight(double delta)
     {
-        var current = ActiveTab == BottomBarTab.Changes ? _changesPanelHeight : _overviewPanelHeight;
         // Whole logical pixels only: sub-pixel heights re-rasterize without a visible
         // gain, and unchanged values must not trigger another layout pass (drag smoothness).
-        var value = Math.Clamp(Math.Round(current + delta), MinPanelHeight, MaxPanelHeight);
-        if (Math.Abs(value - current) < 0.5) return;
-        if (ActiveTab == BottomBarTab.Changes) _changesPanelHeight = value;
-        else _overviewPanelHeight = value;
+        var value = Math.Clamp(Math.Round(_panelHeight + delta), MinPanelHeight, MaxPanelHeight);
+        if (Math.Abs(value - _panelHeight) < 0.5) return;
+        _panelHeight = value;
         OnPropertyChanged(nameof(PanelHeight));
     }
 

@@ -48,10 +48,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // ---- Tool drawer (floating right sidebar) ----
 
-    /// <summary>Clamps for the drawer card's resizable width: narrow enough to keep the
-    /// page behind usable, wide enough for the two-column settings grids.</summary>
-    private const double MinToolDrawerWidth = 420;
-    private const double MaxToolDrawerWidth = 800;
+    /// <summary>Narrow bound for the drawer card's resizable width: below it the
+    /// drawer's own chrome (grip, header) stops being usable. The wide bound is the
+    /// window itself, passed per drag tick by the code-behind.</summary>
+    private const double MinToolDrawerWidth = 240;
 
     /// <summary>
     /// The drawer card's width in logical pixels, resized via its left-edge grip (same
@@ -62,11 +62,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private double _toolDrawerWidth = 540;
 
     /// <summary>Applies a drag delta (positive = wider) to the drawer width.</summary>
-    public void AdjustToolDrawerWidth(double delta)
+    public void AdjustToolDrawerWidth(double delta, double maxWidth)
     {
         // Whole logical pixels only: sub-pixel widths re-rasterize without a visible
         // gain, and unchanged values must not trigger another layout pass (drag smoothness).
-        var value = Math.Clamp(Math.Round(ToolDrawerWidth + delta), MinToolDrawerWidth, MaxToolDrawerWidth);
+        var max = Math.Max(MinToolDrawerWidth, maxWidth);
+        var value = Math.Clamp(Math.Round(ToolDrawerWidth + delta), MinToolDrawerWidth, max);
         if (Math.Abs(value - ToolDrawerWidth) < 0.5) return;
         ToolDrawerWidth = value;
     }

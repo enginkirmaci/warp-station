@@ -278,11 +278,13 @@ public partial class MainWindow : SukiWindow
         Closed += OnWindowClosed;
 
         // Drawer resize grip: a horizontal drag on the card's left-edge band widens or
-        // narrows the drawer (dragging left widens — the card is docked right).
+        // narrows the drawer (dragging left widens — the card is docked right). The max
+        // is the window's live client width minus the card's 12+12 outer gutters, read
+        // per drag tick so a resized window re-bounds the drag immediately.
         PanelResizeController.Attach(
             ToolDrawerResizer,
             this,
-            delta => ViewModel.AdjustToolDrawerWidth(delta),
+            delta => ViewModel.AdjustToolDrawerWidth(delta, ClientSize.Width - 24),
             PanelResizeAxis.Horizontal);
 
         // Tools dropdown: opens on hover after the delay below. Closing is owned here
