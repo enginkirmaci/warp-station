@@ -135,7 +135,10 @@ public class TerminalLauncher : ITerminalLauncher
     /// Builds the opencode command line (e.g.
     /// <c>opencode --model "gpt-4" --prompt "fix the bug"</c>) shared by the non-tiled and
     /// grid launch paths so both stay in sync. <c>--model</c>/<c>--prompt</c> are only
-    /// emitted when non-empty; values are trimmed and quotes escaped.
+    /// emitted when non-empty; values are trimmed and quotes escaped as
+    /// <c>\"</c> — the terminal formatter (<see cref="Formatters.TerminalArgumentFormatter"/>)
+    /// re-encodes those per terminal family, where they arrive as literal characters
+    /// of the prompt text.
     /// </summary>
     public static string BuildOpenCodeCommandLine(string openCodeExe, string model, string prompt)
     {

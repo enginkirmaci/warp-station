@@ -5,6 +5,14 @@ namespace Tools.Library.Formatters;
 /// dispatching on the terminal executable (Windows Terminal, PowerShell, Linux
 /// terminal emulators, or a generic fallback). Encapsulates terminal-specific
 /// argument knowledge so it is not duplicated inside ViewModels.
+/// <para>
+/// The sh and PowerShell paths neutralize shell metacharacters in prompt text
+/// (<see cref="ShEscape"/>/<see cref="PsEscape"/>, single-quote escaping for the
+/// cd/Set-Location folder). The `cmd /k` branch does not: cmd's own quoting rules
+/// make full neutralization impractical here — quoted segments already protect
+/// `&amp;|&lt;&gt;^`, but `%VAR%` expansion and unbalanced quotes in prompt text
+/// remain known limitations on that branch.
+/// </para>
 /// </summary>
 public static class TerminalArgumentFormatter
 {
@@ -23,7 +31,7 @@ public static class TerminalArgumentFormatter
             return $"-d \"{folderPath}\"";
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
-            return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'\"";
+            return $"-NoExit -Command \"Set-Location -LiteralPath '{PsEscapeSingleQuoted(folderPath)}'\"";
 
         if (exeLower.Contains("gnome-terminal") || exeLower == "kgx")
             return $"--working-directory=\"{folderPath}\"";
@@ -82,11 +90,17 @@ public static class TerminalArgumentFormatter
             // ship as `.cmd` shims (e.g. opencode) are not found (error
             // 0x80070002). `cmd` resolves `.cmd`/`.bat` shims via PATHEXT, and
             // `/k` keeps the window open after the command exits.
-            return $"{windowTarget}-d \"{folderPath}\" -- cmd /k {commandLine}";
+            return $"{windowTarget}-d \"{folderPath}\" -- cmd /k {commandLine.Replace("\"", "\\\"")}";
         }
 
         if (exeLower.Contains("powershell") || exeLower.Contains("pwsh"))
-            return $"-NoExit -Command \"Set-Location -LiteralPath '{folderPath}'; {commandLine}\"";
+        {
+            var script = $"Set-Location -LiteralPath '{PsEscapeSingleQuoted(folderPath)}'; {EncodePowerShell(commandLine)}";
+            // The script travels as ONE argv element: its structural double quotes are
+            // backslash-escaped for the argument-string parser, which reconstructs
+            // them as real quotes in the -Command text PowerShell parses.
+            return $"-NoExit -Command \"{script.Replace("\"", "\\\"")}\"";
+        }
 
         var shellCommand = BuildShellCommand(folderPath, commandLine);
 
@@ -120,16 +134,95 @@ public static class TerminalArgumentFormatter
     /// Builds a `sh -c` invocation that cds into <paramref name="folderPath"/>, runs
     /// <paramref name="commandLine"/> when given, and then drops into the user's shell —
     /// the Linux counterpart of `cmd /k`, keeping the terminal window open afterwards.
-    /// The payload travels as a single double-quoted argv element (embedded quotes are
-    /// backslash-escaped for the Unix argument parser).
+    /// <paramref name="commandLine"/> arrives with value quotes already escaped as
+    /// <c>\"</c> (see <c>TerminalLauncher.BuildOpenCodeCommandLine</c>); the sh encoder
+    /// below re-encodes those for the argument-string parser and neutralizes `$` and
+    /// the backtick so prompt text never expands or executes at launch. The folder is
+    /// single-quoted with embedded single quotes escaped.
     /// </summary>
     private static string BuildShellCommand(string folderPath, string? commandLine)
     {
+        var cd = $"cd '{folderPath.Replace("'", "'\\''")}'";
         var payload = commandLine is null
-            ? $"cd '{folderPath}'; exec ${{SHELL:-/bin/sh}}"
-            : $"cd '{folderPath}' && {commandLine}; exec ${{SHELL:-/bin/sh}}";
+            ? $"{cd}; exec ${{SHELL:-/bin/sh}}"
+            : $"{cd} && {EncodeSh(commandLine)}; exec ${{SHELL:-/bin/sh}}";
 
-        var quotedPayload = "\"" + payload.Replace("\"", "\\\"") + "\"";
-        return $"sh -c {quotedPayload}";
+        return $"sh -c \"{payload}\"";
+    }
+
+    /// <summary>Encodes a command line for the sh payload. Input quote states:
+    /// <c>\"</c> pairs are value quotes that must stay LITERAL at sh — re-escaped to
+    /// <c>\\\"</c> so the parser (2n-backslash rule) hands sh back <c>\"</c>;
+    /// bare <c>"</c> are structural quotes — escaped to <c>\"</c> so the parser
+    /// reconstructs a functioning quote inside the single argv element. `$` and the
+    /// backtick are backslash-escaped (the only characters sh still expands inside
+    /// double quotes).</summary>
+    private static string EncodeSh(string commandLine)
+    {
+        var sb = new System.Text.StringBuilder(commandLine.Length + 8);
+        for (var i = 0; i < commandLine.Length; i++)
+        {
+            var ch = commandLine[i];
+            if (ch == '\\' && i + 1 < commandLine.Length && commandLine[i + 1] == '"')
+            {
+                sb.Append('\\').Append('\\').Append('\\').Append('"');
+                i++;
+            }
+            else if (ch == '"')
+            {
+                sb.Append('\\').Append('"');
+            }
+            else if (ch == '$')
+            {
+                sb.Append('\\').Append('$');
+            }
+            else if (ch == '`')
+            {
+                sb.Append('\\').Append('`');
+            }
+            else
+            {
+                sb.Append(ch);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Escapes a value for a PowerShell single-quoted literal ('' doubling).</summary>
+    private static string PsEscapeSingleQuoted(string value) => value.Replace("'", "''");
+
+    /// <summary>Encodes a command line for the PowerShell -Command script. Value
+    /// quotes (<c>\"</c>) become backtick-escaped quotes in the script text
+    /// (prefixed with a backslash so the argument parser keeps them inline);
+    /// structural quotes are left bare for the wrapper's parser encoding; the
+    /// backtick is doubled and `$` backtick-escaped so prompt text stays literal
+    /// inside the double-quoted segments PowerShell tokenizes.</summary>
+    private static string EncodePowerShell(string commandLine)
+    {
+        var sb = new System.Text.StringBuilder(commandLine.Length + 8);
+        for (var i = 0; i < commandLine.Length; i++)
+        {
+            var ch = commandLine[i];
+            if (ch == '\\' && i + 1 < commandLine.Length && commandLine[i + 1] == '"')
+            {
+                sb.Append('\\').Append('`').Append('"');
+                i++;
+            }
+            else if (ch == '`')
+            {
+                sb.Append("``");
+            }
+            else if (ch == '$')
+            {
+                sb.Append('`').Append('$');
+            }
+            else
+            {
+                sb.Append(ch);
+            }
+        }
+
+        return sb.ToString();
     }
 }
