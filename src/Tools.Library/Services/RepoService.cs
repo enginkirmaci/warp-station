@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Entities;
@@ -408,7 +409,7 @@ public class RepoService : IRepoService, IDisposable
                 return;
             }
 
-            RepoCache snapshot;
+            string? snapshotJson;
             lock (_persistLock)
             {
                 if (_disposed) return;
@@ -421,14 +422,15 @@ public class RepoService : IRepoService, IDisposable
                     return;
                 }
                 _dirty = false;
-                // Same shallow copy the old synchronous save built; the store serializes
-                // this identical shape, so what is persisted does not change.
-                snapshot = new RepoCache { Repos = _repos.ToList() };
+                // Serialize under the lock: Repo entities are UI-mutable observables,
+                // so serializing a shallow copy after unlock could race a tag edit
+                // mid-enumeration and drop the flush. The JSON string is immutable.
+                snapshotJson = JsonSerializer.Serialize(new RepoCache { Repos = _repos.ToList() }, JsonIO.WriteOptions);
             }
 
             try
             {
-                await _cacheStore.SaveAsync(snapshot);
+                await _cacheStore.SaveJsonAsync(snapshotJson);
             }
             catch (Exception ex)
             {
@@ -476,26 +478,28 @@ public class RepoService : IRepoService, IDisposable
             Log.Logger.Error(ex, "Error waiting for pending repo cache flush");
         }
 
-        RepoCache? pending;
+        string? pendingJson;
         lock (_persistLock)
         {
-            pending = null;
+            pendingJson = null;
             if (_dirty)
             {
                 _dirty = false;
-                pending = new RepoCache { Repos = _repos.ToList() };
+                // Serialize under the lock for the same race-freeze reason as the
+                // loop flush above.
+                pendingJson = JsonSerializer.Serialize(new RepoCache { Repos = _repos.ToList() }, JsonIO.WriteOptions);
             }
             _flushCts?.Dispose();
             _flushCts = null;
         }
 
-        if (pending == null) return;
+        if (pendingJson is null) return;
 
         try
         {
             // Host.Dispose() runs on the UI thread during shutdown; hop to the thread pool
             // so the store's awaited file IO cannot deadlock on the blocked UI context.
-            Task.Run(() => _cacheStore.SaveAsync(pending)).GetAwaiter().GetResult();
+            Task.Run(() => _cacheStore.SaveJsonAsync(pendingJson)).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

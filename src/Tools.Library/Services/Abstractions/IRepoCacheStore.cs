@@ -17,4 +17,12 @@ public interface IRepoCacheStore
     /// Saves the given cache data, overwriting any existing cache file.
     /// </summary>
     Task SaveAsync(RepoCache cache);
+
+    /// <summary>
+    /// Persists already-serialized cache JSON. Lets a caller serialize while holding
+    /// its own consistency lock (Repo entities are UI-mutable observables, so a
+    /// serialize-after-unlock can race a tag edit) and still write through the
+    /// store's atomic path.
+    /// </summary>
+    Task SaveJsonAsync(string json);
 }

@@ -52,4 +52,17 @@ public class RepoCacheStore : IRepoCacheStore
             Log.Logger.Error(ex, "Error saving repo cache");
         }
     }
+
+    /// <inheritdoc/>
+    public async Task SaveJsonAsync(string json)
+    {
+        try
+        {
+            await JsonIO.WriteAtomicallyAsync(_cacheFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Error saving repo cache");
+        }
+    }
 }
