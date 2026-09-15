@@ -45,13 +45,6 @@ public class DialogService : IDialogService
     }
 
     /// <inheritdoc/>
-    public Task<ReposSettingsEditResult?> ShowReposSettingsDialogAsync(ReposSettings current, OpenCodeSettings openCode, bool nugetEnabled)
-    {
-        var context = new ReposSettingsDrawerContext(current, openCode, nugetEnabled);
-        return ShowDrawerComponentAsync(ToolComponentMapper.RepoSettingsKey, context, context.Completion);
-    }
-
-    /// <inheritdoc/>
     public Task<IReadOnlyList<string>?> ShowAddRepositoryDialogAsync(ReposSettings settings, IReadOnlyList<Repo> trackedRepos)
     {
         var context = new AddRepositoriesDrawerContext(settings, trackedRepos);

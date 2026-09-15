@@ -470,9 +470,6 @@ public partial class MainWindow : SukiWindow
                 case IToolDrawerContextReceiver<AddRepositoriesDrawerContext> addRepositories:
                     await addRepositories.OnDrawerContextAsync(context as AddRepositoriesDrawerContext);
                     break;
-                case IToolDrawerContextReceiver<ReposSettingsDrawerContext> reposSettings:
-                    await reposSettings.OnDrawerContextAsync(context as ReposSettingsDrawerContext);
-                    break;
                 case IToolDrawerContextReceiver<NewBranchContext> newBranch:
                     await newBranch.OnDrawerContextAsync(context as NewBranchContext);
                     break;
