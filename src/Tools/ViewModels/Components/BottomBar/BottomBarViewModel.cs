@@ -444,6 +444,20 @@ public partial class BottomBarViewModel : ObservableObject
         IsBarVisible = false;
     }
 
+    /// <summary>Raised by the header kebab's "Remove from repositories": the Repos
+    /// page owns the tracked-folders settings section, so the bar only forwards the
+    /// selected repo — the page unpersists the folder, rescans and closes the bar.</summary>
+    public event Action<Repo>? RemoveFromRepositoriesRequested;
+
+    /// <summary>The header kebab's "Remove from repositories". No-op without a
+    /// selected repo.</summary>
+    [RelayCommand]
+    private void RemoveFromRepositories()
+    {
+        if (SelectedRepo is not { } repo) return;
+        RemoveFromRepositoriesRequested?.Invoke(repo);
+    }
+
     private void OnRepoServiceChanged(object? sender, EventArgs e)
     {
         // Changed fires on background threads (scan completion); re-resolve on the UI
@@ -854,6 +868,7 @@ public partial class BottomBarViewModel : ObservableObject
         // The wand's CanExecute reads this — the flip propagates without a repo reload.
         Changes.GenerateCommitMessageCommand.NotifyCanExecuteChanged();
         Changes.CommitCommand.NotifyCanExecuteChanged();
+        Changes.OnOpenCodeAvailabilityChanged();
     }
 
     /// <summary>

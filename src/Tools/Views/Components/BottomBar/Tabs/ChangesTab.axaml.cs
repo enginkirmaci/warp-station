@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Interactivity;
@@ -67,12 +68,30 @@ public partial class ChangesTab : UserControl
             {
                 // The search row's container is reused across opens and the TextBox is
                 // unbound (its DataContext is the row record) — mirror the view model's
-                // (cleared) filter into it on every open. The container padding is
-                // zeroed so the box spans the popup instead of sitting inset like the
-                // selectable rows.
-                row.Padding = new Thickness(0);
+                // (cleared) filter into it on every open.
                 search.Text = ViewModel?.BranchSearchText ?? string.Empty;
                 search.Focus();
+
+                // SukiUI's ComboBoxItem template hard-codes the row's chrome and never
+                // binds the control's Padding — set the search row's spacing on the
+                // template parts directly.
+                row.Padding = new Thickness(0);
+                if (row.GetVisualDescendants().OfType<Border>().FirstOrDefault() is { } chrome)
+                {
+                    chrome.Margin = new Thickness(6);
+                    chrome.Padding = new Thickness(0);
+                }
+                if (row.GetVisualDescendants()
+                        .OfType<ContentPresenter>()
+                        .FirstOrDefault(p => p.Name == "PART_ContentPresenter") is { } presenter)
+                {
+                    presenter.Margin = new Thickness(0);
+                    presenter.Padding = new Thickness(0);
+                }
+                if (row.GetVisualAncestors().OfType<ItemsPresenter>().FirstOrDefault() is { } items)
+                {
+                    items.Margin = new Thickness(0);
+                }
             }
         });
     }

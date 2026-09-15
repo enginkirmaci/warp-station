@@ -288,6 +288,10 @@ public partial class ReposViewModel : PageViewModelBase
         // per-row button availability when they change there. Detached on navigate-from
         // (the bar is a singleton; this VM is transient).
         bottomBar.OpenCodeStateChanged += OnBottomBarOpenCodeStateChanged;
+
+        // The bar header kebab's "Remove from repositories" lands here: this page owns
+        // the tracked-folders settings section (its persists replace the whole section).
+        bottomBar.RemoveFromRepositoriesRequested += OnRemoveFromRepositoriesRequested;
     }
 
     /// <summary>Re-raises the totals and the flags derived from them — the tracker
@@ -328,6 +332,7 @@ public partial class ReposViewModel : PageViewModelBase
         _repoService.Changed -= OnRepoChanged;
         _repoService.TagsChanged -= OnRepoChanged;
         _bottomBar.OpenCodeStateChanged -= OnBottomBarOpenCodeStateChanged;
+        _bottomBar.RemoveFromRepositoriesRequested -= OnRemoveFromRepositoriesRequested;
 
         // Detach the projection's live-re-sort listeners, cancel its debounces and drop
         // the header totals' per-repo contributions: the repos are singleton-cached and
@@ -792,6 +797,53 @@ public partial class ReposViewModel : PageViewModelBase
         {
             Log.Logger.Error(ex, "Failed to register the cloned repository at {Path}", clonedPath);
             _notificationService.Show("The clone landed but could not be added to the list", NotificationKind.Error);
+        }
+    }
+
+    /// <summary>
+    /// The bar header kebab's "Remove from repositories": drops the repo's folder from
+    /// the persisted scan roots (the folder on disk is untouched), rescans so the row
+    /// leaves the list, and closes the bar — its selection no longer exists. This page
+    /// owns the scan-roots section, so the bar only forwards the request.
+    /// </summary>
+    private async void OnRemoveFromRepositoriesRequested(Repo repo)
+    {
+        try
+        {
+            if (repo.FolderPath is not { } folder)
+            {
+                _notificationService.Show("Repository has no tracked folder", NotificationKind.Warning);
+                return;
+            }
+
+            var roots = new List<string>(_reposSettings.RepoScanFolders ?? Array.Empty<string>());
+            var removed = roots.RemoveAll(existing => RepoPath.SamePath(existing, folder));
+            if (removed > 0)
+            {
+                _reposSettings.RepoScanFolders = roots.ToArray();
+                await PersistReposSettingsAsync();
+                await _repoService.RefreshAsync(_reposSettings);
+            }
+
+            // Settle the projection now (same as the clone path) so the row leaves the
+            // table immediately instead of waiting on the Changed debounce.
+            _list.CancelPendingRebuild();
+            _list.Rebuild();
+            _bottomBar.CloseCommand.Execute(null);
+
+            if (removed > 0)
+            {
+                _notificationService.Show($"Removed \"{repo.Name}\" from repositories", NotificationKind.Success);
+            }
+            else
+            {
+                _notificationService.Show("Repository was not in the tracked folders", NotificationKind.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to remove the repository at {Path}", repo.FolderPath);
+            _notificationService.Show("Failed to remove the repository", NotificationKind.Error);
         }
     }
 

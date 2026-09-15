@@ -326,11 +326,12 @@
                             VerticalContentAlignment="Top"
                             Text="{Binding CommitMessage}"
                             TextWrapping="Wrap"
-                            Watermark="Commit message (empty = auto-generate)" />
+                            Watermark="{Binding CommitWatermark}" />
                         <!--
                             Commit-message wand: a bare icon floating over the message
                             box's corner — a detail-link (transparent, dims on hover)
-                            with its own padding, so the TextBox shows through.
+                            with its own padding, so the TextBox shows through. Hidden
+                            entirely while the OpenCode integration is off.
                         -->
                         <Button
                             Margin="0,0,4,4"
@@ -338,6 +339,7 @@
                             VerticalAlignment="Bottom"
                             Padding="4"
                             Classes="detail-link"
+                            IsVisible="{Binding ShowCommitWand}"
                             Command="{Binding GenerateCommitMessageCommand}"
                             ToolTip.Tip="Generate a commit message from the staged diff (opencode)">
                             <Grid>
@@ -416,7 +418,9 @@
                                 branch rows). The search row's TextBox commits its text
                                 through code-behind (its DataContext is the row record, not
                                 the tab view model) and marks its presses handled so the
-                                container can't select it and close the popup.
+                                container can't select it and close the popup. Its
+                                spacing is set in OnBranchPickerDropDownOpened — SukiUI
+                                hard-codes it and ignores the item's Padding.
                             -->
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="x:Object">

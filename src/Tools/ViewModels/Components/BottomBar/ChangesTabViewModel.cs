@@ -411,18 +411,19 @@ public void RaiseRepoMirrors()
         else
         {
             rows = [BranchSearchEntry.Instance, NewBranchEntry.Instance];
+            var remoteLabeled = false;
             foreach (var item in BranchMenuItems)
             {
                 if (item is GitBranchRef { IsHeader: true } or NewBranchEntry) continue;
                 if (item is not GitBranchRef { IsHeader: false } branch
                     || !branch.Name.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
 
-                // The remote group's label re-emerges once its first branch matches
-                // (locals and remotes are consecutive in the master menu, so one
-                // lookahead at the group boundary is enough).
-                if (branch.IsRemote && rows[^1] is not GitBranchRef { IsHeader: true })
+                // The remote group's label re-emerges at its first matching branch
+                // (locals and remotes are consecutive in the master menu).
+                if (branch.IsRemote && !remoteLabeled)
                 {
                     rows.Add(new GitBranchRef(RemoteGroupLabel, GitBranchKind.Header));
+                    remoteLabeled = true;
                 }
                 rows.Add(branch);
             }
@@ -1018,14 +1019,26 @@ public void RaiseRepoMirrors()
     private string _commitMessage = string.Empty;
 
     /// <summary>The commit button's label: "Generate &amp; Commit" while the box is empty
-    /// (the press writes the message first, exactly like the wand), "Commit" otherwise.</summary>
-    public string CommitButtonText => string.IsNullOrWhiteSpace(CommitMessage)
+    /// and OpenCode is enabled (the press writes the message first, exactly like the
+    /// wand), "Commit" otherwise.</summary>
+    public string CommitButtonText => CommitWillAutoGenerate
         ? "Generate & Commit"
         : "Commit";
 
-    /// <summary>True while the box is empty — the commit press generates the message first;
-    /// picks the commit button's icon (wand vs check).</summary>
-    public bool CommitWillAutoGenerate => string.IsNullOrWhiteSpace(CommitMessage);
+    /// <summary>True while the box is empty AND OpenCode is enabled — the commit press
+    /// generates the message first; picks the commit button's icon (wand vs check).
+    /// Without OpenCode an empty box simply leaves the button disabled.</summary>
+    public bool CommitWillAutoGenerate => string.IsNullOrWhiteSpace(CommitMessage) && Shell.HasOpenCode;
+
+    /// <summary>The corner wand exists only while OpenCode is enabled — its CanExecute
+    /// could never pass without it.</summary>
+    public bool ShowCommitWand => Shell.HasOpenCode;
+
+    /// <summary>The message box's watermark promises auto-generate only while that is
+    /// actually on offer.</summary>
+    public string CommitWatermark => Shell.HasOpenCode
+        ? "Commit message (empty = auto-generate)"
+        : "Commit message";
 
     /// <summary>While the commit runs the button's static icon gives way to the spinning
     /// ring — these two gate the wand and the check.</summary>
@@ -1056,6 +1069,19 @@ public void RaiseRepoMirrors()
         GenerateCommitMessageCommand.NotifyCanExecuteChanged(); // no second wand run mid-commit
         OnPropertyChanged(nameof(CommitShowsWand));
         OnPropertyChanged(nameof(CommitShowsCheck));
+    }
+
+    /// <summary>Called by the shell when its HasOpenCode flips: the commit card's
+    /// wand visibility, button label, icon and watermark all read it.</summary>
+    internal void OnOpenCodeAvailabilityChanged()
+    {
+        OnPropertyChanged(nameof(CommitButtonText));
+        OnPropertyChanged(nameof(CommitWillAutoGenerate));
+        OnPropertyChanged(nameof(CommitShowsWand));
+        OnPropertyChanged(nameof(CommitShowsCheck));
+        OnPropertyChanged(nameof(ShowCommitWand));
+        OnPropertyChanged(nameof(CommitWatermark));
+        CommitCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Commits the staged index. With a typed message it commits that; with an

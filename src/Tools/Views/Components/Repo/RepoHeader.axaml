@@ -182,6 +182,11 @@
                                 Command="{Binding CopyRepoPathCommand}"
                                 Header="Copy folder path"
                                 IsVisible="{Binding HasSelectedRepo}" />
+                            <MenuItem
+                                Command="{Binding RemoveFromRepositoriesCommand}"
+                                Header="Remove from repositories"
+                                IsVisible="{Binding HasSelectedRepo}"
+                                ToolTip.Tip="Remove this repository from the tracked list — the folder on disk is not touched" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
