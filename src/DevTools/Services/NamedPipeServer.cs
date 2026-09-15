@@ -42,12 +42,7 @@ public class NamedPipeServer : IDisposable
     {
         while (_isRunning && !_cts.Token.IsCancellationRequested)
         {
-            var pipeServer = new NamedPipeServerStream(
-                PipeName,
-                PipeDirection.In,
-                MaxConnections,
-                PipeTransmissionMode.Message,
-                PipeOptions.Asynchronous);
+            var pipeServer = CreateServerStream();
 
             try
             {
@@ -79,6 +74,44 @@ public class NamedPipeServer : IDisposable
 
         // Wait for all connection tasks to complete
         await Task.WhenAll(_connectionTasks.Where(t => !t.IsCompleted));
+    }
+
+    /// <summary>
+    /// Creates the accept loop's server stream. On Windows the pipe is restricted to
+    /// the current user's SID: the server launches whatever fileName|arguments a
+    /// client submits, so an open pipe would be a local launch oracle for any other
+    /// process running in the session. Tools.exe (elevated) still connects — an
+    /// elevated admin token carries the launching user's SID.
+    /// </summary>
+    private static NamedPipeServerStream CreateServerStream()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var security = new PipeSecurity();
+            security.AddAccessRule(new PipeAccessRule(
+                System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+                PipeAccessRights.ReadWrite,
+                System.Security.AccessControl.AccessControlType.Allow));
+
+            // The PipeSecurity-taking constructor is Windows-runtime-only;
+            // NamedPipeServerStreamAcl.Create is its supported cross-target entry.
+            return System.IO.Pipes.NamedPipeServerStreamAcl.Create(
+                PipeName,
+                PipeDirection.In,
+                MaxConnections,
+                PipeTransmissionMode.Message,
+                PipeOptions.Asynchronous,
+                inBufferSize: 0,
+                outBufferSize: 0,
+                security);
+        }
+
+        return new NamedPipeServerStream(
+            PipeName,
+            PipeDirection.In,
+            MaxConnections,
+            PipeTransmissionMode.Message,
+            PipeOptions.Asynchronous);
     }
 
     private async Task HandleClientAsync(NamedPipeServerStream pipeServer, CancellationToken cancellationToken)
