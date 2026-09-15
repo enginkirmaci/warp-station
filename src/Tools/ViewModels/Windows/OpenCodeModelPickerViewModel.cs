@@ -7,7 +7,7 @@ namespace Tools.ViewModels.Windows;
 
 /// <summary>
 /// The editable OpenCode model ComboBox's state, extracted so a view can host several
-/// pickers over one catalog (the Repo Settings drawer's default and commit model fields).
+/// pickers over one catalog (the Settings page's default and commit model fields).
 /// Owns the searchable dropdown projection, the committed selection, and the syncing
 /// guard; the host loads the catalog (via <see cref="BeginCatalogRefresh"/>/
 /// <see cref="EndCatalogRefresh"/> around its cached-then-fresh applies) and seeds each

@@ -10,8 +10,8 @@ using Tools.ViewModels.Windows;
 namespace Tools.ViewModels.Pages;
 
 /// <summary>
-/// ViewModel for the dedicated Settings page (opened from the title-bar gear or the
-/// Repositories page's gear; the page replaces the Repositories content until the
+/// ViewModel for the dedicated Settings page (opened from the title-bar gear; the
+/// page replaces the Repositories content until the
 /// back link is used). Absorbed the former Repo Settings drawer dialog: it edits the
 /// full <see cref="ReposSettings"/> section (the scan patterns, executables, launch
 /// toggles, GitHub/Azure DevOps columns, branch prefix), the OpenCode section — now

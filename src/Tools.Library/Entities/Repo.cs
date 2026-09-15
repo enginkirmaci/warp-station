@@ -375,13 +375,4 @@ public partial class Repo : ObservableObject
     partial void OnAzureDevOpsLoadedChanged(bool value) => OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
 
     partial void OnAzureDevOpsAvailableChanged(bool value) => OnPropertyChanged(nameof(IsAzureDevOpsAllClear));
-
-    /// <summary>
-    /// Formats an age as a compact relative label matching the Repos table's style:
-    /// the most significant unit only, no rounding up across unit boundaries
-    /// (<c>just now</c>, <c>5m ago</c>, <c>2h ago</c>, <c>1d ago</c>, <c>3w ago</c>,
-    /// <c>1mo ago</c>, <c>1y ago</c>). Uses wall-clock difference, so the label is
-    /// unaffected by the commit's UTC offset. Delegates to the shared
-    /// <see cref="Tools.Library.Formatters.RelativeTime"/> formatter.
-    /// </summary>
 }

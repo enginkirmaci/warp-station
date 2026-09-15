@@ -36,7 +36,7 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the Clone from URL component (opened by the repos page toolbar).</summary>
     public const string CloneFromUrlKey = "CloneFromUrlDialog";
 
-    /// <summary>Drawer key of the OpenCode settings component (opened by the row options icon and the tools dropdown).</summary>
+    /// <summary>Drawer key of the OpenCode settings component (opened by the repos row's options icon).</summary>
     public const string OpenCodeKey = "OpenCodePage";
 
     /// <summary>Drawer key of the NuGet Local component (opened by the tools dropdown).</summary>

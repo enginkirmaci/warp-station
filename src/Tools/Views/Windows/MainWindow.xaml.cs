@@ -169,7 +169,7 @@ public partial class MainWindow : SukiWindow
         InitializeComponent();
         InitializeWindow();
 
-        // The gears (title bar + Repositories header) request the Settings page; the
+        // The title-bar gear requests the Settings page; the
         // page's back link returns to the Repositories one.
         viewModel.SettingsRequested += OnSettingsRequested;
         settingsPage.BackRequested += OnBackToRepositoriesRequested;

@@ -45,7 +45,7 @@ public class NugetLocalSettings
     /// Gets or sets a value indicating whether the NuGet Local tool is surfaced in the
     /// GUI (the tools dropdown entry and the title-bar watch chip) and allowed to
     /// start watching. Defaults to <see langword="true"/> so settings files without
-    /// the key keep the tool. Edited in the Repo Settings drawer.
+    /// the key keep the tool. Edited in the Settings page.
     /// </summary>
     public bool EnableNuget { get; set; } = true;
 
@@ -294,8 +294,8 @@ public class OpenCodeSettings
     /// <summary>
     /// Gets or sets a value indicating whether the OpenCode integration (the per-repo
     /// OpenCode launch panel) is surfaced in the GUI. When <see langword="false"/>, all
-    /// OpenCode UI is hidden. Defaults to <see langword="false"/> (hidden). Configured
-    /// manually via settings.json.
+    /// OpenCode UI is hidden. Defaults to <see langword="false"/> (hidden). Edited in
+    /// the Settings page or settings.json.
     /// </summary>
     public bool EnableOpenCode { get; set; }
 
@@ -304,7 +304,7 @@ public class OpenCodeSettings
     /// <c>opencode models</c>) the Repos page's quick-launch button passes to opencode
     /// verbatim — the button never queries the CLI for the model catalog and shows an
     /// error alert when this is empty. The OpenCode drawer's per-launch picker
-    /// preselects it too. Edited in the Repo Settings drawer or settings.json.
+    /// preselects it too. Edited in the Settings page or settings.json.
     /// </summary>
     public string? DefaultModel { get; set; } = string.Empty;
 
@@ -313,7 +313,7 @@ public class OpenCodeSettings
     /// (<c>opencode run</c> one-shot), independent of <see cref="DefaultModel"/> — a
     /// cheap/fast model can be dedicated to commit messages while interactive sessions
     /// launch with the default. When empty, the wand falls back to
-    /// <see cref="DefaultModel"/>. Edited in the Repo Settings drawer or settings.json.
+    /// <see cref="DefaultModel"/>. Edited in the Settings page or settings.json.
     /// </summary>
     public string? CommitModel { get; set; }
 }

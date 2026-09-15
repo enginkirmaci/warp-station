@@ -5,7 +5,7 @@ namespace Tools.Library.Services.Abstractions;
 /// was made with. The main window delivers the drawer service's current context once
 /// per open, right after the component view is resolved and hosted — this is the
 /// interface it checks the hosted ViewModel against. Tools opened from the dropdown
-/// have no context; drawer-hosted dialogs (Add Repositories, Repo Settings) receive
+/// have no context; drawer-hosted dialogs (Add Repositories) receive
 /// their request state and completion source through it. Implement
 /// <see cref="IToolDrawerContextReceiver{TContext}"/> to receive the payload typed.
 /// </summary>

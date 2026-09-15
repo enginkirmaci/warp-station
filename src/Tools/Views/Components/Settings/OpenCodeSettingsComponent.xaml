@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
     OpenCode launch drawer: a per-launch model picker (the saved default model is edited
-    in the Repo Settings drawer), instances, template + prompt and the launch button —
+    in the Settings page), instances, template + prompt and the launch button —
     the former OpenCode bottom panel, restyled in the tool drawer's card vocabulary
     (same card/field-label language as the Repo Settings component). Grouped into three
     cards: Model / Launch / Start prompt.

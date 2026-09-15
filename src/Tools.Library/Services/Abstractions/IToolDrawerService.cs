@@ -19,7 +19,7 @@ public interface IToolDrawerService
 
     /// <summary>
     /// Gets the context payload the current open was made with, or <c>null</c>. Tools
-    /// open without one; drawer-hosted dialogs (Add Repositories, Repo Settings) pass
+    /// open without one; drawer-hosted dialogs (Add Repositories) pass
     /// their request state and completion source here. Cleared on close.
     /// </summary>
     object? Context { get; }

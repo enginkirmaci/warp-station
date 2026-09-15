@@ -42,7 +42,7 @@ public interface INugetLocalService
 
     /// <summary>
     /// Re-reads the NuGet section from settings, updates <see cref="IsEnabled"/> and
-    /// raises <see cref="StateChanged"/> so a save from the Repo Settings drawer takes
+    /// raises <see cref="StateChanged"/> so a save from the Settings page takes
     /// effect immediately (the menu entry and chip follow via their listeners).
     /// </summary>
     Task RefreshFromSettingsAsync();

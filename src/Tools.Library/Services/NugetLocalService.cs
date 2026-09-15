@@ -166,7 +166,7 @@ public class NugetLocalService : INugetLocalService, IDisposable
         await _initializationTask;
 
         // Settings gate: re-read the section fresh (a cheap in-memory copy) so a flag
-        // flipped after this instance initialized — via the Repo Settings drawer or a
+        // flipped after this instance initialized — via the Settings page or a
         // hand edit of settings.json — is honored even here.
         var settings = await _settingsService.GetSettingsAsync();
         _nugetSettings = settings.NugetLocal ?? new NugetLocalSettings();

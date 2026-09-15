@@ -16,8 +16,7 @@ namespace Tools.ViewModels.Windows;
 
 /// <summary>
 /// The open payload for the OpenCode drawer component: the repo the settings/launch
-/// act on (the clicked row's repo, or the bar's selected repo when opened from the
-/// tools dropdown; null when nothing is selected).
+/// act on (the clicked row's repo; null when the open carries none).
 /// </summary>
 public sealed record OpenCodeSettingsContext(Repo? Repo);
 
@@ -25,7 +24,7 @@ public sealed record OpenCodeSettingsContext(Repo? Repo);
 /// The OpenCode launch drawer: a per-launch model picker, instances, template, prompt
 /// and the launch button — the former OpenCode bottom panel, redesigned in the drawer's
 /// card vocabulary. Nothing here persists: the saved default model is edited in the
-/// Repo Settings drawer; the pick made here only selects the model for the instances
+/// Settings page; the pick made here only selects the model for the instances
 /// this panel launches (seeded from the saved default on open). Settings are read
 /// fresh per open — this VM is transient, so all UI state seeds through
 /// <see cref="OnDrawerContextAsync"/>.
@@ -211,7 +210,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
     /// Commits a model picked from the dropdown (called by the component's code-behind):
     /// updates the selection and filter so the next launch from this panel uses it. The
     /// pick is deliberately NOT persisted — the saved default model is edited in the
-    /// Repo Settings drawer; this picker is launch-scoped.
+    /// Settings page; this picker is launch-scoped.
     /// </summary>
     public void CommitModelPick(string model)
     {
@@ -451,7 +450,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
 
     /// <summary>
     /// Drawer open payload: the repo the settings/launch act on (null when the open
-    /// carried none — the tools-dropdown opens seed from the bar's selection instead).
+    /// carried none — the drawer then seeds from the bar's selection instead).
     /// Every delivery reloads the fresh settings, models, templates and prompts.
     /// </summary>
     public async Task OnDrawerContextAsync(OpenCodeSettingsContext? context)

@@ -867,8 +867,8 @@ public partial class BottomBarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Refreshes this VM's OpenCode snapshot from a settings object the Repo Settings
-    /// drawer just persisted (the drawer VMs are transient and own no shared state): the
+    /// Refreshes this VM's OpenCode snapshot from a settings object a settings editor
+    /// just persisted (the editor VMs are transient and own no shared state): the
     /// wand and the per-row buttons read this snapshot, so it must track the file.
     /// Raises <see cref="OpenCodeStateChanged"/> so subscribers re-evaluate too.
     /// </summary>
@@ -931,8 +931,8 @@ public partial class BottomBarViewModel : ObservableObject
     public void OpenAzure(Repo? repo = null) => OpenTab(BottomBarTab.Azure, repo);
 
     /// <summary>
-    /// Opens the OpenCode settings drawer (the repo row's options icon, or the tools
-    /// dropdown with no repo) on the given repo — model picker (which persists the
+    /// Opens the OpenCode settings drawer (the repos row's options icon) on the given
+    /// repo — model picker (which persists the
     /// default), instances, template, prompt and the launch button. A no-op while the
     /// integration is disabled. The drawer overlays the page, so the bar's own state is
     /// untouched; only the selected repo is updated when the call carries one.

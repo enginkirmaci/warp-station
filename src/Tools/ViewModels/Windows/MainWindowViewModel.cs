@@ -252,12 +252,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens the dedicated Settings page. The window subscribes to
-    /// <see cref="SettingsRequested"/> and swaps its content — the title-bar gear and
-    /// the Repositories page's gear both route here.
+    /// <see cref="SettingsRequested"/> and swaps its content — the title-bar gear
+    /// routes here.
     /// </summary>
     public event EventHandler? SettingsRequested;
 
-    /// <summary>Raises <see cref="SettingsRequested"/> (command surface for the gears).</summary>
+    /// <summary>Raises <see cref="SettingsRequested"/> (command surface for the gear).</summary>
     [RelayCommand]
     private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
 }
