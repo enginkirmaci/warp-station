@@ -357,7 +357,7 @@ public partial class OpenCodeSettingsViewModel : ObservableObject, IToolDrawerCo
         var terminalExe = ExecutableDefaults.ResolveTerminal(_reposSettings.TerminalExecutable);
         if (terminalExe is null)
         {
-            _notificationService.Show("No known terminal found — set the terminal executable in Repos settings", NotificationKind.Error);
+            _notificationService.Show("No known terminal found — set the terminal executable in Settings", NotificationKind.Error);
             _toolDrawer.Close();
             return;
         }

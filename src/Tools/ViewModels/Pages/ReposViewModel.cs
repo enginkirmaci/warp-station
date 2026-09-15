@@ -592,7 +592,7 @@ public partial class ReposViewModel : PageViewModelBase
     /// Quick open: launches a single opencode instance in the repo folder with the
     /// default model from settings — no options, and no opencode catalog query (the
     /// button must not spawn the CLI to resolve a model). Without a configured default
-    /// there is nothing to launch with: an error alert points at Repo Settings.
+    /// there is nothing to launch with: an error alert points at the Settings page.
     /// </summary>
     [RelayCommand]
     private async Task QuickOpenOpenCodeAsync(Repo? repo)
@@ -603,7 +603,7 @@ public partial class ReposViewModel : PageViewModelBase
         var model = settings.OpenCode?.DefaultModel?.Trim();
         if (string.IsNullOrEmpty(model))
         {
-            _notificationService.Show("No default OpenCode model — set it in Repo Settings", NotificationKind.Error);
+            _notificationService.Show("No default OpenCode model — set it in Settings", NotificationKind.Error);
             return;
         }
 

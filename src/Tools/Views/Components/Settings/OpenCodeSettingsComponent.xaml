@@ -47,7 +47,7 @@
                         TextWrapping="Wrap" />
                     <TextBlock
                         Classes="subtle"
-                        Text="Preselected from the default model in Repo Settings; a pick here applies to the instances launched from this panel."
+                        Text="Preselected from the default model in Settings; a pick here applies to the instances launched from this panel."
                         TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
