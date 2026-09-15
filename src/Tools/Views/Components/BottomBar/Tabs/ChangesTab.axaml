@@ -322,7 +322,7 @@
                         <TextBox
                             AcceptsReturn="True"
                             KeyDown="OnCommitBoxKeyDown"
-                            Padding="0,0,26,0"
+                            Padding="0"
                             VerticalContentAlignment="Top"
                             Text="{Binding CommitMessage}"
                             TextWrapping="Wrap"
