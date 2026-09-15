@@ -169,8 +169,9 @@ public partial class MainWindow : SukiWindow
         InitializeComponent();
         InitializeWindow();
 
-        // The title-bar gear requests the Settings page; the
-        // page's back link returns to the Repositories one.
+        // The title-bar gear toggles the Settings page: it swaps in when another page
+        // is showing and swaps back to Repositories when Settings is already open
+        // (the page's back link does the same).
         viewModel.SettingsRequested += OnSettingsRequested;
         settingsPage.BackRequested += OnBackToRepositoriesRequested;
 
@@ -186,13 +187,16 @@ public partial class MainWindow : SukiWindow
     private readonly ReposPage _reposPage;
     private readonly SettingsPage _settingsPage;
 
-    /// <summary>Swaps the dedicated Settings page into the content area (no navigation
-    /// stack — the Repositories page instance stays alive and is swapped back whole).
-    /// The page reloads every edited section on each show.</summary>
+    /// <summary>Toggles the dedicated Settings page: swaps it into the content area
+    /// (no navigation stack — the Repositories page instance stays alive and is
+    /// swapped back whole), or — while Settings is already showing — swaps back to
+    /// Repositories, so the title-bar gear doubles as a close. The page reloads every
+    /// edited section on each show.</summary>
     private void OnSettingsRequested(object? sender, EventArgs e)
     {
         if (ContentArea.Content is SettingsPage)
         {
+            OnBackToRepositoriesRequested(sender, e);
             return;
         }
 

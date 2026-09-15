@@ -65,7 +65,7 @@
                 <Path
                     Width="15"
                     Height="15"
-                    Data="{tools:SvgPath icon-cog}"
+                    Data="{tools:SvgPath icon-folder}"
                     Fill="{DynamicResource BodyForegroundBrush}"
                     Stretch="Uniform" />
             </Button>

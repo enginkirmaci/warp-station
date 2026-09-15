@@ -515,10 +515,10 @@
                                         Data="{tools:SvgPath icon-cloud-download}"
                                         IsVisible="{Binding !IsFetching}" />
                                     <Path
-                                        Width="15"
-                                        Height="15"
+                                        Width="16"
+                                        Height="16"
                                         Classes="spinner"
-                                        Data="{tools:SvgPath icon-spinner, Center=False}"
+                                        Data="M 8 1 A 7 7 0 1 1 1 8"
                                         IsVisible="{Binding IsFetching}"
                                         RenderTransformOrigin="50%,50%"
                                         Stroke="{DynamicResource MutedForegroundBrush}"
@@ -550,10 +550,10 @@
                                         Data="{tools:SvgPath icon-arrow-down}"
                                         IsVisible="{Binding !IsPulling}" />
                                     <Path
-                                        Width="15"
-                                        Height="15"
+                                        Width="16"
+                                        Height="16"
                                         Classes="spinner"
-                                        Data="{tools:SvgPath icon-spinner, Center=False}"
+                                        Data="M 8 1 A 7 7 0 1 1 1 8"
                                         IsVisible="{Binding IsPulling}"
                                         RenderTransformOrigin="50%,50%"
                                         Stroke="{DynamicResource MutedForegroundBrush}"
@@ -602,10 +602,10 @@
                                         Data="{tools:SvgPath icon-arrow-up}"
                                         IsVisible="{Binding !IsPushing}" />
                                     <Path
-                                        Width="15"
-                                        Height="15"
+                                        Width="16"
+                                        Height="16"
                                         Classes="spinner"
-                                        Data="{tools:SvgPath icon-spinner, Center=False}"
+                                        Data="M 8 1 A 7 7 0 1 1 1 8"
                                         IsVisible="{Binding IsPushing}"
                                         RenderTransformOrigin="50%,50%"
                                         Stroke="{DynamicResource MutedForegroundBrush}"
@@ -657,10 +657,10 @@
                                         Data="{tools:SvgPath icon-refresh}"
                                         IsVisible="{Binding !IsSyncing}" />
                                     <Path
-                                        Width="15"
-                                        Height="15"
+                                        Width="16"
+                                        Height="16"
                                         Classes="spinner"
-                                        Data="{tools:SvgPath icon-spinner, Center=False}"
+                                        Data="M 8 1 A 7 7 0 1 1 1 8"
                                         IsVisible="{Binding IsSyncing}"
                                         RenderTransformOrigin="50%,50%"
                                         Stroke="{DynamicResource MutedForegroundBrush}"
