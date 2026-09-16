@@ -35,6 +35,9 @@ forced to "ask" (below).
   `/config/providers`, e.g. reasoning effort low/high/max); `(default)` omits
   the field.
 - Stop button aborts the running turn (`POST /session/{id}/abort`).
+- Auto-allow toggle (header): permission asks are answered automatically with
+  allow (once); the card stays in the transcript marked *auto-allowed*. The
+  setting persists across restarts.
 - Context menu on any message: Copy.
 - Smart autoscroll: follows the stream only while you are at the bottom; a
   "jump to latest" button appears when you scroll up.

@@ -53,6 +53,7 @@ public partial class MainViewModel : ObservableObject
         _lastActiveSessionId = _state.ActiveSession;
         _restoreModel = _state.Model;
         _restoreVariant = _state.Variant;
+        _autoAllow = _state.AutoAllow;
         ChatItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
         Sessions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSessionsHint));
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasAttachments));
@@ -68,6 +69,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _folder = Environment.CurrentDirectory;
     [ObservableProperty] private string _port = "14096";
     [ObservableProperty] private string _input = "";
+    [ObservableProperty] private bool _autoAllow;
+
+    partial void OnAutoAllowChanged(bool value)
+    {
+        _state.AutoAllow = value;
+        SaveState();
+    }
 
     partial void OnIsServerRunningChanged(bool value) => OnPropertyChanged(nameof(HasSessionsHint));
 
@@ -90,6 +98,7 @@ public partial class MainViewModel : ObservableObject
         _state.Model = SelectedModel is { } m && m != DefaultModelEntry ? m : null;
         _state.Variant = SelectedVariant is { } v && v != DefaultVariantEntry ? v : null;
         _state.ActiveSession = _lastActiveSessionId;
+        _state.AutoAllow = AutoAllow;
         _state.Save();
     }
 
@@ -387,6 +396,7 @@ public partial class MainViewModel : ObservableObject
         var item = new SessionItem(info.Id, info.Title, info.UpdatedAt) { IsActive = true };
         Sessions.Insert(0, item);
         SelectedSession = item;
+        SaveState();
     }
 
     private void AutoTitle(string text)
@@ -766,7 +776,7 @@ public partial class MainViewModel : ObservableObject
         if (detail.Length == 0)
             detail = "(no detail provided)";
 
-        ChatItems.Add(new PermissionItem
+        var item = new PermissionItem
         {
             Id = id,
             SessionId = sessionId,
@@ -774,7 +784,10 @@ public partial class MainViewModel : ObservableObject
             Detail = detail,
             IsV2 = v2,
             Respond = RespondToPermission,
-        });
+        };
+        ChatItems.Add(item);
+        if (AutoAllow)
+            _ = RespondToPermission(item, "once", isAuto: true);
     }
 
     private void OnPermissionReplied(JsonElement data)
@@ -784,31 +797,32 @@ public partial class MainViewModel : ObservableObject
             return;
         foreach (var item in ChatItems.OfType<PermissionItem>())
             if (item.Id == requestId && item.IsPending)
-                item.SetAnswer("answered elsewhere");
+                item.SetAnswer("answered elsewhere", auto: false);
     }
 
-    private async Task RespondToPermission(PermissionItem item, string response)
+    private async Task RespondToPermission(PermissionItem item, string response, bool isAuto)
     {
         if (_api is null)
             return;
         // close the buttons immediately so a slow reply cannot be clicked twice
-        item.SetAnswer("sending…");
+        item.SetAnswer(isAuto ? "auto-allowing…" : "sending…", isAuto);
         try
         {
             if (item.IsV2)
                 await _api.ReplyV2Async(item.Id, response, CancellationToken.None);
             else
                 await _api.RespondPermissionAsync(item.SessionId, item.Id, response, CancellationToken.None);
-            item.SetAnswer(response switch
+            var label = response switch
             {
-                "once" => "allowed (once)",
+                "once" => isAuto ? "auto-allowed" : "allowed (once)",
                 "always" => "always allowed",
                 _ => "denied",
-            });
+            };
+            item.SetAnswer(label, isAuto);
         }
         catch (Exception ex)
         {
-            item.SetAnswer($"reply failed: {ex.Message}");
+            item.SetAnswer($"reply failed: {ex.Message}", isAuto);
         }
     }
 

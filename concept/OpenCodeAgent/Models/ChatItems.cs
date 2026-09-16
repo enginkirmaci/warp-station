@@ -50,7 +50,10 @@ public partial class PermissionItem : ChatItem
     public required string Kind { get; init; }
     public required string Detail { get; init; }
     public required bool IsV2 { get; init; }
-    public required Func<PermissionItem, string, Task> Respond { get; init; }
+    public required Func<PermissionItem, string, bool, Task> Respond { get; init; }
+
+    /// <summary>True when the reply was sent by auto-allow rather than a button click.</summary>
+    public bool WasAutoAnswered { get; private set; }
 
     public string Title => $"Permission required — {Kind}";
     public bool IsPending => _answer is null;
@@ -65,16 +68,20 @@ public partial class PermissionItem : ChatItem
         }
     }
 
-    public void SetAnswer(string label) => Answer = label;
+    public void SetAnswer(string label, bool auto)
+    {
+        WasAutoAnswered = auto;
+        Answer = label;
+    }
 
     [RelayCommand]
-    private Task Allow() => Respond(this, "once");
+    private Task Allow() => Respond(this, "once", false);
 
     [RelayCommand]
-    private Task AllowAlways() => Respond(this, "always");
+    private Task AllowAlways() => Respond(this, "always", false);
 
     [RelayCommand]
-    private Task Deny() => Respond(this, "reject");
+    private Task Deny() => Respond(this, "reject", false);
 }
 
 public static class TimeLabels

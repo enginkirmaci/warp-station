@@ -16,6 +16,7 @@ public sealed class UiState
     public string? Model { get; set; }
     public string? Variant { get; set; }
     public string? ActiveSession { get; set; }
+    public bool AutoAllow { get; set; }
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
