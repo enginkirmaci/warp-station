@@ -15,10 +15,16 @@ public partial class MainViewModel : ObservableObject
     private const string DefaultVariantEntry = "(default)";
 
     private readonly OpenCodeServer _server = new();
+    private readonly UiState _state;
     private OpenCodeApiClient? _api;
     private CancellationTokenSource? _events;
     private string? _sessionId;
+    private string? _lastActiveSessionId;
     private bool _pendingAutoTitle;
+    // captured at startup: clearing the combo ItemsSource echo-writes SelectedModel=null
+    // and would otherwise erase the saved model/variant before they are restored
+    private string? _restoreModel;
+    private string? _restoreVariant;
     private readonly Dictionary<string, string> _roleByMessage = new();
     private readonly Dictionary<string, long> _createdByMessage = new();
     private readonly Dictionary<string, AssistantTextItem> _textByPart = new();
@@ -39,6 +45,14 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel()
     {
+        _state = UiState.Load();
+        if (!string.IsNullOrWhiteSpace(_state.Folder))
+            _folder = _state.Folder;
+        if (!string.IsNullOrWhiteSpace(_state.Port))
+            _port = _state.Port;
+        _lastActiveSessionId = _state.ActiveSession;
+        _restoreModel = _state.Model;
+        _restoreVariant = _state.Variant;
         ChatItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
         Sessions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSessionsHint));
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasAttachments));
@@ -57,7 +71,40 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnIsServerRunningChanged(bool value) => OnPropertyChanged(nameof(HasSessionsHint));
 
-    partial void OnSelectedModelChanged(string? value) => RefreshVariants();
+    partial void OnSelectedModelChanged(string? value)
+    {
+        RefreshVariants();
+        SaveState();
+    }
+
+    partial void OnSelectedVariantChanged(string? value) => SaveState();
+
+    partial void OnFolderChanged(string value) => SaveState();
+
+    partial void OnPortChanged(string value) => SaveState();
+
+    private void SaveState()
+    {
+        _state.Folder = Folder;
+        _state.Port = Port;
+        _state.Model = SelectedModel is { } m && m != DefaultModelEntry ? m : null;
+        _state.Variant = SelectedVariant is { } v && v != DefaultVariantEntry ? v : null;
+        _state.ActiveSession = _lastActiveSessionId;
+        _state.Save();
+    }
+
+    /// <summary>Starts the server (spawn or attach) and restores the last open chat.</summary>
+    public async Task InitializeAsync()
+    {
+        if (IsServerRunning)
+            return;
+        await StartAsync();
+        if (!IsServerRunning || _lastActiveSessionId is not { } id)
+            return;
+        var item = Sessions.FirstOrDefault(s => s.Id == id);
+        if (item is not null)
+            await OpenSessionAsync(item);
+    }
 
     private void RefreshVariants()
     {
@@ -149,10 +196,13 @@ public partial class MainViewModel : ObservableObject
         {
             var messages = await _api.GetMessagesAsync(session.Id, CancellationToken.None);
             _sessionId = session.Id;
+            _lastActiveSessionId = session.Id;
             _pendingAutoTitle = false;
             ClearTranscript();
             Restore(messages);
             SetActive(session);
+            SelectedSession = session;
+            SaveState();
         }
         catch (Exception ex)
         {
@@ -240,11 +290,24 @@ public partial class MainViewModel : ObservableObject
             return;
         }
         _sessionId = null;
+        _lastActiveSessionId = null;
         _pendingAutoTitle = false;
         ClearTranscript();
         foreach (var s in Sessions)
             s.IsActive = false;
         SelectedSession = null;
+        SaveState();
+    }
+
+    public void TogglePin(SessionItem session)
+    {
+        session.IsPinned = !session.IsPinned;
+        if (session.IsPinned)
+            _state.Pins[session.Id] = true;
+        else
+            _state.Pins.Remove(session.Id);
+        SaveState();
+        SortSessions();
     }
 
     public void BeginRename(SessionItem session)
@@ -299,13 +362,16 @@ public partial class MainViewModel : ObservableObject
 
         var wasActive = session.Id == _sessionId;
         Sessions.Remove(session);
+        _state.Pins.Remove(session.Id);
         if (wasActive)
         {
             _sessionId = null;
+            _lastActiveSessionId = null;
             _pendingAutoTitle = false;
             ClearTranscript();
             SelectedSession = null;
         }
+        SaveState();
     }
 
     private async Task EnsureSessionAsync()
@@ -314,6 +380,7 @@ public partial class MainViewModel : ObservableObject
             return;
         var info = await _api.CreateSessionAsync("New chat", CancellationToken.None);
         _sessionId = info.Id;
+        _lastActiveSessionId = info.Id;
         _pendingAutoTitle = true;
         foreach (var s in Sessions)
             s.IsActive = false;
@@ -373,13 +440,20 @@ public partial class MainViewModel : ObservableObject
             // the server lists every session of the instance; keep the working folder's chats
             var mine = sessions
                 .Where(s => s.Directory is null || NormalizeDir(s.Directory) == folder)
-                .OrderByDescending(s => s.UpdatedAt)
+                .OrderByDescending(s => _state.Pins.ContainsKey(s.Id))
+                .ThenByDescending(s => s.UpdatedAt)
                 .ToList();
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 Sessions.Clear();
                 foreach (var s in mine)
-                    Sessions.Add(new SessionItem(s.Id, s.Title, s.UpdatedAt));
+                {
+                    var item = new SessionItem(s.Id, s.Title, s.UpdatedAt)
+                    {
+                        IsPinned = _state.Pins.ContainsKey(s.Id),
+                    };
+                    Sessions.Add(item);
+                }
                 if (_sessionId is { } active)
                 {
                     var match = Sessions.FirstOrDefault(s => s.Id == active);
@@ -397,7 +471,10 @@ public partial class MainViewModel : ObservableObject
 
     private void SortSessions()
     {
-        var ordered = Sessions.OrderByDescending(s => s.Updated).ToList();
+        var ordered = Sessions
+            .OrderByDescending(s => s.IsPinned)
+            .ThenByDescending(s => s.Updated)
+            .ToList();
         for (var i = 0; i < ordered.Count; i++)
         {
             var index = Sessions.IndexOf(ordered[i]);
@@ -443,8 +520,15 @@ public partial class MainViewModel : ObservableObject
                 _variantsByModel = models.ToDictionary(m => m.Key, m => m.Variants.ToList());
                 foreach (var m in models)
                     Models.Add(m.Key);
-                SelectedModel ??= DefaultModelEntry;
-                RefreshVariants();
+                // restore the remembered model first so RefreshVariants repopulates for it
+                if (_restoreModel is { } saved && Models.Contains(saved))
+                    SelectedModel = saved;
+                else
+                    SelectedModel ??= DefaultModelEntry;
+                if (_restoreVariant is { } savedVariant && Variants.Contains(savedVariant))
+                    SelectedVariant = savedVariant;
+                _restoreModel = null;
+                _restoreVariant = null;
             });
         }
         catch

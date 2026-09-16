@@ -1,9 +1,11 @@
 # opencode agent — a chat client over `opencode serve`
 
-Standalone Avalonia concept app — **not** part of the DevTools solution. It spawns
-`opencode serve` in a chosen working folder (or attaches if the port already answers),
-drives a conversational chat over its HTTP + SSE API, and renders opencode permission
-asks as inline cards with **Allow / Always allow / Deny**.
+Standalone Avalonia concept app — **not** part of the DevTools solution, but built from
+the DevTools solution file. Runs on Linux and Windows: on Windows the server spawns
+through `cmd /c` (PATH shims) and the Wayland bits are compiled out at runtime. It
+spawns `opencode serve` in a chosen working folder (or attaches if the port already
+answers), drives a conversational chat over its HTTP + SSE API, and renders opencode
+permission asks as inline cards with **Allow / Always allow / Deny**.
 
 ## Run
 
@@ -18,9 +20,12 @@ forced to "ask" (below).
 
 ## Features
 
-- Chat sessions in a left sidebar: list (newest first), switch (transcript is restored
-  from the server), rename (context menu), delete (context menu), New chat. New
+- Chat sessions in a left sidebar: list (pinned first, then newest), switch (transcript is
+  restored from the server), rename (context menu), delete (context menu), New chat. New
   sessions are auto-titled from the first message.
+- Pin chats (context menu) and restart freely: the app auto-starts the server and
+  restores the last open chat, selected model/variant, working folder and port from
+  `~/.config/opencode-agent/ui.json` (`%APPDATA%\opencode-agent\ui.json` on Windows).
 - Streaming replies with markdown rendering (headings, bold/italic, inline code,
   fenced code blocks, lists, links), selectable assistant text, timestamps.
 - Image attachments: paste from the clipboard (Ctrl+V in the input or the Paste

@@ -51,6 +51,9 @@ public partial class MainWindow : SukiWindow
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
+    /// <summary>Auto-starts the server and restores the last open chat.</summary>
+    public Task InitializeAsync() => _vm.InitializeAsync();
+
     // streaming text grows the transcript without CollectionChanged; follow it only at the bottom
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e) => Dispatcher.UIThread.Post(StickToBottom);
 
@@ -157,6 +160,18 @@ public partial class MainWindow : SukiWindow
     {
         if ((sender as Control)?.DataContext is SessionItem session)
             _vm.BeginRename(session);
+    }
+
+    private void OnPinClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is SessionItem session)
+            _vm.TogglePin(session);
+    }
+
+    private void OnUnpinClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is SessionItem session)
+            _vm.TogglePin(session);
     }
 
     private void OnDeleteClick(object? sender, RoutedEventArgs e)

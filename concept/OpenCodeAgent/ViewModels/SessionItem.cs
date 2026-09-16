@@ -8,6 +8,7 @@ public sealed class SessionItem : ObservableObject
     private string _title;
     private DateTime _updated;
     private bool _isActive;
+    private bool _isPinned;
     private bool _isEditing;
     private string _draftTitle = "";
 
@@ -33,6 +34,8 @@ public sealed class SessionItem : ObservableObject
     }
 
     public bool IsActive { get => _isActive; set => SetProperty(ref _isActive, value); }
+
+    public bool IsPinned { get => _isPinned; set => SetProperty(ref _isPinned, value); }
 
     public bool IsEditing { get => _isEditing; set => SetProperty(ref _isEditing, value); }
 

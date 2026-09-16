@@ -37,8 +37,13 @@ public sealed class OpenCodeServer
 
         var psi = new ProcessStartInfo
         {
-            FileName = executable,
-            Arguments = $"serve --hostname 127.0.0.1 --port {port}",
+            // Windows: `opencode` is usually a PATH shim (.cmd); cmd /c resolves it
+            // while keeping UseShellExecute=false so env vars, redirects and the
+            // tree kill keep working.
+            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : executable,
+            Arguments = OperatingSystem.IsWindows()
+                ? $"/c {executable} serve --hostname 127.0.0.1 --port {port}"
+                : $"serve --hostname 127.0.0.1 --port {port}",
             // serve inherits its config and project scope from the working directory.
             WorkingDirectory = Directory.Exists(folder) ? folder : Environment.CurrentDirectory,
             UseShellExecute = false,

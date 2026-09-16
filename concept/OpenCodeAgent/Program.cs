@@ -8,10 +8,12 @@ internal static class Program
     public static void Main(string[] args) =>
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>()
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .UseWaylandWithFallback()
             .WithInterFont()
             .LogToTrace();
+        return OperatingSystem.IsWindows() ? builder : builder.UseWaylandWithFallback();
+    }
 }

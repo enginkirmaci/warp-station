@@ -88,6 +88,8 @@
 							<StackPanel Margin="2,3" Background="Transparent">
 								<StackPanel.ContextMenu>
 									<ContextMenu>
+										<MenuItem Header="Pin" Click="OnPinClick" IsVisible="{Binding !IsPinned}" />
+										<MenuItem Header="Unpin" Click="OnUnpinClick" IsVisible="{Binding IsPinned}" />
 										<MenuItem Header="Rename" Click="OnRenameClick" />
 										<MenuItem Header="Delete" Click="OnDeleteClick" />
 									</ContextMenu>
