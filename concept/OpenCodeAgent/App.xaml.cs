@@ -1,9 +1,9 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using ConceptChat.Views;
+using OpenCodeAgent.Views;
 
-namespace ConceptChat;
+namespace OpenCodeAgent;
 
 public partial class App : Application
 {

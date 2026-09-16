@@ -4,10 +4,10 @@ using System.Text.Json;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using ConceptChat.Models;
-using ConceptChat.Services;
+using OpenCodeAgent.Models;
+using OpenCodeAgent.Services;
 
-namespace ConceptChat.ViewModels;
+namespace OpenCodeAgent.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
@@ -17,13 +17,26 @@ public partial class MainViewModel : ObservableObject
     private OpenCodeApiClient? _api;
     private CancellationTokenSource? _events;
     private string? _sessionId;
+    private bool _pendingAutoTitle;
     private readonly Dictionary<string, string> _roleByMessage = new();
+    private readonly Dictionary<string, long> _createdByMessage = new();
     private readonly Dictionary<string, AssistantTextItem> _textByPart = new();
     private readonly Dictionary<string, ToolItem> _toolByPart = new();
 
     public ObservableCollection<object> ChatItems { get; } = [];
+    public ObservableCollection<SessionItem> Sessions { get; } = [];
     public ObservableCollection<string> Models { get; } = [DefaultModelEntry];
 
+    public bool HasMessages => ChatItems.Count > 0;
+    public bool HasSessionsHint => IsServerRunning && Sessions.Count == 0;
+
+    public MainViewModel()
+    {
+        ChatItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
+        Sessions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSessionsHint));
+    }
+
+    [ObservableProperty] private SessionItem? _selectedSession;
     [ObservableProperty] private string? _selectedModel = DefaultModelEntry;
     [ObservableProperty] private string _statusText = "Server stopped";
     [ObservableProperty] private bool _isBusy;
@@ -31,6 +44,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _folder = Environment.CurrentDirectory;
     [ObservableProperty] private string _port = "14096";
     [ObservableProperty] private string _input = "";
+
+    partial void OnIsServerRunningChanged(bool value) => OnPropertyChanged(nameof(HasSessionsHint));
 
     [RelayCommand]
     private async Task StartAsync()
@@ -53,6 +68,7 @@ public partial class MainViewModel : ObservableObject
             _events = new CancellationTokenSource();
             _ = PumpEventsAsync(_events.Token);
             _ = LoadModelsAsync();
+            await RefreshSessionsAsync();
         }
         catch (Exception ex)
         {
@@ -67,18 +83,61 @@ public partial class MainViewModel : ObservableObject
         _events?.Cancel();
         _events = null;
         var wasSpawned = _server.Spawned;
+        var wasAttached = !wasSpawned && _api is not null;
         // an attached server is not ours to kill; disconnect only
         _server.Stop();
         IsServerRunning = false;
         IsBusy = false;
         StatusText = "Server stopped";
-        if (IsServerRunning == false && !wasSpawned && _api is not null)
-            AddNote("Disconnected (the attached server is still running).");
+        Sessions.Clear();
+        SelectedSession = null;
         _api = null;
         _sessionId = null;
+        if (wasAttached)
+            AddNote("Disconnected (the attached server is still running).");
     }
 
     public void Shutdown() => Stop();
+
+    partial void OnSelectedSessionChanged(SessionItem? value)
+    {
+        if (value is null || value.Id == _sessionId)
+            return;
+        _ = OpenSessionCommand.ExecuteAsync(value);
+    }
+
+    [RelayCommand]
+    private async Task OpenSessionAsync(SessionItem? session)
+    {
+        if (session is null || session.Id == _sessionId)
+            return;
+        if (IsBusy)
+        {
+            AddNote("Stop the running turn before switching chats.", error: true);
+            SnapSelection();
+            return;
+        }
+        if (_api is null)
+        {
+            SnapSelection();
+            return;
+        }
+
+        try
+        {
+            var messages = await _api.GetMessagesAsync(session.Id, CancellationToken.None);
+            _sessionId = session.Id;
+            _pendingAutoTitle = false;
+            ClearTranscript();
+            Restore(messages);
+            SetActive(session);
+        }
+        catch (Exception ex)
+        {
+            AddNote($"Could not load chat: {ex.Message}", error: true);
+            SnapSelection();
+        }
+    }
 
     [RelayCommand]
     private async Task SendAsync()
@@ -100,12 +159,13 @@ public partial class MainViewModel : ObservableObject
         Input = "";
         ChatItems.Add(new UserMessageItem(text));
         IsBusy = true;
+        AutoTitle(text);
         var model = SelectedModel is { } m && m != DefaultModelEntry ? m : null;
         _ = Task.Run(async () =>
         {
             try
             {
-                await _api.SendMessageAsync(_sessionId!, text, model, CancellationToken.None);
+                await _api!.SendMessageAsync(_sessionId!, text, model, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -115,21 +175,219 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task AbortAsync()
+    {
+        if (_api is null || _sessionId is null || !IsBusy)
+            return;
+        try
+        {
+            await _api.AbortAsync(_sessionId, CancellationToken.None);
+            IsBusy = false;
+        }
+        catch (Exception ex)
+        {
+            AddNote($"Abort failed: {ex.Message}", error: true);
+        }
+    }
+
+    [RelayCommand]
     private void NewChat()
     {
+        if (IsBusy)
+        {
+            AddNote("Stop the running turn before starting a new chat.", error: true);
+            return;
+        }
         _sessionId = null;
-        _roleByMessage.Clear();
-        _textByPart.Clear();
-        _toolByPart.Clear();
-        ChatItems.Clear();
+        _pendingAutoTitle = false;
+        ClearTranscript();
+        foreach (var s in Sessions)
+            s.IsActive = false;
+        SelectedSession = null;
+    }
+
+    public void BeginRename(SessionItem session)
+    {
+        session.DraftTitle = session.Title;
+        session.IsEditing = true;
+    }
+
+    public void CancelRename(SessionItem session) => session.IsEditing = false;
+
+    [RelayCommand]
+    private async Task CommitRenameAsync(SessionItem? session)
+    {
+        if (session is null)
+            return;
+        session.IsEditing = false;
+        var title = session.DraftTitle.Trim();
+        if (title.Length == 0 || title == session.Title || _api is null)
+            return;
+        try
+        {
+            var info = await _api.RenameSessionAsync(session.Id, title, CancellationToken.None);
+            session.Title = info.Title.Length > 0 ? info.Title : title;
+            session.Updated = info.UpdatedAt;
+            SortSessions();
+        }
+        catch (Exception ex)
+        {
+            AddNote($"Rename failed: {ex.Message}", error: true);
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteSessionAsync(SessionItem? session)
+    {
+        if (session is null || _api is null)
+            return;
+        if (IsBusy && session.Id == _sessionId)
+        {
+            AddNote("Stop the running turn before deleting this chat.", error: true);
+            return;
+        }
+        try
+        {
+            await _api.DeleteSessionAsync(session.Id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            AddNote($"Delete failed: {ex.Message}", error: true);
+            return;
+        }
+
+        var wasActive = session.Id == _sessionId;
+        Sessions.Remove(session);
+        if (wasActive)
+        {
+            _sessionId = null;
+            _pendingAutoTitle = false;
+            ClearTranscript();
+            SelectedSession = null;
+        }
     }
 
     private async Task EnsureSessionAsync()
     {
-        if (_sessionId is not null)
+        if (_sessionId is not null || _api is null)
             return;
-        _sessionId = await _api!.CreateSessionAsync("concept chat", CancellationToken.None);
-        AddNote($"Session started ({_sessionId}).");
+        var info = await _api.CreateSessionAsync("New chat", CancellationToken.None);
+        _sessionId = info.Id;
+        _pendingAutoTitle = true;
+        foreach (var s in Sessions)
+            s.IsActive = false;
+        var item = new SessionItem(info.Id, info.Title, info.UpdatedAt) { IsActive = true };
+        Sessions.Insert(0, item);
+        SelectedSession = item;
+    }
+
+    private void AutoTitle(string text)
+    {
+        if (!_pendingAutoTitle || _sessionId is not { } id)
+            return;
+        _pendingAutoTitle = false;
+        var title = DeriveTitle(text);
+        var api = _api!;
+        _ = Task.Run(async () =>
+        {
+            SessionInfo info;
+            try
+            {
+                info = await api.RenameSessionAsync(id, title, CancellationToken.None);
+            }
+            catch
+            {
+                return;
+            }
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var item = Sessions.FirstOrDefault(s => s.Id == id);
+                if (item is null)
+                    return;
+                item.Title = info.Title.Length > 0 ? info.Title : title;
+                item.Updated = info.UpdatedAt;
+                SortSessions();
+            });
+        });
+    }
+
+    private static string DeriveTitle(string text)
+    {
+        var firstLine = text.Split('\n', 2)[0].Trim();
+        foreach (var extra in new[] { "\r", "\t" })
+            firstLine = firstLine.Replace(extra, " ");
+        while (firstLine.Contains("  "))
+            firstLine = firstLine.Replace("  ", " ");
+        return firstLine.Length <= 48 ? firstLine : firstLine[..48].TrimEnd() + "…";
+    }
+
+    private async Task RefreshSessionsAsync()
+    {
+        if (_api is null)
+            return;
+        try
+        {
+            var sessions = await _api.ListSessionsAsync(CancellationToken.None);
+            var folder = NormalizeDir(Folder);
+            // the server lists every session of the instance; keep the working folder's chats
+            var mine = sessions
+                .Where(s => s.Directory is null || NormalizeDir(s.Directory) == folder)
+                .OrderByDescending(s => s.UpdatedAt)
+                .ToList();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Sessions.Clear();
+                foreach (var s in mine)
+                    Sessions.Add(new SessionItem(s.Id, s.Title, s.UpdatedAt));
+                if (_sessionId is { } active)
+                {
+                    var match = Sessions.FirstOrDefault(s => s.Id == active);
+                    if (match is not null)
+                        match.IsActive = true;
+                }
+                SnapSelection();
+            });
+        }
+        catch
+        {
+            // the sidebar is optional; chat still works without it
+        }
+    }
+
+    private void SortSessions()
+    {
+        var ordered = Sessions.OrderByDescending(s => s.Updated).ToList();
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var index = Sessions.IndexOf(ordered[i]);
+            if (index != i)
+                Sessions.Move(index, i);
+        }
+    }
+
+    private void SnapSelection()
+    {
+        var match = _sessionId is null ? null : Sessions.FirstOrDefault(s => s.Id == _sessionId);
+        if (!ReferenceEquals(SelectedSession, match))
+            SelectedSession = match;
+    }
+
+    private void SetActive(SessionItem session)
+    {
+        foreach (var s in Sessions)
+            s.IsActive = ReferenceEquals(s, session);
+    }
+
+    private static string NormalizeDir(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return path.Trim();
+        }
     }
 
     private async Task LoadModelsAsync()
@@ -204,8 +462,10 @@ public partial class MainViewModel : ObservableObject
             case "session.idle":
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (IsOurSession(data))
-                        IsBusy = false;
+                    if (!IsOurSession(data))
+                        return;
+                    IsBusy = false;
+                    _ = RefreshSessionsAsync();
                 });
                 break;
             case "session.error":
@@ -221,8 +481,11 @@ public partial class MainViewModel : ObservableObject
             return;
         var id = info.TryGetProperty("id", out var i) ? i.GetString() : null;
         var role = info.TryGetProperty("role", out var r) ? r.GetString() : null;
-        if (id is not null && role is not null)
-            _roleByMessage[id] = role;
+        if (id is null || role is null)
+            return;
+        _roleByMessage[id] = role;
+        if (info.TryGetProperty("time", out var time) && time.TryGetProperty("created", out var c) && c.TryGetInt64(out var ms))
+            _createdByMessage[id] = ms;
     }
 
     private void OnPartUpdated(JsonElement data)
@@ -244,7 +507,7 @@ public partial class MainViewModel : ObservableObject
             case "text":
                 if (!_textByPart.TryGetValue(id, out var textItem))
                 {
-                    textItem = new AssistantTextItem();
+                    textItem = new AssistantTextItem(CreatedAtFor(messageId));
                     _textByPart[id] = textItem;
                     ChatItems.Add(textItem);
                 }
@@ -260,15 +523,65 @@ public partial class MainViewModel : ObservableObject
                     ChatItems.Add(toolItem);
                 }
                 if (part.TryGetProperty("state", out var state))
-                {
-                    if (state.TryGetProperty("status", out var s) && s.GetString() is { } status)
-                        toolItem.Status = status;
-                    if (state.TryGetProperty("title", out var ti) && ti.GetString() is { Length: > 0 } title)
-                        toolItem.Title = title;
-                }
+                    ApplyToolState(state, toolItem);
                 break;
         }
     }
+
+    private void Restore(List<StoredMessage> messages)
+    {
+        foreach (var msg in messages)
+        {
+            _roleByMessage[msg.Id] = msg.Role;
+            _createdByMessage[msg.Id] = msg.CreatedMs;
+            var createdAt = FromMs(msg.CreatedMs);
+            foreach (var part in msg.Parts)
+            {
+                var id = part.TryGetProperty("id", out var pid) ? pid.GetString() : null;
+                var partType = part.TryGetProperty("type", out var ty) ? ty.GetString() : null;
+                if (id is null || partType is null)
+                    continue;
+                switch (partType)
+                {
+                    case "text":
+                        var text = part.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : "";
+                        if (msg.Role == "user")
+                            ChatItems.Add(new UserMessageItem(text, createdAt));
+                        else
+                        {
+                            var item = new AssistantTextItem(createdAt) { Text = text };
+                            _textByPart[id] = item;
+                            ChatItems.Add(item);
+                        }
+                        break;
+                    case "tool":
+                        var toolName = part.TryGetProperty("tool", out var tn) ? tn.GetString() ?? "tool" : "tool";
+                        var toolItem = new ToolItem(toolName);
+                        if (part.TryGetProperty("state", out var state))
+                            ApplyToolState(state, toolItem);
+                        _toolByPart[id] = toolItem;
+                        ChatItems.Add(toolItem);
+                        break;
+                }
+            }
+        }
+    }
+
+    private void ApplyToolState(JsonElement state, ToolItem toolItem)
+    {
+        if (state.TryGetProperty("status", out var s) && s.GetString() is { } status)
+            toolItem.Status = status;
+        if (state.TryGetProperty("title", out var ti) && ti.GetString() is { Length: > 0 } title)
+            toolItem.Title = title;
+    }
+
+    private DateTime? CreatedAtFor(string? messageId) =>
+        messageId is not null && _createdByMessage.TryGetValue(messageId, out var ms) && ms > 0
+            ? FromMs(ms)
+            : null;
+
+    private static DateTime? FromMs(long ms) =>
+        ms > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(ms).ToLocalTime().DateTime : null;
 
     private void OnPermissionAsked(JsonElement data, bool v2)
     {
@@ -344,11 +657,14 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool IsOurSession(JsonElement data) =>
-        _sessionId is null
-        || !data.TryGetProperty("sessionID", out var sid)
-        || sid.GetString() is not { } value
-        || value == _sessionId;
+    private bool IsOurSession(JsonElement data)
+    {
+        if (!data.TryGetProperty("sessionID", out var sid))
+            return true;
+        var value = sid.GetString();
+        // a fresh new chat owns no session yet; stray events from other chats must not land there
+        return value is null || value == _sessionId;
+    }
 
     private static string ReadStatus(JsonElement data)
     {
@@ -367,10 +683,21 @@ public partial class MainViewModel : ObservableObject
         {
             var name = error.TryGetProperty("name", out var n) ? n.GetString() : null;
             var message = error.TryGetProperty("message", out var m) ? m.GetString() : null;
+            if (name is { } n2 && n2.Contains("Abort", StringComparison.OrdinalIgnoreCase))
+                return "Turn stopped.";
             if (name is not null || message is not null)
                 return $"Error: {name ?? "opencode"}{(message is { Length: > 0 } ? $" — {message}" : "")}";
         }
         return "Session error.";
+    }
+
+    private void ClearTranscript()
+    {
+        _roleByMessage.Clear();
+        _createdByMessage.Clear();
+        _textByPart.Clear();
+        _toolByPart.Clear();
+        ChatItems.Clear();
     }
 
     private void AddNote(string text, bool error = false) => ChatItems.Add(new SystemNoteItem(text, error));

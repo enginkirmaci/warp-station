@@ -1,20 +1,26 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
-namespace ConceptChat.Models;
+namespace OpenCodeAgent.Models;
 
 public abstract class ChatItem : ObservableObject;
 
-public sealed class UserMessageItem(string text) : ChatItem
+public sealed class UserMessageItem(string text, DateTime? createdAt = null) : ChatItem
 {
     public string Text { get; } = text;
+    public DateTime? CreatedAt { get; } = createdAt;
+    public string TimeLabel => TimeLabels.Message(CreatedAt);
 }
 
-public sealed class AssistantTextItem : ChatItem
+public sealed class AssistantTextItem(DateTime? createdAt = null) : ChatItem
 {
     private string _text = "";
 
+    public DateTime? CreatedAt { get; } = createdAt;
+
     public string Text { get => _text; set => SetProperty(ref _text, value); }
+
+    public string TimeLabel => TimeLabels.Message(CreatedAt);
 }
 
 public sealed class ToolItem(string tool) : ChatItem
@@ -69,4 +75,30 @@ public partial class PermissionItem : ChatItem
 
     [RelayCommand]
     private Task Deny() => Respond(this, "reject");
+}
+
+public static class TimeLabels
+{
+    public static string Message(DateTime? at)
+    {
+        if (at is not { } value)
+            return "";
+        return value.Date == DateTime.Today
+            ? value.ToString("HH:mm")
+            : value.ToString("dd MMM HH:mm");
+    }
+
+    public static string Relative(DateTime at)
+    {
+        var span = DateTime.Now - at;
+        if (span.TotalMinutes < 1)
+            return "now";
+        if (span.TotalHours < 1)
+            return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1)
+            return $"{(int)span.TotalHours}h";
+        if (span.TotalDays < 7)
+            return $"{(int)span.TotalDays}d";
+        return at.ToString("yyyy-MM-dd");
+    }
 }

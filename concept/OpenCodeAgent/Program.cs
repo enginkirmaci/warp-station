@@ -1,6 +1,6 @@
 using Avalonia;
 
-namespace ConceptChat;
+namespace OpenCodeAgent;
 
 internal static class Program
 {

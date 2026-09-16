@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 
-namespace ConceptChat.Services;
+namespace OpenCodeAgent.Services;
 
 /// <summary>
 /// Spawns <c>opencode serve</c> for a working folder, or attaches when the chosen
@@ -16,6 +17,7 @@ public sealed class OpenCodeServer
         """{"$schema":"https://opencode.ai/config.json","permission":{"edit":"ask","bash":"ask","webfetch":"ask"}}""";
 
     private Process? _process;
+    private readonly List<PosixSignalRegistration> _signalRegistrations = [];
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
 
     public string BaseUrl { get; private set; } = "";
@@ -48,7 +50,16 @@ public sealed class OpenCodeServer
         psi.Environment.Remove("ELECTRON_RUN_AS_NODE");
 
         _process = Process.Start(psi) ?? throw new InvalidOperationException($"'{executable}' failed to start.");
-        // OnClosing is skipped on SIGTERM; the runtime raises ProcessExit for it.
+        // WM close binds send SIGTERM without a Wayland close event: OnClosing and
+        // ProcessExit never run, so the signal must be handled here or the serve
+        // child orphans (reproduced; ProcessExit is NOT raised on POSIX SIGTERM).
+        if (!OperatingSystem.IsWindows())
+        {
+            // the registrations MUST be kept referenced: a collected registration
+            // silently unregisters its handler
+            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGTERM, OnPosixSignal));
+            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGINT, OnPosixSignal));
+        }
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Stop();
         _process.OutputDataReceived += (_, e) => { if (e.Data is not null) log(e.Data); };
         _process.ErrorDataReceived += (_, e) => { if (e.Data is not null) log(e.Data); };
@@ -88,6 +99,13 @@ public sealed class OpenCodeServer
         }
     }
 
+    private void OnPosixSignal(PosixSignalContext context)
+    {
+        Stop();
+        context.Cancel = true;
+        Environment.Exit(0);
+    }
+
     public void Stop()
     {
         if (Spawned && _process is { HasExited: false } p)
@@ -96,9 +114,9 @@ public sealed class OpenCodeServer
             {
                 p.Kill(entireProcessTree: true);
             }
-            catch
+            catch (Exception ex)
             {
-                // already gone
+                Console.Error.WriteLine($"[server] kill failed: {ex.Message}");
             }
         }
         _process = null;

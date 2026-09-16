@@ -3,7 +3,11 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
-namespace ConceptChat.Services;
+namespace OpenCodeAgent.Services;
+
+public sealed record SessionInfo(string Id, string Title, string? Directory, DateTime UpdatedAt);
+
+public sealed record StoredMessage(string Id, string Role, long CreatedMs, List<JsonElement> Parts);
 
 /// <summary>
 /// REST + SSE calls against an opencode server (v1 surface verified live against
@@ -18,13 +22,63 @@ public sealed class OpenCodeApiClient(string baseUrl)
 
     public string BaseUrl { get; } = baseUrl.TrimEnd('/');
 
-    public async Task<string> CreateSessionAsync(string title, CancellationToken ct)
+    public async Task<SessionInfo> CreateSessionAsync(string title, CancellationToken ct)
     {
         using var resp = await PostAsync("/session", new { title }, TimeSpan.FromSeconds(30), ct);
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        return doc.RootElement.GetProperty("id").GetString()
-               ?? throw new InvalidOperationException("session response is missing id");
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return ReadSession(doc.RootElement);
     }
+
+    public async Task<List<SessionInfo>> ListSessionsAsync(CancellationToken ct)
+    {
+        using var resp = await Http.GetAsync($"{BaseUrl}/session", ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var sessions = new List<SessionInfo>();
+        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            foreach (var s in doc.RootElement.EnumerateArray())
+                sessions.Add(ReadSession(s));
+        return sessions;
+    }
+
+    public async Task<List<StoredMessage>> GetMessagesAsync(string sessionId, CancellationToken ct)
+    {
+        using var resp = await Http.GetAsync($"{BaseUrl}/session/{sessionId}/message", ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var messages = new List<StoredMessage>();
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return messages;
+        foreach (var m in doc.RootElement.EnumerateArray())
+        {
+            var info = m.TryGetProperty("info", out var i) ? i : default;
+            var id = info.TryGetProperty("id", out var mid) ? mid.GetString() : null;
+            var role = info.TryGetProperty("role", out var r) ? r.GetString() : null;
+            if (id is null || role is null)
+                continue;
+            var created = info.TryGetProperty("time", out var t) &&
+                          t.TryGetProperty("created", out var c) &&
+                          c.TryGetInt64(out var ms) ? ms : 0;
+            var parts = new List<JsonElement>();
+            if (m.TryGetProperty("parts", out var ps) && ps.ValueKind == JsonValueKind.Array)
+                parts.AddRange(ps.EnumerateArray().Select(p => p.Clone()));
+            messages.Add(new StoredMessage(id, role, created, parts));
+        }
+        return messages;
+    }
+
+    public async Task<SessionInfo> RenameSessionAsync(string sessionId, string title, CancellationToken ct)
+    {
+        using var resp = await SendAsync(HttpMethod.Patch, $"/session/{sessionId}", new { title }, TimeSpan.FromSeconds(15), ct);
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return ReadSession(doc.RootElement);
+    }
+
+    public Task DeleteSessionAsync(string sessionId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"/session/{sessionId}", null, TimeSpan.FromSeconds(15), ct);
+
+    public Task AbortAsync(string sessionId, CancellationToken ct) =>
+        PostAsync($"/session/{sessionId}/abort", new { }, TimeSpan.FromSeconds(15), ct);
 
     public Task SendMessageAsync(string sessionId, string text, string? model, CancellationToken ct)
     {
@@ -93,6 +147,19 @@ public sealed class OpenCodeApiClient(string baseUrl)
         }
     }
 
+    private static SessionInfo ReadSession(JsonElement s)
+    {
+        var id = s.TryGetProperty("id", out var i) ? i.GetString() ?? "" : "";
+        var title = s.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+        var directory = s.TryGetProperty("directory", out var d) ? d.GetString() : null;
+        var updated = s.TryGetProperty("time", out var time) &&
+                      time.TryGetProperty("updated", out var u) &&
+                      u.TryGetInt64(out var ms) ? FromMs(ms) : DateTime.MinValue;
+        return new SessionInfo(id, title, directory, updated);
+    }
+
+    private static DateTime FromMs(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).ToLocalTime().DateTime;
+
     // a ValueTuple would serialize as an ARRAY; the API needs the object shape
     private static object SplitModel(string model)
     {
@@ -102,14 +169,19 @@ public sealed class OpenCodeApiClient(string baseUrl)
             : new { providerID = model, modelID = "" };
     }
 
-    private async Task<HttpResponseMessage> PostAsync(string path, object body, TimeSpan timeout, CancellationToken ct)
+    private async Task<HttpResponseMessage> PostAsync(string path, object body, TimeSpan timeout, CancellationToken ct) =>
+        await SendAsync(HttpMethod.Post, path, body, timeout, ct);
+
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body, TimeSpan timeout, CancellationToken ct)
     {
         using var timeoutCts = timeout == Timeout.InfiniteTimeSpan
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts?.CancelAfter(timeout);
-        using var content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json");
-        var resp = await Http.PostAsync(BaseUrl + path, content, timeoutCts?.Token ?? ct);
+        using var req = new HttpRequestMessage(method, BaseUrl + path);
+        if (body is not null)
+            req.Content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json");
+        var resp = await Http.SendAsync(req, timeoutCts?.Token ?? ct);
         if (!resp.IsSuccessStatusCode)
         {
             var detail = Truncate(await resp.Content.ReadAsStringAsync(ct), 300);
