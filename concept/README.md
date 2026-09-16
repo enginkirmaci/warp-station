@@ -23,6 +23,12 @@ forced to "ask" (below).
   sessions are auto-titled from the first message.
 - Streaming replies with markdown rendering (headings, bold/italic, inline code,
   fenced code blocks, lists, links), selectable assistant text, timestamps.
+- Image attachments: paste from the clipboard (Ctrl+V in the input or the Paste
+  button), preview chips with remove, sent as `file` parts; images in the
+  transcript render as bubbles and can be copied back out.
+- Model picker with a variant combo (per-model `variants` from
+  `/config/providers`, e.g. reasoning effort low/high/max); `(default)` omits
+  the field.
 - Stop button aborts the running turn (`POST /session/{id}/abort`).
 - Context menu on any message: Copy.
 - Smart autoscroll: follows the stream only while you are at the bottom; a
@@ -38,6 +44,8 @@ forced to "ask" (below).
 - Chat: sessions come from `GET /session`, transcripts from `GET /session/{id}/message`;
   sending is `POST /session/{id}/message` (fire-and-forget) and the UI is driven purely
   by the `GET /event` SSE stream (`message.part.updated` carries the full text-so-far).
+  Images ride along as `{type:"file", mime, filename, url:"data:image/png;base64,…"}`
+  parts; the optional `variant` is a top-level body field next to `model`.
 - Permissions: `permission.asked` events become cards; a reply is
   `POST /session/{id}/permissions/{permissionId}` with `{"response":"once"|"always"|"reject"}`
   (v2 asks go to `POST /permission/{requestId}/reply`).

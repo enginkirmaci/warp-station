@@ -2,12 +2,15 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using OpenCodeAgent.Models;
 
 namespace OpenCodeAgent.Services;
 
 public sealed record SessionInfo(string Id, string Title, string? Directory, DateTime UpdatedAt);
 
 public sealed record StoredMessage(string Id, string Role, long CreatedMs, List<JsonElement> Parts);
+
+public sealed record ModelInfo(string Key, IReadOnlyList<string> Variants);
 
 /// <summary>
 /// REST + SSE calls against an opencode server (v1 surface verified live against
@@ -80,15 +83,24 @@ public sealed class OpenCodeApiClient(string baseUrl)
     public Task AbortAsync(string sessionId, CancellationToken ct) =>
         PostAsync($"/session/{sessionId}/abort", new { }, TimeSpan.FromSeconds(15), ct);
 
-    public Task SendMessageAsync(string sessionId, string text, string? model, CancellationToken ct)
+    public Task SendMessageAsync(string sessionId, string text, string? model, string? variant, IReadOnlyList<ImageAttachment> images, CancellationToken ct)
     {
-        object body = model is null
-            ? new { parts = new object[] { new { type = "text", text } } }
-            : new
+        var parts = new List<object>();
+        if (text.Length > 0)
+            parts.Add(new { type = "text", text });
+        foreach (var image in images)
+            parts.Add(new
             {
-                parts = new object[] { new { type = "text", text } },
-                model = SplitModel(model),
-            };
+                type = "file",
+                mime = "image/png",
+                filename = image.FileName,
+                url = "data:image/png;base64," + Convert.ToBase64String(image.Png),
+            });
+        var body = new Dictionary<string, object> { ["parts"] = parts };
+        if (model is not null)
+            body["model"] = SplitModel(model);
+        if (variant is not null)
+            body["variant"] = variant;
         return PostAsync($"/session/{sessionId}/message", body, Timeout.InfiniteTimeSpan, ct);
     }
 
@@ -98,12 +110,12 @@ public sealed class OpenCodeApiClient(string baseUrl)
     public Task ReplyV2Async(string requestId, string reply, CancellationToken ct) =>
         PostAsync($"/permission/{requestId}/reply", new { reply }, TimeSpan.FromSeconds(15), ct);
 
-    public async Task<List<string>> GetModelsAsync(CancellationToken ct)
+    public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct)
     {
         using var resp = await Http.GetAsync($"{BaseUrl}/config/providers", ct);
         resp.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        var models = new List<string>();
+        var models = new List<ModelInfo>();
         if (doc.RootElement.TryGetProperty("providers", out var providers) && providers.ValueKind == JsonValueKind.Array)
         {
             foreach (var provider in providers.EnumerateArray())
@@ -112,7 +124,15 @@ public sealed class OpenCodeApiClient(string baseUrl)
                 if (pid is null || !provider.TryGetProperty("models", out var modelsMap) ||
                     modelsMap.ValueKind != JsonValueKind.Object)
                     continue;
-                models.AddRange(modelsMap.EnumerateObject().Select(m => $"{pid}/{m.Name}"));
+                foreach (var m in modelsMap.EnumerateObject())
+                {
+                    var variants = new List<string>();
+                    if (m.Value.TryGetProperty("variants", out var v) && v.ValueKind == JsonValueKind.Object)
+                        foreach (var name in v.EnumerateObject())
+                            variants.Add(name.Name);
+                    variants.Sort(StringComparer.OrdinalIgnoreCase);
+                    models.Add(new ModelInfo($"{pid}/{m.Name}", variants));
+                }
             }
         }
         return models;

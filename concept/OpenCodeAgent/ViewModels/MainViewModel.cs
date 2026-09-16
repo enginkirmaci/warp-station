@@ -12,6 +12,7 @@ namespace OpenCodeAgent.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private const string DefaultModelEntry = "(server default)";
+    private const string DefaultVariantEntry = "(default)";
 
     private readonly OpenCodeServer _server = new();
     private OpenCodeApiClient? _api;
@@ -22,22 +23,31 @@ public partial class MainViewModel : ObservableObject
     private readonly Dictionary<string, long> _createdByMessage = new();
     private readonly Dictionary<string, AssistantTextItem> _textByPart = new();
     private readonly Dictionary<string, ToolItem> _toolByPart = new();
+    private readonly Dictionary<string, ImageItem> _imageByPart = new();
+    private Dictionary<string, List<string>> _variantsByModel = new();
 
     public ObservableCollection<object> ChatItems { get; } = [];
     public ObservableCollection<SessionItem> Sessions { get; } = [];
     public ObservableCollection<string> Models { get; } = [DefaultModelEntry];
+    public ObservableCollection<string> Variants { get; } = [];
+    public ObservableCollection<AttachmentItem> Attachments { get; } = [];
 
     public bool HasMessages => ChatItems.Count > 0;
     public bool HasSessionsHint => IsServerRunning && Sessions.Count == 0;
+    public bool HasAttachments => Attachments.Count > 0;
+    public bool HasVariants => Variants.Count > 1;
 
     public MainViewModel()
     {
         ChatItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
         Sessions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSessionsHint));
+        Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasAttachments));
+        Variants.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasVariants));
     }
 
     [ObservableProperty] private SessionItem? _selectedSession;
     [ObservableProperty] private string? _selectedModel = DefaultModelEntry;
+    [ObservableProperty] private string? _selectedVariant;
     [ObservableProperty] private string _statusText = "Server stopped";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isServerRunning;
@@ -46,6 +56,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _input = "";
 
     partial void OnIsServerRunningChanged(bool value) => OnPropertyChanged(nameof(HasSessionsHint));
+
+    partial void OnSelectedModelChanged(string? value) => RefreshVariants();
+
+    private void RefreshVariants()
+    {
+        Variants.Clear();
+        Variants.Add(DefaultVariantEntry);
+        if (SelectedModel is { } model && _variantsByModel.TryGetValue(model, out var variants))
+            foreach (var variant in variants)
+                Variants.Add(variant);
+        SelectedVariant = DefaultVariantEntry;
+    }
 
     [RelayCommand]
     private async Task StartAsync()
@@ -143,7 +165,7 @@ public partial class MainViewModel : ObservableObject
     private async Task SendAsync()
     {
         var text = Input.Trim();
-        if (text.Length == 0 || !IsServerRunning || _api is null || IsBusy)
+        if ((text.Length == 0 && Attachments.Count == 0) || !IsServerRunning || _api is null || IsBusy)
             return;
 
         try
@@ -156,22 +178,41 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        var images = Attachments.Select(a => new ImageAttachment(a.FileName, a.Png)).ToList();
+        Attachments.Clear();
         Input = "";
         ChatItems.Add(new UserMessageItem(text));
+        foreach (var image in images)
+            ChatItems.Add(new ImageItem(image.FileName, image.Png));
         IsBusy = true;
-        AutoTitle(text);
+        AutoTitle(text.Length > 0 ? text : images[0].FileName);
         var model = SelectedModel is { } m && m != DefaultModelEntry ? m : null;
+        var variant = SelectedVariant is { } v && v != DefaultVariantEntry ? v : null;
         _ = Task.Run(async () =>
         {
             try
             {
-                await _api!.SendMessageAsync(_sessionId!, text, model, CancellationToken.None);
+                await _api!.SendMessageAsync(_sessionId!, text, model, variant, images, CancellationToken.None);
             }
             catch (Exception ex)
             {
                 PostNote($"Message failed: {ex.Message}", error: true);
             }
         });
+    }
+
+    public void AttachImage(byte[] png)
+    {
+        Attachments.Add(new AttachmentItem($"paste-{Attachments.Count + 1}.png", png));
+    }
+
+    public void AppendInput(string text) => Input = Input.Length == 0 ? text : Input + text;
+
+    [RelayCommand]
+    private void RemoveAttachment(AttachmentItem? attachment)
+    {
+        if (attachment is not null)
+            Attachments.Remove(attachment);
     }
 
     [RelayCommand]
@@ -399,9 +440,11 @@ public partial class MainViewModel : ObservableObject
             {
                 Models.Clear();
                 Models.Add(DefaultModelEntry);
+                _variantsByModel = models.ToDictionary(m => m.Key, m => m.Variants.ToList());
                 foreach (var m in models)
-                    Models.Add(m);
+                    Models.Add(m.Key);
                 SelectedModel ??= DefaultModelEntry;
+                RefreshVariants();
             });
         }
         catch
@@ -525,6 +568,18 @@ public partial class MainViewModel : ObservableObject
                 if (part.TryGetProperty("state", out var state))
                     ApplyToolState(state, toolItem);
                 break;
+            case "file":
+                if (!_imageByPart.ContainsKey(id) && part.TryGetProperty("url", out var url) &&
+                    part.TryGetProperty("filename", out var fn))
+                {
+                    var item = ImageItem.FromDataUrl(url.GetString(), fn.GetString() ?? "image.png", CreatedAtFor(messageId));
+                    if (item is not null)
+                    {
+                        _imageByPart[id] = item;
+                        ChatItems.Add(item);
+                    }
+                }
+                break;
         }
     }
 
@@ -561,6 +616,22 @@ public partial class MainViewModel : ObservableObject
                             ApplyToolState(state, toolItem);
                         _toolByPart[id] = toolItem;
                         ChatItems.Add(toolItem);
+                        break;
+                    case "file":
+                        if (part.TryGetProperty("url", out var url))
+                        {
+                            var fileName = part.TryGetProperty("filename", out var fn) ? fn.GetString() ?? "image.png" : "image.png";
+                            var item = ImageItem.FromDataUrl(url.GetString(), fileName, createdAt);
+                            if (item is not null)
+                            {
+                                _imageByPart[id] = item;
+                                ChatItems.Add(item);
+                            }
+                            else
+                            {
+                                ChatItems.Add(new SystemNoteItem($"Attachment: {fileName}"));
+                            }
+                        }
                         break;
                 }
             }
@@ -697,6 +768,7 @@ public partial class MainViewModel : ObservableObject
         _createdByMessage.Clear();
         _textByPart.Clear();
         _toolByPart.Clear();
+        _imageByPart.Clear();
         ChatItems.Clear();
     }
 

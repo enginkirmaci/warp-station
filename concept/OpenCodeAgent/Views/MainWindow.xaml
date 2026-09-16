@@ -244,6 +244,34 @@
 										</StackPanel>
 									</DataTemplate>
 
+									<DataTemplate DataType="{x:Type m:ImageItem}">
+										<Border
+											HorizontalAlignment="Left"
+											CornerRadius="10"
+											Background="#FF23262E"
+											Padding="8"
+											MaxWidth="380"
+											Margin="0,4,40,4">
+											<Border.ContextMenu>
+												<ContextMenu>
+													<MenuItem Header="Copy image" Click="OnCopyMessage" />
+												</ContextMenu>
+											</Border.ContextMenu>
+											<StackPanel Spacing="3">
+												<Image
+													Source="{Binding Preview}"
+													MaxWidth="360"
+													MaxHeight="240"
+													Stretch="Uniform"
+													HorizontalAlignment="Left" />
+												<StackPanel Orientation="Horizontal" Spacing="6">
+													<TextBlock Text="{Binding FileName}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" />
+													<TextBlock Classes="msg-time" Text="{Binding TimeLabel}" VerticalAlignment="Center" />
+												</StackPanel>
+											</StackPanel>
+										</Border>
+									</DataTemplate>
+
 									<DataTemplate DataType="{x:Type m:PermissionItem}">
 										<Border
 											HorizontalAlignment="Left"
@@ -330,36 +358,76 @@
 				BorderBrush="#FF2E333F"
 				BorderThickness="1"
 				Padding="8">
-				<Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-					<ComboBox
-						MinWidth="230"
-						ItemsSource="{Binding Models}"
-						SelectedItem="{Binding SelectedModel}"
-						VerticalAlignment="Top"
-						ToolTip.Tip="Model for the next message" />
-					<TextBox
-						x:Name="InputBox"
-						Grid.Column="1"
-						Text="{Binding Input}"
-						PlaceholderText="Ask opencode…  (Enter to send, Shift+Enter for a new line)"
-						AcceptsReturn="True"
-						VerticalContentAlignment="Top"
-						MinHeight="52"
-						IsEnabled="{Binding IsServerRunning}" />
-					<StackPanel Grid.Column="2" VerticalAlignment="Top">
-						<Button
-							Content="Send"
-							Command="{Binding SendCommand}"
-							IsDefault="True"
-							IsVisible="{Binding !IsBusy}"
+				<StackPanel Spacing="6">
+					<ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+						<ItemsControl.ItemsPanel>
+							<ItemsPanelTemplate>
+								<StackPanel Orientation="Horizontal" Spacing="6" />
+							</ItemsPanelTemplate>
+						</ItemsControl.ItemsPanel>
+						<ItemsControl.ItemTemplate>
+							<DataTemplate>
+								<Border CornerRadius="8" Background="#FF262B36" Padding="4">
+									<StackPanel>
+										<Image Source="{Binding Preview}" Width="56" Height="56" Stretch="Uniform" />
+										<Button
+											Classes="icon"
+											Content="✕"
+											FontSize="10"
+											HorizontalAlignment="Center"
+											Command="{Binding $parent[ItemsControl].DataContext.RemoveAttachmentCommand}"
+											CommandParameter="{Binding}"
+											ToolTip.Tip="Remove attachment" />
+									</StackPanel>
+								</Border>
+							</DataTemplate>
+						</ItemsControl.ItemTemplate>
+					</ItemsControl>
+					<Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+						<ComboBox
+							MinWidth="210"
+							ItemsSource="{Binding Models}"
+							SelectedItem="{Binding SelectedModel}"
+							VerticalAlignment="Top"
+							ToolTip.Tip="Model for the next message" />
+						<ComboBox
+							Grid.Column="1"
+							MinWidth="96"
+							ItemsSource="{Binding Variants}"
+							SelectedItem="{Binding SelectedVariant}"
+							VerticalAlignment="Top"
+							IsEnabled="{Binding HasVariants}"
+							ToolTip.Tip="Model variant (e.g. reasoning effort)" />
+						<TextBox
+							x:Name="InputBox"
+							Grid.Column="2"
+							Text="{Binding Input}"
+							PlaceholderText="Ask opencode…  (Enter to send, Shift+Enter for a new line)"
+							AcceptsReturn="True"
+							VerticalContentAlignment="Top"
+							MinHeight="52"
 							IsEnabled="{Binding IsServerRunning}" />
-						<Button
-							Content="Stop"
-							Command="{Binding AbortCommand}"
-							IsVisible="{Binding IsBusy}"
-							IsEnabled="{Binding IsServerRunning}" />
-					</StackPanel>
-				</Grid>
+						<StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+							<Button
+								Classes="icon"
+								Content="Paste"
+								Click="OnPasteClicked"
+								VerticalAlignment="Top"
+								ToolTip.Tip="Paste an image from the clipboard (Ctrl+V in the box works too)" />
+							<Button
+								Content="Send"
+								Command="{Binding SendCommand}"
+								IsDefault="True"
+								IsVisible="{Binding !IsBusy}"
+								IsEnabled="{Binding IsServerRunning}" />
+							<Button
+								Content="Stop"
+								Command="{Binding AbortCommand}"
+								IsVisible="{Binding IsBusy}"
+								IsEnabled="{Binding IsServerRunning}" />
+						</StackPanel>
+					</Grid>
+				</StackPanel>
 			</Border>
 		</Grid>
 	</Grid>
