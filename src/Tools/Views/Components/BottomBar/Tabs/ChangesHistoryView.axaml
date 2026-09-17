@@ -104,7 +104,7 @@
                                         Focusable="True"
                                         KeyDown="OnHistoryRowKeyDown"
                                         Tapped="OnHistoryRowTapped"
-                                        ToolTip.Tip="Open this commit's details">
+                                        ToolTip.Tip="{Binding RowTooltip}">
                                         <!--  Author-initials avatar: tinted circle (the
                                               tint is a nested layer so the initials
                                               keep full opacity).  -->
@@ -164,7 +164,7 @@
                                             Classes="detail-link"
                                             Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).CopyCommitHashCommand}"
                                             CommandParameter="{Binding Commit}"
-                                            ToolTip.Tip="Copy commit hash">
+                                            ToolTip.Tip="{Binding Commit.ShortHash, StringFormat='Copy hash {0}'}">
                                             <TextBlock
                                                 Classes="mono"
                                                 Foreground="{DynamicResource MutedForegroundBrush}"
@@ -180,7 +180,7 @@
                                             VerticalAlignment="Center"
                                             Fill="{DynamicResource WarningAccentBrush}"
                                             IsVisible="{Binding IsUnpushed}"
-                                            ToolTip.Tip="Not pushed yet" />
+                                            ToolTip.Tip="{Binding Commit.ShortHash, StringFormat='{}{0} — not pushed yet'}" />
                                         <!--  box sized to the chevron's ink aspect
                                               (12x7.4): 16x10 keeps it centered  -->
                                         <Path

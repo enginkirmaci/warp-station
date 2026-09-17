@@ -13,9 +13,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // fully manual start: the server is only reached via the Start button
             desktop.MainWindow = new MainWindow();
-            if (desktop.MainWindow is MainWindow mainWindow)
-                _ = mainWindow.InitializeAsync();
         }
         base.OnFrameworkInitializationCompleted();
     }

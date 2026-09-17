@@ -212,6 +212,7 @@
                                                 FontSize="13"
                                                 Foreground="{DynamicResource TitleForegroundBrush}"
                                                 Text="{Binding DefinitionName}"
+                                                ToolTip.Tip="{Binding DefinitionName}"
                                                 TextTrimming="CharacterEllipsis" />
                                             <TextBlock
                                                 VerticalAlignment="Center"

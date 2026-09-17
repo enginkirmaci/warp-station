@@ -8,9 +8,13 @@ namespace OpenCodeAgent.Services;
 
 public sealed record SessionInfo(string Id, string Title, string? Directory, DateTime UpdatedAt);
 
-public sealed record StoredMessage(string Id, string Role, long CreatedMs, List<JsonElement> Parts);
+public sealed record StoredMessage(string Id, string Role, long CreatedMs, JsonElement Info, List<JsonElement> Parts);
 
-public sealed record ModelInfo(string Key, IReadOnlyList<string> Variants);
+public sealed record ModelInfo(string Key, IReadOnlyList<string> Variants, int ContextLimit);
+
+public sealed record AgentInfo(string Name, string Description, string Mode, bool Hidden);
+
+public sealed record CommandInfo(string Name, string Description);
 
 /// <summary>
 /// REST + SSE calls against an opencode server (v1 surface verified live against
@@ -65,7 +69,7 @@ public sealed class OpenCodeApiClient(string baseUrl)
             var parts = new List<JsonElement>();
             if (m.TryGetProperty("parts", out var ps) && ps.ValueKind == JsonValueKind.Array)
                 parts.AddRange(ps.EnumerateArray().Select(p => p.Clone()));
-            messages.Add(new StoredMessage(id, role, created, parts));
+            messages.Add(new StoredMessage(id, role, created, info.Clone(), parts));
         }
         return messages;
     }
@@ -83,24 +87,26 @@ public sealed class OpenCodeApiClient(string baseUrl)
     public Task AbortAsync(string sessionId, CancellationToken ct) =>
         PostAsync($"/session/{sessionId}/abort", new { }, TimeSpan.FromSeconds(15), ct);
 
-    public Task SendMessageAsync(string sessionId, string text, string? model, string? variant, IReadOnlyList<ImageAttachment> images, CancellationToken ct)
+    public Task SendMessageAsync(string sessionId, string text, string? model, string? variant, string? agent, IReadOnlyList<FileAttachment> attachments, CancellationToken ct)
     {
         var parts = new List<object>();
         if (text.Length > 0)
             parts.Add(new { type = "text", text });
-        foreach (var image in images)
+        foreach (var attachment in attachments)
             parts.Add(new
             {
                 type = "file",
-                mime = "image/png",
-                filename = image.FileName,
-                url = "data:image/png;base64," + Convert.ToBase64String(image.Png),
+                mime = attachment.Mime,
+                filename = attachment.FileName,
+                url = attachment.DataUrl,
             });
         var body = new Dictionary<string, object> { ["parts"] = parts };
         if (model is not null)
             body["model"] = SplitModel(model);
         if (variant is not null)
             body["variant"] = variant;
+        if (agent is not null)
+            body["agent"] = agent;
         return PostAsync($"/session/{sessionId}/message", body, Timeout.InfiniteTimeSpan, ct);
     }
 
@@ -109,6 +115,86 @@ public sealed class OpenCodeApiClient(string baseUrl)
 
     public Task ReplyV2Async(string requestId, string reply, CancellationToken ct) =>
         PostAsync($"/permission/{requestId}/reply", new { reply }, TimeSpan.FromSeconds(15), ct);
+
+    public Task SummarizeAsync(string sessionId, string model, CancellationToken ct)
+    {
+        var split = model.Split('/', 2);
+        return PostAsync($"/session/{sessionId}/summarize", new
+        {
+            providerID = split.Length == 2 ? split[0] : model,
+            modelID = split.Length == 2 ? split[1] : "",
+        }, TimeSpan.FromSeconds(30), ct);
+    }
+
+    public Task RevertAsync(string sessionId, string messageId, CancellationToken ct) =>
+        PostAsync($"/session/{sessionId}/revert", new { messageID = messageId }, TimeSpan.FromSeconds(60), ct);
+
+    public Task UnrevertAsync(string sessionId, CancellationToken ct) =>
+        PostAsync($"/session/{sessionId}/unrevert", new { }, TimeSpan.FromSeconds(60), ct);
+
+    public Task RunCommandAsync(string sessionId, string command, string arguments, string? agent, string? model, CancellationToken ct)
+    {
+        var body = new Dictionary<string, object> { ["command"] = command, ["arguments"] = arguments };
+        if (agent is not null)
+            body["agent"] = agent;
+        if (model is not null)
+            body["model"] = SplitModel(model);
+        return PostAsync($"/session/{sessionId}/command", body, Timeout.InfiniteTimeSpan, ct);
+    }
+
+    /// <summary>Shares the session; returns the public URL, or null when already shared without a URL.</summary>
+    public async Task<string?> ShareAsync(string sessionId, CancellationToken ct)
+    {
+        using var resp = await PostAsync($"/session/{sessionId}/share", new { }, TimeSpan.FromSeconds(30), ct);
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return doc.RootElement.TryGetProperty("share", out var share) &&
+               share.TryGetProperty("url", out var url)
+            ? url.GetString()
+            : null;
+    }
+
+    public Task UnshareAsync(string sessionId, CancellationToken ct) =>
+        SendAsync(HttpMethod.Delete, $"/session/{sessionId}/share", null, TimeSpan.FromSeconds(30), ct);
+
+    public async Task<List<AgentInfo>> GetAgentsAsync(CancellationToken ct)
+    {
+        using var resp = await Http.GetAsync($"{BaseUrl}/agent", ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var agents = new List<AgentInfo>();
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return agents;
+        foreach (var a in doc.RootElement.EnumerateArray())
+        {
+            var name = a.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (name is null)
+                continue;
+            agents.Add(new AgentInfo(
+                name,
+                a.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "",
+                a.TryGetProperty("mode", out var m) ? m.GetString() ?? "" : "",
+                a.TryGetProperty("hidden", out var h) && h.ValueKind == JsonValueKind.True));
+        }
+        return agents;
+    }
+
+    public async Task<List<CommandInfo>> GetCommandsAsync(CancellationToken ct)
+    {
+        using var resp = await Http.GetAsync($"{BaseUrl}/command", ct);
+        resp.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var commands = new List<CommandInfo>();
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return commands;
+        foreach (var c in doc.RootElement.EnumerateArray())
+        {
+            var name = c.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (name is null)
+                continue;
+            commands.Add(new CommandInfo(name, c.TryGetProperty("description", out var d) ? d.GetString() ?? "" : ""));
+        }
+        return commands;
+    }
 
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct)
     {
@@ -131,7 +217,12 @@ public sealed class OpenCodeApiClient(string baseUrl)
                         foreach (var name in v.EnumerateObject())
                             variants.Add(name.Name);
                     variants.Sort(StringComparer.OrdinalIgnoreCase);
-                    models.Add(new ModelInfo($"{pid}/{m.Name}", variants));
+                    var contextLimit = m.Value.TryGetProperty("limit", out var lim) &&
+                                       lim.TryGetProperty("context", out var ctx) &&
+                                       ctx.TryGetInt32(out var limit)
+                        ? limit
+                        : 0;
+                    models.Add(new ModelInfo($"{pid}/{m.Name}", variants, contextLimit));
                 }
             }
         }
@@ -204,7 +295,7 @@ public sealed class OpenCodeApiClient(string baseUrl)
         var resp = await Http.SendAsync(req, timeoutCts?.Token ?? ct);
         if (!resp.IsSuccessStatusCode)
         {
-            var detail = Truncate(await resp.Content.ReadAsStringAsync(ct), 300);
+            var detail = Truncate(await resp.Content.ReadAsStringAsync(ct), 1000);
             throw new HttpRequestException($"{(int)resp.StatusCode} {resp.ReasonPhrase}{(detail.Length > 0 ? $" — {detail}" : "")}");
         }
         return resp;

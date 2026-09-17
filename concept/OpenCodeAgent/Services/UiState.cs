@@ -4,19 +4,26 @@ using System.Text.Json;
 namespace OpenCodeAgent.Services;
 
 /// <summary>
-/// Client-side UI state (pins, last selection) — the opencode server keeps
-/// sessions but knows nothing about pins or which chat was open. One small
+/// Client-side UI state (workspaces, pins, last selection) — the opencode server keeps
+/// sessions but knows nothing about workspaces, pins or which chat was open. One small
 /// JSON file under the user's application-data folder.
 /// </summary>
 public sealed class UiState
 {
     public Dictionary<string, bool> Pins { get; set; } = new();
-    public string? Folder { get; set; }
-    public string? Port { get; set; }
+
+    /// <summary>Added workspace folders; each tracks only the sessions this app created.</summary>
+    public List<WorkspaceState> Workspaces { get; set; } = new();
+    public string? ActiveWorkspace { get; set; }
     public string? Model { get; set; }
     public string? Variant { get; set; }
-    public string? ActiveSession { get; set; }
-    public bool AutoAllow { get; set; }
+    public string? Agent { get; set; }
+
+    /// <summary>Legacy single working folder; read once to seed the first workspace, then ignored.</summary>
+    public string? Folder { get; set; }
+
+    /// <summary>Null = never chosen; auto-allow defaults to on (always-allow) until explicitly unticked.</summary>
+    public bool? AutoAllowAlways { get; set; }
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -49,4 +56,12 @@ public sealed class UiState
             // a failed state write is not worth interrupting the chat
         }
     }
+}
+
+/// <summary>One workspace folder plus the ids of the sessions created from this app under it.</summary>
+public sealed class WorkspaceState
+{
+    public string Path { get; set; } = "";
+    public List<string> Sessions { get; set; } = new();
+    public string? ActiveSession { get; set; }
 }

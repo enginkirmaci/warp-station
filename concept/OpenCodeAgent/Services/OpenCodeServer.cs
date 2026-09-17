@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 namespace OpenCodeAgent.Services;
@@ -89,6 +91,21 @@ public sealed class OpenCodeServer
 
         Stop();
         throw new TimeoutException("opencode serve did not become healthy within 25 s.");
+    }
+
+    /// <summary>Every workspace runs its own serve instance, so each start grabs a free port.</summary>
+    public static int FindFreePort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken ct)

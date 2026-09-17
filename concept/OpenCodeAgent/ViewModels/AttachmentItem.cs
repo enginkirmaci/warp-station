@@ -4,17 +4,29 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace OpenCodeAgent.ViewModels;
 
-public sealed class AttachmentItem(string fileName, byte[] png) : ObservableObject
+public sealed class AttachmentItem(string fileName, string mime, byte[] data) : ObservableObject
 {
     public string FileName { get; } = fileName;
 
-    public byte[] Png { get; } = png;
+    public string Mime { get; } = mime;
 
-    public Bitmap Preview { get; } = Decode(png);
+    public byte[] Data { get; } = data;
 
-    private static Bitmap Decode(byte[] png)
+    public bool IsImage => Mime.StartsWith("image/", StringComparison.Ordinal);
+
+    /// <summary>Null for non-image attachments, which render as a file chip instead.</summary>
+    public Bitmap? Preview { get; } = mime.StartsWith("image/", StringComparison.Ordinal) ? Decode(data) : null;
+
+    private static Bitmap? Decode(byte[] data)
     {
-        using var ms = new MemoryStream(png);
-        return Bitmap.DecodeToWidth(ms, 96);
+        try
+        {
+            using var ms = new MemoryStream(data);
+            return Bitmap.DecodeToWidth(ms, 96);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

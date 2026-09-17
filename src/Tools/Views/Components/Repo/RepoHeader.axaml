@@ -63,7 +63,7 @@
                     VerticalAlignment="Center"
                     Classes="icon"
                     Command="{Binding ToggleSelectedRepoFavoriteCommand}"
-                    ToolTip.Tip="Toggle favorite">
+                    ToolTip.Tip="{Binding SelectedRepo.FavoriteTooltip}">
                     <Path
                         Width="18"
                         Height="18"
@@ -78,6 +78,7 @@
                     FontWeight="Bold"
                     Foreground="{DynamicResource TitleForegroundBrush}"
                     Text="{Binding SelectedRepoName}"
+                    ToolTip.Tip="{Binding SelectedRepoName}"
                     TextTrimming="CharacterEllipsis" />
                 <!--  Vertical hairline between the name and the branch pill —
                       same divider language as the toolbar, sized to the title
@@ -98,7 +99,7 @@
                     VerticalAlignment="Center"
                     Classes="detail-link"
                     Command="{Binding CopyBranchNameCommand}"
-                    ToolTip.Tip="Copy branch name"
+                    ToolTip.Tip="{Binding SelectedRepoBranchName, StringFormat='Copy branch name ({0})'}"
                     IsVisible="{Binding HasSelectedRepoBranchName}">
                     <Border
                         Background="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}, ConverterParameter=bg}"

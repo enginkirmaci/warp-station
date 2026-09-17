@@ -485,7 +485,7 @@
                                                                                 Classes="icon"
                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).ToggleFavoriteCommand}"
                                                                                 CommandParameter="{Binding}"
-                                                                                ToolTip.Tip="Toggle favorite">
+                                                                                ToolTip.Tip="{Binding FavoriteTooltip}">
                                                                                 <Path
                                                                                         Width="16"
                                                                                         Height="16"
@@ -715,8 +715,14 @@
                                                                                         Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenChangesCommand}"
                                                                                         CommandParameter="{Binding}"
                                                                                         Cursor="Hand"
-                                                                                        IsVisible="{Binding GitStatusLoaded}"
-                                                                                        ToolTip.Tip="Open the changes panel">
+                                                                                        IsVisible="{Binding GitStatusLoaded}">
+                                                                                        <ToolTip.Tip>
+                                                                                                <MultiBinding Converter="{StaticResource GitCountsTooltipConverter}">
+                                                                                                        <Binding Path="GitModifiedCount" />
+                                                                                                        <Binding Path="GitToPushCount" />
+                                                                                                        <Binding Path="GitToPullCount" />
+                                                                                                </MultiBinding>
+                                                                                        </ToolTip.Tip>
                                                                                                 <Border
                                                                                                         Classes="tint-chip"
                                                                                                         VerticalAlignment="Center"
@@ -833,7 +839,7 @@
                                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenPullRequestsCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding HasGitHubPullRequests}"
-                                                                                                ToolTip.Tip="Open pull requests — click for details">
+                                                                                                ToolTip.Tip="Open pull requests">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                                                         <Path
                                                                                                                 Width="13"
@@ -857,7 +863,7 @@
                                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenIssuesCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding HasGitHubIssues}"
-                                                                                                ToolTip.Tip="Open issues — click for details">
+                                                                                                ToolTip.Tip="Open issues">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                                                         <Path
                                                                                                                 Width="13"
@@ -943,7 +949,7 @@
                                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding HasAzureDevOpsPullRequests}"
-                                                                                                ToolTip.Tip="Open pull requests — click for details">
+                                                                                                ToolTip.Tip="Open pull requests">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                                                         <Path
                                                                                                                 Width="13"
@@ -967,7 +973,7 @@
                                                                                                 Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenAzureDevOpsDetailsCommand}"
                                                                                                 CommandParameter="{Binding}"
                                                                                                 IsVisible="{Binding HasAzureDevOpsWorkItems}"
-                                                                                                ToolTip.Tip="Open work items — click for details">
+                                                                                                ToolTip.Tip="Open work items">
                                                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                                                         <Path
                                                                                                                 Width="13"

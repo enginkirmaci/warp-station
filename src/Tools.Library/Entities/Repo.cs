@@ -48,7 +48,10 @@ public partial class Repo : ObservableObject
         if (Tags.Any(t => string.Equals(t.Name, trimmed, StringComparison.OrdinalIgnoreCase))) return;
         Tags.Add(new RepoTag(this, trimmed));
         if (string.Equals(trimmed, FavoritesTag, StringComparison.OrdinalIgnoreCase))
+        {
             OnPropertyChanged(nameof(IsFavorite));
+            OnPropertyChanged(nameof(FavoriteTooltip));
+        }
     }
 
     /// <summary>
@@ -64,7 +67,10 @@ public partial class Repo : ObservableObject
         foreach (var tag in toRemove)
             Tags.Remove(tag);
         if (toRemove.Count > 0 && string.Equals(name, FavoritesTag, StringComparison.OrdinalIgnoreCase))
+        {
             OnPropertyChanged(nameof(IsFavorite));
+            OnPropertyChanged(nameof(FavoriteTooltip));
+        }
         return toRemove.Count > 0;
     }
 
@@ -89,6 +95,12 @@ public partial class Repo : ObservableObject
     /// </summary>
     public bool IsFavorite
         => Tags.Any(t => string.Equals(t.Name, FavoritesTag, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The star's tooltip, tied to <see cref="IsFavorite"/>'s state — raised at the
+    /// same two sites so the binding flips with the star.
+    /// </summary>
+    public string FavoriteTooltip => IsFavorite ? "Remove from favorites" : "Add to favorites";
 
     /// <summary>
     /// The current branch name reported by the local git status check, pushed by

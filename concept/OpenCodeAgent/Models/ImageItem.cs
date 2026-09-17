@@ -1,6 +1,10 @@
 namespace OpenCodeAgent.Models;
 
-public sealed record ImageAttachment(string FileName, byte[] Png);
+public sealed record FileAttachment(string FileName, string Mime, byte[] Data)
+{
+    public string DataUrl => "data:" + Mime + ";base64," + Convert.ToBase64String(Data);
+    public bool IsImage => Mime.StartsWith("image/", StringComparison.Ordinal);
+}
 
 public sealed class ImageItem(string fileName, byte[] png, DateTime? createdAt = null) : ChatItem
 {

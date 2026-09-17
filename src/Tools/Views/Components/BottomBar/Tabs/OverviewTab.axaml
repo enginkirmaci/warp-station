@@ -122,7 +122,8 @@
                                     <lib:TailTrimmingTextBlock
                                         VerticalAlignment="Center"
                                         Foreground="{DynamicResource BodyForegroundBrush}"
-                                        FullText="{Binding SelectedRepoGitHubDisplayUrl}" />
+                                        FullText="{Binding SelectedRepoGitHubDisplayUrl}"
+                                        ToolTip.Tip="{Binding SelectedRepoGitHubDisplayUrl, TargetNullValue=''}" />
                                     <Path
                                         Grid.Column="1"
                                         Width="12"
@@ -184,6 +185,7 @@
                                         Grid.Column="1"
                                         Classes="detail-value"
                                         Text="{Binding SelectedRepoDetails?.Owner}"
+                                        ToolTip.Tip="{Binding SelectedRepoDetails?.Owner, TargetNullValue=''}"
                                         TextTrimming="CharacterEllipsis" />
                                 </Grid>
                                 <Grid

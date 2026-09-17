@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using Avalonia.Controls;
@@ -8,8 +7,10 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
-using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Avalonia.Controls.Primitives;
 using OpenCodeAgent.Models;
+using OpenCodeAgent.Services;
 using OpenCodeAgent.ViewModels;
 using SukiUI.Controls;
 
@@ -32,44 +33,28 @@ public partial class MainWindow : SukiWindow
         this.FindControl<TextBox>("InputBox")?
             .AddHandler(InputElement.KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
         if (_chatScroll is not null)
-        {
-            _chatScroll.ScrollChanged += (_, _) => UpdateAtBottom();
-            _vm.ChatItems.CollectionChanged += (_, e) =>
-            {
-                if (e.NewItems is not null)
-                    foreach (ChatItem item in e.NewItems)
-                        item.PropertyChanged += OnItemChanged;
-                Dispatcher.UIThread.Post(StickToBottom);
-            };
-        }
-        _vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MainViewModel.IsBusy))
-                Dispatcher.UIThread.Post(StickToBottom);
-        };
+            _chatScroll.ScrollChanged += OnChatScrollChanged;
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    /// <summary>Auto-starts the server and restores the last open chat.</summary>
-    public Task InitializeAsync() => _vm.InitializeAsync();
-
-    // streaming text grows the transcript without CollectionChanged; follow it only at the bottom
-    private void OnItemChanged(object? sender, PropertyChangedEventArgs e) => Dispatcher.UIThread.Post(StickToBottom);
-
-    private void UpdateAtBottom()
+    // ScrollChanged carries the post-layout extent, so pinning is decided entirely here:
+    // extent growth under a pinned view is streaming content arriving, never a scroll-up.
+    private void OnChatScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (_chatScroll is null)
             return;
-        _atBottom = _chatScroll.Offset.Y + _chatScroll.Viewport.Height >= _chatScroll.Extent.Height - 32;
+        if (Math.Abs(e.OffsetDelta.Y) > 0.5)
+        {
+            // real offset moves: user scrolling, or the re-stick below landing at the bottom
+            _atBottom = _chatScroll.Offset.Y + _chatScroll.Viewport.Height >= _chatScroll.Extent.Height - 1;
+        }
+        else if (_atBottom && e.ExtentDelta.Y > 0.5)
+        {
+            _chatScroll.ScrollToEnd();
+        }
         if (_jumpLatest is not null)
             _jumpLatest.IsVisible = !_atBottom && _vm.HasMessages;
-    }
-
-    private void StickToBottom()
-    {
-        if (_atBottom)
-            _chatScroll?.ScrollToEnd();
     }
 
     private void OnJumpLatestClicked(object? sender, RoutedEventArgs e)
@@ -80,12 +65,20 @@ public partial class MainWindow : SukiWindow
             _jumpLatest.IsVisible = false;
     }
 
+    private void OnExampleClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Content: string prompt })
+            return;
+        _vm.LoadIntoInput(prompt);
+        this.FindControl<TextBox>("InputBox")?.Focus();
+    }
+
     private void OnInputKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.V && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             // let the TextBox's own text paste run; an image clipboard no-ops in it
-            _ = PasteFromClipboardAsync(fromButton: false);
+            _ = PasteFromClipboardAsync();
             return;
         }
         if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift))
@@ -94,7 +87,8 @@ public partial class MainWindow : SukiWindow
         _vm.SendCommand.Execute(null);
     }
 
-    private async Task PasteFromClipboardAsync(bool fromButton)
+    /// <summary>Ctrl+V: attach a clipboard image; plain text was already pasted by the TextBox itself.</summary>
+    private async Task PasteFromClipboardAsync()
     {
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
             return;
@@ -118,14 +112,6 @@ public partial class MainWindow : SukiWindow
                 using var png = new MemoryStream();
                 decoded.Save(png, new PngBitmapEncoderOptions());
                 _vm.AttachImage(png.ToArray());
-                return;
-            }
-            // the button also pastes plain text; Ctrl+V already let the TextBox handle it
-            if (fromButton)
-            {
-                var text = await clipboard.TryGetTextAsync();
-                if (!string.IsNullOrEmpty(text))
-                    _vm.AppendInput(text);
             }
         }
         catch (Exception ex)
@@ -134,14 +120,14 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    private void OnPasteClicked(object? sender, RoutedEventArgs e) => _ = PasteFromClipboardAsync(fromButton: true);
-
     private async void OnCopyMessage(object? sender, RoutedEventArgs e)
     {
         var text = (sender as Control)?.DataContext switch
         {
             UserMessageItem u => u.Text,
             AssistantTextItem a => a.Text,
+            ReasoningItem r => r.Text,
+            SystemNoteItem note => note.Text,
             ToolItem t => string.Join(" ", new[] { t.Tool, t.Title }.Where(s => s.Length > 0)),
             PermissionItem p => $"{p.Title}\n{p.Detail}",
             _ => null,
@@ -160,6 +146,116 @@ public partial class MainWindow : SukiWindow
     {
         if ((sender as Control)?.DataContext is SessionItem session)
             _vm.BeginRename(session);
+    }
+
+    // ---- file drag & drop onto the transcript or the input card ----
+
+    private void OnFileDragOver(object? sender, DragEventArgs e)
+    {
+        if (!e.DataTransfer.Contains(DataFormat.File))
+            return;
+        e.DragEffects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private async void OnFileDrop(object? sender, DragEventArgs e)
+    {
+        if (!e.DataTransfer.Contains(DataFormat.File))
+            return;
+        var files = e.DataTransfer.TryGetFiles();
+        if (files is null || files.Length == 0)
+            return;
+        e.Handled = true;
+        foreach (var file in files)
+            await AttachDroppedFileAsync(file);
+    }
+
+    private async Task AttachDroppedFileAsync(IStorageItem item)
+    {
+        if (item is not IStorageFile file)
+            return;
+        try
+        {
+            await using var stream = await file.OpenReadAsync();
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var data = ms.ToArray();
+            if (data.Length > 512 * 1024)
+            {
+                _vm.Announce($"{file.Name} is over 512 KB — skipped.", error: true);
+                return;
+            }
+            _vm.AttachFile(file.Name, MimeFor(Path.GetExtension(file.Name)), data);
+        }
+        catch (Exception ex)
+        {
+            _vm.Announce($"Could not attach {file.Name}: {ex.Message}", error: true);
+        }
+    }
+
+    private static string MimeFor(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".bmp" => "image/bmp",
+        ".pdf" => "application/pdf",
+        _ => "text/plain",
+    };
+
+    // ---- session context menu: share ----
+
+    private async void OnShareClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not SessionItem session)
+            return;
+        var url = await _vm.ShareSessionAsync(session);
+        if (url is null)
+            return;
+        if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+            await clipboard.SetTextAsync(url);
+        _vm.Announce($"Share link copied: {url}");
+    }
+
+    private async void OnUnshareClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is SessionItem session)
+            await _vm.UnshareSessionAsync(session);
+    }
+
+    // ---- transcript + prompts flyout helpers ----
+
+    private void OnEditMessageClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not UserMessageItem message)
+            return;
+        _vm.LoadIntoInput(message.Text);
+        this.FindControl<TextBox>("InputBox")?.Focus();
+    }
+
+    private async void OnCommandClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: CommandInfo command })
+            return;
+        HideHostFlyout(sender as Control);
+        await _vm.RunCommandAsync(command);
+    }
+
+    private void OnPromptUseClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: string prompt })
+            return;
+        HideHostFlyout(sender as Control);
+        _vm.LoadIntoInput(prompt);
+        this.FindControl<TextBox>("InputBox")?.Focus();
+    }
+
+    // x:Name fields are never assigned by the hand-written InitializeComponent; walk to the host popup instead
+    private static void HideHostFlyout(Control? control)
+    {
+        if (control?.GetVisualAncestors().OfType<Popup>().FirstOrDefault() is { } popup)
+            popup.IsOpen = false;
     }
 
     private void OnPinClick(object? sender, RoutedEventArgs e)
@@ -202,15 +298,47 @@ public partial class MainWindow : SukiWindow
             _ = _vm.CommitRenameCommand.ExecuteAsync(session);
     }
 
-    private async void OnBrowseClicked(object? sender, RoutedEventArgs e)
+    private async void OnAddWorkspaceClicked(object? sender, RoutedEventArgs e)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Working folder for opencode",
+            Title = "Workspace folder for opencode",
             AllowMultiple = false,
         });
         if (folders.Count > 0 && folders[0].Path is { IsAbsoluteUri: true } path)
-            _vm.Folder = path.LocalPath;
+            _vm.AddWorkspace(path.LocalPath);
+    }
+
+    // ---- workspace context menu ----
+
+    private void OnWorkspaceStartClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is WorkspaceItem ws)
+            _ = _vm.StartWorkspaceCommand.ExecuteAsync(ws);
+    }
+
+    private void OnWorkspaceStopClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is WorkspaceItem ws)
+            _vm.StopWorkspaceCommand.Execute(ws);
+    }
+
+    private void OnWorkspaceRemoveClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is WorkspaceItem ws)
+            _vm.RemoveWorkspace(ws);
+    }
+
+    private void OnUnlinkClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is SessionItem session)
+            _vm.RemoveFromWorkspace(session);
+    }
+
+    private void OnRunningClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is RunningAgentItem running)
+            _ = _vm.OpenRunningAsync(running);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

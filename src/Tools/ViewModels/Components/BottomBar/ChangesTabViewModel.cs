@@ -29,6 +29,9 @@ public sealed record ChangeSectionRow(string Title, int Count, bool IsUnstaged);
 public sealed record CommitHistoryRow(string? DayLabel, GitCommitInfo? Commit, bool IsUnpushed)
 {
     public bool IsHeader => Commit is null;
+
+    /// <summary>Row tooltip: "abc1234 · subject" (the list shows only the short hash).</summary>
+    public string RowTooltip => Commit is null ? DayLabel ?? string.Empty : $"{Commit.ShortHash} · {Commit.Subject}";
 }
 
 /// <summary>
@@ -891,6 +894,7 @@ public void RaiseRepoMirrors()
         UnstageFileCommand.NotifyCanExecuteChanged();
         StageAllCommand.NotifyCanExecuteChanged();
         UnstageAllCommand.NotifyCanExecuteChanged();
+        DiscardFileCommand.NotifyCanExecuteChanged();
         DiscardSectionCommand.NotifyCanExecuteChanged();
     }
 
