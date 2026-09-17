@@ -64,4 +64,7 @@ public sealed class WorkspaceState
     public string Path { get; set; } = "";
     public List<string> Sessions { get; set; } = new();
     public string? ActiveSession { get; set; }
+
+    /// <summary>Chats currently tiled in the grid, in reading order; restored when the workspace opens.</summary>
+    public List<string> OpenSessions { get; set; } = new();
 }
