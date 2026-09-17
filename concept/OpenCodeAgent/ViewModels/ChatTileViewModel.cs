@@ -366,7 +366,10 @@ public partial class ChatTileViewModel : ObservableObject
                     case "text":
                         var text = part.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : "";
                         if (msg.Role == "user")
-                            ChatItems.Add(new UserMessageItem(text, createdAt));
+                        {
+                            if (text.Length > 0)
+                                ChatItems.Add(new UserMessageItem(text, createdAt));
+                        }
                         else
                         {
                             var item = new AssistantTextItem(createdAt) { Text = text, MetaLabel = MetaFor(msg.Id) };

@@ -664,7 +664,8 @@ public partial class MainViewModel : ObservableObject
         var sentAt = DateTime.Now;
         if (tile is not null)
         {
-            tile.ChatItems.Add(new UserMessageItem(text, sentAt));
+            if (text.Length > 0)
+                tile.ChatItems.Add(new UserMessageItem(text, sentAt));
             foreach (var attachment in attachments)
                 tile.ChatItems.Add(attachment.IsImage
                     ? new ImageItem(attachment.FileName, attachment.Data, sentAt)

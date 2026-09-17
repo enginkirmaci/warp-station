@@ -310,7 +310,7 @@
 												<ItemsControl ItemsSource="{Binding FocusedTile.Changes}" Margin="4">
 													<ItemsControl.ItemTemplate>
 														<DataTemplate>
-															<Expander Margin="0,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+															<Expander Classes="disclose" Margin="0,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
 																<Expander.Header>
 																	<Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10" Margin="0,2">
 																		<TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="300" VerticalAlignment="Center" ToolTip.Tip="{Binding FilePath}" />
