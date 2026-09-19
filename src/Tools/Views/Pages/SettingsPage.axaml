@@ -100,6 +100,33 @@
                             Content="Start at boot"
                             IsChecked="{Binding StartAtBoot, Mode=TwoWay}"
                             ToolTip.Tip="Launch automatically when the user signs in (applies at next launch)" />
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Classes="field-label"
+                                Text="Notes store path"
+                                ToolTip.Tip="Root folder of the per-repository markdown notes" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox
+                                    Grid.Column="0"
+                                    Text="{Binding NotesStorePath, UpdateSourceTrigger=PropertyChanged}"
+                                    Watermark="Empty = ~/.devtools/notes" />
+                                <Button
+                                    Grid.Column="1"
+                                    Classes="icon"
+                                    Command="{Binding BrowseNotesStoreCommand}"
+                                    ToolTip.Tip="Browse for the notes store folder">
+                                    <Path
+                                        Width="15"
+                                        Height="15"
+                                        Data="{tools:SvgPath icon-folder}"
+                                        Fill="{DynamicResource BodyForegroundBrush}"
+                                        Stretch="Uniform" />
+                                </Button>
+                            </Grid>
+                            <TextBlock
+                                Classes="subtle"
+                                Text="Each repository keeps its markdown notes in a subfolder named after it." />
+                        </StackPanel>
                         <TextBlock
                             Classes="subtle"
                             Text="Start-at-boot and start-minimized are applied at the next launch, where the app also reconciles the OS registration to these flags."

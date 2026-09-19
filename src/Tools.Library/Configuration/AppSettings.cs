@@ -359,4 +359,11 @@ public class GeneralSettings
     /// the DevTools supervisor when it sits next to the app, otherwise the app itself).
     /// </summary>
     public bool StartAtBoot { get; set; }
+
+    /// <summary>
+    /// Gets or sets the root folder of the per-repository markdown notes store (one
+    /// subfolder per repository). When empty, <see cref="Tools.Library.Services.NotesService"/>
+    /// falls back to <c>&lt;UserDataRoot&gt;/notes</c>. Edited in the Settings page.
+    /// </summary>
+    public string? NotesStorePath { get; set; } = string.Empty;
 }

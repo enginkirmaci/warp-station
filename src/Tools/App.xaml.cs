@@ -130,6 +130,11 @@ public partial class App : Application
         // its fields reload on every navigation.
         services.AddSingleton<SettingsPageViewModel>();
         services.AddTransient<SettingsPage>();
+        // The dedicated Notes page: same pattern as Settings — singleton ViewModel
+        // (holds the unsaved-note buffers across navigations), transient page swapped
+        // in/out whole.
+        services.AddSingleton<NotesPageViewModel>();
+        services.AddTransient<NotesPage>();
         // Register tool components (floating drawer) and their view models
         RegisterPageWithViewModel<FormattersComponent, FormattersViewModel>(services);
         RegisterPageWithViewModel<NugetLocalComponent, NugetLocalViewModel>(services);

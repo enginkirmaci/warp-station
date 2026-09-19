@@ -152,6 +152,7 @@ public partial class MainWindow : SukiWindow
         ToolViewResolver resolveToolView,
         ReposPage reposPage,
         SettingsPage settingsPage,
+        NotesPage notesPage,
         IClipboardPasswordService clipboardPasswordService,
         INotificationService notificationService)
     {
@@ -160,6 +161,7 @@ public partial class MainWindow : SukiWindow
         _clipboardPasswordService = clipboardPasswordService;
         _reposPage = reposPage;
         _settingsPage = settingsPage;
+        _notesPage = notesPage;
 
         // Initialize helper classes (Dependency Inversion Principle)
         _messageHandler = new WindowMessageHandler(clipboardPasswordService);
@@ -175,6 +177,10 @@ public partial class MainWindow : SukiWindow
         viewModel.SettingsRequested += OnSettingsRequested;
         settingsPage.BackRequested += OnBackToRepositoriesRequested;
 
+        // The title-bar note button follows the same toggle pattern for the Notes page.
+        viewModel.NotesRequested += OnNotesRequested;
+        notesPage.BackRequested += OnBackToRepositoriesRequested;
+
         // Wire the toast overlay: the service is its DataContext (provides DismissCommand)
         // and its Toasts collection is the items source.
         ToastHost.DataContext = notificationService;
@@ -186,6 +192,7 @@ public partial class MainWindow : SukiWindow
 
     private readonly ReposPage _reposPage;
     private readonly SettingsPage _settingsPage;
+    private readonly NotesPage _notesPage;
 
     /// <summary>Toggles the dedicated Settings page: swaps it into the content area
     /// (no navigation stack — the Repositories page instance stays alive and is
@@ -213,6 +220,23 @@ public partial class MainWindow : SukiWindow
         if (ContentArea.Content is not ReposPage)
         {
             ContentArea.Content = _reposPage;
+        }
+    }
+
+    /// <summary>Toggles the dedicated Notes page (the title-bar note button doubles as a
+    /// close, like the gear). The page reloads on every show.</summary>
+    private void OnNotesRequested(object? sender, EventArgs e)
+    {
+        if (ContentArea.Content is NotesPage)
+        {
+            OnBackToRepositoriesRequested(sender, e);
+            return;
+        }
+
+        ContentArea.Content = _notesPage;
+        if (_notesPage.DataContext is NotesPageViewModel viewModel)
+        {
+            FireLifecycle(viewModel.OnNavigatedToAsync);
         }
     }
 

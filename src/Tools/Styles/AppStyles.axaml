@@ -26,6 +26,12 @@
         <Setter Property="TransparencyBackgroundFallback" Value="Transparent" />
     </Style>
 
+    <!--  Tooltips open above their control — the attached Placement read from
+          the tooltipped control beats the ToolTipService's Pointer default.  -->
+    <Style Selector=":is(Control)">
+        <Setter Property="ToolTip.Placement" Value="Top" />
+    </Style>
+
     <!--
         SukiUI's FlyoutPresenter theme paints with ThemeBackgroundBrush /
         ThemeBorderMidBrush — static light-baked colors from SukiUI's

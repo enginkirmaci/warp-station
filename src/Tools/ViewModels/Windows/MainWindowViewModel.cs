@@ -261,4 +261,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raises <see cref="SettingsRequested"/> (command surface for the gear).</summary>
     [RelayCommand]
     private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// Opens the dedicated Notes page. The window subscribes to
+    /// <see cref="NotesRequested"/> and swaps its content — the title-bar note button
+    /// routes here.
+    /// </summary>
+    public event EventHandler? NotesRequested;
+
+    /// <summary>Raises <see cref="NotesRequested"/> (command surface for the note button).</summary>
+    [RelayCommand]
+    private void OpenNotes() => NotesRequested?.Invoke(this, EventArgs.Empty);
 }

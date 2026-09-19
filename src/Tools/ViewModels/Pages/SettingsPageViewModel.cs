@@ -33,6 +33,7 @@ public partial class SettingsPageViewModel : ObservableObject
     private readonly IOpenCodeModelService _openCodeModelService;
     private readonly IProcessLauncher _processLauncher;
     private readonly INotificationService _notifications;
+    private readonly IDialogService _dialogService;
     private readonly ReposViewModel _reposViewModel;
 
     /// <summary>
@@ -54,6 +55,9 @@ public partial class SettingsPageViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _startAtBoot;
+
+    [ObservableProperty]
+    private string _notesStorePath = string.Empty;
 
     // ---- Repos: scanning ----
     [ObservableProperty]
@@ -143,12 +147,14 @@ public partial class SettingsPageViewModel : ObservableObject
         IOpenCodeModelService openCodeModelService,
         IProcessLauncher processLauncher,
         INotificationService notifications,
+        IDialogService dialogService,
         ReposViewModel reposViewModel)
     {
         _settingsService = settingsService;
         _openCodeModelService = openCodeModelService;
         _processLauncher = processLauncher;
         _notifications = notifications;
+        _dialogService = dialogService;
         _reposViewModel = reposViewModel;
     }
 
@@ -176,6 +182,7 @@ public partial class SettingsPageViewModel : ObservableObject
         var general = settings.General ?? new GeneralSettings();
         StartMinimized = general.StartMinimized;
         StartAtBoot = general.StartAtBoot;
+        NotesStorePath = general.NotesStorePath ?? string.Empty;
 
         try
         {
@@ -231,7 +238,8 @@ public partial class SettingsPageViewModel : ObservableObject
             settings.General = new GeneralSettings
             {
                 StartMinimized = StartMinimized,
-                StartAtBoot = StartAtBoot
+                StartAtBoot = StartAtBoot,
+                NotesStorePath = NotesStorePath?.Trim() ?? string.Empty
             };
             await _settingsService.SaveSettingsAsync(settings);
 
@@ -254,6 +262,16 @@ public partial class SettingsPageViewModel : ObservableObject
         var settingsDirectory = UserPaths.UserDataRoot;
         Directory.CreateDirectory(settingsDirectory);
         _processLauncher.StartProcess(settingsDirectory);
+    }
+
+    /// <summary>Folder picker for the notes store path field.</summary>
+    [RelayCommand]
+    private async Task BrowseNotesStoreAsync()
+    {
+        if (await _dialogService.PickFolderAsync("Select the notes store folder") is { } folder)
+        {
+            NotesStorePath = folder;
+        }
     }
 
     /// <summary>

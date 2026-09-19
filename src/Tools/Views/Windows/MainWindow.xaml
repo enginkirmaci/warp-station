@@ -120,6 +120,23 @@
 				Fill="{DynamicResource BodyForegroundBrush}"
 				Stretch="Uniform" />
 		</Button>
+		<!--  Dedicated notes page  -->
+		<Button
+			Width="26"
+			Height="26"
+			Margin="4,0"
+			Padding="0"
+			Classes="icon"
+			Command="{Binding OpenNotesCommand}"
+			ToolTip.Tip="Notes">
+			<Path
+				Width="15"
+				Height="15"
+				VerticalAlignment="Center"
+				Data="{tools:SvgPath icon-note}"
+				Fill="{DynamicResource BodyForegroundBrush}"
+				Stretch="Uniform" />
+		</Button>
 		<!--
 			Tools dropdown: opens the tool components in the floating right drawer.
 			Hover-open/close are wired in the code-behind: a short hover delay opens
