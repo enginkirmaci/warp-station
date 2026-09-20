@@ -93,4 +93,16 @@ public partial class ReposPage : UserControl
             listBox.SelectedItem = null;
         }
     }
+
+    /// <summary>
+    /// Scrolls a repo's row into view once layout settles — the global search's repo
+    /// activation (same posted pattern as the row press above: selecting a repo reveals
+    /// the bar, which shrinks the table's viewport).
+    /// </summary>
+    public void RevealRepo(Repo repo)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => _reposList?.ScrollIntoView(repo),
+            Avalonia.Threading.DispatcherPriority.ApplicationIdle);
+    }
 }

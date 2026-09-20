@@ -60,8 +60,11 @@ public interface INotesService
     Task DeleteAsync(string repoNotesRoot, string targetPath, CancellationToken ct = default);
 
     /// <summary>Case-insensitive keyword search over note names and contents under
-    /// <paramref name="repoNotesRoot"/>. Oversized files are searched by name only.</summary>
-    Task<IReadOnlyList<NotesSearchHit>> SearchAsync(string repoNotesRoot, string term, CancellationToken ct = default);
+    /// <paramref name="repoNotesRoot"/>. Oversized files are searched by name only.
+    /// <paramref name="maxHits"/> stops the scan early (type-ahead callers pass a small
+    /// bound); the service's own scan cap always applies on top.</summary>
+    Task<IReadOnlyList<NotesSearchHit>> SearchAsync(
+        string repoNotesRoot, string term, CancellationToken ct = default, int maxHits = int.MaxValue);
 
     /// <summary>Strips path-invalid characters and trims to a usable entry name; null
     /// when nothing usable remains. With <paramref name="enforceMarkdownExtension"/> a

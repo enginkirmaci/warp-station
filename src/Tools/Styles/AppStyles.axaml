@@ -459,4 +459,50 @@
         </Setter>
     </Style>
 
+    <!--
+        ================================================================
+        GLOBAL SEARCH DROPDOWN (ListBox.search-results)
+        The title-bar search's suggestion list lives inside a Popup — a
+        separate visual root — so window/theme-scoped styles never reach
+        it and these must be app-level. Chrome-stripped like plain-list
+        (SukiUI's item chrome, tick icon and animations off), but hover
+        and keyboard-highlight feedback IS wanted: they tint the item
+        template's GlassCard layer. :selected comes last on purpose —
+        with equal selector specificity the later rule wins when a row
+        is both selected and pointer-over.
+        ================================================================
+    -->
+    <Style Selector="ListBox.search-results">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem /template/ PathIcon#CheckSelected">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="IsAnimated" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem:pointerover /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+    </Style>
+    <Style Selector="ListBox.search-results ListBoxItem:selected /template/ suki|GlassCard#BorderBasicStyle">
+        <Setter Property="Background" Value="{DynamicResource AccentSoftBorderBrush}" />
+    </Style>
+
 </Styles>

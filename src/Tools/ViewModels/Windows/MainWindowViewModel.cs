@@ -18,6 +18,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ISettingsService _settingsService;
     private readonly IToolDrawerService _toolDrawer;
 
+    /// <summary>The title-bar global search dropdown's ViewModel; the window code-behind
+    /// owns its activation actions (page swaps), the popup XAML binds its results.</summary>
+    public GlobalSearchViewModel GlobalSearch { get; }
+
     /// <summary>
     /// Gets the title of the application.
     /// </summary>
@@ -118,12 +122,14 @@ public partial class MainWindowViewModel : ViewModelBase
         ISnapItService snapItService,
         INugetLocalService nugetLocalService,
         ISettingsService settingsService,
-        IToolDrawerService toolDrawer)
+        IToolDrawerService toolDrawer,
+        GlobalSearchViewModel globalSearch)
     {
         _snapItService = snapItService;
         _nugetLocalService = nugetLocalService;
         _settingsService = settingsService;
         _toolDrawer = toolDrawer;
+        GlobalSearch = globalSearch;
 
         // Load the dropdown visibility flags off the constructor path: the FIRST
         // GetSettingsAsync() call runs EnsureLoaded inline (seed copy, File.ReadAllText,

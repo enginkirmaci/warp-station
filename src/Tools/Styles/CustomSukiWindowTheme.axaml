@@ -3,7 +3,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:chrome="clr-namespace:Avalonia.Controls.Chrome;assembly=Avalonia.Controls"
     xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
-    xmlns:tools="using:Tools.Library.MarkupExtensions">
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    xmlns:vm="clr-namespace:Tools.ViewModels.Windows">
     <!--
         DevTools custom SukiWindow title bar, based on SukiUI 7.0.1's SukiWindowTheme
         (Controls/SukiWindow.axaml). Applied EXPLICITLY via Theme="{StaticResource CustomSukiWindowTheme}"
@@ -176,7 +177,7 @@
                                                     Background="Transparent"
                                                     BorderThickness="0"
                                                     FontSize="14"
-                                                    PlaceholderText="Search repositories...">
+                                                    PlaceholderText="Search repositories and notes...">
                                                     <TextBox.InnerLeftContent>
                                                         <Path
                                                             Width="15"
@@ -222,6 +223,89 @@
                                                     </TextBox.InnerRightContent>
                                                 </TextBox>
                                             </Border>
+                                            <!--
+                                                Global search dropdown: type-ahead results under the
+                                                search field. Light dismiss closes it on any click
+                                                outside the field and the list; open/close plus the
+                                                activation actions live in MainWindow code-behind
+                                                (template parts, like the field itself). The shadow sits
+                                                on a clip-free outer Border; the inner Border clips the
+                                                list's row tints to the rounded corners.
+                                            -->
+                                            <Popup
+                                                Name="HeaderSearchPopup"
+                                                IsLightDismissEnabled="True"
+                                                Placement="Bottom"
+                                                PlacementTarget="{Binding #HeaderSearchBorder}">
+                                                <Border Width="520" BoxShadow="{DynamicResource FlyoutShadow}">
+                                                    <Border
+                                                        Background="{DynamicResource SukiPopupBackground}"
+                                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                                        BorderThickness="1"
+                                                        ClipToBounds="True"
+                                                        CornerRadius="{DynamicResource ControlRadius}">
+                                                        <Panel>
+                                                            <ListBox
+                                                                Name="HeaderSearchResultsList"
+                                                                Classes="search-results"
+                                                                MaxHeight="420"
+                                                                ItemsSource="{Binding GlobalSearch.Results}">
+                                                                <ListBox.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:GlobalSearchResultViewModel">
+                                                                        <Grid
+                                                                            Margin="4,2"
+                                                                            ColumnDefinitions="Auto,*"
+                                                                            ColumnSpacing="10"
+                                                                            RowDefinitions="Auto,Auto,Auto">
+                                                                            <Path
+                                                                                Grid.RowSpan="3"
+                                                                                Width="15"
+                                                                                Height="15"
+                                                                                Data="{tools:SvgPath icon-source-branch}"
+                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                IsVisible="{Binding IsRepo}"
+                                                                                Stretch="Uniform" />
+                                                                            <Path
+                                                                                Grid.RowSpan="3"
+                                                                                Width="15"
+                                                                                Height="15"
+                                                                                Data="{tools:SvgPath icon-note}"
+                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                IsVisible="{Binding IsNote}"
+                                                                                Stretch="Uniform" />
+                                                                            <TextBlock
+                                                                                Grid.Column="1"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                Text="{Binding Title}"
+                                                                                TextTrimming="CharacterEllipsis" />
+                                                                            <TextBlock
+                                                                                Grid.Row="1"
+                                                                                Grid.Column="1"
+                                                                                Classes="subtle"
+                                                                                Text="{Binding Subtitle}"
+                                                                                TextTrimming="CharacterEllipsis" />
+                                                                            <TextBlock
+                                                                                Grid.Row="2"
+                                                                                Grid.Column="1"
+                                                                                Classes="subtle"
+                                                                                FontStyle="Italic"
+                                                                                IsVisible="{Binding HasExcerpt}"
+                                                                                Text="{Binding Excerpt}"
+                                                                                TextTrimming="CharacterEllipsis" />
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ListBox.ItemTemplate>
+                                                            </ListBox>
+                                                            <TextBlock
+                                                                Margin="16,10"
+                                                                Classes="subtle"
+                                                                IsVisible="{Binding GlobalSearch.HasNoResults}"
+                                                                Text="No matches." />
+                                                        </Panel>
+                                                    </Border>
+                                                </Border>
+                                            </Popup>
                                         </Panel>
                                     </LayoutTransformControl>
                                     <Panel IsVisible="{TemplateBinding IsMenuVisible}">

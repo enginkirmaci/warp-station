@@ -107,12 +107,14 @@ public sealed class NotesService : INotesService
     }
 
     public async Task<IReadOnlyList<NotesSearchHit>> SearchAsync(
-        string repoNotesRoot, string term, CancellationToken ct = default)
+        string repoNotesRoot, string term, CancellationToken ct = default, int maxHits = int.MaxValue)
     {
         if (!Directory.Exists(repoNotesRoot) || string.IsNullOrWhiteSpace(term))
         {
             return Array.Empty<NotesSearchHit>();
         }
+
+        var hitCap = Math.Min(maxHits, SearchFileCap);
 
         return await Task.Run(() =>
         {
@@ -132,7 +134,7 @@ public sealed class NotesService : INotesService
                     Path.GetFileNameWithoutExtension(path),
                     Path.GetRelativePath(repoNotesRoot, path),
                     excerpt ?? FirstContentLine(path) ?? string.Empty));
-                if (hits.Count >= SearchFileCap)
+                if (hits.Count >= hitCap)
                 {
                     break;
                 }

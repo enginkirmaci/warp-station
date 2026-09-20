@@ -90,6 +90,10 @@ public partial class NotesPageViewModel : ObservableObject
     private int _treeLoadGeneration;
     private int _noteLoadGeneration;
 
+    /// <summary>The note a global-search activation wants open, consumed by the next
+    /// navigation's tree restore (selection rides the regular restore path).</summary>
+    private string? _pendingOpenPath;
+
     /// <summary>The notes store root (resolved per navigation): the tree's scope.</summary>
     private string _storeRoot = string.Empty;
 
@@ -259,6 +263,8 @@ public partial class NotesPageViewModel : ObservableObject
     public async Task OnNavigatedToAsync()
     {
         var generation = ++_treeLoadGeneration;
+        var pendingOpenPath = _pendingOpenPath;
+        _pendingOpenPath = null;
         IsDeleteArmed = false;
         SearchText = string.Empty;
         SearchResults.Clear();
@@ -279,7 +285,17 @@ public partial class NotesPageViewModel : ObservableObject
             ? _notes.GetRepoNotesRoot(_storeRoot, name)
             : string.Empty;
 
-        await ReloadTreeAsync(generation, restoreOpenPath: OpenNote?.FullPath);
+        await ReloadTreeAsync(generation, restoreOpenPath: pendingOpenPath ?? OpenNote?.FullPath);
+    }
+
+    /// <summary>Shows the page with a specific note open (the title-bar global search):
+    /// the pending path rides the regular navigation, whose tree restore selects and
+    /// opens it. A note missing from the tree (deleted since the search) just opens
+    /// the page.</summary>
+    public async Task NavigateToNoteAsync(NotesSearchHit hit)
+    {
+        _pendingOpenPath = hit.FullPath;
+        await OnNavigatedToAsync();
     }
 
     /// <summary>Rebuilds the tree from disk and re-selects the open note. Callers pass

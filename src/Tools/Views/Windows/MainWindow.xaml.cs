@@ -8,6 +8,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using SukiUI.Controls;
 using Tools.Helpers;
+using Tools.Library.Entities;
 using Tools.Library.Mvvm;
 using Tools.Library.Services.Abstractions;
 using Tools.Services;
@@ -16,6 +17,7 @@ using Tools.ViewModels.Windows;
 using Tools.Views.Components;
 using Tools.Views.Components.BottomBar;
 using Tools.Views.Pages;
+using Avalonia.VisualTree;
 
 namespace Tools.Views.Windows;
 
@@ -34,9 +36,9 @@ public partial class MainWindow : SukiWindow
     private readonly WindowConfigurator _windowConfigurator;
 
     /// <summary>
-    /// Idle window for the header search field before its text is pushed to the Repos
-    /// page. The page applies its own debounce on top, so this only coalesces keystrokes
-    /// into a single property push per burst.
+    /// Idle window for the header search field before its term reaches the global
+    /// search ViewModel. The ViewModel's own generation counter coalesces results, so
+    /// this only collapses keystroke bursts into one search per pause.
     /// </summary>
     private const int HeaderSearchDebounceMs = 150;
 
@@ -52,15 +54,12 @@ public partial class MainWindow : SukiWindow
     /// </summary>
     private const int ToolsFlyoutCloseDelayMs = 350;
 
-    /// <summary>Debounces the header search pushes (see <see cref="HeaderSearchDebounceMs"/>).</summary>
+    /// <summary>Debounces the header search terms (see <see cref="HeaderSearchDebounceMs"/>).</summary>
     private readonly UiDebounce _searchDebounce = new(HeaderSearchDebounceMs);
 
-    /// <summary>
-    /// The repos VM whose PropertyChanged this window subscribes to (see
-    /// <see cref="AttachRepositoriesPage"/>); kept so window close can detach it
-    /// even when another page has since replaced ContentArea.Content.
-    /// </summary>
-    private ReposViewModel? _reposViewModel;
+    /// <summary>The global search dropdown's ViewModel (window-VM property, injected
+    /// here directly so the activation actions reach it without a cast).</summary>
+    private readonly GlobalSearchViewModel _globalSearch;
 
     /// <summary>
     /// Open timer: fires while the pointer rests on the tools button. Close timer:
@@ -72,20 +71,15 @@ public partial class MainWindow : SukiWindow
     private DispatcherTimer? _toolsFlyoutCloseTimer;
 
     /// <summary>
-    /// True while the code-behind is mirroring state INTO the search field (from the
-    /// Repos filter); the TextChanged handler must not echo those writes back into the
-    /// page.
-    /// </summary>
-    private bool _syncingSearchText;
-
-    /// <summary>
-    /// The header search field lives in the CUSTOM WINDOW TEMPLATE (CustomSukiWindowTheme):
-    /// it is a named part of the title bar, so it (and its hint/clear chrome) is resolved
-    /// in <see cref="OnApplyTemplate"/> and its event handlers are attached there too — a
-    /// ControlTheme has no code-behind to wire them in XAML. Nullable: nothing is set
-    /// until the template is applied.
+    /// The header search field, its dropdown and its hint/clear chrome live in the
+    /// CUSTOM WINDOW TEMPLATE (CustomSukiWindowTheme): they are named parts of the
+    /// title bar, resolved in <see cref="OnApplyTemplate"/> where their event handlers
+    /// are attached too — a ControlTheme has no code-behind to wire them in XAML.
+    /// Nullable: nothing is set until the template is applied.
     /// </summary>
     private TextBox? HeaderSearchBox;
+    private Popup? HeaderSearchPopup;
+    private ListBox? HeaderSearchResultsList;
     private Border? SearchKbdHint;
     private Button? SearchClearButton;
 
@@ -124,8 +118,14 @@ public partial class MainWindow : SukiWindow
         {
             SearchClearButton.Click -= OnSearchClearClick;
         }
+        if (HeaderSearchResultsList is not null)
+        {
+            HeaderSearchResultsList.Tapped -= OnSearchResultTapped;
+        }
 
         HeaderSearchBox = e.NameScope.Find<TextBox>("HeaderSearchBox");
+        HeaderSearchPopup = e.NameScope.Find<Popup>("HeaderSearchPopup");
+        HeaderSearchResultsList = e.NameScope.Find<ListBox>("HeaderSearchResultsList");
         SearchKbdHint = e.NameScope.Find<Border>("SearchKbdHint");
         SearchClearButton = e.NameScope.Find<Button>("SearchClearButton");
 
@@ -137,6 +137,14 @@ public partial class MainWindow : SukiWindow
         if (SearchClearButton is not null)
         {
             SearchClearButton.Click += OnSearchClearClick;
+        }
+        if (HeaderSearchResultsList is not null)
+        {
+            HeaderSearchResultsList.Tapped += OnSearchResultTapped;
+        }
+        if (HeaderSearchPopup is not null)
+        {
+            HeaderSearchPopup.IsOpen = false;
         }
         UpdateHeaderSearchChrome();
     }
@@ -159,6 +167,7 @@ public partial class MainWindow : SukiWindow
         _toolDrawer = toolDrawer;
         _resolveToolView = resolveToolView;
         _clipboardPasswordService = clipboardPasswordService;
+        _globalSearch = viewModel.GlobalSearch;
         _reposPage = reposPage;
         _settingsPage = settingsPage;
         _notesPage = notesPage;
@@ -180,6 +189,10 @@ public partial class MainWindow : SukiWindow
         // The title-bar note button follows the same toggle pattern for the Notes page.
         viewModel.NotesRequested += OnNotesRequested;
         notesPage.BackRequested += OnBackToRepositoriesRequested;
+
+        // The global search dropdown opens/closes on its ViewModel's result pushes;
+        // the activation actions (page swaps) stay here in the window.
+        _globalSearch.PropertyChanged += OnGlobalSearchPropertyChanged;
 
         // Wire the toast overlay: the service is its DataContext (provides DismissCommand)
         // and its Toasts collection is the items source.
@@ -275,8 +288,6 @@ public partial class MainWindow : SukiWindow
 
         if (reposPage.DataContext is ReposViewModel viewModel)
         {
-            _reposViewModel = viewModel;
-            viewModel.PropertyChanged += OnReposViewModelPropertyChanged;
             // Repo rows' note buttons route here: select the repo in the bottom bar,
             // then show (or reload) the Notes page for it.
             viewModel.NotesRequested += OnRepoNotesRequested;
@@ -359,13 +370,7 @@ public partial class MainWindow : SukiWindow
         _toolsFlyoutOpenTimer?.Stop();
         _toolsFlyoutCloseTimer?.Stop();
 
-        // Detach the repos VM subscription regardless of which page is showing — the
-        // Settings page swaps ContentArea.Content but the subscription lives on the VM.
-        if (_reposViewModel is { } reposViewModel)
-        {
-            reposViewModel.PropertyChanged -= OnReposViewModelPropertyChanged;
-            _reposViewModel = null;
-        }
+        _globalSearch.PropertyChanged -= OnGlobalSearchPropertyChanged;
         // An open drawer hosts a transient ViewModel subscribed to singleton services;
         // Close() routes the teardown through OnToolDrawerChanged so the VM is not
         // rooted by them for the remaining process lifetime.
@@ -426,32 +431,6 @@ public partial class MainWindow : SukiWindow
         {
             flyout.Hide();
         }
-    }
-
-    /// <summary>
-    /// Mirrors Repos filter changes INTO the header search field so page-side actions
-    /// (the Clear chip) are reflected while the user is not typing in the field.
-    /// </summary>
-    private void OnReposViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName != nameof(ReposViewModel.FilterText)
-            || HeaderSearchBox is null
-            || HeaderSearchBox.IsFocused
-            || _syncingSearchText)
-        {
-            return;
-        }
-
-        var text = sender is ReposViewModel viewModel ? viewModel.FilterText ?? string.Empty : string.Empty;
-        if (HeaderSearchBox.Text == text)
-        {
-            return;
-        }
-
-        _syncingSearchText = true;
-        HeaderSearchBox.Text = text;
-        _syncingSearchText = false;
-        UpdateHeaderSearchChrome();
     }
 
     #endregion
@@ -634,30 +613,62 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>
-    /// Header search typed text: debounce-push the term into the Repos page's filter
-    /// (an empty field clears it).
+    /// Header search typed text: debounce a global search (repositories + notes). An
+    /// empty field resets the dropdown content.
     /// </summary>
     private void OnHeaderSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
         UpdateHeaderSearchChrome();
-        if (_syncingSearchText) return;
-
-        _searchDebounce.Debounce(() => ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty));
+        _searchDebounce.Debounce(() => _ = RunHeaderSearchAsync(HeaderSearchBox?.Text ?? string.Empty));
     }
 
-    /// <summary>Enter applies the term immediately; Escape clears it.</summary>
+    /// <summary>
+    /// Arrow keys move the dropdown's highlight (reopening a light-dismissed popup with
+    /// results still loaded), Enter activates the highlighted or first result, Escape
+    /// closes the dropdown first and clears the field only once it is already closed.
+    /// </summary>
     private void OnHeaderSearchKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter)
+        switch (e.Key)
         {
-            _searchDebounce.Cancel();
-            ApplyHeaderSearch(HeaderSearchBox.Text ?? string.Empty);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Escape)
-        {
-            HeaderSearchBox.Text = string.Empty;
-            e.Handled = true;
+            case Key.Down when _globalSearch.Results.Count > 0:
+                if (HeaderSearchPopup is { IsOpen: false } closedPopup)
+                {
+                    closedPopup.IsOpen = true;
+                }
+                if (HeaderSearchResultsList is { } downList)
+                {
+                    downList.SelectedIndex = Math.Min(downList.SelectedIndex + 1, _globalSearch.Results.Count - 1);
+                }
+                e.Handled = true;
+                break;
+            case Key.Up when _globalSearch.Results.Count > 0:
+                if (HeaderSearchPopup is { IsOpen: false } reopenedPopup)
+                {
+                    reopenedPopup.IsOpen = true;
+                }
+                if (HeaderSearchResultsList is { } upList)
+                {
+                    upList.SelectedIndex = Math.Max(upList.SelectedIndex - 1, 0);
+                }
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                _searchDebounce.Cancel();
+                ActivateHighlightedSearchResult();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                if (HeaderSearchPopup is { IsOpen: true } openPopup)
+                {
+                    openPopup.IsOpen = false;
+                }
+                else if (HeaderSearchBox is not null)
+                {
+                    HeaderSearchBox.Text = string.Empty;
+                }
+                e.Handled = true;
+                break;
         }
     }
 
@@ -666,16 +677,147 @@ public partial class MainWindow : SukiWindow
         if (HeaderSearchBox is not null) HeaderSearchBox.Text = string.Empty;
     }
 
-    /// <summary>
-    /// Writes the term into the Repos page's filter. The page ViewModel lives for the
-    /// window lifetime, so the push is safe whether the page is freshly initialized or
-    /// already showing (its own debounce re-filters).
-    /// </summary>
-    private void ApplyHeaderSearch(string text)
+    /// <summary>Mouse activation: the tapped row's item (walked up from the deepest
+    /// visual) — programmatic SelectedIndex writes from the arrow keys never route
+    /// through pointer events, so the two activation paths cannot collide.</summary>
+    private void OnSearchResultTapped(object? sender, TappedEventArgs e)
     {
-        if (ContentArea.Content is ReposPage { DataContext: ReposViewModel viewModel })
+        if ((e.Source as Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true)?.DataContext
+            is GlobalSearchResultViewModel result)
         {
-            viewModel.FilterText = text;
+            ActivateSearchResult(result);
+        }
+    }
+
+    /// <summary>Runs one search; the popup open-state re-syncs from the ViewModel's
+    /// result pushes (see <see cref="OnGlobalSearchPropertyChanged"/>), so this only
+    /// needs to cover the empty-term reset.</summary>
+    private async Task RunHeaderSearchAsync(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            _globalSearch.Reset();
+            SyncHeaderSearchPopup();
+            return;
+        }
+
+        await _globalSearch.SearchAsync(text);
+        SyncHeaderSearchPopup();
+    }
+
+    /// <summary>The dropdown shows while the field holds a term, the latest search has
+    /// something to say (results or the no-match footer), and the field still owns
+    /// focus — a search finishing after a light dismiss must not pop the list open.</summary>
+    private void SyncHeaderSearchPopup()
+    {
+        if (HeaderSearchPopup is null || HeaderSearchBox is null)
+        {
+            return;
+        }
+
+        var hasText = !string.IsNullOrWhiteSpace(HeaderSearchBox.Text);
+        var hasContent = _globalSearch.Results.Count > 0 || _globalSearch.HasNoResults;
+        HeaderSearchPopup.IsOpen = hasText && hasContent && HeaderSearchBox.IsFocused;
+    }
+
+    /// <summary>Result pushes from the ViewModel: re-sync the popup and highlight the
+    /// top hit. The highlight lands posted — the ItemsSource swap resets the ListBox's
+    /// selection asynchronously (the notes tree restore works around the same echo).</summary>
+    private void OnGlobalSearchPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(GlobalSearchViewModel.Results) or nameof(GlobalSearchViewModel.HasNoResults)))
+        {
+            return;
+        }
+
+        SyncHeaderSearchPopup();
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (HeaderSearchResultsList is { } list
+                    && list.SelectedIndex < 0
+                    && _globalSearch.Results.Count > 0)
+                {
+                    list.SelectedIndex = 0;
+                }
+            },
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    private void ActivateHighlightedSearchResult()
+    {
+        var result = HeaderSearchResultsList?.SelectedItem as GlobalSearchResultViewModel
+            ?? (_globalSearch.Results.Count > 0 ? _globalSearch.Results[0] : null);
+        if (result is not null)
+        {
+            ActivateSearchResult(result);
+        }
+    }
+
+    /// <summary>Consumes a picked row: closes the dropdown and clears the field (the
+    /// clear schedules an empty-term reset, cancelled right after), then runs the
+    /// row's action.</summary>
+    private void ActivateSearchResult(GlobalSearchResultViewModel result)
+    {
+        if (HeaderSearchPopup is { } popup)
+        {
+            popup.IsOpen = false;
+        }
+        if (HeaderSearchBox is not null)
+        {
+            HeaderSearchBox.Text = string.Empty;
+        }
+        _searchDebounce.Cancel();
+
+        if (result is { Kind: GlobalSearchResultKind.Repo, Repo: { } repo })
+        {
+            ActivateRepoResult(repo);
+        }
+        else if (result is { Kind: GlobalSearchResultKind.Note, Hit: { } hit })
+        {
+            _ = ActivateNoteResultAsync(hit);
+        }
+    }
+
+    /// <summary>Repo activation: the Repositories page returns (if another page was
+    /// showing), the repo is selected like a row press, and the row scrolls into view.</summary>
+    private void ActivateRepoResult(Repo repo)
+    {
+        if (ContentArea.Content is not ReposPage)
+        {
+            ContentArea.Content = _reposPage;
+        }
+
+        _globalSearch.SelectRepo(repo);
+        _reposPage.RevealRepo(repo);
+    }
+
+    /// <summary>Note activation: the note's repo is selected first (its notes folder
+    /// auto-expands in the tree), then the Notes page navigates with the hit as its
+    /// pending-open note. Repos the app does not track still open the page.</summary>
+    private async Task ActivateNoteResultAsync(NotesSearchHit hit)
+    {
+        var repo = _globalSearch.ResolveRepoForHit(hit);
+        if (repo is not null)
+        {
+            _globalSearch.SelectRepo(repo);
+        }
+
+        if (ContentArea.Content is not NotesPage)
+        {
+            ContentArea.Content = _notesPage;
+        }
+
+        if (_notesPage.DataContext is NotesPageViewModel viewModel)
+        {
+            try
+            {
+                await viewModel.NavigateToNoteAsync(hit);
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Logger.Error(ex, "Global search failed to open note {Path}", hit.FullPath);
+            }
         }
     }
 
