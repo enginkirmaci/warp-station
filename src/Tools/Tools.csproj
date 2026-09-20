@@ -24,6 +24,7 @@
 	</ItemGroup>
 	 
 	<ItemGroup>
+		<ProjectReference Include="..\MarkdownViewerKit\MarkdownViewerKit.Avalonia.csproj" />
 		<ProjectReference Include="..\Tools.Library\Tools.Library.csproj" />
 		<ProjectReference Include="..\Tools.SnapIt\Tools.SnapIt.csproj" />
 	</ItemGroup>
@@ -38,7 +39,6 @@
 			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
 		</PackageReference>		
 		<PackageReference Include="SukiUI" Version="7.0.1" />
-		<PackageReference Include="ClassIsland.Markdown.Avalonia.Tight" Version="12.0.0" />
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />

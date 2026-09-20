@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MarkdownViewerKit;
 using Serilog;
 using Tools.Helpers;
 using Tools.Library.Entities;
@@ -186,11 +187,11 @@ public partial class NotesPageViewModel : ObservableObject
 
     public string DeleteTooltip => IsDeleteArmed ? "Click again to delete" : "Delete this note";
 
-    /// <summary>Preview rendering is driven from the code-behind (MarkdownEditing.BuildPreview):
-    /// task checkboxes become live controls, so toggling writes back through here.</summary>
+    /// <summary>Preview rendering is driven from the MarkdownViewerKit preview: task
+    /// checkboxes become live controls, so toggling writes back through here.</summary>
     public void ToggleTaskAtLine(int line)
     {
-        if (MarkdownEditing.ToggleTask(NoteText, line) is not { } next || next == NoteText)
+        if (MarkdownTasks.Toggle(NoteText, line) is not { } next || next == NoteText)
         {
             return;
         }

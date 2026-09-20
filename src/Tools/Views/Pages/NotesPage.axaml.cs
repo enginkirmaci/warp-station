@@ -1,13 +1,7 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Input;
-using Avalonia.Media;
-using Avalonia.VisualTree;
-using ColorTextBlock.Avalonia;
-using AvaloniaPath = Avalonia.Controls.Shapes.Path;
-using Markdown.Avalonia;
-using MarkdownEngine = Markdown.Avalonia.Markdown;
+using MarkdownViewerKit;
 using Tools.Helpers;
 using Tools.Library.Services.Abstractions;
 using Tools.ViewModels.Pages;
@@ -35,8 +29,6 @@ public partial class NotesPage : UserControl
         DataContext = viewModel;
         InitializeComponent();
         AttachEditorKeyHandling();
-        ConnectPreview("SplitPreview");
-        ConnectPreview("PreviewOnly");
     }
 
     private NotesPageViewModel? ViewModel => DataContext as NotesPageViewModel;
@@ -164,139 +156,22 @@ public partial class NotesPage : UserControl
 
     // ---- interactive markdown preview ----
 
-    /// <summary>Drives a preview viewer from the note text instead of a binding: the
-    /// render must be preceded by populating CascadeResources with one checkbox
-    /// control per task anchor, because the parse consumes them synchronously. The
-    /// attach hook re-runs the same dance — the viewer re-parses on re-attach.</summary>
-    private void ConnectPreview(string viewerName)
+    /// <summary>The Markwing preview raises toggles by source line; the VM flips the
+    /// line in its own note text (the source of truth) and the preview re-renders.
+    /// The editor caret is preserved across the round-trip so typing can resume.</summary>
+    private void OnTaskToggled(object? sender, TaskToggledEventArgs e)
     {
-        if (this.FindControl<MarkdownScrollViewer>(viewerName) is not { } viewer
-            || DataContext is not NotesPageViewModel vm)
+        if (ViewModel is not { } vm)
         {
             return;
         }
 
-        // The viewer paints selection bands on an overlay canvas stacked above the
-        // document; its rectangles survive unselect and intercept clicks, making a
-        // selected line's checkbox untoggleable. Input-transparent fixes that while
-        // the bands keep rendering. The canvas has no logical parent — match it by
-        // its visual chain (canvas → wrapper → the viewer's internal ScrollViewer).
-        foreach (var canvas in viewer.GetVisualDescendants().OfType<Canvas>())
+        var editor = GetActiveEditor();
+        var caret = editor?.CaretIndex ?? -1;
+        vm.ToggleTaskAtLine(e.Line);
+        if (editor is not null && caret >= 0)
         {
-            if (canvas.GetVisualParent() is Control wrapper
-                && wrapper.GetVisualParent() is ScrollViewer internalScroll
-                && ReferenceEquals(internalScroll.GetVisualParent(), viewer))
-            {
-                canvas.IsHitTestVisible = false;
-            }
-        }
-
-        viewer.AttachedToVisualTree += (_, _) => RenderPreview(viewer, vm);
-        vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(NotesPageViewModel.NoteText))
-            {
-                RenderPreview(viewer, vm);
-            }
-        };
-    }
-
-    private void RenderPreview(MarkdownScrollViewer viewer, NotesPageViewModel vm)
-    {
-        if (viewer.Engine is not MarkdownEngine engine)
-        {
-            return;
-        }
-
-        var (preview, tasks) = MarkdownEditing.BuildPreview(vm.NoteText);
-        var resources = engine.CascadeResources.Owner;
-        resources.Clear();
-        foreach (var task in tasks)
-        {
-            resources[$"mtask-{task.Line}"] = CreateTaskCheckbox(vm, task.Line, task.IsChecked);
-        }
-
-        viewer.Markdown = preview;
-    }
-
-    /// <summary>A plain hand-drawn box rather than a CheckBox: the checkbox sits inside
-    /// the markdown viewer's template tree where theme resolution is unpredictable, and
-    /// state is owned by the source text anyway — the box is a clickable picture.</summary>
-    private Border CreateTaskCheckbox(NotesPageViewModel vm, int line, bool isChecked)
-    {
-        const string accent = "#8A5CF5";
-        var tick = new AvaloniaPath
-        {
-            Data = Geometry.Parse("M 3,7.6 L 6.2,10.8 L 12,4.4"),
-            Stroke = new SolidColorBrush(Color.Parse("#FFFFFF")),
-            StrokeThickness = 1.8,
-            IsVisible = isChecked,
-        };
-        var box = new Border
-        {
-            Width = 15,
-            Height = 15,
-            CornerRadius = new CornerRadius(3.5),
-            BorderThickness = new Thickness(1.4),
-            BorderBrush = new SolidColorBrush(Color.Parse(isChecked ? accent : "#8A8A8A")),
-            Background = isChecked ? new SolidColorBrush(Color.Parse(accent)) : Brushes.Transparent,
-            Cursor = new Cursor(StandardCursorType.Hand),
-            Child = tick,
-        };
-        box.PointerEntered += (_, _) =>
-        {
-            if (!tick.IsVisible)
-            {
-                box.BorderBrush = new SolidColorBrush(Color.Parse("#C9B8F8"));
-            }
-        };
-        box.PointerExited += (_, _) =>
-        {
-            if (!tick.IsVisible)
-            {
-                box.BorderBrush = new SolidColorBrush(Color.Parse("#8A8A8A"));
-            }
-        };
-        box.PointerPressed += (_, e) =>
-        {
-            e.Handled = true;
-            var editor = GetActiveEditor();
-            var caret = editor?.CaretIndex ?? -1;
-            vm.ToggleTaskAtLine(line);
-            if (editor is not null && caret >= 0)
-            {
-                editor.CaretIndex = Math.Min(caret, (editor.Text ?? string.Empty).Length);
-            }
-        };
-        box.AttachedToVisualTree += (_, _) => HideListMarker(box);
-        return box;
-    }
-
-    /// <summary>Task items keep the list structure for indentation, but their bullet
-    /// glyph is noise next to the checkbox: hide the row's marker column cell once
-    /// the checkbox lands in the visual tree.</summary>
-    private static void HideListMarker(Visual start)
-    {
-        var child = start;
-        var node = start.GetVisualParent();
-        while (node is not null)
-        {
-            if (node is Grid { Classes.Count: > 0 } grid && grid.Classes.Contains("List"))
-            {
-                var row = Grid.GetRow((Control)child);
-                foreach (var marker in grid.Children)
-                {
-                    if (Grid.GetRow(marker) == row && Grid.GetColumn(marker) == 0)
-                    {
-                        marker.IsVisible = false;
-                    }
-                }
-
-                return;
-            }
-
-            child = node;
-            node = node.GetVisualParent();
+            editor.CaretIndex = Math.Min(caret, (editor.Text ?? string.Empty).Length);
         }
     }
 
