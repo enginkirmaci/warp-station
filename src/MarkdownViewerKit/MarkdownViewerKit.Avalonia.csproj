@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<LangVersion>12</LangVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NoWarn>$(NoWarn);CS1591</NoWarn>
+		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+		<RootNamespace>MarkdownViewerKit</RootNamespace>
+		<AssemblyName>MarkdownViewerKit.Avalonia</AssemblyName>
+		<Version>0.1.0</Version>
+		<PackageId>MarkdownViewerKit.Avalonia</PackageId>
+		<Authors>Engin Kırmacı</Authors>
+		<Company>Engin Kırmacı</Company>
+		<Product>MarkdownViewerKit</Product>
+		<Description>Configurable interactive Markdown viewer control for Avalonia — Obsidian-style default theme, live task-list checkboxes and text selection. Built on Markdown.Avalonia (ClassIsland Tight fork).</Description>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<RepositoryUrl>https://github.com/enginkirmaci/DevTools</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageTags>avalonia;markdown;viewer;task-list;checkbox;control</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+		<NeutralLanguage>en</NeutralLanguage>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Avalonia" Version="12.1.1" />
+		<PackageReference Include="ClassIsland.Markdown.Avalonia.Tight" Version="12.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
+</Project>
