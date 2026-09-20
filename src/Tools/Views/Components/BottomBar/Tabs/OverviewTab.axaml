@@ -12,6 +12,7 @@
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:lib="using:Tools.Library.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:mk="using:MarkdownViewerKit"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
     d:DesignHeight="600"
@@ -313,12 +314,7 @@
                     </StackPanel>
                 </Grid>
                 <Grid>
-                    <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasReadme}">
-                        <SelectableTextBlock
-                            Foreground="{DynamicResource BodyForegroundBrush}"
-                            Text="{Binding ReadmeText}"
-                            TextWrapping="Wrap" />
-                    </ScrollViewer>
+                    <mk:MarkdownViewer IsVisible="{Binding HasReadme}" Markdown="{Binding ReadmeText, Mode=OneWay}" />
                     <StackPanel
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
