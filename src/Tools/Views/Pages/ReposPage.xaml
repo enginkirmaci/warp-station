@@ -494,17 +494,43 @@
                                                                                         Stretch="Uniform" />
                                                                         </Button>
 
-                                                                        <!--  Repository name; the folder path lives on the tooltip  -->
-                                                                        <TextBlock
+                                                                        <!--
+                                                                                Repository name; the folder path lives on the tooltip. The
+                                                                                note button routes this row's repo to the Notes page — the
+                                                                                command selects it in the bottom bar first, where the Notes
+                                                                                page reads its repo from. A nested grid keeps the name
+                                                                                ellipsizing beside the icon (a stack panel would let long
+                                                                                names push the icon out of the cell).
+                                                                        -->
+                                                                        <Grid
                                                                                 Grid.Column="1"
                                                                                 Margin="0,0,16,0"
                                                                                 VerticalAlignment="Center"
-                                                                                FontSize="15"
-                                                                                FontWeight="SemiBold"
-                                                                                Foreground="{DynamicResource TitleForegroundBrush}"
-                                                                                Text="{Binding Name}"
-                                                                                TextTrimming="CharacterEllipsis"
-                                                                                ToolTip.Tip="{Binding FolderPath}" />
+                                                                                ColumnDefinitions="Auto,*">
+                                                                                <Button
+                                                                                        Classes="icon"
+                                                                                        Margin="0,0,6,0"
+                                                                                        VerticalAlignment="Center"
+                                                                                        Command="{Binding $parent[UserControl].((vm:ReposViewModel)DataContext).OpenNotesForRepoCommand}"
+                                                                                        CommandParameter="{Binding}"
+                                                                                        ToolTip.Tip="Open notes">
+                                                                                        <Path
+                                                                                                Width="14"
+                                                                                                Height="14"
+                                                                                                Data="{tools:SvgPath icon-note}"
+                                                                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                                                                Stretch="Uniform" />
+                                                                                </Button>
+                                                                                <TextBlock
+                                                                                        Grid.Column="1"
+                                                                                        VerticalAlignment="Center"
+                                                                                        FontSize="15"
+                                                                                        FontWeight="SemiBold"
+                                                                                        Foreground="{DynamicResource TitleForegroundBrush}"
+                                                                                        Text="{Binding Name}"
+                                                                                        TextTrimming="CharacterEllipsis"
+                                                                                        ToolTip.Tip="{Binding FolderPath}" />
+                                                                        </Grid>
 
                                                                         <!--
                                                                                 Launch actions (icon-only; tooltips name the actions).

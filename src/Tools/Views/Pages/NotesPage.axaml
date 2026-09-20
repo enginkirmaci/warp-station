@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
     Dedicated Notes page (title-bar note button; back link returns to the
-    Repositories page). The tree is scoped to the bottom bar's selected repository:
-    each repo keeps markdown notes in a subfolder of the configured store path
-    (Settings page). Unsaved edits live in the view model and survive navigation.
+    Repositories page). The tree shows the whole notes store — one folder per
+    repository — so every note is reachable from the title bar; the bottom bar's
+    selected repo has its folder auto-expanded. Unsaved edits live in the view
+    model and survive navigation.
 -->
 <UserControl
     x:Class="Tools.Views.Pages.NotesPage"
@@ -11,8 +12,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:helpers="using:Tools.Helpers"
     xmlns:lib="using:Tools.Library.Services.Abstractions"
     xmlns:md="using:Markdown.Avalonia"
+    xmlns:mdc="clr-namespace:Markdown.Avalonia.Controls;assembly=Markdown.Avalonia"
+    xmlns:ctxt="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Pages"
     d:DesignHeight="800"
@@ -22,11 +26,14 @@
     mc:Ignorable="d">
 
     <UserControl.Styles>
-        <!--  Tree rows: transparent chrome, app hover tint, accent-selected header  -->
-        <Style Selector="TreeViewItem">
+        <!--  Tree rows: transparent chrome, app hover tint, accent-selected header;
+             expansion lives on the node (x:DataType makes the setter binding compile
+             against the row VM, not the TreeViewItem)  -->
+        <Style Selector="TreeViewItem" x:DataType="vm:NoteNodeViewModel">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0,1" />
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
         </Style>
         <Style Selector="TreeViewItem /template/ Border#PART_Header">
             <Setter Property="Background" Value="Transparent" />
@@ -37,9 +44,9 @@
             <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
         </Style>
         <Style Selector="TreeViewItem:selected /template/ Border#PART_Header">
-            <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor10}" />
+            <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
         </Style>
-        <!--  Edit/Preview segmented pair  -->
+        <!--  Edit/Split/Preview segmented pair  -->
         <Style Selector="ToggleButton.seg">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -51,14 +58,39 @@
         <Style Selector="ToggleButton.seg:checked">
             <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
             <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <!--  Markdown toolbar: 28px quiet buttons (icon paths + text glyphs)  -->
+        <Style Selector="Button.mdtool">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Margin" Value="0,0,2,2" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
+        <Style Selector="Button.mdtool:pointerover">
+            <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TitleForegroundBrush}" />
+        </Style>
+        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.tool-sep">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Margin" Value="4,7,6,5" />
+            <Setter Property="Background" Value="{DynamicResource HairlineBrush}" />
         </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*">
-        <!--  Identity bar: back link, title, repo chip, folder jump, Save  -->
+        <!--  Identity bar: back link, title, current repo chip, folder jump, Save  -->
+        <!--  MinHeight reserves the Save button's slot (39 = its rendered height) so
+             IsDirty appearing does not grow the row and shift every preview line  -->
         <Grid
             Grid.Row="0"
             Margin="16,10,16,6"
+            MinHeight="39"
             ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto"
             ColumnSpacing="12">
             <Button
@@ -123,7 +155,7 @@
                             HorizontalContentAlignment="Left"
                             KeyDown="OnSearchBoxKeyDown"
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                            Watermark="Search notes…" />
+                            PlaceholderText="Search all notes…" />
                         <Button
                             x:Name="NewNoteButton"
                             Grid.Column="1"
@@ -180,7 +212,7 @@
                         </Button>
                     </Grid>
                     <Panel Grid.Row="1">
-                        <!--  Browsing: the tree, or the repo's empty state  -->
+                        <!--  Browsing: the whole-store tree, or the store's empty state  -->
                         <Panel IsVisible="{Binding !IsSearching}">
                             <TreeView
                                 IsVisible="{Binding HasNotes}"
@@ -231,14 +263,12 @@
                                 <TextBlock
                                     HorizontalAlignment="Center"
                                     Classes="subtle"
-                                    IsVisible="{Binding HasRepo}"
-                                    Text="{Binding RepoName, StringFormat='No notes yet for {0}.'}"
+                                    Text="No notes yet."
                                     TextAlignment="Center" />
                                 <TextBlock
                                     HorizontalAlignment="Center"
                                     Classes="subtle"
-                                    IsVisible="{Binding !HasRepo}"
-                                    Text="Select a repository in the table to see its notes."
+                                    Text="Select a repository in the table, then create one with +."
                                     TextAlignment="Center"
                                     TextWrapping="Wrap" />
                             </StackPanel>
@@ -280,7 +310,9 @@
             <!--  Right card: the open note  -->
             <Border Grid.Column="1" Classes="card">
                 <Panel>
-                    <Grid IsVisible="{Binding HasOpenNote}" RowDefinitions="Auto,*">
+                    <Grid
+                        IsVisible="{Binding HasOpenNote}"
+                        RowDefinitions="Auto,Auto,*,Auto">
                         <Grid
                             Grid.Row="0"
                             Margin="0,0,0,8"
@@ -308,7 +340,8 @@
                                 Spacing="2"
                                 VerticalAlignment="Center">
                                 <ToggleButton Classes="seg" Content="Edit" IsChecked="{Binding IsEditMode}" />
-                                <ToggleButton Classes="seg" Content="Preview" IsChecked="{Binding !IsEditMode}" />
+                                <ToggleButton Classes="seg" Content="Split" IsChecked="{Binding IsSplitMode}" />
+                                <ToggleButton Classes="seg" Content="Preview" IsChecked="{Binding IsPreviewMode}" />
                             </StackPanel>
                             <Button
                                 Grid.Column="3"
@@ -323,36 +356,538 @@
                                     Stretch="Uniform" />
                             </Button>
                         </Grid>
-                        <Panel Grid.Row="1">
+                        <!--  Formatting toolbar: transforms run through MarkdownEditing
+                             via the shared OnFormatClick (format named in Tag)  -->
+                        <WrapPanel
+                            Grid.Row="1"
+                            Margin="0,0,0,8"
+                            IsVisible="{Binding IsEditorVisible}">
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Bold}"
+                                ToolTip.Tip="Bold (Ctrl+B)">
+                                <TextBlock FontWeight="Bold" Text="B" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Italic}"
+                                ToolTip.Tip="Italic (Ctrl+I)">
+                                <TextBlock FontStyle="Italic" FontWeight="SemiBold" Text="I" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Strikethrough}"
+                                ToolTip.Tip="Strikethrough">
+                                <TextBlock Text="S" TextDecorations="Strikethrough" />
+                            </Button>
+                            <Border Classes="tool-sep" />
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Heading1}"
+                                ToolTip.Tip="Heading 1">
+                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="H1" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Heading2}"
+                                ToolTip.Tip="Heading 2">
+                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="H2" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Heading3}"
+                                ToolTip.Tip="Heading 3">
+                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="H3" />
+                            </Button>
+                            <Border Classes="tool-sep" />
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.BulletList}"
+                                ToolTip.Tip="Bullet list">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-list-bullet}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.OrderedList}"
+                                ToolTip.Tip="Numbered list">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-list-ordered}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.TaskList}"
+                                ToolTip.Tip="Task list">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-task}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Border Classes="tool-sep" />
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Blockquote}"
+                                ToolTip.Tip="Quote">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-quote}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Rule}"
+                                ToolTip.Tip="Horizontal rule">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-minus}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Border Classes="tool-sep" />
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.InlineCode}"
+                                ToolTip.Tip="Inline code">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-code}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.CodeBlock}"
+                                ToolTip.Tip="Code block">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-code-block}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                            <Border Classes="tool-sep" />
+                            <Button
+                                Classes="mdtool"
+                                Click="OnFormatClick"
+                                Tag="{x:Static helpers:MarkdownEditing.Link}"
+                                ToolTip.Tip="Link (Ctrl+K)">
+                                <Path
+                                    Width="15"
+                                    Height="15"
+                                    Data="{tools:SvgPath icon-link}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                            </Button>
+                        </WrapPanel>
+                        <Panel Grid.Row="2">
+                            <!--  Edit only: mono source editor  -->
                             <TextBox
+                                x:Name="NoteEditor"
                                 AcceptsReturn="True"
                                 Background="Transparent"
                                 BorderThickness="0"
+                                FontFamily="menlo,monaco,consolas,courier new,monospace"
+                                FontSize="13"
                                 IsVisible="{Binding IsEditMode}"
-                                KeyDown="OnNoteEditorKeyDown"
                                 Padding="0"
+                                SelectionBrush="#4D6E9BF7"
                                 Text="{Binding NoteText, UpdateSourceTrigger=PropertyChanged}"
                                 TextWrapping="Wrap"
                                 VerticalContentAlignment="Top" />
-                            <!--  Default markdown style (its text colors follow the app
-                                 theme), with the code-block chrome re-tinted dark: the
-                                 style's alpha-shaded background renders opaque light in
-                                 the Tight build, so the override must sit on the viewer
-                                 itself (same style frame, appended after → wins).  -->
+                            <!--  Split: source editor beside the live preview  -->
+                            <Grid
+                                ColumnDefinitions="*,1,*"
+                                IsVisible="{Binding IsSplitMode}">
+                                <TextBox
+                                    x:Name="NoteEditorSplit"
+                                    Grid.Column="0"
+                                    AcceptsReturn="True"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    FontFamily="menlo,monaco,consolas,courier new,monospace"
+                                    FontSize="13"
+                                    Padding="0"
+                                    SelectionBrush="#4D6E9BF7"
+                                    Text="{Binding NoteText, UpdateSourceTrigger=PropertyChanged}"
+                                    TextWrapping="Wrap"
+                                    VerticalContentAlignment="Top" />
+                                <Border
+                                    Grid.Column="1"
+                                    Margin="10,0"
+                                    Background="{DynamicResource HairlineBrush}" />
+                                <md:MarkdownScrollViewer
+                                    Grid.Column="2"
+                                    x:Name="SplitPreview"
+                                    SaveScrollValueWhenContentUpdated="True"
+                                    SelectionEnabled="True"
+                                    SelectionBrush="#4D6E9BF7"
+                                    UseResource="True">
+                                    <!--  Obsidian dark reading-view parity (stock theme, 16px
+                                         base): text #DADADA, accent #8A5CF5 (links #A68AF9),
+                                         code bg #232323, borders #333333. Same frame as the
+                                         theme's entries, appended after → last-wins.  -->
+                                    <md:MarkdownScrollViewer.Styles>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock">
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="SelectionBrush" Value="#4D6E9BF7" />
+                                            <Setter Property="FontSize" Value="16" />
+                                            <Setter Property="LineHeight" Value="24" />
+                                            <Setter Property="Margin" Value="0,8" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading1">
+                                            <Setter Property="FontSize" Value="25.9" />
+                                            <Setter Property="FontWeight" Value="Bold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="LineHeight" Value="31" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading2">
+                                            <Setter Property="FontSize" Value="23.4" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="LineHeight" Value="28" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading3">
+                                            <Setter Property="FontSize" Value="21.1" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="LineHeight" Value="27" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading4">
+                                            <Setter Property="FontSize" Value="19" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="LineHeight" Value="27" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading5">
+                                            <Setter Property="FontSize" Value="17.2" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="LineHeight" Value="26" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading6">
+                                            <Setter Property="FontSize" Value="16" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CHyperlink">
+                                            <Setter Property="Foreground" Value="#A68AF9" />
+                                            <Setter Property="IsUnderline" Value="True" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CHyperlink:pointerover">
+                                            <Setter Property="Foreground" Value="#C5B6FC" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CCode">
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="Background" Value="#232323" />
+                                            <Setter Property="CornerRadius" Value="4" />
+                                            <Setter Property="Padding" Value="4,2" />
+                                            <Setter Property="FontSize" Value="14" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List">
+                                            <Setter Property="Margin" Value="28,0,0,0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List Grid.List">
+                                            <Setter Property="Margin" Value="36,0,0,0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List ctxt|CTextBlock">
+                                            <Setter Property="Margin" Value="0,2" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List ctxt|CTextBlock.ListMarker">
+                                            <Setter Property="Foreground" Value="#666666" />
+                                            <Setter Property="FontSize" Value="16" />
+                                            <Setter Property="LineHeight" Value="24" />
+                                            <Setter Property="Margin" Value="0,2,8,0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.CodeBlock">
+                                            <Setter Property="Background" Value="#232323" />
+                                            <Setter Property="BorderBrush" Value="#232323" />
+                                            <Setter Property="BorderThickness" Value="0,12,0,12" />
+                                            <Setter Property="Padding" Value="16,0" />
+                                            <Setter Property="CornerRadius" Value="4" />
+                                            <Setter Property="Margin" Value="0,8" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer TextBlock.CodeBlock">
+                                            <Setter Property="Foreground" Value="#DADADA" />
+                                            <Setter Property="FontFamily" Value="menlo,monaco,consolas,courier new,monospace" />
+                                            <Setter Property="FontSize" Value="14" />
+                                            <Setter Property="LineHeight" Value="21" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote">
+                                            <Setter Property="BorderBrush" Value="#8A5CF5" />
+                                            <Setter Property="BorderThickness" Value="2,0,0,0" />
+                                            <Setter Property="Background" Value="Transparent" />
+                                            <Setter Property="Margin" Value="0,8" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer StackPanel.Blockquote">
+                                            <Setter Property="Margin" Value="24,0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table > Border">
+                                            <Setter Property="BorderBrush" Value="#333333" />
+                                            <Setter Property="BorderThickness" Value="1,1,0,0" />
+                                            <Setter Property="Padding" Value="8,4" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table">
+                                            <Setter Property="mdc:AutoScaleColumnDefinitions.IsEnabled" Value="True" />
+                                            <Setter Property="HorizontalAlignment" Value="Left" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Table">
+                                            <Setter Property="Margin" Value="0,8" />
+                                            <Setter Property="BorderThickness" Value="0,0,1,1" />
+                                            <Setter Property="BorderBrush" Value="#333333" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.TableHeader">
+                                            <Setter Property="Background" Value="Transparent" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table > Border ctxt|CTextBlock">
+                                            <Setter Property="Margin" Value="0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.OddTableRow">
+                                            <Setter Property="Background" Value="Transparent" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.EvenTableRow">
+                                            <Setter Property="Background" Value="Transparent" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.FirstTableRow">
+                                            <Setter Property="Background" Value="Transparent" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.LastTableRow">
+                                            <Setter Property="Background" Value="Transparent" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Note">
+                                            <Setter Property="Background" Value="Transparent" />
+                                            <Setter Property="BorderThickness" Value="0" />
+                                            <Setter Property="Margin" Value="0,8" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Note">
+                                            <Setter Property="FontSize" Value="14" />
+                                            <Setter Property="Foreground" Value="#B3B3B3" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer mdc|Rule">
+                                            <Setter Property="Foreground" Value="#333333" />
+                                            <Setter Property="Margin" Value="0,24" />
+                                            <Setter Property="SingleLineWidth" Value="2" />
+                                            <Setter Property="BoldLineWidth" Value="2" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:first-child">
+                                            <Setter Property="Margin" Value="0,0,0,8" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:last-child">
+                                            <Setter Property="Margin" Value="0,8,0,0" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:first-child:last-child">
+                                            <Setter Property="Margin" Value="0,0" />
+                                        </Style>
+                                    </md:MarkdownScrollViewer.Styles>
+                                </md:MarkdownScrollViewer>
+                            </Grid>
+                            <!--  Preview only  -->
+                            <!--  Same Obsidian-parity set as the split pane above; the
+                                 overrides must sit ON the viewer (page-level styles
+                                 would lose to the control frame).  -->
                             <md:MarkdownScrollViewer
-                                IsVisible="{Binding !IsEditMode}"
-                                Markdown="{Binding NoteText}">
+                                x:Name="PreviewOnly"
+                                IsVisible="{Binding IsPreviewMode}"
+                                SaveScrollValueWhenContentUpdated="True"
+                                SelectionEnabled="True"
+                                SelectionBrush="#4D6E9BF7"
+                                UseResource="True">
                                 <md:MarkdownScrollViewer.Styles>
-                                    <Style Selector="Border.CodeBlock">
-                                        <Setter Property="Background" Value="#232329" />
-                                        <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock">
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="SelectionBrush" Value="#4D6E9BF7" />
+                                        <Setter Property="FontSize" Value="16" />
+                                        <Setter Property="LineHeight" Value="24" />
+                                        <Setter Property="Margin" Value="0,8" />
                                     </Style>
-                                    <Style Selector="TextBlock.CodeBlock">
-                                        <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading1">
+                                        <Setter Property="FontSize" Value="25.9" />
+                                        <Setter Property="FontWeight" Value="Bold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="LineHeight" Value="31" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading2">
+                                        <Setter Property="FontSize" Value="23.4" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="LineHeight" Value="28" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading3">
+                                        <Setter Property="FontSize" Value="21.1" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="LineHeight" Value="27" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading4">
+                                        <Setter Property="FontSize" Value="19" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="LineHeight" Value="27" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading5">
+                                        <Setter Property="FontSize" Value="17.2" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="LineHeight" Value="26" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Heading6">
+                                        <Setter Property="FontSize" Value="16" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CHyperlink">
+                                        <Setter Property="Foreground" Value="#A68AF9" />
+                                        <Setter Property="IsUnderline" Value="True" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CHyperlink:pointerover">
+                                        <Setter Property="Foreground" Value="#C5B6FC" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CCode">
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="Background" Value="#232323" />
+                                        <Setter Property="CornerRadius" Value="4" />
+                                        <Setter Property="Padding" Value="4,2" />
+                                        <Setter Property="FontSize" Value="14" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List">
+                                        <Setter Property="Margin" Value="28,0,0,0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List Grid.List">
+                                        <Setter Property="Margin" Value="36,0,0,0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List ctxt|CTextBlock">
+                                        <Setter Property="Margin" Value="0,2" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.List ctxt|CTextBlock.ListMarker">
+                                        <Setter Property="Foreground" Value="#666666" />
+                                        <Setter Property="FontSize" Value="16" />
+                                        <Setter Property="LineHeight" Value="24" />
+                                        <Setter Property="Margin" Value="0,2,8,0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.CodeBlock">
+                                        <Setter Property="Background" Value="#232323" />
+                                        <Setter Property="BorderBrush" Value="#232323" />
+                                        <Setter Property="BorderThickness" Value="0,12,0,12" />
+                                        <Setter Property="Padding" Value="16,0" />
+                                        <Setter Property="CornerRadius" Value="4" />
+                                        <Setter Property="Margin" Value="0,8" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer TextBlock.CodeBlock">
+                                        <Setter Property="Foreground" Value="#DADADA" />
+                                        <Setter Property="FontFamily" Value="menlo,monaco,consolas,courier new,monospace" />
+                                        <Setter Property="FontSize" Value="14" />
+                                        <Setter Property="LineHeight" Value="21" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote">
+                                        <Setter Property="BorderBrush" Value="#8A5CF5" />
+                                        <Setter Property="BorderThickness" Value="2,0,0,0" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="Margin" Value="0,8" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer StackPanel.Blockquote">
+                                        <Setter Property="Margin" Value="24,0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table > Border">
+                                        <Setter Property="BorderBrush" Value="#333333" />
+                                        <Setter Property="BorderThickness" Value="1,1,0,0" />
+                                        <Setter Property="Padding" Value="8,4" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table">
+                                            <Setter Property="mdc:AutoScaleColumnDefinitions.IsEnabled" Value="True" />
+                                            <Setter Property="HorizontalAlignment" Value="Left" />
+                                        </Style>
+                                        <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Table">
+                                        <Setter Property="Margin" Value="0,8" />
+                                        <Setter Property="BorderThickness" Value="0,0,1,1" />
+                                        <Setter Property="BorderBrush" Value="#333333" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.TableHeader">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Grid.Table > Border ctxt|CTextBlock">
+                                        <Setter Property="Margin" Value="0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.OddTableRow">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.EvenTableRow">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.FirstTableRow">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.LastTableRow">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Note">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                        <Setter Property="Margin" Value="0,8" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer ctxt|CTextBlock.Note">
+                                        <Setter Property="FontSize" Value="14" />
+                                        <Setter Property="Foreground" Value="#B3B3B3" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer mdc|Rule">
+                                        <Setter Property="Foreground" Value="#333333" />
+                                        <Setter Property="Margin" Value="0,24" />
+                                        <Setter Property="SingleLineWidth" Value="2" />
+                                        <Setter Property="BoldLineWidth" Value="2" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:first-child">
+                                        <Setter Property="Margin" Value="0,0,0,8" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:last-child">
+                                        <Setter Property="Margin" Value="0,8,0,0" />
+                                    </Style>
+                                    <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote StackPanel > ctxt|CTextBlock:first-child:last-child">
+                                        <Setter Property="Margin" Value="0,0" />
                                     </Style>
                                 </md:MarkdownScrollViewer.Styles>
                             </md:MarkdownScrollViewer>
                         </Panel>
+                        <!--  Status bar: document stats + caret position  -->
+                        <StackPanel Grid.Row="3" Margin="0,8,0,0">
+                            <Border Height="1" Background="{DynamicResource HairlineBrush}" />
+                            <Grid Margin="0,6,0,0" ColumnDefinitions="*,Auto">
+                                <TextBlock
+                                    Grid.Column="0"
+                                    Classes="subtle"
+                                    FontSize="11"
+                                    Text="{Binding StatusStats}" />
+                                <TextBlock
+                                    Grid.Column="1"
+                                    Classes="subtle"
+                                    FontSize="11"
+                                    Text="{Binding CursorPosition}" />
+                            </Grid>
+                        </StackPanel>
                     </Grid>
                     <!--  No note open  -->
                     <StackPanel

@@ -247,12 +247,36 @@ public partial class App : Application
             if (appSettings.General?.StartMinimized == true)
             {
                 mainWindow.WindowState = WindowState.Minimized;
+                return;
             }
+
+            // Normal start: the launching process is often background (the boot-time
+            // supervisor), so Windows denies the window foreground — request it once
+            // the window is on screen.
+            if (mainWindow.IsLoaded)
+            {
+                ActivateWithForegroundFallback(mainWindow);
+                return;
+            }
+
+            void OnOpened(object? sender, EventArgs e)
+            {
+                mainWindow.Opened -= OnOpened;
+                ActivateWithForegroundFallback(mainWindow);
+            }
+
+            mainWindow.Opened += OnOpened;
         }
         catch (Exception ex)
         {
-            Log.Logger.Error(ex, "Failed to apply start minimized");
+            Log.Logger.Error(ex, "Failed to apply the startup window behavior");
         }
+    }
+
+    private static void ActivateWithForegroundFallback(Window mainWindow)
+    {
+        mainWindow.Activate();
+        Helpers.ForegroundActivator.EnsureForeground(mainWindow);
     }
 
     /// <summary>

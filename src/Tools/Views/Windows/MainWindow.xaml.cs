@@ -240,6 +240,24 @@ public partial class MainWindow : SukiWindow
         }
     }
 
+    /// <summary>A repo row's note button: always shows the Notes page — opening it when
+    /// another page is showing, reloading it when it already is (the row's command has
+    /// by then selected the clicked repo in the bottom bar, so the reload auto-expands
+    /// that repo's folder in the all-notes tree). No toggle: while repo A's notes are
+    /// open, repo B's note button must switch, not close.</summary>
+    private void OnRepoNotesRequested(object? sender, EventArgs e)
+    {
+        if (ContentArea.Content is not NotesPage)
+        {
+            ContentArea.Content = _notesPage;
+        }
+
+        if (_notesPage.DataContext is NotesPageViewModel viewModel)
+        {
+            FireLifecycle(viewModel.OnNavigatedToAsync);
+        }
+    }
+
     /// <summary>
     /// Hosts the Repositories page as the window's permanent content. The ViewModel
     /// lifecycle starts only when the window is actually on screen (<see
@@ -259,6 +277,9 @@ public partial class MainWindow : SukiWindow
         {
             _reposViewModel = viewModel;
             viewModel.PropertyChanged += OnReposViewModelPropertyChanged;
+            // Repo rows' note buttons route here: select the repo in the bottom bar,
+            // then show (or reload) the Notes page for it.
+            viewModel.NotesRequested += OnRepoNotesRequested;
             Opened += OnMainWindowOpened;
         }
     }

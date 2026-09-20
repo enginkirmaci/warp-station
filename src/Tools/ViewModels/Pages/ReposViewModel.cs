@@ -640,6 +640,30 @@ public partial class ReposViewModel : PageViewModelBase
         return _repoService.ToggleFavoriteAsync(repo);
     }
 
+    // --- Notes page routing ---
+
+    /// <summary>
+    /// Raised when a row's note button asks for the Notes page. The window subscribes
+    /// and swaps its content (the page-VM has no path to the window VM); the repo
+    /// context itself travels through the bottom bar, which
+    /// <see cref="OpenNotesForRepo"/> selects first.
+    /// </summary>
+    public event EventHandler? NotesRequested;
+
+    /// <summary>
+    /// A row's note button: selects the repo in the bottom bar (the Notes page reads
+    /// the bar's <see cref="BottomBarViewModel.SelectedRepo"/> when it loads) and asks
+    /// the window to show the Notes page. Always opens or switches — unlike the
+    /// title-bar note button, which toggles.
+    /// </summary>
+    [RelayCommand]
+    private void OpenNotesForRepo(Repo? repo)
+    {
+        if (repo is null) return;
+        _bottomBar.OpenForRepo(repo);
+        NotesRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     // --- Settings & refresh ---
 
     /// <summary>

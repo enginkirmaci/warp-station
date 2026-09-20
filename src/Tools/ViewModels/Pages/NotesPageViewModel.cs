@@ -10,6 +10,15 @@ using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.ViewModels.Pages;
 
+/// <summary>Layout mode of the note pane: source editor only, editor+preview side by
+/// side, or preview only.</summary>
+public enum NoteEditorMode
+{
+    Edit,
+    Split,
+    Preview,
+}
+
 /// <summary>One node of the notes tree (a folder or a .md note). The whole tree is
 /// rebuilt on reload, so nodes are plain identity + the observable dirty flag the tree
 /// rows bind.</summary>
@@ -39,15 +48,28 @@ public sealed class NoteNodeViewModel : ObservableObject
         get => _isDirty;
         set => SetProperty(ref _isDirty, value);
     }
+
+    private bool _isExpanded;
+
+    /// <summary>Folder expansion state (the tree's item style binds it two-way so
+    /// expansion survives tree rebuilds).</summary>
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set => SetProperty(ref _isExpanded, value);
+    }
 }
 
 /// <summary>
-/// ViewModel for the dedicated Notes page: per-repository markdown notes under the
-/// configured store path (one subfolder per repository). The tree is scoped to the
-/// bottom bar's selected repo — the page reloads on every show, so repo switching
-/// (which only happens on the Repositories table) is picked up on the next open.
-/// Unsaved edits are held per note path in memory (the VM is a window-lifetime
-/// singleton) and survive navigating away and back; Save writes through to disk.
+/// ViewModel for the dedicated Notes page: markdown notes under the configured store
+/// path (one subfolder per repository). The tree shows the whole store — every
+/// repository's notes folder at the root — so the title-bar note button opens all
+/// notes at once; the bottom bar's selected repo has its folder auto-expanded, and
+/// new notes land there when nothing is picked in the tree. The page reloads on every
+/// show, so repo switching (which only happens on the Repositories table) is picked
+/// up on the next open. Unsaved edits are held per note path in memory (the VM is a
+/// window-lifetime singleton) and survive navigating away and back; Save writes
+/// through to disk.
 /// </summary>
 public partial class NotesPageViewModel : ObservableObject
 {
@@ -68,7 +90,12 @@ public partial class NotesPageViewModel : ObservableObject
     private int _treeLoadGeneration;
     private int _noteLoadGeneration;
 
-    /// <summary>The selected repo's notes folder (resolved per navigation).</summary>
+    /// <summary>The notes store root (resolved per navigation): the tree's scope.</summary>
+    private string _storeRoot = string.Empty;
+
+    /// <summary>The selected repo's notes folder under the store root (empty when no
+    /// repo is selected) — the auto-expanded folder and the fallback target for new
+    /// notes.</summary>
     private string _repoNotesRoot = string.Empty;
 
     /// <summary>The open note's on-disk content — the baseline the dirty flag compares
@@ -113,7 +140,14 @@ public partial class NotesPageViewModel : ObservableObject
     private bool _isDirty;
 
     [ObservableProperty]
-    private bool _isEditMode = true;
+    private NoteEditorMode _editorMode = NoteEditorMode.Edit;
+
+    // ---- status bar ----
+    [ObservableProperty]
+    private string _statusStats = "0 words · 0 chars · 1 line";
+
+    [ObservableProperty]
+    private string _cursorPosition = "Ln 1, Col 1";
 
     // ---- search ----
     [ObservableProperty]
@@ -148,6 +182,68 @@ public partial class NotesPageViewModel : ObservableObject
 
     public string DeleteTooltip => IsDeleteArmed ? "Click again to delete" : "Delete this note";
 
+    /// <summary>Preview rendering is driven from the code-behind (MarkdownEditing.BuildPreview):
+    /// task checkboxes become live controls, so toggling writes back through here.</summary>
+    public void ToggleTaskAtLine(int line)
+    {
+        if (MarkdownEditing.ToggleTask(NoteText, line) is not { } next || next == NoteText)
+        {
+            return;
+        }
+
+        NoteText = next;
+    }
+
+    // Segmented Edit/Split/Preview pair: each ToggleButton binds its own flag two-way.
+    public bool IsEditMode
+    {
+        get => EditorMode == NoteEditorMode.Edit;
+        set
+        {
+            if (value)
+            {
+                EditorMode = NoteEditorMode.Edit;
+            }
+        }
+    }
+
+    public bool IsSplitMode
+    {
+        get => EditorMode == NoteEditorMode.Split;
+        set
+        {
+            if (value)
+            {
+                EditorMode = NoteEditorMode.Split;
+            }
+        }
+    }
+
+    public bool IsPreviewMode
+    {
+        get => EditorMode == NoteEditorMode.Preview;
+        set
+        {
+            if (value)
+            {
+                EditorMode = NoteEditorMode.Preview;
+            }
+        }
+    }
+
+    public bool IsEditorVisible => EditorMode != NoteEditorMode.Preview;
+
+    public bool IsPreviewVisible => EditorMode != NoteEditorMode.Edit;
+
+    partial void OnEditorModeChanged(NoteEditorMode value)
+    {
+        OnPropertyChanged(nameof(IsEditMode));
+        OnPropertyChanged(nameof(IsSplitMode));
+        OnPropertyChanged(nameof(IsPreviewMode));
+        OnPropertyChanged(nameof(IsEditorVisible));
+        OnPropertyChanged(nameof(IsPreviewVisible));
+    }
+
     partial void OnOpenNoteChanged(NoteNodeViewModel? value)
     {
         OnPropertyChanged(nameof(HasOpenNote));
@@ -157,29 +253,20 @@ public partial class NotesPageViewModel : ObservableObject
     partial void OnIsDeleteArmedChanged(bool value) => OnPropertyChanged(nameof(DeleteTooltip));
 
     /// <summary>Navigation load (fired on every page show): re-resolves the store from
-    /// the latest settings, re-reads the bar's selected repo, rebuilds the tree and
-    /// re-opens the previously open note when it still exists. Unsaved buffers survive.</summary>
+    /// the latest settings, re-reads the bar's selected repo, rebuilds the whole-store
+    /// tree and re-opens the previously open note when it still exists. Unsaved buffers
+    /// survive.</summary>
     public async Task OnNavigatedToAsync()
     {
         var generation = ++_treeLoadGeneration;
         IsDeleteArmed = false;
         SearchText = string.Empty;
         SearchResults.Clear();
-        IsEditMode = true;
+        EditorMode = NoteEditorMode.Edit;
 
         Repo? repo = _bar.SelectedRepo;
         RepoName = repo?.Name;
         HasRepo = repo is not null;
-
-        if (repo?.Name is null)
-        {
-            OpenNote = null;
-            NoteText = string.Empty;
-            SelectedNode = null;
-            Tree = new();
-            HasNotes = false;
-            return;
-        }
 
         var settings = await _settings.GetSettingsAsync();
         if (generation != _treeLoadGeneration)
@@ -187,31 +274,55 @@ public partial class NotesPageViewModel : ObservableObject
             return;
         }
 
-        var storeRoot = _notes.ResolveStoreRoot(settings.General?.NotesStorePath);
-        _repoNotesRoot = _notes.GetRepoNotesRoot(storeRoot, repo.Name);
+        _storeRoot = _notes.ResolveStoreRoot(settings.General?.NotesStorePath);
+        _repoNotesRoot = repo?.Name is { } name
+            ? _notes.GetRepoNotesRoot(_storeRoot, name)
+            : string.Empty;
 
         await ReloadTreeAsync(generation, restoreOpenPath: OpenNote?.FullPath);
     }
 
     /// <summary>Rebuilds the tree from disk and re-selects the open note. Callers pass
-    /// the generation they loaded under; a newer navigation supersedes this reload.</summary>
+    /// the generation they loaded under; a newer navigation supersedes this reload.
+    /// Expansion survives the rebuild (currently open folders keep their state); the
+    /// selected repo's folder and the restored note's ancestors open on top.</summary>
     private async Task ReloadTreeAsync(int generation, string? restoreOpenPath)
     {
-        var items = await _notes.LoadTreeAsync(_repoNotesRoot);
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectExpanded(Tree, expanded);
+
+        var items = await _notes.LoadTreeAsync(_storeRoot);
         if (generation != _treeLoadGeneration)
         {
             return;
         }
 
         var tree = new ObservableCollection<NoteNodeViewModel>(items.Select(ToNode));
-        Tree = tree;
-        HasNotes = tree.Count > 0;
+        ApplyExpanded(tree, expanded);
 
-        NoteNodeViewModel? nodeToSelect = null;
+        if (HasRepo && FindNodePath(tree, _repoNotesRoot) is { } repoPath)
+        {
+            foreach (var node in repoPath)
+            {
+                node.IsExpanded = true;
+            }
+        }
+
+        List<NoteNodeViewModel>? restored = null;
         if (restoreOpenPath is not null)
         {
-            nodeToSelect = FindNote(tree, restoreOpenPath);
+            restored = FindNodePath(tree, restoreOpenPath);
+            if (restored is not null)
+            {
+                for (var i = 0; i < restored.Count - 1; i++)
+                {
+                    restored[i].IsExpanded = true;
+                }
+            }
         }
+
+        Tree = tree;
+        HasNotes = tree.Count > 0;
 
         // The ItemsSource swap echoes SelectedItem=null through the two-way selection
         // binding; the programmatic re-selection lands after that chain settles.
@@ -222,8 +333,8 @@ public partial class NotesPageViewModel : ObservableObject
                 return;
             }
 
-            SelectedNode = nodeToSelect;
-            if (nodeToSelect is null)
+            SelectedNode = restored is { Count: > 0 } ? restored[^1] : null;
+            if (restored is not { Count: > 0 })
             {
                 OpenNote = null;
                 NoteText = string.Empty;
@@ -232,20 +343,63 @@ public partial class NotesPageViewModel : ObservableObject
         });
     }
 
-    private static NoteNodeViewModel ToNode(NotesTreeItem item)
-        => new(item.Name, item.FullPath, item.IsFolder, item.IsFolder ? item.Children.Select(ToNode) : null);
-
-    private static NoteNodeViewModel? FindNote(ObservableCollection<NoteNodeViewModel> nodes, string fullPath)
+    private static void CollectExpanded(IEnumerable<NoteNodeViewModel> nodes, ISet<string> into)
     {
         foreach (var node in nodes)
         {
-            if (!node.IsFolder && string.Equals(node.FullPath, fullPath, StringComparison.OrdinalIgnoreCase))
+            if (!node.IsFolder)
             {
-                return node;
+                continue;
             }
 
-            if (node.Children.Count > 0 && FindNote(node.Children, fullPath) is { } found)
+            if (node.IsExpanded)
             {
+                into.Add(node.FullPath);
+            }
+
+            if (node.Children.Count > 0)
+            {
+                CollectExpanded(node.Children, into);
+            }
+        }
+    }
+
+    private static void ApplyExpanded(IEnumerable<NoteNodeViewModel> nodes, ISet<string> expanded)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsFolder)
+            {
+                continue;
+            }
+
+            node.IsExpanded = expanded.Contains(node.FullPath);
+            if (node.Children.Count > 0)
+            {
+                ApplyExpanded(node.Children, expanded);
+            }
+        }
+    }
+
+    private static NoteNodeViewModel ToNode(NotesTreeItem item)
+        => new(item.Name, item.FullPath, item.IsFolder, item.IsFolder ? item.Children.Select(ToNode) : null);
+
+    /// <summary>Finds a node by full path and returns the chain from the tree root to
+    /// it (the node itself last); null when absent. Folder paths resolve too (the
+    /// selected repo's folder).</summary>
+    private static List<NoteNodeViewModel>? FindNodePath(
+        ObservableCollection<NoteNodeViewModel> nodes, string fullPath)
+    {
+        foreach (var node in nodes)
+        {
+            if (string.Equals(node.FullPath, fullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return new List<NoteNodeViewModel> { node };
+            }
+
+            if (node.IsFolder && node.Children.Count > 0 && FindNodePath(node.Children, fullPath) is { } found)
+            {
+                found.Insert(0, node);
                 return found;
             }
         }
@@ -255,6 +409,13 @@ public partial class NotesPageViewModel : ObservableObject
 
     partial void OnSelectedNodeChanged(NoteNodeViewModel? value)
     {
+        // Selecting a folder row (label or chevron) opens it; collapse stays on the chevron.
+        if (value is { IsFolder: true })
+        {
+            value.IsExpanded = true;
+            return;
+        }
+
         if (value is { IsFolder: false })
         {
             _ = OpenNoteCoreAsync(value);
@@ -328,6 +489,51 @@ public partial class NotesPageViewModel : ObservableObject
         }
 
         OpenNote.IsDirty = IsDirty;
+
+        StatusStats = $"{CountWords(value)} words · {value.Length} chars · {1 + CountNewlines(value)} lines";
+    }
+
+    /// <summary>Caret readout for the status bar; the code-behind feeds SelectionChanged.</summary>
+    public void UpdateCursorPosition(int caret)
+    {
+        caret = Math.Clamp(caret, 0, NoteText.Length);
+        var upToCaret = NoteText[..caret];
+        var lastNewline = upToCaret.LastIndexOf('\n');
+        CursorPosition = $"Ln {1 + CountNewlines(upToCaret)}, Col {caret - lastNewline}";
+    }
+
+    private static int CountNewlines(string text)
+    {
+        var count = 0;
+        foreach (var ch in text)
+        {
+            if (ch == '\n')
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountWords(string text)
+    {
+        var count = 0;
+        var inWord = false;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                inWord = false;
+            }
+            else if (!inWord)
+            {
+                inWord = true;
+                count++;
+            }
+        }
+
+        return count;
     }
 
     [RelayCommand]
@@ -355,18 +561,20 @@ public partial class NotesPageViewModel : ObservableObject
     }
 
     /// <summary>The folder new notes/folders land in: the selected folder, else the
-    /// selected note's folder, else the repo's notes root.</summary>
-    private string CurrentParentDirectory
+    /// selected note's folder, else the selected repo's notes root; null when nothing
+    /// is selected anywhere (the create commands ask for a target).</summary>
+    private string? CurrentParentDirectory
         => SelectedNode is { } node
             ? node.IsFolder ? node.FullPath : Path.GetDirectoryName(node.FullPath)!
-            : _repoNotesRoot;
+            : HasRepo ? _repoNotesRoot
+            : null;
 
     [RelayCommand]
     private async Task CreateNoteAsync()
     {
-        if (!HasRepo)
+        if (CurrentParentDirectory is not { } parent)
         {
-            _notifications.Show("Select a repository first", NotificationKind.Warning);
+            _notifications.Show("Select a repository or a folder first", NotificationKind.Warning);
             return;
         }
 
@@ -379,14 +587,19 @@ public partial class NotesPageViewModel : ObservableObject
 
         try
         {
-            var path = await _notes.CreateNoteAsync(_repoNotesRoot, CurrentParentDirectory, name);
+            var path = await _notes.CreateNoteAsync(_storeRoot, parent, name);
             NewNoteName = string.Empty;
             await ReloadTreeAsync(_treeLoadGeneration, restoreOpenPath: null);
             Dispatcher.UIThread.Post(() =>
             {
-                if (FindNote(Tree, path) is { } node)
+                if (FindNodePath(Tree, path) is { } chain)
                 {
-                    SelectedNode = node;
+                    for (var i = 0; i < chain.Count - 1; i++)
+                    {
+                        chain[i].IsExpanded = true;
+                    }
+
+                    SelectedNode = chain[^1];
                 }
             });
         }
@@ -400,9 +613,9 @@ public partial class NotesPageViewModel : ObservableObject
     [RelayCommand]
     private async Task CreateFolderAsync()
     {
-        if (!HasRepo)
+        if (CurrentParentDirectory is not { } parent)
         {
-            _notifications.Show("Select a repository first", NotificationKind.Warning);
+            _notifications.Show("Select a repository or a folder first", NotificationKind.Warning);
             return;
         }
 
@@ -415,7 +628,7 @@ public partial class NotesPageViewModel : ObservableObject
 
         try
         {
-            await _notes.CreateFolderAsync(_repoNotesRoot, CurrentParentDirectory, name);
+            await _notes.CreateFolderAsync(_storeRoot, parent, name);
             NewFolderName = string.Empty;
             await ReloadTreeAsync(_treeLoadGeneration, restoreOpenPath: OpenNote?.FullPath);
         }
@@ -448,7 +661,7 @@ public partial class NotesPageViewModel : ObservableObject
         var path = OpenNote.FullPath;
         try
         {
-            await _notes.DeleteAsync(_repoNotesRoot, path);
+            await _notes.DeleteAsync(_storeRoot, path);
             _unsaved.Remove(path);
             OpenNote = null;
             NoteText = string.Empty;
@@ -490,7 +703,7 @@ public partial class NotesPageViewModel : ObservableObject
         var generation = _treeLoadGeneration;
         try
         {
-            var hits = await _notes.SearchAsync(_repoNotesRoot, term);
+            var hits = await _notes.SearchAsync(_storeRoot, term);
             if (generation != _treeLoadGeneration)
             {
                 return;
@@ -506,33 +719,41 @@ public partial class NotesPageViewModel : ObservableObject
     }
 
     /// <summary>Opens a search hit. When the note is missing from the tree (deleted
-    /// mid-search) a lightweight stand-in node still opens it.</summary>
+    /// mid-search) a lightweight stand-in node still opens it; otherwise its ancestors
+    /// expand so the opened note stays visible.</summary>
     public async Task OpenSearchResultAsync(NotesSearchHit hit)
     {
-        await OpenNoteCoreAsync(FindNote(Tree, hit.FullPath)
-            ?? new NoteNodeViewModel(hit.Name, hit.FullPath, isFolder: false));
-        IsEditMode = true;
+        var chain = FindNodePath(Tree, hit.FullPath);
+        if (chain is not null)
+        {
+            for (var i = 0; i < chain.Count - 1; i++)
+            {
+                chain[i].IsExpanded = true;
+            }
+        }
+
+        await OpenNoteCoreAsync(chain is { Count: > 0 }
+            ? chain[^1]
+            : new NoteNodeViewModel(hit.Name, hit.FullPath, isFolder: false));
+        EditorMode = NoteEditorMode.Edit;
     }
 
     [RelayCommand]
     private void ClearSearch() => SearchText = string.Empty;
 
-    /// <summary>Opens the repo's notes folder (or the store root before the first note
-    /// exists) in the OS file manager.</summary>
+    /// <summary>Opens the current notes folder — the selected folder / selected repo's
+    /// folder, else the store root — in the OS file manager.</summary>
     [RelayCommand]
     private void OpenStoreFolder()
     {
-        if (!HasRepo)
-        {
-            _notifications.Show("Select a repository first", NotificationKind.Warning);
-            return;
-        }
-
         try
         {
-            var folder = Directory.Exists(_repoNotesRoot)
-                ? _repoNotesRoot
-                : Path.GetDirectoryName(_repoNotesRoot)!;
+            var folder = CurrentParentDirectory;
+            if (string.IsNullOrEmpty(folder))
+            {
+                folder = _storeRoot;
+            }
+
             Directory.CreateDirectory(folder);
             _processLauncher.StartProcess(folder);
         }
