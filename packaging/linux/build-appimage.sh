@@ -10,7 +10,7 @@
 #   packaging/linux/build-appimage.sh 1.2.3          # version = 1.2.3
 #   packaging/linux/build-appimage.sh --version 1.2.3
 #
-# Output: portable/Tools-<version>-x86_64.AppImage
+# Output: packaging/linux/portable/Tools-<version>-x86_64.AppImage
 # Self-contained (no .NET runtime needed on the target); user data lives in
 # ~/.devtools, seeded from the bundled settings/ tree, same as Windows. Launching
 # the AppImage needs FUSE2 (fuse2/libfuse2 package); without it, run it with
@@ -26,7 +26,7 @@ cd "$REPO_ROOT"
 
 VERSION="0.0.0-dev"
 
-# --- Parse args (same shape as packaging/windows/build-portable.sh) ---
+# --- Parse args (same shape as the packaging/windows ps1 scripts) ---
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--version)
@@ -77,7 +77,7 @@ echo "::endgroup::"
 # --- Paths ---
 PUBLISH_DIR="build/appimage/linux-x64/publish"
 APPDIR="build/appimage/AppDir"
-OUT_DIR="portable"
+OUT_DIR="packaging/linux/portable"
 APPIMAGE="$OUT_DIR/Tools-$VERSION-x86_64.AppImage"
 TOOL_DIR="build/tools"
 APPIMAGETOOL_IMG="$TOOL_DIR/appimagetool-x86_64.AppImage"
@@ -94,7 +94,7 @@ echo "::endgroup::"
 echo "::group::Stage AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
-# Same exclusions as the Windows portable staging (no pdb/xml in artifacts).
+# Same exclusions as the Windows payload staging in packaging/windows/build-portable.ps1.
 if command -v rsync >/dev/null 2>&1; then
 	rsync -a \
 		--exclude='*.pdb' \

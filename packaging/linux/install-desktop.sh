@@ -8,7 +8,7 @@
 #   ~/.local/share/applications/tools.desktop               launcher entry
 #
 # Usage:
-#   packaging/linux/install-desktop.sh                       # newest portable/Tools-*.AppImage
+#   packaging/linux/install-desktop.sh                       # newest packaging/linux/portable/Tools-*.AppImage
 #   packaging/linux/install-desktop.sh path/to/Tools-*.AppImage
 #   packaging/linux/install-desktop.sh remove
 #
@@ -39,13 +39,13 @@ case "${1:-install}" in
 		;;
 
 	install)
-		# Pick the AppImage: explicit path, else the newest version in portable/.
+		# Pick the AppImage: explicit path, else the newest version in packaging/linux/portable/.
 		if [[ $# -ge 2 ]]; then
 			APPIMAGE_SRC="$2"
 		else
-			APPIMAGE_SRC="$(ls -1v "$REPO_ROOT"/portable/Tools-*-x86_64.AppImage 2>/dev/null | tail -1 || true)"
+			APPIMAGE_SRC="$(ls -1v "$REPO_ROOT"/packaging/linux/portable/Tools-*-x86_64.AppImage 2>/dev/null | tail -1 || true)"
 			if [[ -z "$APPIMAGE_SRC" ]]; then
-				echo "::error::no AppImage found in portable/ — run packaging/linux/build-appimage.sh first." >&2
+				echo "::error::no AppImage found in packaging/linux/portable/ — run packaging/linux/build-appimage.sh first." >&2
 				exit 1
 			fi
 		fi

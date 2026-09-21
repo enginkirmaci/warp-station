@@ -1,20 +1,18 @@
 #Requires -Version 5.1
 <#
-build-portable.ps1 — generate a self-contained Windows (win-x64) portable build,
-mirroring the CI workflow in .github/workflows/build-installer.yml (publish +
-stage + zip steps). This is the Windows-native counterpart of build-portable.sh:
-it uses robocopy (the rsync/CI equivalent) for staging and Compress-Archive for
-zipping, so a Windows dev box can build the same artifact locally.
+build-portable.ps1 — generate a self-contained Windows (win-x64) portable build:
+publish DevTools (supervisor) and Tools (GUI), stage the payload, verify it and
+zip it.
 
-Usage:
-    packaging\windows\build-portable.ps1                    # version defaults to 0.0.0-dev
-    packaging\windows\build-portable.ps1 1.2.3              # version = 1.2.3
-    packaging\windows\build-portable.ps1 -Version 1.2.3     # version = 1.2.3
-    packaging\windows\build-portable.ps1 -Help              # show this help
-
-Output: portable\DevTools-Portable-<version>.zip
+Output: packaging\windows\portable\DevTools-Portable-<version>.zip
 The zip runs on a clean Windows box (no .NET install needed) and stores its
 user data in %USERPROFILE%\.devtools, seeded from the bundled settings\ tree.
+
+Usage:
+    packaging\windows\build-portable.ps1                  # version defaults to 0.0.0-dev
+    packaging\windows\build-portable.ps1 1.2.3            # version = 1.2.3
+    packaging\windows\build-portable.ps1 -Version 1.2.3
+    packaging\windows\build-portable.ps1 -Help
 #>
 [CmdletBinding()]
 param(
@@ -35,27 +33,22 @@ function Fail([string]$Message) {
 
 function Show-Help {
     Write-Host @"
-build-portable.ps1 — generate a self-contained Windows (win-x64) portable build.
+build-portable.ps1 — generate a self-contained Windows (win-x64) portable build
+(packaging\windows\portable\DevTools-Portable-<version>.zip).
 
 Usage:
-    packaging\windows\build-portable.ps1                    # version defaults to 0.0.0-dev
-    packaging\windows\build-portable.ps1 1.2.3              # version = 1.2.3
-    packaging\windows\build-portable.ps1 -Version 1.2.3     # version = 1.2.3
-    packaging\windows\build-portable.ps1 -Help              # show this help
-
-Output:
-    portable\DevTools-Portable-<version>.zip
-
-The zip runs on a clean Windows box (no .NET install needed) and stores its
-user data in %USERPROFILE%\.devtools, seeded from the bundled settings\ tree.
+    packaging\windows\build-portable.ps1                  # version defaults to 0.0.0-dev
+    packaging\windows\build-portable.ps1 1.2.3
+    packaging\windows\build-portable.ps1 -Version 1.2.3
+    packaging\windows\build-portable.ps1 -Help
 "@
 }
 
-# --- Locate repo root (this script lives at the repo root, but be defensive) ---
+# --- Locate repo root (this script lives in packaging\windows, but be defensive) ---
 if ($Help) { Show-Help; exit 0 }
 Set-Location (Join-Path $PSScriptRoot "..\..")
 
-# Validate version shape (same regex as the CI workflow and build-portable.sh).
+# Validate version shape (same regex as the CI workflow).
 if ($Version -notmatch '^\d+\.\d+\.\d+') {
     Fail "version '$Version' is not in x.y.z format"
 }
@@ -72,17 +65,17 @@ if ($sdkVersion -notmatch '^10\.') {
 Write-Host "=== Resolve version ==="
 Write-Host "Version: $Version"
 
-# --- Paths (must match CI: split build output -> portable-stage -> portable\) ---
+# --- Paths (must match CI: split build output -> stage -> packaging\windows\portable) ---
 # DevTools (launcher) and Tools (main app) publish to separate folders per the csproj
-# OutputPath layout (DevTools -> build\, Tools -> build\bin\). The portable zip mirrors
-# the installer: DevTools at the zip root, Tools under a bin\ subfolder.
+# OutputPath layout (DevTools -> build\, Tools -> build\bin\). The staged payload
+# mirrors the installer: DevTools at the stage root, Tools under a bin\ subfolder.
 $DevToolsPublish = "build\win-x64\publish"
 $ToolsPublish    = "build\bin\win-x64\publish"
-$StageDir        = "build\portable-stage"
-$OutDir          = "portable"
+$StageDir        = "packaging\windows\stage"
+$OutDir          = "packaging\windows\portable"
 $Zip             = Join-Path $OutDir "DevTools-Portable-$Version.zip"
 
-# Publish flags identical to .github/workflows/build-installer.yml lines 54/57.
+# Publish flags identical to .github/workflows/build-installer.yml.
 $publishFlags = @(
     "-c", "Release",
     "-r", "win-x64",
@@ -121,24 +114,34 @@ foreach ($pair in @(
 Write-Host "=== Stage (exclude *.pdb, *.xml) ==="
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
 New-Item -ItemType Directory -Force -Path $StageDir, (Join-Path $StageDir "bin") | Out-Null
-# robocopy mirrors CI's `robocopy /E /XF *.pdb *.xml` (recursive copy, two excludes):
-# DevTools -> stage root; Tools -> stage\bin (split layout, matching the installer).
-# Robocopy reports success as exit 0-7; 8+ is an error. Reset LASTEXITCODE afterward
-# so it doesn't leak into the next native call or the script's final exit code.
-robocopy $DevToolsPublish $StageDir /E /XF *.pdb *.xml | Out-Null
-if ($LASTEXITCODE -ge 8) { Fail "robocopy DevTools failed with exit code $LASTEXITCODE." }
-$global:LASTEXITCODE = 0
+# Copy-then-delete keeps this script free of robocopy; the end state matches CI's
+# `robocopy /E /XF *.pdb *.xml` (DevTools -> stage root, Tools -> stage\bin).
+Copy-Item -Path (Join-Path $DevToolsPublish '*') -Destination $StageDir -Recurse
+Copy-Item -Path (Join-Path $ToolsPublish '*') -Destination (Join-Path $StageDir "bin") -Recurse
+Get-ChildItem -Path $StageDir -Recurse -File |
+    Where-Object { $_.Extension -eq '.pdb' -or $_.Extension -eq '.xml' } |
+    Remove-Item -Force
 
-robocopy $ToolsPublish (Join-Path $StageDir "bin") /E /XF *.pdb *.xml | Out-Null
-if ($LASTEXITCODE -ge 8) { Fail "robocopy Tools failed with exit code $LASTEXITCODE." }
-$global:LASTEXITCODE = 0
+Write-Host "=== Verify staged payload ==="
+# File mtimes prove nothing (stale-staging trap), so check the payload itself: the
+# two executables must exist and be self-contained-sized.
+foreach ($exe in @("DevTools.exe", "bin\Tools.exe")) {
+    $exePath = Join-Path $StageDir $exe
+    if (-not (Test-Path $exePath)) {
+        Fail "staged payload check failed: $exe missing"
+    }
+    $len = (Get-Item $exePath).Length
+    if ($len -lt 40MB) {
+        Fail "staged payload check failed: $exe is only $len bytes (stale or thin publish?)"
+    }
+}
 
 Write-Host "=== Create portable zip ==="
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 if (Test-Path $Zip) { Remove-Item -Force $Zip }
-# Compress-Archive with a wildcard path puts the stage *contents* at the zip root
-# (DevTools.exe at the root), matching the installer's {app} layout. CompressionLevel
-# Optimal corresponds to the Python zipfile compresslevel=6 used by build-portable.sh.
+# A wildcard path puts the stage contents at the zip root (DevTools.exe at the
+# root), matching the installer's {app} layout. CompressionLevel Optimal matches
+# the CI workflow's Compress-Archive step.
 Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $Zip -CompressionLevel Optimal
 
 $zipFull = (Resolve-Path $Zip).Path
@@ -148,3 +151,4 @@ Write-Host ""
 Write-Host ":: Portable build ready ::"
 Write-Host "  $zipFull"
 Write-Host "  ($sizeMB MB)"
+exit 0

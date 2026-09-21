@@ -24,12 +24,14 @@
 	</ItemGroup>
 	 
 	<ItemGroup>
-		<ProjectReference Include="..\MarkdownViewerKit\MarkdownViewerKit.Avalonia.csproj" />
 		<ProjectReference Include="..\Tools.Library\Tools.Library.csproj" />
 		<ProjectReference Include="..\Tools.SnapIt\Tools.SnapIt.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Consumed as a package (local feed packaging/nuget/feed until it is on
+		     nuget.org); the source project stays in the repo as the package's origin. -->
+		<PackageReference Include="MarkdownViewerKit.Avalonia" Version="0.1.0" />
 		<PackageReference Include="Avalonia" Version="12.1.1" />
 		<PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
 		<PackageReference Include="Avalonia.Wayland" Version="12.1.1" />

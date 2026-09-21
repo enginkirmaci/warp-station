@@ -44,22 +44,19 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "preview"
 
-      - name: Restore dependencies
-        run: dotnet restore Tools.slnx
-
-      - name: Build solution
-        run: dotnet build Tools.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
-
-      - name: Publish Tools
-        run: dotnet publish src\Tools\Tools.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
-
-      - name: Publish DevTools
-        run: dotnet publish src\DevTools\DevTools.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+      # Single packaging entry point: restores, publishes both apps (build\win-x64\publish
+      # and build\bin\win-x64\publish — the installer's sources), stages, verifies and
+      # zips the portable payload. Everything lands under packaging\windows\.
+      - name: Publish and zip portable
+        shell: pwsh
+        run: packaging\windows\build-portable.ps1 -Version ${{ steps.version.outputs.version }}
 
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
 
+      # The installer stages from the publish folders build-portable.ps1 left behind and
+      # writes packaging\windows\installer\DevTools-Setup-<version>.exe.
       - name: Build installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.version }} packaging\windows\setup.iss
@@ -68,44 +65,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DevTools-Installer
-          path: installer/*.exe
-
-      - name: Build portable zip
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path portable | Out-Null
-          # Stage to a clean folder, excluding pdbs/xml so the zip stays lean and the
-          # installer's source dir is not mutated. DevTools and Tools publish to separate
-          # folders (split build layout: DevTools -> build\, Tools -> build\bin\); the zip
-          # mirrors the installer: DevTools at the zip root, Tools under a bin\ subfolder.
-          # The portable build stores its data in %USERPROFILE%\.devtools, same as the
-          # installer; the bundled settings\ tree is seeded into the user folder on first
-          # run via UserPaths.SeedFromDefault.
-          robocopy "build\win-x64\publish" "build\portable-stage" /E /XF *.pdb *.xml | Out-Null
-          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
-          $global:LASTEXITCODE = 0
-          robocopy "build\bin\win-x64\publish" "build\portable-stage\bin" /E /XF *.pdb *.xml | Out-Null
-          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
-          # Robocopy reports success as exit 1-7; reset so the step doesn't inherit it
-          # (the GitHub Actions pwsh wrapper exits with $LASTEXITCODE).
-          $global:LASTEXITCODE = 0
-          Compress-Archive -Path "build\portable-stage\*" `
-            -DestinationPath "portable\DevTools-Portable-${{ steps.version.outputs.version }}.zip" `
-            -CompressionLevel Optimal
+          path: packaging/windows/installer/*.exe
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
           name: DevTools-Portable
-          path: portable/*.zip
+          path: packaging/windows/portable/*.zip
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            installer/*.exe
-            portable/*.zip
+            packaging/windows/installer/*.exe
+            packaging/windows/portable/*.zip
           draft: true
           prerelease: false
         env:

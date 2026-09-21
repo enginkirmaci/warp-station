@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Packs MarkdownViewerKit.Avalonia into artifacts/nuget and verifies the payload.
+# Packs MarkdownViewerKit.Avalonia into packaging/nuget and verifies the payload.
 # MARKDOWNVIEWERKIT_VERSION overrides the csproj version (used by the publish workflow).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 CSPROJECT="src/MarkdownViewerKit/MarkdownViewerKit.Avalonia.csproj"
-OUT="artifacts/nuget"
+OUT="packaging/nuget"
 
 VERSION="${MARKDOWNVIEWERKIT_VERSION:-$(grep -oP '(?<=<Version>)[^<]+' "$CSPROJECT" | head -1)}"
 if [ -z "$VERSION" ]; then

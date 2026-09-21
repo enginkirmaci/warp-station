@@ -42,19 +42,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nuget-packages
-          path: artifacts/nuget/*
+          path: packaging/nuget/*
 
       - name: Push to nuget.org
         if: env.NUGET_API_KEY != ''
         run: |
-          dotnet nuget push "artifacts/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push "artifacts/nuget/*.snupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "packaging/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "packaging/nuget/*.snupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/nuget/*
+          files: packaging/nuget/*
           draft: true
           prerelease: false
         env:

@@ -61,7 +61,6 @@ BenchmarkDotNet.Artifacts/
 # .NET Core
 project.lock.json
 project.fragment.lock.json
-artifacts/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
@@ -366,4 +365,11 @@ FodyWeavers.xsd
 /.vscode
 /.zcode
 /build/
-portable/*
+# Packaging artifacts:
+packaging/linux/portable/
+packaging/windows/installer/
+packaging/windows/portable/
+# local feed carries the committed MarkdownViewerKit.Avalonia package
+# that Tools consumes until (and after) it is published to nuget.org
+!packaging/nuget/feed/*.nupkg
+!packaging/nuget/feed/*.snupkg
