@@ -254,10 +254,11 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>A repo row's note button: always shows the Notes page — opening it when
-    /// another page is showing, reloading it when it already is (the row's command has
-    /// by then selected the clicked repo in the bottom bar, so the reload auto-expands
-    /// that repo's folder in the all-notes tree). No toggle: while repo A's notes are
-    /// open, repo B's note button must switch, not close.</summary>
+    /// another page is showing, reloading it when it already is. The row's command has
+    /// by then selected the clicked repo in the bottom bar, so the scoped load shows
+    /// only that repo's notes folder (the title-bar button stays the whole-store view).
+    /// No toggle: while repo A's notes are open, repo B's note button must switch, not
+    /// close.</summary>
     private void OnRepoNotesRequested(object? sender, EventArgs e)
     {
         if (ContentArea.Content is not NotesPage)
@@ -267,7 +268,7 @@ public partial class MainWindow : SukiWindow
 
         if (_notesPage.DataContext is NotesPageViewModel viewModel)
         {
-            FireLifecycle(viewModel.OnNavigatedToAsync);
+            FireLifecycle(viewModel.OnRepoNotesRequestedAsync);
         }
     }
 

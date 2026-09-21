@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-    Dedicated Notes page (title-bar note button; back link returns to the
-    Repositories page). The tree shows the whole notes store — one folder per
-    repository — so every note is reachable from the title bar; the bottom bar's
-    selected repo has its folder auto-expanded. Unsaved edits live in the view
-    model and survive navigation.
+    Dedicated Notes page (back link returns to the Repositories page). The
+    title-bar note button opens the whole notes store — one folder per
+    repository; a repo row's note button opens the page scoped to that repo's
+    folder. Unsaved edits live in the view model and survive navigation.
 -->
 <UserControl
     x:Class="Tools.Views.Pages.NotesPage"
@@ -153,7 +152,7 @@
                             HorizontalContentAlignment="Left"
                             KeyDown="OnSearchBoxKeyDown"
                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                            PlaceholderText="Search all notes…" />
+                            PlaceholderText="{Binding SearchPlaceholder}" />
                         <Button
                             x:Name="NewNoteButton"
                             Grid.Column="1"
@@ -266,7 +265,7 @@
                                 <TextBlock
                                     HorizontalAlignment="Center"
                                     Classes="subtle"
-                                    Text="Select a repository in the table, then create one with +."
+                                    Text="{Binding EmptyStateHint}"
                                     TextAlignment="Center"
                                     TextWrapping="Wrap" />
                             </StackPanel>

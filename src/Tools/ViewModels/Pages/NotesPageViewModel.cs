@@ -63,14 +63,13 @@ public sealed class NoteNodeViewModel : ObservableObject
 
 /// <summary>
 /// ViewModel for the dedicated Notes page: markdown notes under the configured store
-/// path (one subfolder per repository). The tree shows the whole store — every
-/// repository's notes folder at the root — so the title-bar note button opens all
-/// notes at once; the bottom bar's selected repo has its folder auto-expanded, and
-/// new notes land there when nothing is picked in the tree. The page reloads on every
-/// show, so repo switching (which only happens on the Repositories table) is picked
-/// up on the next open. Unsaved edits are held per note path in memory (the VM is a
-/// window-lifetime singleton) and survive navigating away and back; Save writes
-/// through to disk.
+/// path (one subfolder per repository). The title-bar note button opens the whole
+/// store — every repository's notes folder at the root; a repo row's note button on
+/// the Repositories table opens the page scoped to that repo's notes folder instead
+/// (tree, search and new notes stay inside it). The page reloads on every show, so
+/// repo switching is picked up on the next open. Unsaved edits are held per note path
+/// in memory (the VM is a window-lifetime singleton) and survive navigating away and
+/// back; Save writes through to disk.
 /// </summary>
 public partial class NotesPageViewModel : ObservableObject
 {
@@ -97,6 +96,15 @@ public partial class NotesPageViewModel : ObservableObject
 
     /// <summary>The notes store root (resolved per navigation): the tree's scope.</summary>
     private string _storeRoot = string.Empty;
+
+    /// <summary>True on a repo row entry (the table's note button): the tree, search
+    /// and mutations scope to the selected repo's notes folder instead of the whole
+    /// store. Cleared by the title-bar/global-search entries.</summary>
+    private bool _isRepoScoped;
+
+    /// <summary>The root the tree, search and mutations anchor to on this show.</summary>
+    private string ActiveRoot
+        => _isRepoScoped && _repoNotesRoot.Length > 0 ? _repoNotesRoot : _storeRoot;
 
     /// <summary>The selected repo's notes folder under the store root (empty when no
     /// repo is selected) — the auto-expanded folder and the fallback target for new
@@ -187,6 +195,14 @@ public partial class NotesPageViewModel : ObservableObject
 
     public string DeleteTooltip => IsDeleteArmed ? "Click again to delete" : "Delete this note";
 
+    public string SearchPlaceholder => _isRepoScoped
+        ? "Search this repo's notes…"
+        : "Search all notes…";
+
+    public string EmptyStateHint => _isRepoScoped
+        ? "This repository has no notes yet — create one with +."
+        : "Select a repository in the table, then create one with +.";
+
     /// <summary>Preview rendering is driven from the MarkdownViewerKit preview: task
     /// checkboxes become live controls, so toggling writes back through here.</summary>
     public void ToggleTaskAtLine(int line)
@@ -257,11 +273,25 @@ public partial class NotesPageViewModel : ObservableObject
 
     partial void OnIsDeleteArmedChanged(bool value) => OnPropertyChanged(nameof(DeleteTooltip));
 
-    /// <summary>Navigation load (fired on every page show): re-resolves the store from
-    /// the latest settings, re-reads the bar's selected repo, rebuilds the whole-store
-    /// tree and re-opens the previously open note when it still exists. Unsaved buffers
-    /// survive.</summary>
-    public async Task OnNavigatedToAsync()
+    /// <summary>Navigation load (fired on every page show from the title-bar button or
+    /// global search): re-resolves the store from the latest settings, re-reads the
+    /// bar's selected repo, rebuilds the whole-store tree and re-opens the previously
+    /// open note when it still exists. Unsaved buffers survive.</summary>
+    public Task OnNavigatedToAsync()
+    {
+        _isRepoScoped = false;
+        return OnNavigatedToCoreAsync();
+    }
+
+    /// <summary>Row entry from the Repositories table's note button: the bar has by
+    /// now selected the clicked repo, and the load scopes to its notes folder.</summary>
+    public Task OnRepoNotesRequestedAsync()
+    {
+        _isRepoScoped = true;
+        return OnNavigatedToCoreAsync();
+    }
+
+    private async Task OnNavigatedToCoreAsync()
     {
         var generation = ++_treeLoadGeneration;
         var pendingOpenPath = _pendingOpenPath;
@@ -270,6 +300,9 @@ public partial class NotesPageViewModel : ObservableObject
         SearchText = string.Empty;
         SearchResults.Clear();
         EditorMode = NoteEditorMode.Edit;
+
+        OnPropertyChanged(nameof(SearchPlaceholder));
+        OnPropertyChanged(nameof(EmptyStateHint));
 
         Repo? repo = _bar.SelectedRepo;
         RepoName = repo?.Name;
@@ -308,7 +341,7 @@ public partial class NotesPageViewModel : ObservableObject
         var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         CollectExpanded(Tree, expanded);
 
-        var items = await _notes.LoadTreeAsync(_storeRoot);
+        var items = await _notes.LoadTreeAsync(ActiveRoot);
         if (generation != _treeLoadGeneration)
         {
             return;
@@ -604,7 +637,7 @@ public partial class NotesPageViewModel : ObservableObject
 
         try
         {
-            var path = await _notes.CreateNoteAsync(_storeRoot, parent, name);
+            var path = await _notes.CreateNoteAsync(ActiveRoot, parent, name);
             NewNoteName = string.Empty;
             await ReloadTreeAsync(_treeLoadGeneration, restoreOpenPath: null);
             Dispatcher.UIThread.Post(() =>
@@ -645,7 +678,7 @@ public partial class NotesPageViewModel : ObservableObject
 
         try
         {
-            await _notes.CreateFolderAsync(_storeRoot, parent, name);
+            await _notes.CreateFolderAsync(ActiveRoot, parent, name);
             NewFolderName = string.Empty;
             await ReloadTreeAsync(_treeLoadGeneration, restoreOpenPath: OpenNote?.FullPath);
         }
@@ -678,7 +711,7 @@ public partial class NotesPageViewModel : ObservableObject
         var path = OpenNote.FullPath;
         try
         {
-            await _notes.DeleteAsync(_storeRoot, path);
+            await _notes.DeleteAsync(ActiveRoot, path);
             _unsaved.Remove(path);
             OpenNote = null;
             NoteText = string.Empty;
@@ -720,7 +753,7 @@ public partial class NotesPageViewModel : ObservableObject
         var generation = _treeLoadGeneration;
         try
         {
-            var hits = await _notes.SearchAsync(_storeRoot, term);
+            var hits = await _notes.SearchAsync(ActiveRoot, term);
             if (generation != _treeLoadGeneration)
             {
                 return;
