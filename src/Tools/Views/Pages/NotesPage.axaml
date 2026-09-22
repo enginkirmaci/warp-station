@@ -337,6 +337,7 @@
                                 Spacing="2"
                                 VerticalAlignment="Center">
                                 <ToggleButton Classes="seg" Content="Edit" IsChecked="{Binding IsEditMode}" />
+                                <ToggleButton Classes="seg" Content="Live" IsChecked="{Binding IsLiveMode}" />
                                 <ToggleButton Classes="seg" Content="Split" IsChecked="{Binding IsSplitMode}" />
                                 <ToggleButton Classes="seg" Content="Preview" IsChecked="{Binding IsPreviewMode}" />
                             </StackPanel>
@@ -518,6 +519,15 @@
                                 Text="{Binding NoteText, UpdateSourceTrigger=PropertyChanged}"
                                 TextWrapping="Wrap"
                                 VerticalContentAlignment="Top" />
+                            <!--  Live: rendered note; clicking a block opens the source
+                                 editor overlay (LiveBlockEditor) over that block  -->
+                            <mk:MarkdownViewer
+                                x:Name="LivePreview"
+                                IsVisible="{Binding IsLiveMode}"
+                                InteractiveTaskLists="True"
+                                Markdown="{Binding NoteText, Mode=OneWay}"
+                                PointerPressed="OnLivePreviewPointerPressed"
+                                TaskToggled="OnTaskToggled" />
                             <!--  Split: source editor beside the live preview  -->
                             <Grid
                                 ColumnDefinitions="*,1,*"
@@ -552,6 +562,35 @@
                                 InteractiveTaskLists="True"
                                 Markdown="{Binding NoteText, Mode=OneWay}"
                                 TaskToggled="OnTaskToggled" />
+                            <!--  Live block editor: positioned over the clicked preview
+                                 block while open; the host Border carries the chrome
+                                 (the SukiUI TextBox template paints no background of
+                                 its own, so an opaque TextBox would stay see-through).
+                                 The code-behind grows the host outward by border+padding
+                                 so the raw text sits exactly on the rendered text, and
+                                 types the editor like the clicked block.  -->
+                            <Border
+                                x:Name="LiveBlockEditorHost"
+                                Background="{DynamicResource CardBackgroundBrush}"
+                                BorderBrush="{DynamicResource HairlineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource ControlRadius}"
+                                HorizontalAlignment="Left"
+                                IsHitTestVisible="False"
+                                IsVisible="False"
+                                VerticalAlignment="Top">
+                                <TextBox
+                                    x:Name="LiveBlockEditor"
+                                    AcceptsReturn="True"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    KeyDown="OnLiveEditorKeyDown"
+                                    LostFocus="OnLiveEditorLostFocus"
+                                    Padding="6,4"
+                                    SelectionBrush="#4D6E9BF7"
+                                    TextWrapping="Wrap"
+                                    VerticalContentAlignment="Top" />
+                            </Border>
                         </Panel>
                         <!--  Status bar: document stats + caret position  -->
                         <StackPanel Grid.Row="3" Margin="0,8,0,0">

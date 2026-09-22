@@ -52,6 +52,10 @@ Override per instance:
 
 For a full restyle, add your own styles against the engine's `.Markdown_Avalonia_MarkdownViewer` class selectors (they must stay class-anchored to beat the engine's theme frame).
 
+## Block parsing
+
+`MarkdownBlocks.Parse(text)` splits markdown source into top-level blocks (char and line spans). The split mirrors how the engine groups rendered output — for notes-shaped documents the rendered top-level children align with the parsed blocks 1:1, which is the basis for click-to-edit surfaces (the DevTools notes live mode). Consumers must compare block count against rendered child count before trusting the alignment.
+
 ## License
 
 MIT

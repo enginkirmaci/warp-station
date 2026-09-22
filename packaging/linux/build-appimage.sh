@@ -108,11 +108,13 @@ if [[ ! -x "$APPDIR/usr/bin/Tools" ]]; then
 	echo "::error::expected $APPDIR/usr/bin/Tools after publish, not found." >&2
 	exit 1
 fi
-# Icon + desktop entry (.DirIcon is the AppImage-convention root icon; Icon=
-# in the desktop entry resolves against the AppDir root).
+# Icon + desktop entry. The icon id must be UNIQUE ("devtools", not "tools"):
+# generic names collide with system themes (e.g. Yaru ships a legacy tools.svg
+# that wins the lookup). .DirIcon is the AppImage-convention root icon; Icon=
+# in the desktop entry resolves against the AppDir root.
 cp "$SCRIPT_DIR/tools.desktop" "$APPDIR/tools.desktop"
-cp src/Tools/Assets/logo.png "$APPDIR/tools.png"
-ln -sfn tools.png "$APPDIR/.DirIcon"
+cp src/Tools/Assets/logo.png "$APPDIR/devtools.png"
+ln -sfn devtools.png "$APPDIR/.DirIcon"
 cat > "$APPDIR/AppRun" <<'RUN'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"

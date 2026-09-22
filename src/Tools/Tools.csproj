@@ -31,7 +31,7 @@
 	<ItemGroup>
 		<!-- Consumed as a package (local feed packaging/nuget/feed until it is on
 		     nuget.org); the source project stays in the repo as the package's origin. -->
-		<PackageReference Include="MarkdownViewerKit.Avalonia" Version="0.1.0" />
+		<PackageReference Include="MarkdownViewerKit.Avalonia" Version="0.1.1" />
 		<PackageReference Include="Avalonia" Version="12.1.1" />
 		<PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
 		<PackageReference Include="Avalonia.Wayland" Version="12.1.1" />

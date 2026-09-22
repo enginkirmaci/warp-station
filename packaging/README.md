@@ -13,12 +13,18 @@ All of those are gitignored.
 - `windows/build-portable.ps1` — publish both apps for win-x64, stage the payload
   (`windows\stage`), verify it (both exes present, self-contained-sized) and zip it
   (`windows\portable\DevTools-Portable-<v>.zip`)
+- `windows/deploy-desktop.ps1` — build via `build-portable.ps1`, then deploy
+  per-user: extract the zip to `%LOCALAPPDATA%\Programs\DevTools` (wipe-then-extract,
+  no stale files) and create a Start Menu shortcut (`Dev Tools`, targeting
+  `DevTools.exe`). `-Remove` uninstalls both.
 - `windows/setup.iss` — Inno Setup installer script; stages from the publish folders
   the script leaves behind and writes `windows\installer\`
 
 ```powershell
-packaging\windows\build-portable.ps1                    # zip, version 0.0.0-dev
-packaging\windows\build-portable.ps1 1.2.3
+packaging\windows\deploy-desktop.ps1                    # build 0.0.0-dev → zip → %LOCALAPPDATA%
+packaging\windows\deploy-desktop.ps1 1.2.3
+packaging\windows\deploy-desktop.ps1 -Remove
+packaging\windows\build-portable.ps1                    # zip only, version 0.0.0-dev
 ```
 
 Windows artifacts ship BOTH apps: `DevTools.exe` (supervisor: named-pipe server
@@ -34,21 +40,23 @@ that launches the GUI) and `bin/Tools.exe` (the Avalonia GUI).
 
 - `linux/build-appimage.sh` — self-contained linux-x64 AppImage
 - `linux/tools.desktop` — desktop entry bundled into the AppImage
-- `linux/install-desktop.sh` — register the AppImage with the desktop
-  launcher (Omarchy app library, wofi, GNOME, KDE, ...) per-user, no sudo
+- `linux/deploy-desktop.sh` — build via `build-appimage.sh`, then register the
+  AppImage with the desktop launcher (Omarchy app library, wofi, GNOME, KDE,
+  ...) per-user, no sudo. `remove` uninstalls.
 
 ```sh
-packaging/linux/build-appimage.sh            # packaging/linux/portable/Tools-0.0.0-dev-x86_64.AppImage
-packaging/linux/build-appimage.sh 1.2.3
-packaging/linux/install-desktop.sh           # newest AppImage in packaging/linux/portable/ → launcher
-packaging/linux/install-desktop.sh packaging/linux/portable/Tools-1.2.3-x86_64.AppImage
-packaging/linux/install-desktop.sh remove
+packaging/linux/deploy-desktop.sh            # build 0.0.0-dev → AppImage → launcher
+packaging/linux/deploy-desktop.sh 1.2.3
+packaging/linux/deploy-desktop.sh remove
+packaging/linux/build-appimage.sh            # AppImage only, version 0.0.0-dev
 ```
 
-`install-desktop.sh` copies the AppImage to `~/Applications/Tools.AppImage`
-(override with `APPIMAGE_INSTALL_DIR`), extracts the icon into the user
-hicolor icon theme and writes `~/.local/share/applications/tools.desktop`.
-Re-running it after a rebuild refreshes all three in place.
+`deploy-desktop.sh` copies the freshly built
+`packaging/linux/portable/Tools-<v>-x86_64.AppImage` to
+`~/Applications/Tools.AppImage` (override with `APPIMAGE_INSTALL_DIR`),
+extracts the icon into the user hicolor icon theme and writes
+`~/.local/share/applications/tools.desktop`. Re-running it rebuilds and
+refreshes all three in place.
 
 Packages ONLY the `Tools` GUI: the `DevTools` supervisor is Windows-only (named
 pipes + autostart) and not needed here — `AppRun` execs `usr/bin/Tools`

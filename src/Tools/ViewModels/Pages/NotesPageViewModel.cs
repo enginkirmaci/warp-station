@@ -11,11 +11,12 @@ using Tools.ViewModels.Components.BottomBar;
 
 namespace Tools.ViewModels.Pages;
 
-/// <summary>Layout mode of the note pane: source editor only, editor+preview side by
-/// side, or preview only.</summary>
+/// <summary>Layout mode of the note pane: source editor only, rendered note with
+/// click-to-edit blocks, editor+preview side by side, or preview only.</summary>
 public enum NoteEditorMode
 {
     Edit,
+    Live,
     Split,
     Preview,
 }
@@ -65,11 +66,11 @@ public sealed class NoteNodeViewModel : ObservableObject
 /// ViewModel for the dedicated Notes page: markdown notes under the configured store
 /// path (one subfolder per repository). The title-bar note button opens the whole
 /// store — every repository's notes folder at the root; a repo row's note button on
-/// the Repositories table opens the page scoped to that repo's notes folder instead
-/// (tree, search and new notes stay inside it). The page reloads on every show, so
-/// repo switching is picked up on the next open. Unsaved edits are held per note path
-/// in memory (the VM is a window-lifetime singleton) and survive navigating away and
-/// back; Save writes through to disk.
+/// the Repositories table and a global-search note hit open the page scoped to that
+/// note's repo folder instead (tree, search and new notes stay inside it). The page
+/// reloads on every show, so repo switching is picked up on the next open. Unsaved
+/// edits are held per note path in memory (the VM is a window-lifetime singleton) and
+/// survive navigating away and back; Save writes through to disk.
 /// </summary>
 public partial class NotesPageViewModel : ObservableObject
 {
@@ -97,9 +98,10 @@ public partial class NotesPageViewModel : ObservableObject
     /// <summary>The notes store root (resolved per navigation): the tree's scope.</summary>
     private string _storeRoot = string.Empty;
 
-    /// <summary>True on a repo row entry (the table's note button): the tree, search
-    /// and mutations scope to the selected repo's notes folder instead of the whole
-    /// store. Cleared by the title-bar/global-search entries.</summary>
+    /// <summary>True on a repo-scoped entry (the table's note button, a global-search
+    /// note hit): the tree, search and mutations scope to the selected repo's notes
+    /// folder instead of the whole store. Cleared by the title-bar/whole-store
+    /// entries.</summary>
     private bool _isRepoScoped;
 
     /// <summary>The root the tree, search and mutations anchor to on this show.</summary>
@@ -215,7 +217,13 @@ public partial class NotesPageViewModel : ObservableObject
         NoteText = next;
     }
 
-    // Segmented Edit/Split/Preview pair: each ToggleButton binds its own flag two-way.
+    /// <summary>Splices a char-range replacement into the note text (the live mode's
+    /// block editor commits through here); dirty flag, buffer and stats ride
+    /// <see cref="OnNoteTextChanged"/>.</summary>
+    public void ReplaceTextRange(int start, int end, string text)
+        => NoteText = NoteText[..start] + text + NoteText[end..];
+
+    // Segmented Edit/Live/Split/Preview pair: each ToggleButton binds its own flag two-way.
     public bool IsEditMode
     {
         get => EditorMode == NoteEditorMode.Edit;
@@ -224,6 +232,18 @@ public partial class NotesPageViewModel : ObservableObject
             if (value)
             {
                 EditorMode = NoteEditorMode.Edit;
+            }
+        }
+    }
+
+    public bool IsLiveMode
+    {
+        get => EditorMode == NoteEditorMode.Live;
+        set
+        {
+            if (value)
+            {
+                EditorMode = NoteEditorMode.Live;
             }
         }
     }
@@ -252,13 +272,14 @@ public partial class NotesPageViewModel : ObservableObject
         }
     }
 
-    public bool IsEditorVisible => EditorMode != NoteEditorMode.Preview;
+    public bool IsEditorVisible => EditorMode is NoteEditorMode.Edit or NoteEditorMode.Split;
 
-    public bool IsPreviewVisible => EditorMode != NoteEditorMode.Edit;
+    public bool IsPreviewVisible => EditorMode is NoteEditorMode.Split or NoteEditorMode.Preview;
 
     partial void OnEditorModeChanged(NoteEditorMode value)
     {
         OnPropertyChanged(nameof(IsEditMode));
+        OnPropertyChanged(nameof(IsLiveMode));
         OnPropertyChanged(nameof(IsSplitMode));
         OnPropertyChanged(nameof(IsPreviewMode));
         OnPropertyChanged(nameof(IsEditorVisible));
@@ -273,8 +294,8 @@ public partial class NotesPageViewModel : ObservableObject
 
     partial void OnIsDeleteArmedChanged(bool value) => OnPropertyChanged(nameof(DeleteTooltip));
 
-    /// <summary>Navigation load (fired on every page show from the title-bar button or
-    /// global search): re-resolves the store from the latest settings, re-reads the
+    /// <summary>Navigation load (fired on every page show from the title-bar note
+    /// button): re-resolves the store from the latest settings, re-reads the
     /// bar's selected repo, rebuilds the whole-store tree and re-opens the previously
     /// open note when it still exists. Unsaved buffers survive.</summary>
     public Task OnNavigatedToAsync()
@@ -323,13 +344,16 @@ public partial class NotesPageViewModel : ObservableObject
     }
 
     /// <summary>Shows the page with a specific note open (the title-bar global search):
-    /// the pending path rides the regular navigation, whose tree restore selects and
-    /// opens it. A note missing from the tree (deleted since the search) just opens
-    /// the page.</summary>
-    public async Task NavigateToNoteAsync(NotesSearchHit hit)
+    /// the load scopes to the note's own repo — the caller resolves it and has by then
+    /// selected it in the bar; null for a repo the app does not track falls back to the
+    /// whole-store view. The pending path rides the regular navigation, whose tree
+    /// restore selects and opens it. A note missing from the tree (deleted since the
+    /// search) just opens the page.</summary>
+    public async Task NavigateToNoteAsync(NotesSearchHit hit, Repo? repo)
     {
+        _isRepoScoped = repo is not null;
         _pendingOpenPath = hit.FullPath;
-        await OnNavigatedToAsync();
+        await OnNavigatedToCoreAsync();
     }
 
     /// <summary>Rebuilds the tree from disk and re-selects the open note. Callers pass

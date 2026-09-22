@@ -793,9 +793,10 @@ public partial class MainWindow : SukiWindow
         _reposPage.RevealRepo(repo);
     }
 
-    /// <summary>Note activation: the note's repo is selected first (its notes folder
-    /// auto-expands in the tree), then the Notes page navigates with the hit as its
-    /// pending-open note. Repos the app does not track still open the page.</summary>
+    /// <summary>Note activation: the note's repo is selected first, then the Notes
+    /// page navigates with the hit as its pending-open note, scoped to that repo's
+    /// notes folder. Repos the app does not track still open the page, whole-store.
+    /// </summary>
     private async Task ActivateNoteResultAsync(NotesSearchHit hit)
     {
         var repo = _globalSearch.ResolveRepoForHit(hit);
@@ -813,7 +814,7 @@ public partial class MainWindow : SukiWindow
         {
             try
             {
-                await viewModel.NavigateToNoteAsync(hit);
+                await viewModel.NavigateToNoteAsync(hit, repo);
             }
             catch (Exception ex)
             {
