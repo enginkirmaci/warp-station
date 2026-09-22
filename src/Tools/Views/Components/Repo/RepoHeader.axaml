@@ -5,7 +5,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:entities="using:Tools.Library.Entities"
-    xmlns:lib="using:Tools.Library.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
@@ -113,19 +112,12 @@
                                 Data="{tools:SvgPath icon-source-branch}"
                                 Fill="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}}"
                                 Stretch="Uniform" />
-                            <!--  Same tail-trim as the repos table's branch
-                                  pills: an over-long branch keeps its tail
-                                  ("..name") instead of losing it to end
-                                  ellipsis. Foreground set directly — the
-                                  TextBlock-scoped class styles can't match
-                                  this subclass.  -->
-                            <lib:TailTrimmingTextBlock
-                                MaxWidth="200"
+                            <TextBlock
                                 VerticalAlignment="Center"
                                 FontSize="13"
                                 FontWeight="SemiBold"
                                 Foreground="{Binding SelectedRepoBranchName, Converter={StaticResource BranchChipBrushConverter}}"
-                                FullText="{Binding SelectedRepoBranchName}" />
+                                Text="{Binding SelectedRepoBranchName}" />
                         </StackPanel>
                     </Border>
                 </Button>

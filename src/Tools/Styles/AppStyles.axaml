@@ -27,9 +27,13 @@
     </Style>
 
     <!--  Tooltips open above their control — the attached Placement read from
-          the tooltipped control beats the ToolTipService's Pointer default.  -->
+          the tooltipped control beats the ToolTipService's Pointer default.
+          Negative VerticalOffset widens the gap: popup offset lands in screen
+          coordinates after placement, so +4 would push the tooltip down into
+          the control.  -->
     <Style Selector=":is(Control)">
         <Setter Property="ToolTip.Placement" Value="Top" />
+        <Setter Property="ToolTip.VerticalOffset" Value="-2" />
     </Style>
 
     <!--
