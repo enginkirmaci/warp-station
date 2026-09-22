@@ -113,6 +113,16 @@ public int GitToPullCount => Shell.SelectedRepo?.GitToPullCount ?? 0;
 /// <summary>Ahead-of-upstream count (the Push button's badge); 0 with no repo.</summary>
 public int GitToPushCount => Shell.SelectedRepo?.GitToPushCount ?? 0;
 
+/// <summary>Whether the selected repo has any git remote (gates the Publish row).</summary>
+public bool GitHasRemote => Shell.SelectedRepo?.GitHasRemote ?? false;
+
+/// <summary>Whether the current branch is on the remote already (hides the Publish row).</summary>
+public bool GitBranchPublished => Shell.SelectedRepo?.GitBranchPublished ?? false;
+
+/// <summary>The Publish row shows for a repo with a remote whose current branch is local-only (and not detached).</summary>
+public bool ShowPublishBranch => HasSelectedRepo && GitHasRemote && !GitBranchPublished
+    && Shell.SelectedRepo?.GitBranchName is { } branch && branch != "(detached)";
+
 /// <summary>"Last fetched: 2m ago", or null when the repo was never fetched.</summary>
 public string? LastFetchText => Shell.SelectedRepo?.GitLastFetchLabel is { } label ? $"Last fetched: {label}" : null;
 
@@ -125,6 +135,9 @@ public void RaiseRepoMirrors()
     OnPropertyChanged(nameof(HasSelectedRepo));
     OnPropertyChanged(nameof(GitToPullCount));
     OnPropertyChanged(nameof(GitToPushCount));
+    OnPropertyChanged(nameof(GitHasRemote));
+    OnPropertyChanged(nameof(GitBranchPublished));
+    OnPropertyChanged(nameof(ShowPublishBranch));
     OnPropertyChanged(nameof(HasFetched));
     OnPropertyChanged(nameof(LastFetchText));
 }
@@ -159,6 +172,7 @@ public void RaiseRepoMirrors()
         FetchCommand.NotifyCanExecuteChanged();
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        PublishBranchCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
     }
 
@@ -209,15 +223,20 @@ public void RaiseRepoMirrors()
     [ObservableProperty]
     private bool _isPushing;
 
+    /// <summary>True while a publish (first push with upstream) is running; disables the Publish row.</summary>
+    [ObservableProperty]
+    private bool _isPublishing;
+
     /// <summary>True while a sync (pull then push) is running; disables the Sync row.</summary>
     [ObservableProperty]
     private bool _isSyncing;
 
-    /// <summary>Pull, push and sync exclude each other — concurrent syncs of one repo interleave badly.</summary>
+    /// <summary>Pull, push, publish and sync exclude each other — concurrent syncs of one repo interleave badly.</summary>
     partial void OnIsPullingChanged(bool value)
     {
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        PublishBranchCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
     }
 
@@ -225,6 +244,15 @@ public void RaiseRepoMirrors()
     {
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        PublishBranchCommand.NotifyCanExecuteChanged();
+        SyncCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsPublishingChanged(bool value)
+    {
+        PullCommand.NotifyCanExecuteChanged();
+        PushCommand.NotifyCanExecuteChanged();
+        PublishBranchCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
     }
 
@@ -232,6 +260,7 @@ public void RaiseRepoMirrors()
     {
         PullCommand.NotifyCanExecuteChanged();
         PushCommand.NotifyCanExecuteChanged();
+        PublishBranchCommand.NotifyCanExecuteChanged();
         SyncCommand.NotifyCanExecuteChanged();
     }
 
@@ -562,7 +591,7 @@ public void RaiseRepoMirrors()
             });
     }
 
-    private bool CanPull() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
+    private bool CanPull() => !IsPulling && !IsPushing && !IsPublishing && !IsSyncing && HasSelectedRepo;
 
     [RelayCommand(CanExecute = nameof(CanPush))]
     private Task PushAsync()
@@ -587,7 +616,38 @@ public void RaiseRepoMirrors()
             onSuccess: () => RefreshGitCounts(repo));
     }
 
-    private bool CanPush() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
+    private bool CanPush() => !IsPulling && !IsPushing && !IsPublishing && !IsSyncing && HasSelectedRepo;
+
+    /// <summary>
+    /// Publishes the current local-only branch: <c>git push -u</c> to the default
+    /// remote, creating the remote branch and its upstream tracking in one step —
+    /// after which plain Push/Pull/Sync work for it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanPublishBranch))]
+    private Task PublishBranchAsync()
+    {
+        var repo = Repo;
+        var branch = repo?.GitBranchName;
+        if (repo is null || string.IsNullOrWhiteSpace(branch)) return Task.CompletedTask;
+
+        string? error = null;
+        return RunGitActionAsync(
+            repo,
+            value => IsPublishing = value,
+            async r =>
+            {
+                var result = await Shell.GitStatusService.PublishBranchAsync(r, branch!);
+                error = result.Error;
+                return result.Success;
+            },
+            $"Published {branch} — it now tracks the remote",
+            () => error is { } detail
+                ? $"Publish failed for {branch}: {detail}"
+                : $"Publish failed for {branch}",
+            onSuccess: () => RefreshGitCounts(repo));
+    }
+
+    private bool CanPublishBranch() => !IsPulling && !IsPushing && !IsPublishing && !IsSyncing && HasSelectedRepo;
 
     /// <summary>
     /// Syncs the branch with its upstream: pull first (fast-forward when possible),
@@ -634,7 +694,7 @@ public void RaiseRepoMirrors()
             });
     }
 
-    private bool CanSync() => !IsPulling && !IsPushing && !IsSyncing && HasSelectedRepo;
+    private bool CanSync() => !IsPulling && !IsPushing && !IsPublishing && !IsSyncing && HasSelectedRepo;
 
     /// <summary>
     /// Runs one git service call under <paramref name="setBusy"/> (null when the command

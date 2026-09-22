@@ -100,6 +100,11 @@ public class WinApiService : IWinApiService
 
 	public bool IsFullscreen(ActiveWindow activeWindow)
 	{
+		if (activeWindow?.Boundry == null)
+		{
+			return false;
+		}
+
 		PInvoke.User32.GetWindowRect(PInvoke.User32.GetDesktopWindow(), out PInvoke.RECT desktopWindow);
 		var isFullScreen = activeWindow.Boundry.Left == desktopWindow.left &&
 				activeWindow.Boundry.Top == desktopWindow.top &&
@@ -195,7 +200,7 @@ public class WinApiService : IWinApiService
 			activeWindow.Boundry = new Rectangle(rct.left, rct.top, rct.right, rct.bottom);
 		}
 
-		if (activeWindow.Handle == nint.Zero || activeWindow.Boundry.IsEmpty)
+		if (activeWindow.Handle == nint.Zero || activeWindow.Boundry == null || activeWindow.Boundry.IsEmpty)
 			activeWindow = ActiveWindow.Empty;
 
 		return activeWindow;

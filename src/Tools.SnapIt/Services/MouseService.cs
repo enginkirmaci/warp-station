@@ -145,6 +145,13 @@ public class MouseService : IMouseService
 			}
 			while (p != _latestMousePos);
 		}
+		catch (Exception ex)
+		{
+			// A snap error must never propagate to the dispatcher: it would
+			// terminate the whole app. Abort the drag instead.
+			isListening = false;
+			Dev.Log($"Snap move failed: {ex}");
+		}
 		finally
 		{
 			_uiBusy = false;

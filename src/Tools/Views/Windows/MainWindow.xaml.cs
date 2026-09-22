@@ -190,6 +190,11 @@ public partial class MainWindow : SukiWindow
         viewModel.NotesRequested += OnNotesRequested;
         notesPage.BackRequested += OnBackToRepositoriesRequested;
 
+        // The title-bar sparkle opens the selected repo's yesterday summary in the
+        // bar's Overview sidebar; another page showing switches back to Repositories.
+        viewModel.YesterdaySummaryRequested += OnYesterdaySummaryRequested;
+        _notificationService = notificationService;
+
         // The global search dropdown opens/closes on its ViewModel's result pushes;
         // the activation actions (page swaps) stay here in the window.
         _globalSearch.PropertyChanged += OnGlobalSearchPropertyChanged;
@@ -251,6 +256,29 @@ public partial class MainWindow : SukiWindow
         {
             FireLifecycle(viewModel.OnNavigatedToAsync);
         }
+    }
+
+    private INotificationService _notificationService;
+
+    /// <summary>The title-bar sparkle: opens the selected repo's yesterday summary in the
+    /// bottom bar's Overview sidebar (switching back to Repositories first if another
+    /// page is showing). Without a selected repo there is nothing to summarize — the
+    /// Repositories page returns and a toast says so.</summary>
+    private void OnYesterdaySummaryRequested(object? sender, EventArgs e)
+    {
+        var bar = _reposPage.BottomBarViewModel;
+        if (ContentArea.Content is not ReposPage)
+        {
+            ContentArea.Content = _reposPage;
+        }
+
+        if (bar.SelectedRepo is null)
+        {
+            _notificationService.Show("Select a repository first — the summary is per repository", NotificationKind.Warning);
+            return;
+        }
+
+        bar.OpenDailySummary();
     }
 
     /// <summary>A repo row's note button: always shows the Notes page — opening it when

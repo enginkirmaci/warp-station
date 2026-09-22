@@ -28,6 +28,7 @@ public static class IconAssetLoader
     public static IReadOnlyCollection<string> KnownIcons { get; } = new[]
     {
         "icon-account",
+        "icon-agent-sparkle",
         "icon-arrow-down",
         "icon-arrow-left",
         "icon-arrow-up",

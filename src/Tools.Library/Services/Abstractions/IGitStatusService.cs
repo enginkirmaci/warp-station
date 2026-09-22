@@ -106,6 +106,14 @@ public interface IGitStatusService
     Task<GitSyncResult> PushAsync(Repo repo, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Publishes the current branch: pushes it to the repo's default remote (origin
+    /// when configured, else the first) with upstream tracking (<c>git push -u</c>),
+    /// creating the remote branch so later pushes, pulls and the ahead/behind counts
+    /// work without further configuration.
+    /// </summary>
+    Task<GitSyncResult> PublishBranchAsync(Repo repo, string branch, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The full detail of one commit (<c>git show --numstat</c>): every changed file
     /// with its added/deleted line counts. Returns an empty file list on any failure.
     /// </summary>
@@ -230,6 +238,14 @@ public interface IGitStatusService
     /// short hash, subject, author and commit date. Returns an empty list on any failure.
     /// </summary>
     Task<IReadOnlyList<GitCommitInfo>> GetRecentCommitsAsync(Repo repo, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One local day's activity for the daily-summary wand: the commits
+    /// committer-dated inside <paramref name="day"/> (with per-file line counts) plus
+    /// the still-uncommitted working-tree state. Returns an empty activity on any
+    /// failure.
+    /// </summary>
+    Task<GitDayActivity> GetDayActivityAsync(Repo repo, DateOnly day, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// App-shutdown switch: cancels the runner's shutdown token, which stops any new

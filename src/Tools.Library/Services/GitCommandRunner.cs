@@ -111,11 +111,17 @@ internal sealed class GitCommandRunner
 
         // Sync failures surface their stderr to the user — same line-splitting as before,
         // so the notification still carries one actionable git line.
-        if (result.ExitCode != 0 && !result.Truncated && stderrSink is not null)
+        if (result.ExitCode != 0 && !result.Truncated)
         {
+            // The file sink keeps Error only; a failed mutation (discard, commit, sync)
+            // is a user-visible failure whose cause must survive in the daily log.
+            var stderr = result.StandardError.Trim();
+            Log.Logger.Error(
+                "git {Arguments} exited {ExitCode} in {WorkingDir}: {Stderr}",
+                arguments, result.ExitCode, workingDir, stderr.Length > 500 ? stderr[..500] : stderr);
             foreach (var line in result.StandardError.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                stderrSink.Add(line);
+                stderrSink?.Add(line);
             }
         }
 

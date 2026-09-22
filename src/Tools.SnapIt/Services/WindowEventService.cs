@@ -181,7 +181,7 @@ public class WindowEventService : IWindowEventService
                 activeWindow.Boundry = new Rectangle(rct.left, rct.top, rct.right, rct.bottom);
             }
 
-            if (activeWindow.Boundry.IsEmpty)
+            if (activeWindow.Boundry == null || activeWindow.Boundry.IsEmpty)
             {
                 return;
             }

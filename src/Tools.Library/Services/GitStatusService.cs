@@ -130,12 +130,14 @@ public sealed class GitStatusService : IGitStatusService
                 snapshot?.AheadCount ?? 0,
                 snapshot?.BehindCount ?? 0,
                 snapshot?.LastCommitAt,
-                ReadLastFetchSeed(repo));
+                ReadLastFetchSeed(repo),
+                snapshot?.HasRemote ?? false,
+                snapshot?.BranchOnRemote ?? false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Logger.Debug(ex, "Git status failed for {FolderPath}", repo.FolderPath);
-            return new RepoStatusProbe(repo, null, 0, 0, 0, null, null);
+            return new RepoStatusProbe(repo, null, 0, 0, 0, null, null, false, false);
         }
     }
 
@@ -151,6 +153,8 @@ public sealed class GitStatusService : IGitStatusService
         repo.GitToPushCount = probe.AheadCount;
         repo.GitToPullCount = probe.BehindCount;
         repo.GitLastCommitAt = probe.LastCommitAt;
+        repo.GitHasRemote = probe.HasRemote;
+        repo.GitBranchPublished = probe.BranchOnRemote;
         // Newer-wins rather than only-if-null: rescans carry the previous entity's
         // fetch time over, so a FETCH_HEAD touched by an external fetch since then
         // must still win over the older carried value.
@@ -263,6 +267,21 @@ public sealed class GitStatusService : IGitStatusService
     /// <inheritdoc/>
     public async Task<GitSyncResult> PushAsync(Repo repo, CancellationToken cancellationToken = default)
         => await SyncAsync(repo, "push", cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<GitSyncResult> PublishBranchAsync(Repo repo, string branch, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(branch))
+            return new GitSyncResult(false, null);
+
+        var remote = await _reads.DefaultRemoteNameAsync(repo.FolderPath);
+        if (remote is null) return new GitSyncResult(false, "no remote configured");
+
+        return await SyncAsync(
+            repo,
+            $"push -u {GitCommandRunner.Quote(remote)} {GitCommandRunner.Quote(branch)}",
+            cancellationToken);
+    }
 
     /// <summary>
     /// Runs one network sync command (fetch/pull/push) in the repo and refreshes its
@@ -605,6 +624,14 @@ public sealed class GitStatusService : IGitStatusService
         return await _reads.RecentCommitsAsync(repo.FolderPath) ?? Array.Empty<GitCommitInfo>();
     }
 
+    /// <inheritdoc/>
+    public async Task<GitDayActivity> GetDayActivityAsync(Repo repo, DateOnly day, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath)) return GitDayActivity.Empty;
+
+        return await _reads.DayActivityAsync(repo.FolderPath, day) ?? GitDayActivity.Empty;
+    }
+
     /// <summary>
     /// Reads <c>.git/FETCH_HEAD</c>'s last write time as the seed candidate for
     /// <see cref="Repo.GitLastFetchAt"/> — a repo fetched outside the app still reports
@@ -680,5 +707,7 @@ public sealed class GitStatusService : IGitStatusService
         int AheadCount,
         int BehindCount,
         DateTimeOffset? LastCommitAt,
-        DateTimeOffset? LastFetchAt);
+        DateTimeOffset? LastFetchAt,
+        bool HasRemote,
+        bool BranchOnRemote);
 }

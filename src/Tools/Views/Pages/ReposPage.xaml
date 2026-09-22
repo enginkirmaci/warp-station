@@ -515,8 +515,8 @@
                                                                                         CommandParameter="{Binding}"
                                                                                         ToolTip.Tip="Open notes">
                                                                                         <Path
-                                                                                                Width="14"
-                                                                                                Height="14"
+                                                                                                Width="24"
+                                                                                                Height="24"
                                                                                                 Data="{tools:SvgPath icon-note}"
                                                                                                 Fill="{DynamicResource MutedForegroundBrush}"
                                                                                                 Stretch="Uniform" />

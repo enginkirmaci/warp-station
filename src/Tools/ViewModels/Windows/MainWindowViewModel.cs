@@ -278,4 +278,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raises <see cref="NotesRequested"/> (command surface for the note button).</summary>
     [RelayCommand]
     private void OpenNotes() => NotesRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// Opens the selected repo's yesterday summary in the bottom bar's Overview
+    /// sidebar. The window subscribes to <see cref="YesterdaySummaryRequested"/> and
+    /// routes to the bar — the title-bar sparkle button.
+    /// </summary>
+    public event EventHandler? YesterdaySummaryRequested;
+
+    /// <summary>Raises <see cref="YesterdaySummaryRequested"/> (command surface for the sparkle).</summary>
+    [RelayCommand]
+    private void OpenYesterdaySummary() => YesterdaySummaryRequested?.Invoke(this, EventArgs.Empty);
 }

@@ -433,9 +433,32 @@ public partial class CommitFileRowViewModel : ObservableObject
     [ObservableProperty]
     private string? _patch;
 
+    /// <summary>The patch parsed into GitHub-style rows (hunk headers, numbered
+    /// +/-/context lines); rebuilt when the patch lands.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<DiffLineRow> _diffRows = Array.Empty<DiffLineRow>();
+
     /// <summary>True while the patch is being fetched.</summary>
     [ObservableProperty]
     private bool _isLoadingPatch;
+
+    partial void OnPatchChanged(string? value)
+    {
+        DiffRows = CommitDiffParser.Parse(value);
+        OnPropertyChanged(nameof(HasDiffRows));
+        OnPropertyChanged(nameof(ShowPatchUnavailable));
+    }
+
+    partial void OnIsLoadingPatchChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowPatchUnavailable));
+    }
+
+    public bool HasDiffRows => DiffRows.Count > 0;
+
+    /// <summary>The load finished without usable patch content (binary file, capped
+    /// empty read) — the plain note replaces the diff body.</summary>
+    public bool ShowPatchUnavailable => !IsLoadingPatch && !HasDiffRows;
 
     [RelayCommand]
     private async Task ToggleAsync()

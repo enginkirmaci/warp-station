@@ -91,6 +91,13 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>The Overview README pane's wand (prompt + opencode run + cleanup).</summary>
     private readonly ReadmeGenerator _readmeGenerator;
 
+    /// <summary>The title-bar sparkle's generator (yesterday's summary).</summary>
+    private readonly DailySummaryGenerator _dailySummaryGenerator;
+
+    /// <summary>The Overview sidebar's "yesterday" card: opencode's report of the
+    /// selected repo's previous local day, persisted next to the repo's notes.</summary>
+    public DailySummaryViewModel DailySummary { get; }
+
     public BottomBarViewModel(
         ISettingsService settingsService,
         IRepoService repoService,
@@ -101,9 +108,11 @@ public partial class BottomBarViewModel : ObservableObject
         IOpenCodeRunService openCodeRunService,
         ICommitMessagePromptService commitMessagePromptService,
         IReadmePromptService readmePromptService,
+        IDailySummaryPromptService dailySummaryPromptService,
         INotificationService notificationService,
         IClipboardService clipboardService,
-        IToolDrawerService toolDrawerService)
+        IToolDrawerService toolDrawerService,
+        INotesService notesService)
     {
         _settingsService = settingsService;
         _repoService = repoService;
@@ -120,6 +129,8 @@ public partial class BottomBarViewModel : ObservableObject
         var messageGenerator = new CommitMessageGenerator(openCodeRunService, commitMessagePromptService);
         Changes = new ChangesTabViewModel(this, messageGenerator);
         _readmeGenerator = new ReadmeGenerator(openCodeRunService, readmePromptService);
+        _dailySummaryGenerator = new DailySummaryGenerator(openCodeRunService, dailySummaryPromptService);
+        DailySummary = new DailySummaryViewModel(this, _dailySummaryGenerator, settingsService, notesService);
         GitHub = new GitHubPanelViewModel(this);
         Azure = new AzurePanelViewModel(this);
 
@@ -219,6 +230,7 @@ public partial class BottomBarViewModel : ObservableObject
             // The pane's wands gate on HasSelectedRepo — requery after the switch.
             GenerateReadmeCommand.NotifyCanExecuteChanged();
             SaveReadmeCommand.NotifyCanExecuteChanged();
+            _ = DailySummary.OnRepoSwitchedAsync();
         }
 
         OnPropertyChanged(nameof(HasSelectedRepo));
@@ -245,7 +257,9 @@ public partial class BottomBarViewModel : ObservableObject
             or nameof(Repo.AzureDevOpsWorkItemCount)
             or nameof(Repo.GitLastFetchAt)
             or nameof(Repo.GitBranchName)
-            or nameof(Repo.GitHubRepoUrl))
+            or nameof(Repo.GitHubRepoUrl)
+            or nameof(Repo.GitHasRemote)
+            or nameof(Repo.GitBranchPublished))
         {
             RaiseRepoDerived();
         }
@@ -387,6 +401,11 @@ public partial class BottomBarViewModel : ObservableObject
     {
         var repo = SelectedRepo;
         if (repo?.FolderPath is null) return;
+        if (!Directory.Exists(repo.FolderPath))
+        {
+            Notifications.Show("The repository folder no longer exists on disk", NotificationKind.Warning);
+            return;
+        }
 
         var token = _readmeGenerator.Begin();
         IsGeneratingReadme = true;
@@ -415,15 +434,39 @@ public partial class BottomBarViewModel : ObservableObject
         }
     }
 
-    /// <summary>Persists the pane content to the repo's readme.md (the loaded file's
-    /// exact casing, README.md when creating one).</summary>
+    /// <summary>
+    /// Persists the pane content to the repo's README.md — always the uppercase name:
+    /// a differently-cased readme on disk (an old save, a clone from a
+    /// lowercase-convention repo) is moved onto README.md first, because on a
+    /// case-sensitive filesystem a plain uppercase write would leave both files.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanSaveReadme))]
     private async Task SaveReadmeAsync()
     {
         var repo = SelectedRepo;
         if (repo?.FolderPath is null || ReadmeText is null) return;
+        if (!Directory.Exists(repo.FolderPath))
+        {
+            Notifications.Show("The repository folder no longer exists on disk", NotificationKind.Warning);
+            return;
+        }
 
-        var path = _readmePath ?? Path.Combine(repo.FolderPath, "README.md");
+        var path = Path.Combine(repo.FolderPath, "README.md");
+        if (_readmePath is { } loaded && !string.Equals(loaded, path, StringComparison.Ordinal))
+        {
+            try
+            {
+                File.Move(loaded, path);
+                _readmePath = path;
+            }
+            catch (Exception ex)
+            {
+                // README.md may already exist alongside the old casing; the write
+                // below still lands on the uppercase name, the stray file stays.
+                Log.Logger.Warning(ex, "README rename to README.md failed for {Repo}", repo.Name);
+            }
+        }
+
         try
         {
             await File.WriteAllTextAsync(path, ReadmeText);
@@ -443,6 +486,10 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>Cancels any in-flight README generation (repo switch, app shutdown).</summary>
     public void CancelReadmeGeneration() => _readmeGenerator.Cancel();
+
+    /// <summary>Cancels any in-flight daily-summary generation (app shutdown; repo
+    /// switches route through <see cref="DailySummaryViewModel.OnRepoSwitchedAsync"/>).</summary>
+    public void CancelDailySummaryGeneration() => DailySummary.CancelGeneration();
 
     // --- Repo header (the page's title while a repo is selected) ---
 
@@ -1035,6 +1082,7 @@ public partial class BottomBarViewModel : ObservableObject
         Changes.GenerateCommitMessageCommand.NotifyCanExecuteChanged();
         Changes.CommitCommand.NotifyCanExecuteChanged();
         Changes.OnOpenCodeAvailabilityChanged();
+        DailySummary.NotifyOpenCodeChanged();
     }
 
     /// <summary>
@@ -1098,6 +1146,20 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>Opens the Overview tab (repo optional — the row chip passes its repo).</summary>
     public void OpenOverview(Repo? repo = null) => OpenTab(BottomBarTab.Overview, repo);
+
+    /// <summary>
+    /// Opens the Overview tab with the sidebar showing the daily summary (the title-bar
+    /// sparkle button). Requires a selected repo — the window guards and toasts
+    /// otherwise; the bar reveals itself like any other entry point.
+    /// </summary>
+    public void OpenDailySummary()
+    {
+        if (SelectedRepo is null) return;
+        IsBarVisible = true;
+        ActiveTab = BottomBarTab.Overview;
+        _ = LoadOverviewAsync();
+        _ = DailySummary.OpenAsync();
+    }
 
     /// <summary>Opens the Changes tab (repo optional — the row chip passes its repo).</summary>
     public void OpenChanges(Repo? repo = null) => OpenTab(BottomBarTab.Changes, repo);

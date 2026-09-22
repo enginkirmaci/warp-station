@@ -198,6 +198,7 @@ public partial class App : Application
             var bar = services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>();
             bar.CancelCommitMessageGeneration();
             bar.CancelReadmeGeneration();
+            bar.CancelDailySummaryGeneration();
             // Same story for every CLI git spawn (clone, fetch, push, a mid-run commit)
             // and each gh probe: the shutdown token kills the whole process tree.
             services.GetRequiredService<IGitStatusService>().Stop();

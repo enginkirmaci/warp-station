@@ -143,6 +143,23 @@ public partial class Repo : ObservableObject
     private int _gitToPullCount;
 
     /// <summary>
+    /// Whether the repo has at least one git remote configured. Gates the Changes
+    /// toolbar's Publish affordance (a branch cannot be published without a remote).
+    /// Runtime-only; not persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _gitHasRemote;
+
+    /// <summary>
+    /// Whether the current branch exists on the remote — a remote-tracking ref for it
+    /// exists (a fetch or push creates one). False for local-only branches, which is
+    /// when the Changes toolbar shows the Publish affordance. Runtime-only; not
+    /// persisted.
+    /// </summary>
+    [ObservableProperty]
+    private bool _gitBranchPublished;
+
+    /// <summary>
     /// Whether the first git status check has completed for this repo. The card shows a
     /// "checking…" placeholder until this flips to <see langword="true"/>, so the UI
     /// renders instantly and the counts fill in as the background checks finish.

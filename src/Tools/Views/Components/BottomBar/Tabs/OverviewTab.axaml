@@ -49,7 +49,8 @@
             <UniformGrid
                 Grid.Row="0"
                 Columns="3"
-                Margin="0,0,0,10">
+                Margin="0,0,0,10"
+                IsVisible="{Binding !DailySummary.IsOpen}">
                 <Button
                     Margin="0,0,5,0"
                     Classes="ov-card-btn"
@@ -74,7 +75,10 @@
                     IsVisible="{Binding IsGitHubEnabled}"
                     ToolTip.Tip="Open the Issues tab" />
             </UniformGrid>
-            <Border Grid.Row="1" Classes="ov-card">
+            <Border
+                Grid.Row="1"
+                Classes="ov-card"
+                IsVisible="{Binding !DailySummary.IsOpen}">
             <DockPanel>
                 <TextBlock
                     Margin="0,0,0,6"
@@ -256,6 +260,114 @@
                 </ScrollViewer>
             </DockPanel>
         </Border>
+
+            <!--  Daily summary card: opencode's report of the repo's previous local
+                  day (commits + uncommitted changes), opened from the title-bar
+                  sparkle and persisted next to the repo's notes. Covers the whole
+                  sidebar — tiles and details hide while it is open.  -->
+            <Border
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Classes="ov-card"
+                IsVisible="{Binding DailySummary.IsOpen}">
+                <DockPanel>
+                    <Grid
+                        ColumnDefinitions="*,Auto,Auto"
+                        Margin="0,0,0,6"
+                        DockPanel.Dock="Top">
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Classes="ov-card-title" Text="Yesterday" />
+                            <TextBlock
+                                Classes="subtle"
+                                Text="{Binding DailySummary.SummaryDateLabel}" />
+                        </StackPanel>
+                        <!--  Regenerate: same ring recipe as the README wand  -->
+                        <Button
+                            Grid.Column="1"
+                            Classes="detail-link"
+                            Padding="4"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding DailySummary.CanGenerate}"
+                            Command="{Binding DailySummary.GenerateCommand}"
+                            ToolTip.Tip="Regenerate yesterday's summary">
+                            <Grid>
+                                <Path
+                                    Width="16"
+                                    Height="16"
+                                    IsVisible="{Binding DailySummary.IsGenerating}"
+                                    Classes="spinner"
+                                    RenderTransformOrigin="50%,50%"
+                                    Data="M 8 1 A 7 7 0 1 1 1 8"
+                                    Stroke="{DynamicResource AccentPrimaryBrush}"
+                                    StrokeThickness="2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform />
+                                    </Path.RenderTransform>
+                                </Path>
+                                <Path
+                                    Width="16"
+                                    Height="16"
+                                    IsVisible="{Binding !DailySummary.IsGenerating}"
+                                    Data="{tools:SvgPath icon-wand}"
+                                    Fill="{DynamicResource MutedForegroundBrush}"
+                                    Stretch="Uniform" />
+                            </Grid>
+                        </Button>
+                        <Button
+                            Grid.Column="2"
+                            Width="26"
+                            Height="26"
+                            Margin="6,0,0,0"
+                            Padding="0"
+                            Classes="icon"
+                            VerticalAlignment="Center"
+                            Command="{Binding DailySummary.CloseCommand}"
+                            ToolTip.Tip="Back to details">
+                            <Path
+                                Width="13"
+                                Height="13"
+                                Data="{tools:SvgPath icon-close}"
+                                Fill="{DynamicResource MutedForegroundBrush}"
+                                Stretch="Uniform" />
+                        </Button>
+                    </Grid>
+                    <Grid>
+                        <mk:MarkdownViewer
+                            IsVisible="{Binding DailySummary.HasSummary}"
+                            Markdown="{Binding DailySummary.SummaryMarkdown, Mode=OneWay}" />
+                        <StackPanel
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="10"
+                            IsVisible="{Binding DailySummary.IsGenerating}">
+                            <Path
+                                Width="22"
+                                Height="22"
+                                HorizontalAlignment="Center"
+                                Classes="spinner"
+                                RenderTransformOrigin="50%,50%"
+                                Data="M 11 1.5 A 9.5 9.5 0 1 1 1.5 11"
+                                Stroke="{DynamicResource AccentPrimaryBrush}"
+                                StrokeThickness="2">
+                                <Path.RenderTransform>
+                                    <RotateTransform />
+                                </Path.RenderTransform>
+                            </Path>
+                            <TextBlock
+                                Classes="subtle"
+                                HorizontalAlignment="Center"
+                                Text="Generating yesterday's summary…" />
+                        </StackPanel>
+                        <TextBlock
+                            Classes="subtle"
+                            HorizontalAlignment="Center"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap"
+                            IsVisible="{Binding DailySummary.ShowEmptyState}"
+                            Text="{Binding DailySummary.EmptyStateText}" />
+                    </Grid>
+                </DockPanel>
+            </Border>
         </Grid>
 
         <!--  README pane: the selected repo's README.md — generated in place with the
@@ -278,7 +390,16 @@
                             IsVisible="{Binding ReadmeDirty}"
                             Command="{Binding SaveReadmeCommand}"
                             ToolTip.Tip="Save README.md to the repository folder">
-                            <TextBlock Text="Save" />
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Path
+                                    Width="12"
+                                    Height="12"
+                                    VerticalAlignment="Center"
+                                    Data="{tools:SvgPath icon-save}"
+                                    Fill="{Binding $parent[Button].Foreground}"
+                                    Stretch="Uniform" />
+                                <TextBlock Text="Save" />
+                            </StackPanel>
                         </Button>
                         <Button
                             Classes="detail-link"
@@ -327,28 +448,12 @@
                             IsVisible="{Binding HasOpenCode}"
                             Command="{Binding GenerateReadmeCommand}"
                             ToolTip.Tip="{Binding ReadmeWandToolTip}">
-                            <Grid>
-                                <Path
-                                    Width="22"
-                                    Height="22"
-                                    IsVisible="{Binding IsGeneratingReadme}"
-                                    Classes="spinner"
-                                    RenderTransformOrigin="50%,50%"
-                                    Data="M 11 1.5 A 9.5 9.5 0 1 1 1.5 11"
-                                    Stroke="{DynamicResource AccentPrimaryBrush}"
-                                    StrokeThickness="2">
-                                    <Path.RenderTransform>
-                                        <RotateTransform />
-                                    </Path.RenderTransform>
-                                </Path>
-                                <Path
-                                    Width="22"
-                                    Height="22"
-                                    IsVisible="{Binding !IsGeneratingReadme}"
-                                    Data="{tools:SvgPath icon-wand}"
-                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                    Stretch="Uniform" />
-                            </Grid>
+                            <Path
+                                Width="22"
+                                Height="22"
+                                Data="{tools:SvgPath icon-wand}"
+                                Fill="{DynamicResource MutedForegroundBrush}"
+                                Stretch="Uniform" />
                         </Button>
                         <TextBlock
                             Classes="subtle"

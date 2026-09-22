@@ -589,6 +589,45 @@
                                 </Border>
                             </Grid>
                         </Button>
+                        <!--  Publish: the current branch is local-only (no
+                              remote-tracking ref) — one push -u creates the
+                              remote branch and its upstream tracking.  -->
+                        <Button
+                            Padding="12,11"
+                            Classes="bar-item"
+                            Command="{Binding PublishBranchCommand}"
+                            IsVisible="{Binding ShowPublishBranch}"
+                            ToolTip.Tip="git push -u — put this branch on the remote and track it">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Panel Width="16" Height="16" VerticalAlignment="Center">
+                                    <Path
+                                        Width="16"
+                                        Height="16"
+                                        Classes="icon"
+                                        Data="{tools:SvgPath icon-source-branch}"
+                                        IsVisible="{Binding !IsPublishing}" />
+                                    <Path
+                                        Width="16"
+                                        Height="16"
+                                        Classes="spinner"
+                                        Data="M 8 1 A 7 7 0 1 1 1 8"
+                                        IsVisible="{Binding IsPublishing}"
+                                        RenderTransformOrigin="50%,50%"
+                                        Stroke="{DynamicResource MutedForegroundBrush}"
+                                        StrokeThickness="2">
+                                        <Path.RenderTransform>
+                                            <RotateTransform />
+                                        </Path.RenderTransform>
+                                    </Path>
+                                </Panel>
+                                <TextBlock
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    FontSize="14"
+                                    Foreground="{DynamicResource BodyForegroundBrush}"
+                                    Text="Publish" />
+                            </Grid>
+                        </Button>
                         <Button
                             Padding="12,11"
                             Classes="bar-item"

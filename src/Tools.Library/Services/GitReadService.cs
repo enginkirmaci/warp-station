@@ -44,14 +44,20 @@ internal sealed class GitReadService
     /// <summary>
     /// One repo's status probe: branch name, change count (one per file, untracked
     /// files individually), ahead/behind vs the upstream as of the last fetch, and the
-    /// last commit's committer time. Null when the folder is not a readable repository.
+    /// last commit's committer time. <paramref name="HasRemote"/> is whether any git
+    /// remote is configured; <paramref name="BranchOnRemote"/> is whether the current
+    /// branch has a remote-tracking counterpart (fetch/push create it) — the publish
+    /// affordance shows only for a remote-configured repo whose branch is local-only.
+    /// Null when the folder is not a readable repository.
     /// </summary>
     internal sealed record Probe(
         string? BranchName,
         int ModifiedCount,
         int AheadCount,
         int BehindCount,
-        DateTimeOffset? LastCommitAt);
+        DateTimeOffset? LastCommitAt,
+        bool HasRemote,
+        bool BranchOnRemote);
 
     public Task<Probe?> ProbeAsync(string folderPath)
         => RunAsync(folderPath, repo =>
@@ -59,13 +65,20 @@ internal sealed class GitReadService
             var status = repo.RetrieveStatus(StatusOptionsFor());
             var head = repo.Head;
             var tracking = head.TrackingDetails;
+            var hasRemote = repo.Network.Remotes.Any();
+            var branchOnRemote = hasRemote
+                && !repo.Info.IsHeadDetached
+                && repo.Branches.Any(b =>
+                    b.IsRemote && b.FriendlyName.EndsWith("/" + head.FriendlyName, StringComparison.Ordinal));
 
             return new Probe(
                 repo.Info.IsHeadDetached ? "(detached)" : head.FriendlyName,
                 status.Count(),
                 tracking?.AheadBy ?? 0,
                 tracking?.BehindBy ?? 0,
-                head.Tip?.Committer.When);
+                head.Tip?.Committer.When,
+                hasRemote,
+                branchOnRemote);
         });
 
     /// <summary>
@@ -120,6 +133,12 @@ internal sealed class GitReadService
                 .Select(n => new GitBranchRef(n, GitBranchKind.Remote));
             return (IReadOnlyList<GitBranchRef>)locals.Concat(remotes).ToList();
         });
+
+    /// <summary>The publish target remote: "origin" when configured, else the first
+    /// remote. Null when the repo has no remotes at all.</summary>
+    public Task<string?> DefaultRemoteNameAsync(string folderPath)
+        => RunAsync(folderPath, repo =>
+            (repo.Network.Remotes["origin"] ?? repo.Network.Remotes.FirstOrDefault())?.Name);
 
     /// <summary>
     /// One commit's changed files with line counts (empty for a merge commit, whose
@@ -259,6 +278,87 @@ internal sealed class GitReadService
                 .Take(10)
                 .Select(c => new GitCommitInfo(c.Sha, c.MessageShort, c.Author.Name, c.Committer.When))
                 .ToList());
+
+    /// <summary>Upper bound on commits examined for one day's activity — the walk is
+    /// newest-first but a rebased/old-dated commit could otherwise run it forever.</summary>
+    private const int MaxDayScanCommits = 2000;
+
+    /// <summary>Per-commit file entries fed to the daily-summary prompt.</summary>
+    private const int MaxDayCommitFileEntries = 40;
+
+    /// <summary>
+    /// One local day's activity: the commits committer-dated inside
+    /// <paramref name="day"/> (HEAD-reachable, newest first; merge commits carry no
+    /// file stats, like the History drawer) plus the still-uncommitted working-tree
+    /// state with merged staged+unstaged line counts — the two feeds the
+    /// daily-summary prompt consumes. Null when the folder is not a readable
+    /// repository.
+    /// </summary>
+    public Task<GitDayActivity?> DayActivityAsync(string folderPath, DateOnly day)
+        => RunAsync(folderPath, repo =>
+        {
+            var midnight = day.ToDateTime(TimeOnly.MinValue);
+            var commits = new List<GitDayCommit>();
+            var examined = 0;
+            foreach (var commit in repo.Commits)
+            {
+                if (++examined > MaxDayScanCommits) break;
+                if (commit.Committer.When.LocalDateTime.Date != midnight) continue;
+
+                IReadOnlyList<GitChangedFile> files = Array.Empty<GitChangedFile>();
+                if (commit.Parents.Count() <= 1)
+                {
+                    var patch = repo.Diff.Compare<Patch>(commit.Parents.FirstOrDefault()?.Tree, commit.Tree, PatchOptions(repo));
+                    files = patch
+                        .Take(MaxDayCommitFileEntries)
+                        .Select(entry => entry.LinesAdded == 0 && entry.LinesDeleted == 0
+                            ? new GitChangedFile(entry.Path, string.Empty)
+                            : new GitChangedFile(entry.Path, string.Empty, entry.LinesAdded, entry.LinesDeleted))
+                        .ToList();
+                }
+
+                commits.Add(new GitDayCommit(commit.Sha, commit.MessageShort, commit.Author.Name, commit.Committer.When, files));
+            }
+
+            var status = repo.RetrieveStatus(StatusOptionsFor());
+            var statusFiles = new List<GitChangedFile>();
+            if (status.Any())
+            {
+                var staged = new List<GitChangedFile>();
+                var unstaged = new List<GitChangedFile>();
+                foreach (var entry in status)
+                {
+                    DescribeStatusEntry(entry, statusFiles, staged, unstaged);
+                }
+
+                var worktree = NumstatCounts(repo.Diff.Compare<Patch>(null, false, null, PatchOptions(repo)));
+                var index = NumstatCounts(repo.Diff.Compare<Patch>(repo.Head.Tip?.Tree, DiffTargets.Index, null, null, PatchOptions(repo)));
+                statusFiles = statusFiles
+                    .Select(file => MergeDayCounts(file, worktree, index))
+                    .ToList();
+            }
+
+            return new GitDayActivity(
+                repo.Info.IsHeadDetached ? "(detached)" : repo.Head.FriendlyName,
+                commits,
+                statusFiles);
+        });
+
+    /// <summary>Fills one status row's counts from both diff sides (a path can be
+    /// counted in the index diff, the worktree diff, or both); untracked stays
+    /// count-less.</summary>
+    private static GitChangedFile MergeDayCounts(
+        GitChangedFile file,
+        Dictionary<string, (int? Additions, int? Deletions)> worktree,
+        Dictionary<string, (int? Additions, int? Deletions)> index)
+    {
+        if (file.StatusCode == "?") return file;
+        worktree.TryGetValue(file.Path, out var wt);
+        index.TryGetValue(file.Path, out var ix);
+        int? additions = wt.Additions is null && ix.Additions is null ? null : (wt.Additions ?? 0) + (ix.Additions ?? 0);
+        int? deletions = wt.Deletions is null && ix.Deletions is null ? null : (wt.Deletions ?? 0) + (ix.Deletions ?? 0);
+        return additions is null && deletions is null ? file : file with { Additions = additions, Deletions = deletions };
+    }
 
     /// <summary>The given paths the index knows (the discard flow's tracked/untracked
     /// split). Null when the folder is not a readable repository.</summary>
@@ -497,4 +597,32 @@ public sealed record GitChangeSnapshot(
         [],
         new Dictionary<string, (int?, int?)>(StringComparer.Ordinal),
         new Dictionary<string, (int?, int?)>(StringComparer.Ordinal));
+}
+
+/// <summary>
+/// One commit made on the queried day, with the per-file line counts the
+/// daily-summary prompt consumes (empty for a merge commit, whose combined diff
+/// prints nothing).
+/// </summary>
+public sealed record GitDayCommit(
+    string Hash,
+    string Subject,
+    string? Author,
+    DateTimeOffset When,
+    IReadOnlyList<GitChangedFile> Files);
+
+/// <summary>
+/// One repo's activity for a single local day: the commits committer-dated that day
+/// plus the still-uncommitted working-tree state — "what happened" and "where things
+/// left off" for the daily summary.
+/// </summary>
+public sealed record GitDayActivity(
+    string? BranchName,
+    IReadOnlyList<GitDayCommit> Commits,
+    IReadOnlyList<GitChangedFile> UncommittedFiles)
+{
+    /// <summary>The shared empty activity (an unreadable repo, or nothing that day).</summary>
+    public static GitDayActivity Empty { get; } = new(null, [], []);
+
+    public bool IsEmpty => Commits.Count == 0 && UncommittedFiles.Count == 0;
 }

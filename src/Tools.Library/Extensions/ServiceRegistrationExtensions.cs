@@ -64,6 +64,9 @@ public static class ServiceRegistrationExtensions
         // README wand's prompt template (same storage contract)
         services.AddSingleton<IReadmePromptService, ReadmePromptService>();
 
+        // daily-summary wand's prompt template (same storage contract)
+        services.AddSingleton<IDailySummaryPromptService, DailySummaryPromptService>();
+
         // Per-repository markdown notes (the dedicated Notes page)
         services.AddSingleton<INotesService, NotesService>();
 

@@ -93,7 +93,9 @@ public class OpenCodeRunService : IOpenCodeRunService
                 // output is discarded either way, and a left-alive Electron tree would
                 // pin system RAM past app exit.
                 try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
-                Log.Logger.Warning("OpenCodeRunService: '{Exe} run' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
+                // Error, not Warning: the file sink persists Error only, and a timed-out
+                // wand is a user-visible failure that needs the diagnosis trail.
+                Log.Logger.Error("OpenCodeRunService: '{Exe} run' timed out after {Timeout}s", exe, CliTimeout.TotalSeconds);
                 return null;
             }
 
@@ -102,9 +104,9 @@ public class OpenCodeRunService : IOpenCodeRunService
             if (process.ExitCode != 0)
             {
                 // Previously silent: a CLI refusal (bad model, auth, …) surfaced as a
-                // bare null with no trace.
+                // bare null with no trace. Error level so the file sink keeps it.
                 var errorTail = (await errorTask).Trim();
-                Log.Logger.Warning(
+                Log.Logger.Error(
                     "OpenCodeRunService: '{Exe} run' exited {ExitCode}: {Stderr}",
                     exe, process.ExitCode, errorTail.Length > 500 ? errorTail[..500] : errorTail);
                 return null;
@@ -117,7 +119,7 @@ public class OpenCodeRunService : IOpenCodeRunService
         }
         catch (Exception ex)
         {
-            Log.Logger.Warning(ex, "OpenCodeRunService: '{Exe} run' failed", exe);
+            Log.Logger.Error(ex, "OpenCodeRunService: '{Exe} run' failed", exe);
             return null;
         }
     }
