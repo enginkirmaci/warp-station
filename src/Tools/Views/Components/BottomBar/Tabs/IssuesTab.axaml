@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
     Issues tab: GitHub's open issues (title, label pills, author, age) followed
-    by the Azure DevOps work items section in the same tab.
+    by the Azure DevOps work items section in the same tab. The body rides in
+    the shared ov-card section, like the other tabs.
 -->
 <UserControl
     x:Class="Tools.Views.Components.BottomBar.Tabs.IssuesTab"
@@ -28,146 +29,85 @@
         <StyleInclude Source="avares://Tools/Views/Components/BottomBar/BottomBarStyles.axaml" />
     </UserControl.Styles>
 
-    <DockPanel>
-        <Grid
-            Margin="0,6,0,4"
-            ColumnDefinitions="*,Auto,Auto"
-            ColumnSpacing="4"
-            DockPanel.Dock="Top">
-            <TextBlock
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Classes="subtle"
-                Text="{Binding OpenIssueCount, StringFormat='{}{0} open issues'}" />
-            <Button
-                Grid.Column="1"
-                VerticalAlignment="Center"
-                Classes="icon"
-                Command="{Binding GitHub.RefreshCommand}"
-                IsEnabled="{Binding !GitHub.IsRefreshing}"
-                ToolTip.Tip="Refresh">
-                <Panel>
+    <Border Classes="ov-card">
+        <DockPanel Margin="6,4,6,6">
+            <Grid
+                Margin="0,2,0,6"
+                ColumnDefinitions="*,Auto,Auto"
+                ColumnSpacing="4"
+                DockPanel.Dock="Top">
+                <TextBlock
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Classes="subtle"
+                    Text="{Binding OpenIssueCount, StringFormat='{}{0} open issues'}" />
+                <Button
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Classes="icon"
+                    Command="{Binding GitHub.RefreshCommand}"
+                    IsEnabled="{Binding !GitHub.IsRefreshing}"
+                    ToolTip.Tip="Refresh">
+                    <Panel>
+                        <Path
+                            Classes="icon"
+                            Data="{tools:SvgPath icon-refresh}"
+                            IsVisible="{Binding !GitHub.IsRefreshing}" />
+                        <Path
+                            Width="13"
+                            Height="13"
+                            Classes="spinner"
+                            Data="{tools:SvgPath icon-spinner, Center=False}"
+                            IsVisible="{Binding GitHub.IsRefreshing}"
+                            RenderTransformOrigin="50%,50%"
+                            Stroke="{DynamicResource MutedForegroundBrush}"
+                            StrokeThickness="2">
+                            <Path.RenderTransform>
+                                <RotateTransform />
+                            </Path.RenderTransform>
+                        </Path>
+                    </Panel>
+                </Button>
+                <Button
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Classes="icon"
+                    Command="{Binding OpenGitHubIssuesCommand}"
+                    ToolTip.Tip="Open the issues page on GitHub">
                     <Path
-                        Classes="icon"
-                        Data="{tools:SvgPath icon-refresh}"
-                        IsVisible="{Binding !GitHub.IsRefreshing}" />
-                    <Path
-                        Width="13"
-                        Height="13"
-                        Classes="spinner"
-                        Data="{tools:SvgPath icon-spinner, Center=False}"
-                        IsVisible="{Binding GitHub.IsRefreshing}"
-                        RenderTransformOrigin="50%,50%"
-                        Stroke="{DynamicResource MutedForegroundBrush}"
-                        StrokeThickness="2">
-                        <Path.RenderTransform>
-                            <RotateTransform />
-                        </Path.RenderTransform>
-                    </Path>
-                </Panel>
-            </Button>
-            <Button
-                Grid.Column="2"
-                VerticalAlignment="Center"
-                Classes="icon"
-                Command="{Binding OpenGitHubIssuesCommand}"
-                ToolTip.Tip="Open the issues page on GitHub">
-                <Path
-                    Width="17"
-                    Height="17"
-                    Data="{tools:SvgPath icon-github}"
-                    Fill="{DynamicResource MutedForegroundBrush}"
-                    Stretch="Uniform" />
-            </Button>
-        </Grid>
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="2">
-                <TextBlock
-                    Classes="list-note subtle"
-                    IsVisible="{Binding !GitHub.HasLoaded}"
-                    Text="Loading…" />
-                <TextBlock
-                    Classes="list-note subtle"
-                    IsVisible="{Binding ShowIssuesEmpty}"
-                    Text="No open issues" />
-                <TextBlock
-                    Classes="list-note subtle"
-                    IsVisible="{Binding GitHub.ShowUnavailable}"
-                    Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
-                <ItemsControl ItemsSource="{Binding GitHub.Issues}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="entities:GitHubItem">
-                            <Button
-                                Classes="bar-item"
-                                Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).GitHub.OpenItemCommand}"
-                                CommandParameter="{Binding}"
-                                ToolTip.Tip="{Binding Url}">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
-                                    <Path
-                                        Grid.Column="0"
-                                        Width="15"
-                                        Height="15"
-                                        VerticalAlignment="Center"
-                                        Data="{tools:SvgPath icon-issue}"
-                                        Fill="{DynamicResource StatusActiveBrush}"
-                                        Stretch="Uniform" />
-                                    <!--  One line: number + title, then the tag
-                                          pills, the author and the relative age.
-                                          The title (shared template) lives in a
-                                          star grid cell (not a horizontal
-                                          StackPanel, which measures at infinite
-                                          width and would never trim).  -->
-                                    <ContentControl
-                                        Grid.Column="1"
-                                        Content="{Binding}"
-                                        ContentTemplate="{StaticResource GitHubTitleLine13}" />
-                                    <ItemsControl
-                                        Grid.Column="2"
-                                        VerticalAlignment="Center"
-                                        ClipToBounds="True"
-                                        IsVisible="{Binding HasLabels}"
-                                        ItemTemplate="{StaticResource LabelPillTemplate}"
-                                        ItemsSource="{Binding Labels}"
-                                        MaxWidth="260">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Horizontal" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                    </ItemsControl>
-                                    <TextBlock
-                                        Grid.Column="3"
-                                        VerticalAlignment="Center"
-                                        Classes="subtle"
-                                        IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                        Text="{Binding Author}" />
-                                    <TextBlock
-                                        Grid.Column="4"
-                                        VerticalAlignment="Center"
-                                        Classes="subtle"
-                                        IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                        Text="{Binding AgeText}" />
-                                </Grid>
-                            </Button>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!--  Azure DevOps work items, in the same tab as the GitHub list  -->
-                <StackPanel IsVisible="{Binding Azure.HasAzureWorkItems}" Spacing="2">
+                        Width="17"
+                        Height="17"
+                        Data="{tools:SvgPath icon-github}"
+                        Fill="{DynamicResource MutedForegroundBrush}"
+                        Stretch="Uniform" />
+                </Button>
+            </Grid>
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="2">
                     <TextBlock
-                        Margin="0,10,0,0"
-                        Classes="field-label"
-                        Text="{Binding Azure.AzureWorkItems.Count, StringFormat='Azure DevOps Work Items ({0})'}" />
-                    <ItemsControl ItemsSource="{Binding Azure.AzureWorkItems}">
+                        Margin="0,20"
+                        Classes="list-note subtle"
+                        IsVisible="{Binding !GitHub.HasLoaded}"
+                        Text="Loading…" />
+                    <TextBlock
+                        Margin="0,20"
+                        Classes="list-note subtle"
+                        IsVisible="{Binding ShowIssuesEmpty}"
+                        Text="No open issues" />
+                    <TextBlock
+                        Margin="0,20"
+                        Classes="list-note subtle"
+                        IsVisible="{Binding GitHub.ShowUnavailable}"
+                        Text="No GitHub data for this repository (is it hosted on GitHub, and is gh authenticated?)" />
+                    <ItemsControl ItemsSource="{Binding GitHub.Issues}">
                         <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                            <DataTemplate x:DataType="entities:GitHubItem">
                                 <Button
                                     Classes="bar-item"
-                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).Azure.OpenAzureItemCommand}"
+                                    Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).GitHub.OpenItemCommand}"
                                     CommandParameter="{Binding}"
                                     ToolTip.Tip="{Binding Url}">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
                                         <Path
                                             Grid.Column="0"
                                             Width="15"
@@ -176,29 +116,95 @@
                                             Data="{tools:SvgPath icon-issue}"
                                             Fill="{DynamicResource StatusActiveBrush}"
                                             Stretch="Uniform" />
+                                        <!--  One line: number + title, then the tag
+                                              pills, the author and the relative age.
+                                              The title (shared template) lives in a
+                                              star grid cell (not a horizontal
+                                              StackPanel, which measures at infinite
+                                              width and would never trim).  -->
                                         <ContentControl
                                             Grid.Column="1"
                                             Content="{Binding}"
-                                            ContentTemplate="{StaticResource AzureTitleLine13}" />
-                                        <TextBlock
+                                            ContentTemplate="{StaticResource GitHubTitleLine13}" />
+                                        <ItemsControl
                                             Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            ClipToBounds="True"
+                                            IsVisible="{Binding HasLabels}"
+                                            ItemTemplate="{StaticResource LabelPillTemplate}"
+                                            ItemsSource="{Binding Labels}"
+                                            MaxWidth="260">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                        <TextBlock
+                                            Grid.Column="3"
                                             VerticalAlignment="Center"
                                             Classes="subtle"
                                             IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                                             Text="{Binding Author}" />
                                         <TextBlock
-                                            Grid.Column="3"
+                                            Grid.Column="4"
                                             VerticalAlignment="Center"
                                             Classes="subtle"
-                                            IsVisible="{Binding State, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                                            Text="{Binding State}" />
+                                            IsVisible="{Binding AgeText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                            Text="{Binding AgeText}" />
                                     </Grid>
                                 </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!--  Azure DevOps work items, in the same tab as the GitHub list  -->
+                    <StackPanel IsVisible="{Binding Azure.HasAzureWorkItems}" Spacing="2">
+                        <TextBlock
+                            Margin="0,10,0,0"
+                            Classes="field-label"
+                            Text="{Binding Azure.AzureWorkItems.Count, StringFormat='Azure DevOps Work Items ({0})'}" />
+                        <ItemsControl ItemsSource="{Binding Azure.AzureWorkItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="entities:AzureDevOpsItem">
+                                    <Button
+                                        Classes="bar-item"
+                                        Command="{Binding $parent[UserControl].((vm:BottomBarViewModel)DataContext).Azure.OpenAzureItemCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="{Binding Url}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <Path
+                                                Grid.Column="0"
+                                                Width="15"
+                                                Height="15"
+                                                VerticalAlignment="Center"
+                                                Data="{tools:SvgPath icon-issue}"
+                                                Fill="{DynamicResource StatusActiveBrush}"
+                                                Stretch="Uniform" />
+                                            <ContentControl
+                                                Grid.Column="1"
+                                                Content="{Binding}"
+                                                ContentTemplate="{StaticResource AzureTitleLine13}" />
+                                            <TextBlock
+                                                Grid.Column="2"
+                                                VerticalAlignment="Center"
+                                                Classes="subtle"
+                                                IsVisible="{Binding Author, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                Text="{Binding Author}" />
+                                            <TextBlock
+                                                Grid.Column="3"
+                                                VerticalAlignment="Center"
+                                                Classes="subtle"
+                                                IsVisible="{Binding State, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                                Text="{Binding State}" />
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
-    </DockPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
 </UserControl>

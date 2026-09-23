@@ -285,7 +285,7 @@ internal sealed class GitReadService
         => RunAsync(folderPath, repo =>
         {
             var patch = repo.Diff.Compare<Patch>(repo.Head.Tip?.Tree, DiffTargets.Index);
-            return Cap(patch.Content ?? string.Empty, StagedPatchReadCap, string.Empty);
+            return Cap(NormalizePatchPrefixes(patch.Content ?? string.Empty), StagedPatchReadCap, string.Empty);
         });
 
     /// <summary>The most recent commits, newest first (short of 40 chars the caller
@@ -451,16 +451,17 @@ internal sealed class GitReadService
 
     /// <summary>
     /// Normalizes the mnemonic diff prefixes a user's <c>diff.mnemonicPrefix</c> makes
-    /// libgit2 emit (both commit sides as c/) back to the a/ b/ convention git show
-    /// prints, so the drawer's patch text matches every other git tool. Anchored to
-    /// the three header forms, so a path genuinely starting with c/ is never touched.
+    /// libgit2 emit back to the a/ b/ convention plain git diff prints: the old side
+    /// (---) reads c/ or i/, the new side (+++) c/, i/ or w/, and the diff --git line
+    /// carries the matching pair. Anchored to those three header forms, so a path
+    /// genuinely starting with c/, i/ or w/ is never touched.
     /// </summary>
     private static string NormalizePatchPrefixes(string patch)
         => Regex.Replace(
             patch,
-            @"^diff --git c/(.*) c/(.*)$|^--- c/|^\+\+\+ c/",
+            @"^diff --git (c|i)/(.*) (c|i|w)/(.*)$|^--- (?:c|i)/|^\+\+\+ (?:c|i|w)/",
             m => m.Value.StartsWith("diff --git ", StringComparison.Ordinal)
-                ? $"diff --git a/{m.Groups[1].Value} b/{m.Groups[2].Value}"
+                ? $"diff --git a/{m.Groups[2].Value} b/{m.Groups[4].Value}"
                 : m.Value.StartsWith("--- ", StringComparison.Ordinal) ? "--- a/" : "+++ b/",
             RegexOptions.Multiline);
 

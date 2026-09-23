@@ -155,7 +155,7 @@ public partial class NotesPageViewModel : ObservableObject
     private bool _isDirty;
 
     [ObservableProperty]
-    private NoteEditorMode _editorMode = NoteEditorMode.Edit;
+    private NoteEditorMode _editorMode = NoteEditorMode.Live;
 
     // ---- status bar ----
     [ObservableProperty]
@@ -320,7 +320,7 @@ public partial class NotesPageViewModel : ObservableObject
         IsDeleteArmed = false;
         SearchText = string.Empty;
         SearchResults.Clear();
-        EditorMode = NoteEditorMode.Edit;
+        EditorMode = NoteEditorMode.Live;
 
         OnPropertyChanged(nameof(SearchPlaceholder));
         OnPropertyChanged(nameof(EmptyStateHint));
@@ -809,7 +809,7 @@ public partial class NotesPageViewModel : ObservableObject
         await OpenNoteCoreAsync(chain is { Count: > 0 }
             ? chain[^1]
             : new NoteNodeViewModel(hit.Name, hit.FullPath, isFolder: false));
-        EditorMode = NoteEditorMode.Edit;
+        EditorMode = NoteEditorMode.Live;
     }
 
     [RelayCommand]

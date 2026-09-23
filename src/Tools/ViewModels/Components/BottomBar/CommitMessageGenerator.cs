@@ -45,7 +45,11 @@ public sealed class CommitMessageGenerator : OpenCodeWandGenerator
         string? model)
     {
         var patch = await getStagedPatch(repo);
-        if (string.IsNullOrWhiteSpace(patch)) return null;
+        if (string.IsNullOrWhiteSpace(patch))
+        {
+            Serilog.Log.Debug("Commit-message wand: staged patch for {Path} is empty — nothing to generate from", repo.FolderPath);
+            return null;
+        }
 
         var prompt = BuildPrompt(patch, stagedPaths, recentSubjects);
         return await RunAsync(cancellationToken, executable, model, prompt, maxAnswerLength: 1500);
