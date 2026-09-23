@@ -280,13 +280,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private void OpenNotes() => NotesRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
-    /// Opens the selected repo's yesterday summary in the bottom bar's Overview
-    /// sidebar. The window subscribes to <see cref="YesterdaySummaryRequested"/> and
-    /// routes to the bar — the title-bar sparkle button.
+    /// Opens the Yesterday's Summary tool in the floating right drawer — the
+    /// title-bar sparkle button. The drawer overlays whatever page is showing, so no
+    /// page swap and no repo selection are involved.
     /// </summary>
-    public event EventHandler? YesterdaySummaryRequested;
-
-    /// <summary>Raises <see cref="YesterdaySummaryRequested"/> (command surface for the sparkle).</summary>
     [RelayCommand]
-    private void OpenYesterdaySummary() => YesterdaySummaryRequested?.Invoke(this, EventArgs.Empty);
+    private void OpenYesterdaySummary() => _toolDrawer.Open(ToolComponentMapper.YesterdaySummaryKey);
 }

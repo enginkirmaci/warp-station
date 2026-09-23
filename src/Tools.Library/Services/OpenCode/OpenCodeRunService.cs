@@ -15,6 +15,25 @@ public class OpenCodeRunService : IOpenCodeRunService
     /// </summary>
     private static readonly TimeSpan CliTimeout = TimeSpan.FromSeconds(120);
 
+    /// <summary>The in-flight runs' cancellation scopes, for <see cref="Stop"/>.</summary>
+    private readonly object _gate = new();
+    private readonly List<CancellationTokenSource> _activeRuns = new();
+
+    /// <inheritdoc/>
+    public void Stop()
+    {
+        lock (_gate)
+        {
+            foreach (var run in _activeRuns)
+            {
+                try { run.Cancel(); }
+                catch (ObjectDisposedException) { /* the run just completed on its own */ }
+            }
+
+            _activeRuns.Clear();
+        }
+    }
+
     /// <inheritdoc/>
     public async Task<string?> RunAsync(string? executable, string? model, string prompt, CancellationToken cancellationToken = default)
     {
@@ -29,6 +48,13 @@ public class OpenCodeRunService : IOpenCodeRunService
         {
             return null;
         }
+
+        // Every run rides a scope linked to the caller's token, and scopes register in
+        // _activeRuns: Stop() can then kill runs whose owning ViewModel is a transient
+        // drawer host nobody can reach at shutdown. The kill registration below fires
+        // on the scope, so both a caller cancel and Stop() reap the process tree.
+        using var runScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_gate) _activeRuns.Add(runScope);
 
         try
         {
@@ -73,7 +99,7 @@ public class OpenCodeRunService : IOpenCodeRunService
             // token: the Register callback fires synchronously on whichever thread
             // cancels (app shutdown, repo switch), so the Electron child — and the
             // workers it spawns — dies even if this await never resumes again.
-            using var killOnCancel = cancellationToken.Register(
+            using var killOnCancel = runScope.Token.Register(
                 static p => { try { ((Process)p!).Kill(entireProcessTree: true); } catch { /* already exited */ } },
                 process);
 
@@ -83,7 +109,7 @@ public class OpenCodeRunService : IOpenCodeRunService
             // the pipes.
             var outputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
             var errorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
-            var completed = await Task.WhenAny(outputTask, errorTask, Task.Delay(CliTimeout, cancellationToken));
+            var completed = await Task.WhenAny(outputTask, errorTask, Task.Delay(CliTimeout, runScope.Token));
             if (completed != outputTask && completed != errorTask)
             {
                 // A cancelled delay also lands here; surface it as cancellation (the
@@ -99,7 +125,7 @@ public class OpenCodeRunService : IOpenCodeRunService
                 return null;
             }
 
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync(runScope.Token);
             var output = (await outputTask).Trim();
             if (process.ExitCode != 0)
             {
@@ -113,7 +139,7 @@ public class OpenCodeRunService : IOpenCodeRunService
             }
             return output;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || runScope.IsCancellationRequested)
         {
             throw;
         }
@@ -121,6 +147,10 @@ public class OpenCodeRunService : IOpenCodeRunService
         {
             Log.Logger.Error(ex, "OpenCodeRunService: '{Exe} run' failed", exe);
             return null;
+        }
+        finally
+        {
+            lock (_gate) _activeRuns.Remove(runScope);
         }
     }
 }

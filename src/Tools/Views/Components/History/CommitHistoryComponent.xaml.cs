@@ -48,7 +48,7 @@ public partial class CommitHistoryComponent : UserControl
 
     private bool ToggleFileRow(object? sender)
     {
-        if (sender is Control { DataContext: CommitFileRowViewModel row }
+        if (sender is Control { DataContext: DiffFileRowViewModel row }
             && row.ToggleCommand.CanExecute(null))
         {
             row.ToggleCommand.Execute(null);

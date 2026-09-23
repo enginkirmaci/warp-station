@@ -91,13 +91,6 @@ public partial class BottomBarViewModel : ObservableObject
     /// <summary>The Overview README pane's wand (prompt + opencode run + cleanup).</summary>
     private readonly ReadmeGenerator _readmeGenerator;
 
-    /// <summary>The title-bar sparkle's generator (yesterday's summary).</summary>
-    private readonly DailySummaryGenerator _dailySummaryGenerator;
-
-    /// <summary>The Overview sidebar's "yesterday" card: opencode's report of the
-    /// selected repo's previous local day, persisted next to the repo's notes.</summary>
-    public DailySummaryViewModel DailySummary { get; }
-
     public BottomBarViewModel(
         ISettingsService settingsService,
         IRepoService repoService,
@@ -108,11 +101,9 @@ public partial class BottomBarViewModel : ObservableObject
         IOpenCodeRunService openCodeRunService,
         ICommitMessagePromptService commitMessagePromptService,
         IReadmePromptService readmePromptService,
-        IDailySummaryPromptService dailySummaryPromptService,
         INotificationService notificationService,
         IClipboardService clipboardService,
-        IToolDrawerService toolDrawerService,
-        INotesService notesService)
+        IToolDrawerService toolDrawerService)
     {
         _settingsService = settingsService;
         _repoService = repoService;
@@ -129,8 +120,6 @@ public partial class BottomBarViewModel : ObservableObject
         var messageGenerator = new CommitMessageGenerator(openCodeRunService, commitMessagePromptService);
         Changes = new ChangesTabViewModel(this, messageGenerator);
         _readmeGenerator = new ReadmeGenerator(openCodeRunService, readmePromptService);
-        _dailySummaryGenerator = new DailySummaryGenerator(openCodeRunService, dailySummaryPromptService);
-        DailySummary = new DailySummaryViewModel(this, _dailySummaryGenerator, settingsService, notesService);
         GitHub = new GitHubPanelViewModel(this);
         Azure = new AzurePanelViewModel(this);
 
@@ -230,7 +219,6 @@ public partial class BottomBarViewModel : ObservableObject
             // The pane's wands gate on HasSelectedRepo — requery after the switch.
             GenerateReadmeCommand.NotifyCanExecuteChanged();
             SaveReadmeCommand.NotifyCanExecuteChanged();
-            _ = DailySummary.OnRepoSwitchedAsync();
         }
 
         OnPropertyChanged(nameof(HasSelectedRepo));
@@ -486,10 +474,6 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>Cancels any in-flight README generation (repo switch, app shutdown).</summary>
     public void CancelReadmeGeneration() => _readmeGenerator.Cancel();
-
-    /// <summary>Cancels any in-flight daily-summary generation (app shutdown; repo
-    /// switches route through <see cref="DailySummaryViewModel.OnRepoSwitchedAsync"/>).</summary>
-    public void CancelDailySummaryGeneration() => DailySummary.CancelGeneration();
 
     // --- Repo header (the page's title while a repo is selected) ---
 
@@ -1082,7 +1066,6 @@ public partial class BottomBarViewModel : ObservableObject
         Changes.GenerateCommitMessageCommand.NotifyCanExecuteChanged();
         Changes.CommitCommand.NotifyCanExecuteChanged();
         Changes.OnOpenCodeAvailabilityChanged();
-        DailySummary.NotifyOpenCodeChanged();
     }
 
     /// <summary>
@@ -1146,20 +1129,6 @@ public partial class BottomBarViewModel : ObservableObject
 
     /// <summary>Opens the Overview tab (repo optional — the row chip passes its repo).</summary>
     public void OpenOverview(Repo? repo = null) => OpenTab(BottomBarTab.Overview, repo);
-
-    /// <summary>
-    /// Opens the Overview tab with the sidebar showing the daily summary (the title-bar
-    /// sparkle button). Requires a selected repo — the window guards and toasts
-    /// otherwise; the bar reveals itself like any other entry point.
-    /// </summary>
-    public void OpenDailySummary()
-    {
-        if (SelectedRepo is null) return;
-        IsBarVisible = true;
-        ActiveTab = BottomBarTab.Overview;
-        _ = LoadOverviewAsync();
-        _ = DailySummary.OpenAsync();
-    }
 
     /// <summary>Opens the Changes tab (repo optional — the row chip passes its repo).</summary>
     public void OpenChanges(Repo? repo = null) => OpenTab(BottomBarTab.Changes, repo);

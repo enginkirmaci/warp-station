@@ -105,8 +105,8 @@
 					Fill="{DynamicResource BodyForegroundBrush}"
 					Stretch="Uniform" />
 			</Button>
-			<!--  Yesterday's summary: opencode's report of the selected repo's
-			      previous day, shown in the bottom bar's Overview sidebar  -->
+			<!--  Yesterday's summary: opencode's report of ALL repositories with
+			      activity on the previous day, shown in the tool drawer  -->
 			<Button
 				Width="26"
 				Height="26"
@@ -214,6 +214,21 @@
 						Icon rows ride in an explicit Header element: the XAML compiler
 						crashes resolving MenuFlyoutItem's implicit content property.
 					-->
+					<MenuItem
+						Command="{Binding OpenToolCommand}"
+						CommandParameter="{x:Static helpers:ToolComponentMapper.YesterdaySummaryKey}">
+						<MenuItem.Header>
+							<StackPanel Orientation="Horizontal" Spacing="10">
+								<Path
+									Width="16"
+									Height="16"
+									Data="{tools:SvgPath icon-agent-sparkle}"
+									Fill="{DynamicResource MutedForegroundBrush}"
+									Stretch="Uniform" />
+								<TextBlock Foreground="{DynamicResource BodyForegroundBrush}" Text="Yesterday's Summary" />
+							</StackPanel>
+						</MenuItem.Header>
+					</MenuItem>
 					<!--  Hidden along with the tool itself when the tool is disabled  -->
 					<MenuItem
 						Command="{Binding OpenToolCommand}"

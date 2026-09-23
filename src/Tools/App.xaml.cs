@@ -137,6 +137,7 @@ public partial class App : Application
         services.AddSingleton<NotesPageViewModel>();
         services.AddTransient<NotesPage>();
         // Register tool components (floating drawer) and their view models
+        RegisterPageWithViewModel<YesterdaySummaryComponent, YesterdaySummaryViewModel>(services);
         RegisterPageWithViewModel<FormattersComponent, FormattersViewModel>(services);
         RegisterPageWithViewModel<NugetLocalComponent, NugetLocalViewModel>(services);
         RegisterPageWithViewModel<CodeExecuteComponent, CodeExecuteViewModel>(services);
@@ -194,11 +195,14 @@ public partial class App : Application
         try
         {
             // Cancelling makes the run service kill the opencode process tree on this
-            // thread — without it a mid-generation CLI outlives the closed app.
+            // thread — without it a mid-generation CLI outlives the closed app. The
+            // bar-owned wands cancel through the bar; every other in-flight opencode
+            // run (e.g. the drawer-hosted Yesterday's Summary) dies via the run
+            // service's own Stop.
             var bar = services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>();
             bar.CancelCommitMessageGeneration();
             bar.CancelReadmeGeneration();
-            bar.CancelDailySummaryGeneration();
+            services.GetRequiredService<IOpenCodeRunService>().Stop();
             // Same story for every CLI git spawn (clone, fetch, push, a mid-run commit)
             // and each gh probe: the shutdown token kills the whole process tree.
             services.GetRequiredService<IGitStatusService>().Stop();

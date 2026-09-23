@@ -16,4 +16,9 @@ public interface IOpenCodeRunService
     /// <paramref name="model"/> lets opencode pick its own default. Never throws.
     /// </summary>
     Task<string?> RunAsync(string? executable, string? model, string prompt, CancellationToken cancellationToken = default);
+
+    /// <summary>Kills every in-flight run's process tree. App shutdown calls this so a
+    /// wand whose owning ViewModel is already unreachable (transient drawer hosts)
+    /// cannot leave a stray Electron session behind.</summary>
+    void Stop();
 }

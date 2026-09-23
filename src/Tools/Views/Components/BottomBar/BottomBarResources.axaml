@@ -14,7 +14,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:entities="using:Tools.Library.Entities"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
-    xmlns:vm="using:Tools.ViewModels.Components.BottomBar">
+    xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
+    xmlns:vmw="using:Tools.ViewModels.Windows">
 
     <!--
         Stretch button theme: replaces SukiUI's Button template for the bar's clickable
@@ -93,6 +94,67 @@
                     Text="{Binding RemovedText}" />
             </Border>
         </Grid>
+    </DataTemplate>
+
+    <!--  The GitHub-style diff row: one patch line with its old/new gutter numbers
+          (empty where GitHub leaves them blank), the sign gutter and the code text;
+          the row's tint rides on the .diff-* classes in BottomBarStyles. Shared by
+          both diff surfaces (commit detail + Changes rows).  -->
+    <DataTemplate
+        x:Key="DiffLineRowTemplate"
+        x:CompileBindings="True"
+        x:DataType="vmw:DiffLineRow">
+        <Border Classes="diff-row" Classes.add="{Binding IsAdd}" Classes.del="{Binding IsDelete}" Classes.hunk="{Binding IsHunk}">
+            <Grid ColumnDefinitions="46,46,16,*">
+                <TextBlock
+                    Grid.Column="0"
+                    HorizontalAlignment="Right"
+                    Classes="mono diff-no"
+                    Text="{Binding OldNumber}" />
+                <TextBlock
+                    Grid.Column="1"
+                    HorizontalAlignment="Right"
+                    Classes="mono diff-no"
+                    Text="{Binding NewNumber}" />
+                <TextBlock
+                    Grid.Column="2"
+                    Classes="mono diff-sign"
+                    Classes.add="{Binding IsAdd}"
+                    Classes.del="{Binding IsDelete}"
+                    Text="{Binding Sign}" />
+                <TextBlock
+                    Grid.Column="3"
+                    Classes="mono diff-code"
+                    Text="{Binding Text}" />
+            </Grid>
+        </Border>
+    </DataTemplate>
+
+    <!--  The expandable diff body a file row shows when opened (DiffFileRowViewModel):
+          hunk headers, numbered tinted rows in a bounded scrolling box, the
+          unavailable/loading notes. Shared by the commit detail and the Changes rows.  -->
+    <DataTemplate
+        x:Key="DiffBodyTemplate"
+        x:CompileBindings="True"
+        x:DataType="vmw:DiffFileRowViewModel">
+        <StackPanel Margin="20,0,0,0" IsVisible="{Binding IsExpanded}">
+            <Border CornerRadius="{DynamicResource ChipRadius}" IsVisible="{Binding HasDiffRows}">
+                <ScrollViewer
+                    MaxHeight="320"
+                    HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemTemplate="{StaticResource DiffLineRowTemplate}" ItemsSource="{Binding DiffRows}" />
+                </ScrollViewer>
+            </Border>
+            <TextBlock
+                Classes="subtle"
+                IsVisible="{Binding ShowPatchUnavailable}"
+                Text="{Binding PatchNoteText}" />
+            <TextBlock
+                Classes="subtle"
+                IsVisible="{Binding IsLoadingPatch}"
+                Text="Loading diff…" />
+        </StackPanel>
     </DataTemplate>
 
     <!--  Overview stat tiles: the sidebar's three count tiles — badge and

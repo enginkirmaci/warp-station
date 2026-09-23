@@ -54,8 +54,12 @@ public static class ToolComponentMapper
     /// <summary>Drawer key of the SnapIt settings component (opened by the tools dropdown).</summary>
     public const string SnapItSettingsKey = "SnapItSettingsPage";
 
+    /// <summary>Drawer key of the Yesterday's Summary component (tools dropdown + title-bar sparkle).</summary>
+    public const string YesterdaySummaryKey = "YesterdaySummaryTool";
+
     private static readonly ToolDefinition[] _tools =
     [
+        new ToolDefinition(YesterdaySummaryKey, typeof(YesterdaySummaryComponent), "Yesterday's Summary", "icon-agent-sparkle"),
         new ToolDefinition(NugetLocalKey, typeof(NugetLocalComponent), "NuGet Package Manager", "icon-package"),
         new ToolDefinition(FormattersKey, typeof(FormattersComponent), "Formatters", "icon-text-format"),
         new ToolDefinition(ClipboardPasswordKey, typeof(ClipboardPasswordComponent), "Clipboard Password", "icon-lock"),

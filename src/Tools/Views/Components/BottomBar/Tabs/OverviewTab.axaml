@@ -49,8 +49,7 @@
             <UniformGrid
                 Grid.Row="0"
                 Columns="3"
-                Margin="0,0,0,10"
-                IsVisible="{Binding !DailySummary.IsOpen}">
+                Margin="0,0,0,10">
                 <Button
                     Margin="0,0,5,0"
                     Classes="ov-card-btn"
@@ -77,8 +76,7 @@
             </UniformGrid>
             <Border
                 Grid.Row="1"
-                Classes="ov-card"
-                IsVisible="{Binding !DailySummary.IsOpen}">
+                Classes="ov-card">
             <DockPanel>
                 <TextBlock
                     Margin="0,0,0,6"
@@ -114,15 +112,19 @@
                             <Button
                                 Grid.Column="1"
                                 Classes="detail-link"
+                                Theme="{DynamicResource StretchButtonTheme}"
+                                Padding="0"
                                 Command="{Binding OpenGitHubRepoCommand}"
-                                HorizontalContentAlignment="Left"
                                 ToolTip.Tip="Open the repository's GitHub page">
-                                <!--  *,Auto grid instead of a hugging StackPanel: the text cell gets finite
-                                      measure, so TailTrimmingTextBlock trims to whatever the sidebar
-                                      actually offers — a fixed cap would over-trim when the column
-                                      widens. The control is a TextBlock subclass, so the
-                                      TextBlock.detail-value class style never matches it — set the
-                                      foreground directly.  -->
+                                <!--  The stretch theme is load-bearing: SukiUI's default button template
+                                      hosts content in a horizontal StackPanel that measures with
+                                      infinite width, so TailTrimmingTextBlock never trims (it shows the
+                                      full string, clipped by the ScrollViewer) and the open-in-new icon
+                                      lands past the clip edge. The bare presenter gives the *,Auto cell
+                                      finite measure — the text trims to what the sidebar offers and the
+                                      icon hugs the row's right edge. The control is a TextBlock
+                                      subclass, so TextBlock.detail-value never matches it — foreground
+                                      set directly.  -->
                                 <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Left">
                                     <lib:TailTrimmingTextBlock
                                         VerticalAlignment="Center"
@@ -154,11 +156,13 @@
                             <Button
                                 Grid.Column="1"
                                 Classes="detail-link"
+                                Theme="{DynamicResource StretchButtonTheme}"
+                                Padding="0"
                                 Command="{Binding OpenRepoFolderCommand}"
-                                HorizontalContentAlignment="Left"
                                 ToolTip.Tip="Open the repository folder">
-                                <!--  Same *,Auto cell: the folder path trims to the offered width (tail
-                                      visible) and the button stretches with the sidebar.  -->
+                                <!--  Same stretch-theme cell as the GitHub row: the folder path trims
+                                      to the offered width (tail visible) and the button stretches
+                                      with the sidebar.  -->
                                 <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Left">
                                     <lib:TailTrimmingTextBlock
                                         VerticalAlignment="Center"
@@ -260,117 +264,9 @@
                 </ScrollViewer>
             </DockPanel>
         </Border>
+    </Grid>
 
-            <!--  Daily summary card: opencode's report of the repo's previous local
-                  day (commits + uncommitted changes), opened from the title-bar
-                  sparkle and persisted next to the repo's notes. Covers the whole
-                  sidebar — tiles and details hide while it is open.  -->
-            <Border
-                Grid.Row="0"
-                Grid.RowSpan="2"
-                Classes="ov-card"
-                IsVisible="{Binding DailySummary.IsOpen}">
-                <DockPanel>
-                    <Grid
-                        ColumnDefinitions="*,Auto,Auto"
-                        Margin="0,0,0,6"
-                        DockPanel.Dock="Top">
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Classes="ov-card-title" Text="Yesterday" />
-                            <TextBlock
-                                Classes="subtle"
-                                Text="{Binding DailySummary.SummaryDateLabel}" />
-                        </StackPanel>
-                        <!--  Regenerate: same ring recipe as the README wand  -->
-                        <Button
-                            Grid.Column="1"
-                            Classes="detail-link"
-                            Padding="4"
-                            VerticalAlignment="Center"
-                            IsVisible="{Binding DailySummary.CanGenerate}"
-                            Command="{Binding DailySummary.GenerateCommand}"
-                            ToolTip.Tip="Regenerate yesterday's summary">
-                            <Grid>
-                                <Path
-                                    Width="16"
-                                    Height="16"
-                                    IsVisible="{Binding DailySummary.IsGenerating}"
-                                    Classes="spinner"
-                                    RenderTransformOrigin="50%,50%"
-                                    Data="M 8 1 A 7 7 0 1 1 1 8"
-                                    Stroke="{DynamicResource AccentPrimaryBrush}"
-                                    StrokeThickness="2">
-                                    <Path.RenderTransform>
-                                        <RotateTransform />
-                                    </Path.RenderTransform>
-                                </Path>
-                                <Path
-                                    Width="16"
-                                    Height="16"
-                                    IsVisible="{Binding !DailySummary.IsGenerating}"
-                                    Data="{tools:SvgPath icon-wand}"
-                                    Fill="{DynamicResource MutedForegroundBrush}"
-                                    Stretch="Uniform" />
-                            </Grid>
-                        </Button>
-                        <Button
-                            Grid.Column="2"
-                            Width="26"
-                            Height="26"
-                            Margin="6,0,0,0"
-                            Padding="0"
-                            Classes="icon"
-                            VerticalAlignment="Center"
-                            Command="{Binding DailySummary.CloseCommand}"
-                            ToolTip.Tip="Back to details">
-                            <Path
-                                Width="13"
-                                Height="13"
-                                Data="{tools:SvgPath icon-close}"
-                                Fill="{DynamicResource MutedForegroundBrush}"
-                                Stretch="Uniform" />
-                        </Button>
-                    </Grid>
-                    <Grid>
-                        <mk:MarkdownViewer
-                            IsVisible="{Binding DailySummary.HasSummary}"
-                            Markdown="{Binding DailySummary.SummaryMarkdown, Mode=OneWay}" />
-                        <StackPanel
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Spacing="10"
-                            IsVisible="{Binding DailySummary.IsGenerating}">
-                            <Path
-                                Width="22"
-                                Height="22"
-                                HorizontalAlignment="Center"
-                                Classes="spinner"
-                                RenderTransformOrigin="50%,50%"
-                                Data="M 11 1.5 A 9.5 9.5 0 1 1 1.5 11"
-                                Stroke="{DynamicResource AccentPrimaryBrush}"
-                                StrokeThickness="2">
-                                <Path.RenderTransform>
-                                    <RotateTransform />
-                                </Path.RenderTransform>
-                            </Path>
-                            <TextBlock
-                                Classes="subtle"
-                                HorizontalAlignment="Center"
-                                Text="Generating yesterday's summary…" />
-                        </StackPanel>
-                        <TextBlock
-                            Classes="subtle"
-                            HorizontalAlignment="Center"
-                            TextAlignment="Center"
-                            TextWrapping="Wrap"
-                            IsVisible="{Binding DailySummary.ShowEmptyState}"
-                            Text="{Binding DailySummary.EmptyStateText}" />
-                    </Grid>
-                </DockPanel>
-            </Border>
-        </Grid>
-
-        <!--  README pane: the selected repo's README.md — generated in place with the
+    <!--  README pane: the selected repo's README.md — generated in place with the
               wand (opencode) when missing, saved back with the Save button once the
               content is generated or ahead of disk. The pane itself stays up whether
               or not the repo has a readme, so the area never reflows; it fills the

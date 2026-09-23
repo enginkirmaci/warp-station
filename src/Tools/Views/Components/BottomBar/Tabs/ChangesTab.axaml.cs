@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tools.Library.Services;
 using Tools.ViewModels.Components.BottomBar;
+using Tools.ViewModels.Windows;
 
 namespace Tools.Views.Components.BottomBar.Tabs;
 
@@ -185,5 +186,50 @@ public partial class ChangesTab : UserControl
             commit.Execute(null);
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// The whole change row toggles its diff — the chevron is only a state indicator,
+    /// far too small to be the sole hit target (same contract as the commit detail's
+    /// rows). A press on the row's action buttons (discard / stage / unstage) is a
+    /// staging command, not a toggle: taps that started inside a Button are skipped.
+    /// </summary>
+    private void OnChangeRowTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Source is Avalonia.Visual source && source.GetSelfAndVisualAncestors().OfType<Button>().Any())
+        {
+            return;
+        }
+
+        ToggleChangeRow(sender);
+    }
+
+    /// <summary>
+    /// Keyboard path for a change row: the row Grid is focusable, Enter/Space act as a
+    /// tap (Tapped covers pointer input only).
+    /// </summary>
+    private void OnChangeRowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Space))
+        {
+            return;
+        }
+
+        if (ToggleChangeRow(sender))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private bool ToggleChangeRow(object? sender)
+    {
+        if (sender is Control { DataContext: DiffFileRowViewModel row }
+            && row.ToggleCommand.CanExecute(null))
+        {
+            row.ToggleCommand.Execute(null);
+            return true;
+        }
+
+        return false;
     }
 }

@@ -45,6 +45,51 @@
         <Style Selector="Grid.change-row:pointerover">
             <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
         </Style>
+        <!--  GitHub-style diff body (shared by the commit detail's per-file patches
+              and the Changes tab's expandable rows; the body template lives in
+              BottomBarResources as DiffBodyTemplate): the row tints green/red for
+              additions and deletions (same bright-hue tints the numstat pills use),
+              hunk headers ride on the hover tint, and the gutter numbers stay muted.
+              The sign takes the matching count color and bolds.  -->
+        <Style Selector="Border.diff-row">
+            <Setter Property="Padding" Value="0,0" />
+        </Style>
+        <Style Selector="Border.diff-row.add">
+            <Setter Property="Background" Value="{DynamicResource AddedCountChipBrush}" />
+        </Style>
+        <Style Selector="Border.diff-row.del">
+            <Setter Property="Background" Value="{DynamicResource RemovedCountChipBrush}" />
+        </Style>
+        <Style Selector="Border.diff-row.hunk">
+            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
+        </Style>
+        <Style Selector="TextBlock.diff-no">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Padding" Value="0,1" />
+        </Style>
+        <Style Selector="TextBlock.diff-sign">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="0,1" />
+            <Setter Property="TextAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.diff-sign.add">
+            <Setter Property="Foreground" Value="{DynamicResource AddedCountBrush}" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.diff-sign.del">
+            <Setter Property="Foreground" Value="{DynamicResource RemovedCountBrush}" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="TextBlock.diff-code">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
+            <Setter Property="Padding" Value="0,1" />
+        </Style>
+        <Style Selector="Border.diff-row.hunk TextBlock.diff-code">
+            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
+        </Style>
         <!--
             Overview clickable card: the ov-card look on a Button using the same
             stretch template, so the WHOLE card routes to its tab and the hover tint

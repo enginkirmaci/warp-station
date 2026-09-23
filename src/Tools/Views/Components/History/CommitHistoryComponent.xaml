@@ -64,49 +64,9 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
-        <!--  GitHub-style diff body: the row tints green/red for additions and
-              deletions (same bright-hue tints the numstat pills use), hunk
-              headers ride on the hover tint, and the gutter numbers stay muted.
-              The sign takes the matching count color and bolds.  -->
-        <Style Selector="Border.diff-row">
-            <Setter Property="Padding" Value="0,0" />
-        </Style>
-        <Style Selector="Border.diff-row.add">
-            <Setter Property="Background" Value="{DynamicResource AddedCountChipBrush}" />
-        </Style>
-        <Style Selector="Border.diff-row.del">
-            <Setter Property="Background" Value="{DynamicResource RemovedCountChipBrush}" />
-        </Style>
-        <Style Selector="Border.diff-row.hunk">
-            <Setter Property="Background" Value="{DynamicResource RowHoverBackgroundBrush}" />
-        </Style>
-        <Style Selector="TextBlock.diff-no">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="Padding" Value="0,1" />
-        </Style>
-        <Style Selector="TextBlock.diff-sign">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="0,1" />
-            <Setter Property="TextAlignment" Value="Center" />
-        </Style>
-        <Style Selector="TextBlock.diff-sign.add">
-            <Setter Property="Foreground" Value="{DynamicResource AddedCountBrush}" />
-            <Setter Property="FontWeight" Value="Bold" />
-        </Style>
-        <Style Selector="TextBlock.diff-sign.del">
-            <Setter Property="Foreground" Value="{DynamicResource RemovedCountBrush}" />
-            <Setter Property="FontWeight" Value="Bold" />
-        </Style>
-        <Style Selector="TextBlock.diff-code">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{DynamicResource BodyForegroundBrush}" />
-            <Setter Property="Padding" Value="0,1" />
-        </Style>
-        <Style Selector="Border.diff-row.hunk TextBlock.diff-code">
-            <Setter Property="Foreground" Value="{DynamicResource MutedForegroundBrush}" />
-        </Style>
+        <!--  The expanded patches' GitHub-style diff chrome (Border.diff-row and the
+              .diff-no / .diff-sign / .diff-code text classes) is shared with the
+              Changes tab's expandable rows — it lives in BottomBarStyles.axaml.  -->
     </UserControl.Styles>
 
     <!--  Same chrome as the History list behind it: one ov-card holding the
@@ -280,7 +240,7 @@
                             Classes="plain-list"
                             ItemsSource="{Binding Files}">
                             <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="vm:CommitFileRowViewModel">
+                                <DataTemplate x:DataType="vm:DiffFileRowViewModel">
                                     <StackPanel Spacing="4">
                                         <!--  The WHOLE row toggles the patch (OnFileRowTapped in the
                                               code-behind — a Button here would hug its content, and
@@ -358,60 +318,11 @@
                                                     Text="{Binding RemovedText}" />
                                             </Border>
                                         </Grid>
-                                        <!--  Expanded per-file patch: GitHub-style body —
-                                              hunk header rows, old/new gutter numbers,
-                                              sign gutter, tinted add/delete rows.  -->
-                                        <StackPanel
-                                            Margin="20,0,0,0"
-                                            IsVisible="{Binding IsExpanded}">
-                                            <Border
-                                                CornerRadius="{DynamicResource ChipRadius}"
-                                                IsVisible="{Binding HasDiffRows}">
-                                                <ScrollViewer
-                                                    MaxHeight="320"
-                                                    HorizontalScrollBarVisibility="Auto"
-                                                    VerticalScrollBarVisibility="Auto">
-                                                    <ItemsControl ItemsSource="{Binding DiffRows}">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate x:DataType="vm:DiffLineRow">
-                                                                <Border Classes="diff-row" Classes.add="{Binding IsAdd}" Classes.del="{Binding IsDelete}" Classes.hunk="{Binding IsHunk}">
-                                                                    <Grid ColumnDefinitions="46,46,16,*" >
-                                                                        <TextBlock
-                                                                            Grid.Column="0"
-                                                                            HorizontalAlignment="Right"
-                                                                            Classes="mono diff-no"
-                                                                            Text="{Binding OldNumber}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="1"
-                                                                            HorizontalAlignment="Right"
-                                                                            Classes="mono diff-no"
-                                                                            Text="{Binding NewNumber}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="2"
-                                                                            Classes="mono diff-sign"
-                                                                            Classes.add="{Binding IsAdd}"
-                                                                            Classes.del="{Binding IsDelete}"
-                                                                            Text="{Binding Sign}" />
-                                                                        <TextBlock
-                                                                            Grid.Column="3"
-                                                                            Classes="mono diff-code"
-                                                                            Text="{Binding Text}" />
-                                                                    </Grid>
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </ScrollViewer>
-                                            </Border>
-                                            <TextBlock
-                                                Classes="subtle"
-                                                IsVisible="{Binding ShowPatchUnavailable}"
-                                                Text="Patch unavailable" />
-                                            <TextBlock
-                                                Classes="subtle"
-                                                IsVisible="{Binding IsLoadingPatch}"
-                                                Text="Loading patch…" />
-                                        </StackPanel>
+                                        <!--  Expanded per-file patch: the shared GitHub-style
+                                              diff body (hunk headers, gutter numbers, tinted
+                                              add/delete rows) — same template the Changes
+                                              tab's rows expand.  -->
+                                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource DiffBodyTemplate}" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

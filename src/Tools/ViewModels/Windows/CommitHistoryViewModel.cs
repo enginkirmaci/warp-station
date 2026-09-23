@@ -144,7 +144,7 @@ public partial class CommitHistoryViewModel : ObservableObject
 
     /// <summary>The commit's changed files with per-file counts and expansion state.</summary>
     [ObservableProperty]
-    private ObservableCollection<CommitFileRowViewModel> _files = new();
+    private ObservableCollection<DiffFileRowViewModel> _files = new();
 
     /// <summary>Whether a GitHub/Azure DevOps web page can back the "View Full Diff" action.</summary>
     [ObservableProperty]
@@ -270,10 +270,11 @@ public partial class CommitHistoryViewModel : ObservableObject
         try
         {
             var details = await _gitStatusService.GetCommitDetailsAsync(repo, Commit.Hash);
+            var hash = Commit.Hash;
             Files.Clear();
             foreach (var file in details.Files)
             {
-                Files.Add(new CommitFileRowViewModel(_gitStatusService, repo, Commit.Hash, file));
+                Files.Add(new DiffFileRowViewModel(file, () => _gitStatusService.GetCommitFilePatchAsync(repo, hash, file.Path)));
             }
 
             _totalAdditions = details.Additions;
@@ -399,22 +400,20 @@ public partial class CommitHistoryViewModel : ObservableObject
 }
 
 /// <summary>
-/// One file row of the commit detail: the changed file with its +/− counts and an
-/// expandable patch. The patch loads from <c>git show &lt;hash&gt; -- &lt;path&gt;</c>
-/// the first time the row is expanded.
+/// One file row with an expandable GitHub-style diff body, shared by the commit
+/// detail's per-file rows and the Changes tab's staged/unstaged rows: the row
+/// carries the changed file with its +/− counts, and the patch loads — via the
+/// constructor's loader (a commit's per-file patch vs the row's index side) — the
+/// first time the row is expanded.
 /// </summary>
-public partial class CommitFileRowViewModel : ObservableObject
+public partial class DiffFileRowViewModel : ObservableObject
 {
-    private readonly IGitStatusService _gitStatusService;
-    private readonly Repo _repo;
-    private readonly string _hash;
+    private readonly Func<Task<string?>> _loadPatch;
 
-    public CommitFileRowViewModel(IGitStatusService gitStatusService, Repo repo, string hash, GitChangedFile file)
+    public DiffFileRowViewModel(GitChangedFile file, Func<Task<string?>> loadPatch)
     {
-        _gitStatusService = gitStatusService;
-        _repo = repo;
-        _hash = hash;
         File = file;
+        _loadPatch = loadPatch;
     }
 
     public GitChangedFile File { get; }
@@ -456,8 +455,13 @@ public partial class CommitFileRowViewModel : ObservableObject
 
     public bool HasDiffRows => DiffRows.Count > 0;
 
-    /// <summary>The load finished without usable patch content (binary file, capped
-    /// empty read) — the plain note replaces the diff body.</summary>
+    /// <summary>The load finished without usable patch content — the note replaces
+    /// the diff body: untracked rows have no diff at all, the rest read as
+    /// unavailable (binary file, capped empty read).</summary>
+    public string PatchNoteText => File.StatusCode == "?"
+        ? "Untracked file — nothing to diff"
+        : "Patch unavailable";
+
     public bool ShowPatchUnavailable => !IsLoadingPatch && !HasDiffRows;
 
     [RelayCommand]
@@ -469,7 +473,7 @@ public partial class CommitFileRowViewModel : ObservableObject
             IsLoadingPatch = true;
             try
             {
-                Patch = await _gitStatusService.GetCommitFilePatchAsync(_repo, _hash, File.Path);
+                Patch = await _loadPatch();
             }
             finally
             {

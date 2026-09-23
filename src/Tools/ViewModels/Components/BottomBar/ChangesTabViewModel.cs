@@ -912,27 +912,32 @@ public void RaiseRepoMirrors()
 
     /// <summary>
     /// Rebuilds <see cref="ChangeRows"/> from the current groups: a header row opens
-    /// each non-empty side and tags every file with its side for the row template's
-    /// +/− button. Mutates the collection in place (mirrors <see cref="ReplaceItems{T}"/>)
-    /// so the list keeps the scroll-position behavior of the old per-section lists.
+    /// each non-empty side, and every file rides as a <see cref="DiffFileRowViewModel"/>
+    /// (the expandable diff row — its patch loader reads the row's own side: staged
+    /// rows diff HEAD→index, unstaged rows index→worktree). Mutates the collection in
+    /// place (mirrors <see cref="ReplaceItems{T}"/>) so the list keeps the
+    /// scroll-position behavior of the old per-section lists.
     /// </summary>
     private void RebuildChangeRows()
     {
         foreach (var file in StagedFiles) file.IsStaged = true;
         foreach (var file in UnstagedFiles) file.IsStaged = false;
 
+        var repo = Repo; // null only in the cleared pass, where both sections are empty
         var rows = new List<object>(
             (UnstagedFiles.Count > 0 ? 1 : 0) + UnstagedFiles.Count
             + (StagedFiles.Count > 0 ? 1 : 0) + StagedFiles.Count);
-        if (UnstagedFiles.Count > 0)
+        if (UnstagedFiles.Count > 0 && repo is not null)
         {
             rows.Add(new ChangeSectionRow("Unstaged Changes", UnstagedFiles.Count, IsUnstaged: true));
-            rows.AddRange(UnstagedFiles);
+            rows.AddRange(UnstagedFiles.Select(f => new DiffFileRowViewModel(
+                f, () => Shell.GitStatusService.GetChangeFilePatchAsync(repo, f.Path, staged: false))));
         }
-        if (StagedFiles.Count > 0)
+        if (StagedFiles.Count > 0 && repo is not null)
         {
             rows.Add(new ChangeSectionRow("Staged Changes", StagedFiles.Count, IsUnstaged: false));
-            rows.AddRange(StagedFiles);
+            rows.AddRange(StagedFiles.Select(f => new DiffFileRowViewModel(
+                f, () => Shell.GitStatusService.GetChangeFilePatchAsync(repo, f.Path, staged: true))));
         }
         ReplaceItems(ChangeRows, rows);
     }

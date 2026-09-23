@@ -126,6 +126,14 @@ public interface IGitStatusService
     Task<string?> GetCommitFilePatchAsync(Repo repo, string hash, string path, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// One change row's patch for the Changes tab's expandable rows: the staged side
+    /// diffs HEAD against the index, the unstaged side the index against the working
+    /// tree. Empty when the path carries no textual delta (binary, untracked, mode-only);
+    /// null on any failure.
+    /// </summary>
+    Task<string?> GetChangeFilePatchAsync(Repo repo, string path, bool staged, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reverts one commit (<c>git revert --no-edit &lt;hash&gt;</c> — a new commit with
     /// git's default message undoes the change) and refreshes the repo's status. Returns
     /// false on any failure (conflict, dirty-tree stop, unresolvable commit).

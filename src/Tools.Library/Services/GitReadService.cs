@@ -27,9 +27,10 @@ internal sealed class GitReadService
     /// prompt's own 8,000-char truncation point, yet far under LOH size.</summary>
     internal const int StagedPatchReadCap = 48 * 1024;
 
-    /// <summary>Read cap for one History drawer file patch: 64K chars is ~4,000 lines,
-    /// far past what the drawer's fixed-height box usefully shows.</summary>
-    internal const int CommitPatchReadCap = 64 * 1024;
+    /// <summary>Read cap for one file's patch row (commit detail and the Changes tab's
+    /// expandable rows): 64K chars is ~4,000 lines, far past what the fixed-height
+    /// boxes usefully show.</summary>
+    internal const int FilePatchReadCap = 64 * 1024;
 
     /// <summary>Read cap for a commit-detail message body: prose in a capped scroll
     /// box, bounded well past anything displayed.</summary>
@@ -184,7 +185,24 @@ internal sealed class GitReadService
                 new[] { path },
                 null,
                 PatchOptions(repo, detectRenames: false));
-            return Cap(NormalizePatchPrefixes(patch.Content ?? string.Empty), CommitPatchReadCap, PatchTruncationSuffix);
+            return Cap(NormalizePatchPrefixes(patch.Content ?? string.Empty), FilePatchReadCap, PatchTruncationSuffix);
+        });
+
+    /// <summary>
+    /// One change row's patch for the Changes tab's expandable rows: the staged side
+    /// diffs HEAD against the index, the unstaged side the index against the working
+    /// tree — the same two halves <c>git diff --cached</c> / <c>git diff</c> print.
+    /// Rename detection stays off (as in the commit patch): a renamed path renders
+    /// its full new content. Empty when the path carries no textual delta (binary,
+    /// untracked, mode-only); null when the folder is not a readable repository.
+    /// </summary>
+    public Task<string?> ChangeFilePatchAsync(string folderPath, string path, bool staged)
+        => RunAsync(folderPath, repo =>
+        {
+            var patch = staged
+                ? repo.Diff.Compare<Patch>(repo.Head.Tip?.Tree, DiffTargets.Index, new[] { path }, null, PatchOptions(repo, detectRenames: false))
+                : repo.Diff.Compare<Patch>(new[] { path }, false, null, PatchOptions(repo, detectRenames: false));
+            return Cap(NormalizePatchPrefixes(patch.Content ?? string.Empty), FilePatchReadCap, PatchTruncationSuffix);
         });
 
     /// <summary>

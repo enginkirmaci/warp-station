@@ -330,6 +330,17 @@ public sealed class GitStatusService : IGitStatusService
     }
 
     /// <inheritdoc/>
+    public Task<string?> GetChangeFilePatchAsync(Repo repo, string path, bool staged, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(path))
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        return _reads.ChangeFilePatchAsync(repo.FolderPath, path, staged);
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> RevertCommitAsync(Repo repo, string hash, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(repo.FolderPath) || string.IsNullOrWhiteSpace(hash)) return false;

@@ -20,11 +20,11 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:entities="using:Tools.Library.Entities"
     xmlns:lib="using:Tools.Library.Services"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:tools="using:Tools.Library.MarkupExtensions"
     xmlns:vm="using:Tools.ViewModels.Components.BottomBar"
+    xmlns:vmw="using:Tools.ViewModels.Windows"
     d:DesignHeight="600"
     d:DesignWidth="1200"
     x:CompileBindings="True"
@@ -141,104 +141,140 @@
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
-                        <!--  File row: status chip + path, then the action
-                              pair (discard + stage/unstage) LEFT of the
-                              numstat pills. Both trailing columns are FIXED
-                              width so pills align row-to-row and never shift:
-                              the pair owns a reserved 50px column (two 24px
-                              buttons + 2px gap) and only becomes visible while
-                              the row is highlighted.  -->
-                        <DataTemplate x:DataType="entities:GitChangedFile">
-                            <Grid
-                                x:Name="ChangeRow"
-                                Classes="change-row"
-                                ColumnDefinitions="Auto,*,50,104"
-                                ColumnSpacing="8">
-                                <Border
-                                    Grid.Column="0"
-                                    Width="30"
-                                    Padding="0,2"
-                                    VerticalAlignment="Center"
-                                    Background="{DynamicResource CardSubtleBackgroundBrush}"
-                                    BorderBrush="{DynamicResource HairlineBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="{DynamicResource ChipRadius}">
+                        <!--  File row (DiffFileRowViewModel): chevron + status chip +
+                              path, then the action pair (discard + stage/unstage)
+                              LEFT of the numstat pills. Both trailing columns are
+                              FIXED width so pills align row-to-row and never shift:
+                              the pair owns a reserved 50px column (two 24px buttons
+                              + 2px gap) and only becomes visible while the row is
+                              highlighted. Tapping the row (buttons excluded, in the
+                              code-behind) expands the shared GitHub-style diff body
+                              under it.  -->
+                        <DataTemplate x:DataType="vmw:DiffFileRowViewModel">
+                            <StackPanel Spacing="4">
+                                <Grid
+                                    x:Name="ChangeRow"
+                                    Classes="change-row"
+                                    ColumnDefinitions="Auto,Auto,*,50,104"
+                                    ColumnSpacing="8"
+                                    Cursor="Hand"
+                                    Focusable="True"
+                                    KeyDown="OnChangeRowKeyDown"
+                                    Tapped="OnChangeRowTapped">
+                                    <!--  boxes sized to the chevron's ink aspect, as in
+                                          the commit detail's rows  -->
+                                    <Panel
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="Show / hide this file's diff">
+                                        <Path
+                                            Width="16"
+                                            Height="10"
+                                            HorizontalAlignment="Center"
+                                            Data="{tools:SvgPath icon-chevron-right}"
+                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                            IsVisible="{Binding !IsExpanded}"
+                                            Stretch="Uniform" />
+                                        <Path
+                                            Width="16"
+                                            Height="10"
+                                            HorizontalAlignment="Center"
+                                            Data="{tools:SvgPath icon-chevron-down}"
+                                            Fill="{DynamicResource MutedForegroundBrush}"
+                                            IsVisible="{Binding IsExpanded}"
+                                            Stretch="Uniform" />
+                                    </Panel>
+                                    <Border
+                                        Grid.Column="1"
+                                        Width="30"
+                                        Padding="0,2"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource CardSubtleBackgroundBrush}"
+                                        BorderBrush="{DynamicResource HairlineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="{DynamicResource ChipRadius}">
+                                        <TextBlock
+                                            HorizontalAlignment="Center"
+                                            Classes="mono"
+                                            Foreground="{Binding File.StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
+                                            Text="{Binding File.DisplayStatusCode}" />
+                                    </Border>
                                     <TextBlock
-                                        HorizontalAlignment="Center"
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
                                         Classes="mono"
-                                        Foreground="{Binding StatusCode, Converter={StaticResource GitStatusBrushConverter}}"
-                                        Text="{Binding DisplayStatusCode}" />
-                                </Border>
-                                <TextBlock
-                                    Grid.Column="1"
-                                    VerticalAlignment="Center"
-                                    Classes="mono"
-                                    Foreground="{DynamicResource BodyForegroundBrush}"
-                                    Text="{Binding Path}"
-                                    ToolTip.Tip="{Binding Path}"
-                                    TextTrimming="CharacterEllipsis" />
-                                <ContentControl
-                                    Grid.Column="3"
-                                    Content="{Binding}"
-                                    ContentTemplate="{StaticResource NumstatPillsTemplate}" />
-                                <!--  Row actions: discard (↩) + the side's
-                                      stage/unstage button, revealed only while
-                                      the row is highlighted. Discard reverts an
-                                      unstaged file to the index (untracked
-                                      files are deleted) and throws a staged
-                                      file back to HEAD — no undo.  -->
-                                <StackPanel
-                                    Grid.Column="2"
-                                    VerticalAlignment="Center"
-                                    Orientation="Horizontal"
-                                    Spacing="2"
-                                    IsVisible="{Binding #ChangeRow.IsPointerOver}">
-                                    <Button
-                                        Width="20"
-                                        Height="20"
-                                        Classes="icon row-action"
-                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).DiscardFileCommand}"
-                                        CommandParameter="{Binding}"
-                                        ToolTip.Tip="{Binding Path, StringFormat='Discard {0} — no undo'}">
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            Data="{tools:SvgPath icon-undo}"
-                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                            Stretch="Uniform" />
-                                    </Button>
-                                    <Button
-                                        Width="20"
-                                        Height="20"
-                                        Classes="icon row-action"
-                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageFileCommand}"
-                                        CommandParameter="{Binding}"
-                                        IsVisible="{Binding !IsStaged}"
-                                        ToolTip.Tip="{Binding Path, StringFormat='Stage {0}'}">
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            Data="{tools:SvgPath icon-plus}"
-                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                            Stretch="Uniform" />
-                                    </Button>
-                                    <Button
-                                        Width="20"
-                                        Height="20"
-                                        Classes="icon row-action"
-                                        Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageFileCommand}"
-                                        CommandParameter="{Binding}"
-                                        IsVisible="{Binding IsStaged}"
-                                        ToolTip.Tip="{Binding Path, StringFormat='Unstage {0}'}">
-                                        <Path
-                                            Width="18"
-                                            Height="18"
-                                            Data="{tools:SvgPath icon-minus}"
-                                            Fill="{DynamicResource MutedForegroundBrush}"
-                                            Stretch="Uniform" />
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
+                                        Foreground="{DynamicResource BodyForegroundBrush}"
+                                        Text="{Binding File.Path}"
+                                        ToolTip.Tip="{Binding File.Path}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <ContentControl
+                                        Grid.Column="4"
+                                        Content="{Binding File}"
+                                        ContentTemplate="{StaticResource NumstatPillsTemplate}" />
+                                    <!--  Row actions: discard (↩) + the side's
+                                          stage/unstage button, revealed only while
+                                          the row is highlighted. Discard reverts an
+                                          unstaged file to the index (untracked
+                                          files are deleted) and throws a staged
+                                          file back to HEAD — no undo.  -->
+                                    <StackPanel
+                                        Grid.Column="3"
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Spacing="2"
+                                        IsVisible="{Binding #ChangeRow.IsPointerOver}">
+                                        <Button
+                                            Width="20"
+                                            Height="20"
+                                            Classes="icon row-action"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).DiscardFileCommand}"
+                                            CommandParameter="{Binding File}"
+                                            ToolTip.Tip="{Binding File.Path, StringFormat='Discard {0} — no undo'}">
+                                            <Path
+                                                Width="18"
+                                                Height="18"
+                                                Data="{tools:SvgPath icon-undo}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        </Button>
+                                        <Button
+                                            Width="20"
+                                            Height="20"
+                                            Classes="icon row-action"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).StageFileCommand}"
+                                            CommandParameter="{Binding File}"
+                                            IsVisible="{Binding !File.IsStaged}"
+                                            ToolTip.Tip="{Binding File.Path, StringFormat='Stage {0}'}">
+                                            <Path
+                                                Width="18"
+                                                Height="18"
+                                                Data="{tools:SvgPath icon-plus}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        </Button>
+                                        <Button
+                                            Width="20"
+                                            Height="20"
+                                            Classes="icon row-action"
+                                            Command="{Binding $parent[UserControl].((vm:ChangesTabViewModel)DataContext).UnstageFileCommand}"
+                                            CommandParameter="{Binding File}"
+                                            IsVisible="{Binding File.IsStaged}"
+                                            ToolTip.Tip="{Binding File.Path, StringFormat='Unstage {0}'}">
+                                            <Path
+                                                Width="18"
+                                                Height="18"
+                                                Data="{tools:SvgPath icon-minus}"
+                                                Fill="{DynamicResource MutedForegroundBrush}"
+                                                Stretch="Uniform" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <!--  Expanded diff: the shared GitHub-style body —
+                                      hunk headers, gutter numbers, tinted
+                                      add/delete rows — same template the commit
+                                      detail expands.  -->
+                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource DiffBodyTemplate}" />
+                            </StackPanel>
                         </DataTemplate>
                     </ListBox.DataTemplates>
                 </ListBox>
