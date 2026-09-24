@@ -100,6 +100,10 @@
                             Content="Start at boot"
                             IsChecked="{Binding StartAtBoot, Mode=TwoWay}"
                             ToolTip.Tip="Launch automatically when the user signs in (applies at next launch)" />
+                        <CheckBox
+                            Content="Show tooltips"
+                            IsChecked="{Binding ShowTooltips, Mode=TwoWay}"
+                            ToolTip.Tip="Show hover tooltips across the app (applies on Save)" />
                         <StackPanel Spacing="4">
                             <TextBlock
                                 Classes="field-label"

@@ -179,6 +179,9 @@ public partial class App : Application
             desktop.ShutdownRequested += OnShutdownRequested;
             // Start minimized to the taskbar if configured
             _ = ApplyStartMinimizedAsync(services, _mainWindow);
+            // Hide every tooltip if configured (the attached property inherits to all
+            // window content, popups included)
+            _ = ApplyTooltipSettingAsync(services, _mainWindow);
             // Reconcile the sign-in registration with the configured StartAtBoot flag
             // (honors hand-edited settings.json and repairs stale registrations even
             // when the supervisor never runs, e.g. the AppImage layout)
@@ -283,6 +286,20 @@ public partial class App : Application
     {
         mainWindow.Activate();
         Helpers.ForegroundActivator.EnsureForeground(mainWindow);
+    }
+
+    private static async Task ApplyTooltipSettingAsync(IServiceProvider services, Window mainWindow)
+    {
+        try
+        {
+            var settingsService = services.GetRequiredService<ISettingsService>();
+            var appSettings = await settingsService.GetSettingsAsync();
+            ToolTip.SetServiceEnabled(mainWindow, appSettings.General?.ShowTooltips ?? true);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, "Failed to apply the tooltip setting");
+        }
     }
 
     /// <summary>

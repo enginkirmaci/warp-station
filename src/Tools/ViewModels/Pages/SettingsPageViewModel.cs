@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
@@ -35,6 +36,7 @@ public partial class SettingsPageViewModel : ObservableObject
     private readonly INotificationService _notifications;
     private readonly IDialogService _dialogService;
     private readonly ReposViewModel _reposViewModel;
+    private readonly IMainWindowProvider _mainWindowProvider;
 
     /// <summary>
     /// Neither the page nor the old drawer edits the Add-Repositories scan depth, so
@@ -58,6 +60,9 @@ public partial class SettingsPageViewModel : ObservableObject
 
     [ObservableProperty]
     private string _notesStorePath = string.Empty;
+
+    [ObservableProperty]
+    private bool _showTooltips = true;
 
     // ---- Repos: scanning ----
     [ObservableProperty]
@@ -148,7 +153,8 @@ public partial class SettingsPageViewModel : ObservableObject
         IProcessLauncher processLauncher,
         INotificationService notifications,
         IDialogService dialogService,
-        ReposViewModel reposViewModel)
+        ReposViewModel reposViewModel,
+        IMainWindowProvider mainWindowProvider)
     {
         _settingsService = settingsService;
         _openCodeModelService = openCodeModelService;
@@ -156,6 +162,7 @@ public partial class SettingsPageViewModel : ObservableObject
         _notifications = notifications;
         _dialogService = dialogService;
         _reposViewModel = reposViewModel;
+        _mainWindowProvider = mainWindowProvider;
     }
 
     /// <summary>
@@ -183,6 +190,7 @@ public partial class SettingsPageViewModel : ObservableObject
         StartMinimized = general.StartMinimized;
         StartAtBoot = general.StartAtBoot;
         NotesStorePath = general.NotesStorePath ?? string.Empty;
+        ShowTooltips = general.ShowTooltips;
 
         try
         {
@@ -219,7 +227,8 @@ public partial class SettingsPageViewModel : ObservableObject
     /// header), then the live surfaces re-apply the new values through the Repos page —
     /// column flags, activity services, launch shortcuts, bottom-bar tabs, the OpenCode
     /// snapshot. StartMinimized/StartAtBoot persist only: both are reconciled against
-    /// the OS registration on the next launch.
+    /// the OS registration on the next launch. ShowTooltips applies immediately on the
+    /// main window.
     /// </summary>
     [RelayCommand]
     private async Task SaveAsync()
@@ -239,9 +248,15 @@ public partial class SettingsPageViewModel : ObservableObject
             {
                 StartMinimized = StartMinimized,
                 StartAtBoot = StartAtBoot,
-                NotesStorePath = NotesStorePath?.Trim() ?? string.Empty
+                NotesStorePath = NotesStorePath?.Trim() ?? string.Empty,
+                ShowTooltips = ShowTooltips
             };
             await _settingsService.SaveSettingsAsync(settings);
+
+            if (_mainWindowProvider.TopLevel is { } topLevel)
+            {
+                ToolTip.SetServiceEnabled(topLevel, ShowTooltips);
+            }
 
             await _reposViewModel.OnSettingsSavedAsync(
                 new ReposSettingsEditResult(repos, settings.OpenCode, EnableNuget));

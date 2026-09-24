@@ -366,4 +366,13 @@ public class GeneralSettings
     /// falls back to <c>&lt;UserDataRoot&gt;/notes</c>. Edited in the Settings page.
     /// </summary>
     public string? NotesStorePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether hover tooltips are shown. Applied by
+    /// disabling <see cref="Avalonia.Controls.ToolTip"/> service on the main window
+    /// (the attached property inherits to every control and popup inside it).
+    /// Defaults to <see langword="true"/> so settings files without the key keep
+    /// tooltips. Edited in the Settings page; applies at startup and on save.
+    /// </summary>
+    public bool ShowTooltips { get; set; } = true;
 }
