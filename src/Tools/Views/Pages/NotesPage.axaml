@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!--
-    Dedicated Notes page (back link returns to the Repositories page). The
-    title-bar note button opens the whole notes store — one folder per
-    repository; a repo row's note button opens the page scoped to that repo's
-    folder. Unsaved edits live in the view model and survive navigation.
+    Dedicated Notes page, hosted by the floating NotesWindow (the back link closes
+    it). The title-bar note button opens the whole notes store — one folder per
+    repository; a repo row's note button opens the window scoped to that repo's
+    folder. Unsaved edits live in the view model and survive closing the window.
 -->
 <UserControl
     x:Class="Tools.Views.Pages.NotesPage"
@@ -94,7 +94,7 @@
                 Grid.Column="0"
                 Classes="icon"
                 Click="OnBackClick"
-                ToolTip.Tip="Back to repositories">
+                ToolTip.Tip="Close notes">
                 <Path
                     Width="14"
                     Height="14"

@@ -186,9 +186,10 @@ public partial class MainWindow : SukiWindow
         viewModel.SettingsRequested += OnSettingsRequested;
         settingsPage.BackRequested += OnBackToRepositoriesRequested;
 
-        // The title-bar note button follows the same toggle pattern for the Notes page.
+        // The title-bar note button opens the floating notes window (whole-store view);
+        // the page's back link closes the window again.
         viewModel.NotesRequested += OnNotesRequested;
-        notesPage.BackRequested += OnBackToRepositoriesRequested;
+        notesPage.BackRequested += OnNotesBackRequested;
 
         // The title-bar sparkle routes through the window VM straight into the tool
         // drawer (Yesterday's Summary) — no page swap or selected repo involved.
@@ -240,37 +241,55 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    /// <summary>Toggles the dedicated Notes page (the title-bar note button doubles as a
-    /// close, like the gear). The page reloads on every show.</summary>
+    /// <summary>The title-bar note button: opens the floating notes window in the
+    /// whole-store view. The page's lifecycle runs on every open, reloading the tree —
+    /// and un-scoping a repo-scoped view (OnNavigatedToAsync clears the scope).</summary>
     private void OnNotesRequested(object? sender, EventArgs e)
     {
-        if (ContentArea.Content is NotesPage)
-        {
-            OnBackToRepositoriesRequested(sender, e);
-            return;
-        }
-
-        ContentArea.Content = _notesPage;
+        ShowNotesWindow();
         if (_notesPage.DataContext is NotesPageViewModel viewModel)
         {
             FireLifecycle(viewModel.OnNavigatedToAsync);
         }
     }
 
+    private NotesWindow? _notesWindow;
+
+    /// <summary>Opens (or surfaces) the floating notes window hosting the shared Notes
+    /// page: created lazily, hidden on user close, so one instance serves the whole
+    /// session and re-opening restores its position with the page's state intact.</summary>
+    private void ShowNotesWindow()
+    {
+        if (_notesWindow is null)
+        {
+            _notesWindow = new NotesWindow(_notesPage, (NotesPageViewModel)_notesPage.DataContext!);
+            // The app-wide tooltip toggle rides the main window's inherited value.
+            ToolTip.SetServiceEnabled(_notesWindow, ToolTip.GetServiceEnabled(this));
+        }
+        _notesWindow.Show();
+        _notesWindow.Activate();
+    }
+
+    /// <summary>The notes page's back button: hides the floating window — the same
+    /// window instance (and the page inside it) comes back on the next open. A real
+    /// close would leave the page attached to a dead window's visual tree, and
+    /// re-hosting it in a fresh window throws (Avalonia keeps a closed window's
+    /// content attached).</summary>
+    private void OnNotesBackRequested(object? sender, EventArgs e)
+    {
+        _notesWindow?.Hide();
+    }
+
     private INotificationService _notificationService;
 
-    /// <summary>A repo row's note button: always shows the Notes page — opening it when
-    /// another page is showing, reloading it when it already is. The row's command has
-    /// by then selected the clicked repo in the bottom bar, so the scoped load shows
-    /// only that repo's notes folder (the title-bar button stays the whole-store view).
-    /// No toggle: while repo A's notes are open, repo B's note button must switch, not
-    /// close.</summary>
+    /// <summary>A repo row's note button: opens the floating notes window scoped to
+    /// that repo's notes folder. The row's command has by then selected the clicked
+    /// repo in the bottom bar, so the scoped load shows only that repo's notes folder
+    /// (the title-bar button stays the whole-store view). No toggle: while repo A's
+    /// notes are open, repo B's note button must switch, not close.</summary>
     private void OnRepoNotesRequested(object? sender, EventArgs e)
     {
-        if (ContentArea.Content is not NotesPage)
-        {
-            ContentArea.Content = _notesPage;
-        }
+        ShowNotesWindow();
 
         if (_notesPage.DataContext is NotesPageViewModel viewModel)
         {
@@ -296,7 +315,7 @@ public partial class MainWindow : SukiWindow
         if (reposPage.DataContext is ReposViewModel viewModel)
         {
             // Repo rows' note buttons route here: select the repo in the bottom bar,
-            // then show (or reload) the Notes page for it.
+            // then open (or re-scope) the floating notes window for it.
             viewModel.NotesRequested += OnRepoNotesRequested;
             Opened += OnMainWindowOpened;
         }
@@ -376,6 +395,11 @@ public partial class MainWindow : SukiWindow
         _messageHandler.Uninstall(_windowConfigurator.WindowHandle);
         _toolsFlyoutOpenTimer?.Stop();
         _toolsFlyoutCloseTimer?.Stop();
+
+        // The notes window only hides on its own close; a real close is forced here so
+        // it cannot outlive the main window's close (ShutdownMode.OnMainWindowClose).
+        _notesWindow?.ForceClose();
+        _notesWindow = null;
 
         _globalSearch.PropertyChanged -= OnGlobalSearchPropertyChanged;
         // An open drawer hosts a transient ViewModel subscribed to singleton services;
@@ -799,9 +823,9 @@ public partial class MainWindow : SukiWindow
         _reposPage.RevealRepo(repo);
     }
 
-    /// <summary>Note activation: the note's repo is selected first, then the Notes
-    /// page navigates with the hit as its pending-open note, scoped to that repo's
-    /// notes folder. Repos the app does not track still open the page, whole-store.
+    /// <summary>Note activation: the note's repo is selected first, then the floating
+    /// notes window opens with the hit as its pending-open note, scoped to that repo's
+    /// notes folder. Repos the app does not track still open it, whole-store.
     /// </summary>
     private async Task ActivateNoteResultAsync(NotesSearchHit hit)
     {
@@ -811,10 +835,7 @@ public partial class MainWindow : SukiWindow
             _globalSearch.SelectRepo(repo);
         }
 
-        if (ContentArea.Content is not NotesPage)
-        {
-            ContentArea.Content = _notesPage;
-        }
+        ShowNotesWindow();
 
         if (_notesPage.DataContext is NotesPageViewModel viewModel)
         {

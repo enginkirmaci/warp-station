@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Floating Notes window: hosts the Notes page outside the main window, so the
+    repositories table stays visible while notes are open. Shares the main window's
+    custom title-bar theme; the centered global search field is a main-window-only
+    template part (wired in MainWindow.OnApplyTemplate) and is hidden here.
+-->
+<suki:SukiWindow
+    x:Class="Tools.Views.Windows.NotesWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:suki="https://github.com/kikipoulet/SukiUI"
+    xmlns:tools="using:Tools.Library.MarkupExtensions"
+    Title="Notes"
+    Width="1100"
+    Height="760"
+    MinWidth="700"
+    MinHeight="480"
+    BackgroundStyle="Flat"
+    Theme="{StaticResource CustomSukiWindowTheme}"
+    WindowStartupLocation="CenterScreen"
+    mc:Ignorable="d">
+
+    <suki:SukiWindow.Styles>
+        <Style Selector="Border#HeaderSearchBorder">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+    </suki:SukiWindow.Styles>
+
+    <suki:SukiWindow.LogoContent>
+        <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+            <Path
+                Width="17"
+                Height="17"
+                VerticalAlignment="Center"
+                Data="{tools:SvgPath icon-note}"
+                Fill="{DynamicResource BodyForegroundBrush}"
+                Stretch="Uniform" />
+            <TextBlock
+                VerticalAlignment="Center"
+                FontSize="15"
+                FontWeight="SemiBold"
+                Foreground="{DynamicResource TitleForegroundBrush}"
+                Text="Notes" />
+            <!--  Repo name while the view is scoped to one repo's notes folder  -->
+            <TextBlock
+                x:Name="ScopeText"
+                VerticalAlignment="Center"
+                Classes="subtle"
+                IsVisible="False" />
+        </StackPanel>
+    </suki:SukiWindow.LogoContent>
+</suki:SukiWindow>
