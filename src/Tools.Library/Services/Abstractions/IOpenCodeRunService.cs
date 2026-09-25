@@ -2,9 +2,9 @@ namespace Tools.Library.Services.Abstractions;
 
 /// <summary>
 /// Runs the opencode CLI in its one-shot mode (<c>opencode run</c>): sends one prompt,
-/// captures the model's answer, exits. Runs with <c>--dangerously-skip-permissions</c>
-/// (hidden alias of <c>--auto</c>), so tool permissions are auto-approved (the headless
-/// run has no one to answer prompts). Powers the Changes
+/// captures the model's answer, exits. Runs under opencode's default permission
+/// enforcement — the headless run has no one to answer prompts, so tool requests are
+/// rejected and the model answers from the prompt alone. Powers the Changes
 /// tab's wand button (generate a commit message from the staged diff). Distinct from
 /// <see cref="IOpenCodeModelService"/>, which only lists models.
 /// </summary>

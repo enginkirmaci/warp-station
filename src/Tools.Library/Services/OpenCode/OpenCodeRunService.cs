@@ -75,12 +75,10 @@ public class OpenCodeRunService : IOpenCodeRunService
             // ArgumentList, not an Arguments string: the prompt (a diff + instructions)
             // carries quotes and newlines no shell-style escaping should have to survive.
             psi.ArgumentList.Add("run");
-            // Headless: nobody can answer a permission prompt, so any tool request
-            // would be auto-rejected and the model reduced to plain text. Verified
-            // against opencode 1.18.30: --dangerously-skip-permissions is a hidden
-            // (undocumented) alias of --auto — the binary resolves
-            // `auto || yolo || dangerously-skip-permissions` into the same switch.
-            psi.ArgumentList.Add("--dangerously-skip-permissions");
+            // Default permission enforcement, deliberately not relaxed: the headless
+            // run has no one to answer a permission prompt, so tool requests are
+            // rejected and the model answers from the prompt alone — every prompt
+            // must carry the context it needs.
             if (!string.IsNullOrWhiteSpace(model))
             {
                 psi.ArgumentList.Add("--model");
