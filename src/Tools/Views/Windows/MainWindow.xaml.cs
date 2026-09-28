@@ -88,6 +88,7 @@ public partial class MainWindow : SukiWindow
     private ContentControl ToolDrawerHost = null!;
     private Border ToolDrawerResizer = null!;
     private ItemsControl ToastHost = null!;
+    private Panel PermissionHost = null!;
     private Button ToolsButton = null!;
 
     private void InitializeComponent()
@@ -97,6 +98,7 @@ public partial class MainWindow : SukiWindow
         ToolDrawerHost = this.FindControl<ContentControl>("ToolDrawerHost")!;
         ToolDrawerResizer = this.FindControl<Border>("ToolDrawerResizer")!;
         ToastHost = this.FindControl<ItemsControl>("ToastHost")!;
+        PermissionHost = this.FindControl<Panel>("PermissionHost")!;
         ToolsButton = this.FindControl<Button>("ToolsButton")!;
     }
 
@@ -162,7 +164,8 @@ public partial class MainWindow : SukiWindow
         SettingsPage settingsPage,
         NotesPage notesPage,
         IClipboardPasswordService clipboardPasswordService,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        OpenCodePermissionService permissionService)
     {
         _toolDrawer = toolDrawer;
         _resolveToolView = resolveToolView;
@@ -203,6 +206,10 @@ public partial class MainWindow : SukiWindow
         // and its Toasts collection is the items source.
         ToastHost.DataContext = notificationService;
         ToastHost.ItemsSource = notificationService.Toasts;
+
+        // Same pattern for the OpenCode permission popup: the service is the
+        // DataContext (current ask, countdown text, allow/reject commands).
+        PermissionHost.DataContext = permissionService;
 
         // Host the permanent Repositories page content (runs its ViewModel lifecycle).
         AttachRepositoriesPage(reposPage);

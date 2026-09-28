@@ -49,16 +49,18 @@ public abstract class OpenCodeWandGenerator
 
     /// <summary>
     /// Runs the prompt through opencode and normalizes the answer. Returns null when
-    /// nothing usable came back.
+    /// nothing usable came back. <paramref name="workingDirectory"/> scopes the run's
+    /// session to a repository so tool asks (allowed via the popup) execute there.
     /// </summary>
     protected async Task<string?> RunAsync(
         CancellationToken cancellationToken,
         string executable,
         string? model,
         string prompt,
-        int maxAnswerLength)
+        int maxAnswerLength,
+        string? workingDirectory = null)
     {
-        var answer = await _openCodeRunService.RunAsync(executable, model, prompt, cancellationToken);
+        var answer = await _openCodeRunService.RunAsync(executable, model, prompt, cancellationToken, workingDirectory);
         return CleanAnswer(answer, maxAnswerLength);
     }
 

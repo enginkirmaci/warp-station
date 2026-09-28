@@ -8,6 +8,7 @@ using Tools.Library.Entities;
 using Tools.Library.Formatters;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.OpenCode;
 using Tools.ViewModels.Windows;
 using Tools.Services;
 using Tools.Services.Abstractions;
@@ -46,7 +47,6 @@ public partial class BottomBarViewModel : ObservableObject
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IProcessLauncher _processLauncher;
-    private readonly IOpenCodeRunService _openCodeRunService;
     private readonly ICommitMessagePromptService _commitMessagePromptService;
     private readonly INotificationService _notificationService;
     private readonly IClipboardService _clipboardService;
@@ -98,7 +98,8 @@ public partial class BottomBarViewModel : ObservableObject
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
         IProcessLauncher processLauncher,
-        IOpenCodeRunService openCodeRunService,
+        OpenCodeServeRunService serveRunService,
+        OpenCodeRunService cliRunService,
         ICommitMessagePromptService commitMessagePromptService,
         IReadmePromptService readmePromptService,
         INotificationService notificationService,
@@ -111,15 +112,16 @@ public partial class BottomBarViewModel : ObservableObject
         _gitHubService = gitHubService;
         _azureDevOpsService = azureDevOpsService;
         _processLauncher = processLauncher;
-        _openCodeRunService = openCodeRunService;
         _commitMessagePromptService = commitMessagePromptService;
         _notificationService = notificationService;
         _clipboardService = clipboardService;
         _toolDrawerService = toolDrawerService;
 
-        var messageGenerator = new CommitMessageGenerator(openCodeRunService, commitMessagePromptService);
+        // The commit wand runs on the serve path (permission asks surface in the
+        // popup); the README wand keeps the one-shot CLI runner.
+        var messageGenerator = new CommitMessageGenerator(serveRunService, commitMessagePromptService);
         Changes = new ChangesTabViewModel(this, messageGenerator);
-        _readmeGenerator = new ReadmeGenerator(openCodeRunService, readmePromptService);
+        _readmeGenerator = new ReadmeGenerator(cliRunService, readmePromptService);
         GitHub = new GitHubPanelViewModel(this);
         Azure = new AzurePanelViewModel(this);
 

@@ -528,5 +528,62 @@
 				</DataTemplate>
 			</ItemsControl.ItemTemplate>
 		</ItemsControl>
+
+		<!--
+			OpenCode permission popup: the serve-based wand runs surface tool asks here.
+			Dialog-like, but nothing blocks — unanswered asks reject themselves after a
+			short countdown so the run continues instead of waiting forever.
+		-->
+		<Panel x:Name="PermissionHost" IsVisible="{Binding HasCurrentAsk}">
+			<Border
+				MinWidth="420"
+				MaxWidth="560"
+				Padding="16,14"
+				HorizontalAlignment="Center"
+				VerticalAlignment="Center"
+				Background="{DynamicResource CardBackgroundBrush}"
+				BorderBrush="{DynamicResource HairlineBrush}"
+				BorderThickness="1"
+				BoxShadow="{DynamicResource FlyoutShadow}"
+				CornerRadius="{DynamicResource CardRadius}">
+				<StackPanel Spacing="10">
+					<StackPanel Orientation="Horizontal" Spacing="8">
+						<Path
+							Width="15"
+							Height="15"
+							VerticalAlignment="Center"
+							Data="{tools:SvgPath icon-lock}"
+							Fill="{DynamicResource AccentPrimaryBrush}"
+							Stretch="Uniform" />
+						<TextBlock
+							VerticalAlignment="Center"
+							FontSize="14"
+							FontWeight="SemiBold"
+							Foreground="{DynamicResource TitleForegroundBrush}"
+							Text="{Binding CurrentAsk.Action}" />
+					</StackPanel>
+					<TextBlock
+						Classes="mono"
+						FontSize="12"
+						Foreground="{DynamicResource BodyForegroundBrush}"
+						Text="{Binding CurrentAsk.Detail}"
+						TextWrapping="Wrap" />
+					<Grid ColumnDefinitions="*,Auto">
+						<TextBlock
+							VerticalAlignment="Center"
+							FontSize="11"
+							Foreground="{DynamicResource MutedForegroundBrush}"
+							Text="{Binding AutoRejectText}" />
+						<StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+							<Button
+								Classes="Outlined"
+								Command="{Binding RejectCommand}"
+								Content="Reject" />
+							<Button Command="{Binding AllowAllCommand}" Content="Allow all" />
+						</StackPanel>
+					</Grid>
+				</StackPanel>
+			</Border>
+		</Panel>
 	</Grid>
 </suki:SukiWindow>

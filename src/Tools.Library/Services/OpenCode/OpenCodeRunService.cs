@@ -1,11 +1,17 @@
 using System.Diagnostics;
+using System.IO;
 using Serilog;
 using Tools.Library.Configuration;
 using Tools.Library.Services.Abstractions;
 
 namespace Tools.Library.Services.OpenCode;
 
-/// <inheritdoc cref="IOpenCodeRunService"/>
+/// <summary>
+/// The one-shot CLI path (<c>opencode run</c>): sends one prompt, captures the model's
+/// answer from stdout, exits. Kept for the README wand — the default wand path goes
+/// through <see cref="OpenCodeServeRunService"/>, whose serve process lets permission
+/// asks reach the app's popup instead of being auto-denied here.
+/// </summary>
 public class OpenCodeRunService : IOpenCodeRunService
 {
     /// <summary>
@@ -35,7 +41,12 @@ public class OpenCodeRunService : IOpenCodeRunService
     }
 
     /// <inheritdoc/>
-    public async Task<string?> RunAsync(string? executable, string? model, string prompt, CancellationToken cancellationToken = default)
+    public async Task<string?> RunAsync(
+        string? executable,
+        string? model,
+        string prompt,
+        CancellationToken cancellationToken = default,
+        string? workingDirectory = null)
     {
         // Not on the shared ProcessRunner (yet): completion is the first pipe to close
         // rather than process exit plus a full drain, and the drains ride
@@ -85,6 +96,10 @@ public class OpenCodeRunService : IOpenCodeRunService
                 psi.ArgumentList.Add(model);
             }
             psi.ArgumentList.Add(prompt);
+            if (!string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory))
+            {
+                psi.WorkingDirectory = workingDirectory;
+            }
 
             // Same Electron leak guard as the model service (constant hoisted on the runner).
             psi.EnvironmentVariables.Remove(ProcessRunner.ElectronRunAsNodeVariable);

@@ -55,8 +55,12 @@ public static class ServiceRegistrationExtensions
         // opencode model list (one-shot 'opencode models' CLI runner)
         services.AddSingleton<IOpenCodeModelService, OpenCodeModelService>();
 
-        // opencode one-shot prompt run (the Changes tab's commit-message wand)
-        services.AddSingleton<IOpenCodeRunService, OpenCodeRunService>();
+        // opencode prompt runs. The default wand path (commit messages, the daily
+        // summary) drives an 'opencode serve' process per run so permission asks
+        // surface in the app's popup; the README wand keeps the one-shot CLI runner.
+        services.AddSingleton<OpenCodeServeRunService>();
+        services.AddSingleton<OpenCodeRunService>();
+        services.AddSingleton<IOpenCodeRunService>(sp => sp.GetRequiredService<OpenCodeServeRunService>());
 
         // commit-message wand's prompt template (opencode-folder MD, user-editable)
         services.AddSingleton<ICommitMessagePromptService, CommitMessagePromptService>();

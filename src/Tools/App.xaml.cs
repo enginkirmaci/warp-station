@@ -7,6 +7,7 @@ using Tools.Helpers;
 using Tools.Library.Extensions;
 using Tools.Library.Services;
 using Tools.Library.Services.Abstractions;
+using Tools.Library.Services.OpenCode;
 using Tools.SnapIt.Extensions;
 using Tools.Services;
 using Tools.Services.Abstractions;
@@ -110,6 +111,10 @@ public partial class App : Application
         services.AddSingleton<IClipboardPasswordService, ClipboardPasswordService>();
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<INotificationService, NotificationService>();
+        // The OpenCode permission popup: the serve-based wand runs surface tool asks
+        // here (allow-all / reject, auto-rejecting); the serve run service pumps them in.
+        services.AddSingleton<OpenCodePermissionService>();
+        services.AddSingleton<IOpenCodePermissionPrompt>(sp => sp.GetRequiredService<OpenCodePermissionService>());
         services.AddSingleton<IOpenCodeGridLauncher, OpenCodeGridLauncher>();
         // Register windows and view models
         services.AddSingleton<MainWindow>();
@@ -205,7 +210,11 @@ public partial class App : Application
             var bar = services.GetRequiredService<ViewModels.Components.BottomBar.BottomBarViewModel>();
             bar.CancelCommitMessageGeneration();
             bar.CancelReadmeGeneration();
-            services.GetRequiredService<IOpenCodeRunService>().Stop();
+            // Both run services kill their opencode process trees on scope cancel:
+            // the serve-based default (commit wand, daily summary) and the one-shot
+            // CLI the README wand still rides.
+            services.GetRequiredService<OpenCodeServeRunService>().Stop();
+            services.GetRequiredService<OpenCodeRunService>().Stop();
             // Same story for every CLI git spawn (clone, fetch, push, a mid-run commit)
             // and each gh probe: the shutdown token kills the whole process tree.
             services.GetRequiredService<IGitStatusService>().Stop();

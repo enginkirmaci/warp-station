@@ -52,7 +52,9 @@ public sealed class CommitMessageGenerator : OpenCodeWandGenerator
         }
 
         var prompt = BuildPrompt(patch, stagedPaths, recentSubjects);
-        return await RunAsync(cancellationToken, executable, model, prompt, maxAnswerLength: 1500);
+        // The session runs in the repo so a popup-allowed tool call (e.g. reading a
+        // file) operates on the right repository.
+        return await RunAsync(cancellationToken, executable, model, prompt, maxAnswerLength: 1500, workingDirectory: repo.FolderPath);
     }
 
     /// <summary>
