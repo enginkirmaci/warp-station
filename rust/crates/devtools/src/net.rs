@@ -20,6 +20,55 @@ pub enum NetCommand {
     DeepScan { root: String, depth: i32, settings: ReposSettings },
     /// The Clone-from-URL dialog's clone into a parent directory.
     Clone { url: String, parent_dir: String, name: String },
+    /// The Changes tab's shared load: status snapshot + branches + history in
+    /// one pass, settled together so the tab paints complete.
+    LoadChanges { folder: PathBuf },
+    /// One mutation; the net thread reloads the repo's changes and probes its
+    /// status after it settles, success or failure.
+    Git { folder: PathBuf, action: GitAction },
+    /// One change row's expandable patch.
+    GetChangePatch { folder: PathBuf, path: String, staged: bool },
+}
+
+/// Every state-changing git operation the bottom bar drives. The label rides
+/// the result for surfacing.
+#[derive(Clone, Debug)]
+pub enum GitAction {
+    StageAll,
+    UnstageAll,
+    Stage(String),
+    Unstage(String),
+    DiscardStaged(Vec<String>),
+    DiscardUnstaged(Vec<String>),
+    DiscardFile { path: String, is_staged: bool },
+    Commit(String),
+    Checkout(String),
+    CreateBranch { name: String, start: Option<String>, checkout: bool },
+    Fetch,
+    Pull,
+    Push,
+    Publish { branch: String },
+}
+
+impl GitAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            GitAction::StageAll => "stage all",
+            GitAction::UnstageAll => "unstage all",
+            GitAction::Stage(_) => "stage",
+            GitAction::Unstage(_) => "unstage",
+            GitAction::DiscardStaged(_) => "discard staged",
+            GitAction::DiscardUnstaged(_) => "discard unstaged",
+            GitAction::DiscardFile { .. } => "discard",
+            GitAction::Commit(_) => "commit",
+            GitAction::Checkout(_) => "checkout",
+            GitAction::CreateBranch { .. } => "create branch",
+            GitAction::Fetch => "fetch",
+            GitAction::Pull => "pull",
+            GitAction::Push => "push",
+            GitAction::Publish { .. } => "publish",
+        }
+    }
 }
 
 pub enum UiEvent {
@@ -27,6 +76,21 @@ pub enum UiEvent {
     StatusSettled { probes: Vec<StatusProbe> },
     DeepScanSettled { root: String, found: Vec<devtools_core::scan::ScannedRepo> },
     CloneSettled { url: String, parent_dir: String, name: String, result: devtools_core::model::GitSyncResult },
+    ChangesLoaded {
+        folder: String,
+        snapshot: Option<devtools_core::model::GitChangeSnapshot>,
+        branches: Vec<devtools_core::model::GitBranchRef>,
+        recent: Vec<devtools_core::model::GitCommitInfo>,
+        unpushed: Option<std::collections::HashSet<String>>,
+    },
+    GitDone {
+        folder: String,
+        label: &'static str,
+        error: Option<String>,
+        /// A commit's short hash on success.
+        commit_hash: Option<String>,
+    },
+    ChangePatchLoaded { folder: String, path: String, staged: bool, patch: String },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -73,6 +137,124 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let result = devtools_core::git::cli::clone(&url, Path::new(&parent_dir), &name).await;
                 let _ = evt_tx.send_blocking(UiEvent::CloneSettled { url, parent_dir, name, result });
             }
+            NetCommand::GetChangePatch { folder, path, staged } => {
+                let patch = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    let path = path.clone();
+                    move || devtools_core::git::read::change_file_patch(&folder, &path, staged)
+                })
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::ChangePatchLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    path,
+                    staged,
+                    patch,
+                });
+            }
+            NetCommand::LoadChanges { folder } => {
+                let (snapshot, branches, recent, unpushed) = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    move || {
+                        (
+                            devtools_core::git::read::change_snapshot(&folder),
+                            devtools_core::git::read::branches(&folder).unwrap_or_default(),
+                            devtools_core::git::read::recent_commits(&folder).unwrap_or_default(),
+                            devtools_core::git::read::unpushed_hashes(&folder),
+                        )
+                    }
+                })
+                .await
+                .unwrap_or((None, Vec::new(), Vec::new(), None));
+                let _ = evt_tx.send_blocking(UiEvent::ChangesLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    snapshot,
+                    branches,
+                    recent,
+                    unpushed,
+                });
+            }
+            NetCommand::Git { folder, action } => {
+                let (ok, error, commit_hash) = run_git_action(&folder, &action).await;
+                let _ = evt_tx.send_blocking(UiEvent::GitDone {
+                    folder: folder.to_string_lossy().to_string(),
+                    label: action.label(),
+                    error: if ok { None } else { error },
+                    commit_hash,
+                });
+                // every mutation re-checks the repo it touched: the fresh
+                // status and the rebuilt changes snapshot land together
+                let (snapshot, branches, recent, unpushed) = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    move || {
+                        (
+                            devtools_core::git::read::change_snapshot(&folder),
+                            devtools_core::git::read::branches(&folder).unwrap_or_default(),
+                            devtools_core::git::read::recent_commits(&folder).unwrap_or_default(),
+                            devtools_core::git::read::unpushed_hashes(&folder),
+                        )
+                    }
+                })
+                .await
+                .unwrap_or((None, Vec::new(), Vec::new(), None));
+                let _ = evt_tx.send_blocking(UiEvent::ChangesLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    snapshot,
+                    branches,
+                    recent,
+                    unpushed,
+                });
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
+                    probes: probe_pass(vec![folder]).await,
+                });
+            }
+        }
+    }
+}
+
+async fn run_git_action(folder: &Path, action: &GitAction) -> (bool, Option<String>, Option<String>) {
+    use devtools_core::git::cli;
+    match action {
+        GitAction::StageAll => (cli::stage_all(folder).await.ok, None, None),
+        GitAction::UnstageAll => (cli::unstage_all(folder).await.ok, None, None),
+        GitAction::Stage(path) => (cli::stage(folder, path).await.ok, None, None),
+        GitAction::Unstage(path) => (cli::unstage(folder, path).await.ok, None, None),
+        GitAction::DiscardStaged(paths) => (cli::discard_paths(folder, paths, true).await, None, None),
+        GitAction::DiscardUnstaged(paths) => (cli::discard_paths(folder, paths, false).await, None, None),
+        GitAction::DiscardFile { path, is_staged } => {
+            (cli::discard_file(folder, path, *is_staged).await, None, None)
+        }
+        GitAction::Commit(message) => {
+            match cli::commit(folder, message).await {
+                Some(hash) => (true, None, Some(hash)),
+                None => (false, Some("commit failed".into()), None),
+            }
+        }
+        GitAction::Checkout(branch) => {
+            let outcome = cli::checkout(folder, branch).await;
+            (outcome.ok, outcome.error, None)
+        }
+        GitAction::CreateBranch { name, start, checkout } => {
+            let result = cli::create_branch(folder, name, start.as_deref(), *checkout).await;
+            (result.success, result.error, None)
+        }
+        GitAction::Fetch => {
+            let outcome = cli::fetch(folder).await;
+            (outcome.ok, outcome.error, None)
+        }
+        GitAction::Pull => {
+            let outcome = cli::pull(folder).await;
+            (outcome.ok, outcome.error, None)
+        }
+        GitAction::Push => {
+            let outcome = cli::push(folder).await;
+            (outcome.ok, outcome.error, None)
+        }
+        GitAction::Publish { branch } => {
+            let result = cli::publish_branch(folder, branch).await;
+            (result.success, result.error, None)
         }
     }
 }

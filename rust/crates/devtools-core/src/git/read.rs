@@ -807,3 +807,47 @@ fn cap(content: String, cap: usize, suffix: &str) -> String {
         content
     }
 }
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use crate::model::GitChangeSnapshot;
+
+    #[test]
+    fn merged_files_layer_cached_over_worktree() {
+        let mut snap = GitChangeSnapshot::default();
+        snap.status_files = vec![GitChangedFile {
+            path: "a.txt".into(),
+            status_code: "MM".into(),
+            additions: None,
+            deletions: None,
+        }];
+        snap.worktree_counts.insert("a.txt".into(), (Some(1), Some(2)));
+        snap.cached_counts.insert("a.txt".into(), (Some(10), Some(20)));
+        let merged = snap.merged_files();
+        assert_eq!(merged[0].additions, Some(10));
+        assert_eq!(merged[0].deletions, Some(20));
+    }
+
+    #[test]
+    fn change_groups_apply_their_own_sides() {
+        let mut snap = GitChangeSnapshot::default();
+        snap.staged_files = vec![GitChangedFile {
+            path: "b.txt".into(),
+            status_code: "A".into(),
+            additions: None,
+            deletions: None,
+        }];
+        snap.unstaged_files = vec![GitChangedFile {
+            path: "c.txt".into(),
+            status_code: "M".into(),
+            additions: None,
+            deletions: None,
+        }];
+        snap.cached_counts.insert("b.txt".into(), (Some(3), None));
+        snap.worktree_counts.insert("c.txt".into(), (None, Some(4)));
+        let (staged, unstaged) = snap.change_groups();
+        assert_eq!(staged[0].additions, Some(3));
+        assert_eq!(unstaged[0].deletions, Some(4));
+    }
+}

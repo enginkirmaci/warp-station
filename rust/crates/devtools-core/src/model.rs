@@ -87,6 +87,50 @@ pub struct GitChangeSnapshot {
     pub cached_counts: std::collections::HashMap<String, (Option<u32>, Option<u32>)>,
 }
 
+impl GitChangeSnapshot {
+    /// The flat file list with merged counts: the worktree diff first, the
+    /// staged (cached) diff layered on top, so a path present in both reports
+    /// its staged counts. Untracked and binary files stay count-less.
+    pub fn merged_files(&self) -> Vec<GitChangedFile> {
+        let mut counts = self.worktree_counts.clone();
+        for (path, count) in &self.cached_counts {
+            counts.insert(path.clone(), *count);
+        }
+        self.status_files
+            .iter()
+            .map(|file| match counts.get(&file.path) {
+                Some((additions, deletions)) => GitChangedFile {
+                    additions: *additions,
+                    deletions: *deletions,
+                    ..file.clone()
+                },
+                None => file.clone(),
+            })
+            .collect()
+    }
+
+    /// The staged/unstaged split with per-side counts applied.
+    pub fn change_groups(&self) -> (Vec<GitChangedFile>, Vec<GitChangedFile>) {
+        let apply = |files: &[GitChangedFile], counts: &std::collections::HashMap<String, (Option<u32>, Option<u32>)>| {
+            files
+                .iter()
+                .map(|file| match counts.get(&file.path) {
+                    Some((additions, deletions)) => GitChangedFile {
+                        additions: *additions,
+                        deletions: *deletions,
+                        ..file.clone()
+                    },
+                    None => file.clone(),
+                })
+                .collect()
+        };
+        (
+            apply(&self.staged_files, &self.cached_counts),
+            apply(&self.unstaged_files, &self.worktree_counts),
+        )
+    }
+}
+
 /// One commit made on the queried day (empty files for a merge commit).
 #[derive(Clone, Debug)]
 pub struct GitDayCommit {

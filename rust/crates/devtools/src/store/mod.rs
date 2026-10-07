@@ -4,7 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{NetCommand, UiEvent};
+use crate::net::{GitAction, NetCommand, UiEvent};
 use devtools_core::repo_store::{self, RepoEntry};
 use devtools_core::settings::{AppSettings, RepoSortMode, SettingsService};
 use gpui::{App, Context};
@@ -25,6 +25,18 @@ pub struct Store {
     /// Dialog-bound net results, drained by the page's render pass.
     pub deep_scan_result: Option<Vec<devtools_core::scan::ScannedRepo>>,
     pub clone_result: Option<(String, String, devtools_core::model::GitSyncResult)>,
+
+    // ---- bottom bar (the selected repo's workspace) ----
+    pub selected_tab: BottomBarTab,
+    pub changes: Option<devtools_core::model::GitChangeSnapshot>,
+    pub changes_loaded_for: Option<String>,
+    pub branches: Vec<devtools_core::model::GitBranchRef>,
+    pub recent_commits: Vec<devtools_core::model::GitCommitInfo>,
+    pub unpushed: Option<std::collections::HashSet<String>>,
+    pub git_busy: bool,
+    pub last_git_error: Option<String>,
+    /// One freshly loaded change-row patch, drained by the Changes view.
+    pub change_patch_result: Option<(String, bool, String)>,
 
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
@@ -51,6 +63,15 @@ impl Store {
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
+            selected_tab: BottomBarTab::Changes,
+            changes: None,
+            changes_loaded_for: None,
+            branches: Vec::new(),
+            recent_commits: Vec::new(),
+            unpushed: None,
+            git_busy: false,
+            last_git_error: None,
+            change_patch_result: None,
             save_generation: 0,
         };
         store.reproject();
@@ -66,6 +87,22 @@ impl Store {
             settings: app_settings.repos.clone(),
             previous: store.repos.clone(),
         });
+
+        // E2E hook: DEVTOOLS_SELECT=<index-or-name-substring> opens the bottom
+        // bar on launch so automation can verify the workspace surfaces
+        if let Ok(pattern) = std::env::var("DEVTOOLS_SELECT") {
+            if let Some(entry) = store
+                .repos
+                .iter()
+                .find(|r| r.name.eq_ignore_ascii_case(&pattern))
+                .or_else(|| store.repos.get(pattern.parse::<usize>().unwrap_or(usize::MAX)))
+            {
+                store.selected_repo = Some(entry.folder_path.to_string_lossy().to_string());
+                let _ = store.net.send_blocking(NetCommand::LoadChanges {
+                    folder: entry.folder_path.clone(),
+                });
+            }
+        }
         store
     }
 
@@ -127,7 +164,56 @@ impl Store {
                 self.clone_result = Some((parent_dir, name, result));
                 cx.notify();
             }
+            UiEvent::ChangesLoaded { folder, snapshot, branches, recent, unpushed } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.changes = snapshot;
+                    self.changes_loaded_for = Some(folder);
+                    self.branches = branches;
+                    if !recent.is_empty() {
+                        self.recent_commits = recent;
+                    }
+                    self.unpushed = unpushed;
+                }
+                cx.notify();
+            }
+            UiEvent::ChangePatchLoaded { folder, path, staged, patch } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.change_patch_result = Some((path, staged, patch));
+                }
+                cx.notify();
+            }
+            UiEvent::GitDone { folder, label, error, commit_hash } => {
+                self.git_busy = false;
+                if let Some(err) = error {
+                    tracing::warn!("git {label} failed in {folder}: {err}");
+                    self.last_git_error = Some(err);
+                } else {
+                    self.last_git_error = None;
+                    if let Some(hash) = commit_hash {
+                        tracing::info!("committed {hash} in {folder}");
+                    }
+                }
+                cx.notify();
+            }
         }
+    }
+
+    /// Sends one mutation for the selected repo and marks the rail busy; the
+    /// net thread settles the reload.
+    pub fn run_git(&mut self, action: GitAction, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else { return };
+        self.git_busy = true;
+        self.last_git_error = None;
+        let _ = self.net.send_blocking(NetCommand::Git {
+            folder: std::path::PathBuf::from(folder),
+            action,
+        });
+        cx.notify();
+    }
+
+    pub fn set_tab(&mut self, tab: BottomBarTab, cx: &mut Context<Self>) {
+        self.selected_tab = tab;
+        cx.notify();
     }
 
     /// Adopts scan results into the tracked list (the Add-Repositories
@@ -206,7 +292,21 @@ impl Store {
     }
 
     pub fn select_repo(&mut self, folder: Option<String>, cx: &mut Context<Self>) {
+        if self.selected_repo == folder {
+            return;
+        }
         self.selected_repo = folder;
+        self.changes = None;
+        self.changes_loaded_for = None;
+        self.branches.clear();
+        self.recent_commits.clear();
+        self.unpushed = None;
+        self.last_git_error = None;
+        if let Some(folder) = &self.selected_repo {
+            let _ = self.net.send_blocking(NetCommand::LoadChanges {
+                folder: std::path::PathBuf::from(folder),
+            });
+        }
         cx.notify();
     }
 
@@ -284,5 +384,27 @@ impl Store {
         })
         .detach();
         cx.notify();
+    }
+}
+
+/// The bottom bar's tabs. Azure is labelled Pipelines in the UI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BottomBarTab {
+    Overview,
+    Changes,
+    PullRequests,
+    Issues,
+    Azure,
+}
+
+impl BottomBarTab {
+    pub fn label(&self) -> &'static str {
+        match self {
+            BottomBarTab::Overview => "Overview",
+            BottomBarTab::Changes => "Changes",
+            BottomBarTab::PullRequests => "Pull Requests",
+            BottomBarTab::Issues => "Issues",
+            BottomBarTab::Azure => "Pipelines",
+        }
     }
 }
