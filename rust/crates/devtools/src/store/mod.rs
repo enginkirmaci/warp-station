@@ -54,6 +54,8 @@ pub struct Store {
     pub commit_message_draft: Option<String>,
     /// The README wand's draft, rendered by the Overview pane with Save/Discard.
     pub readme_draft: Option<String>,
+    /// The opencode model catalog (settings pickers + wands).
+    pub models: Vec<String>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -101,6 +103,7 @@ impl Store {
             wand_error: None,
             commit_message_draft: None,
             readme_draft: None,
+            models: Vec::new(),
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -252,6 +255,10 @@ impl Store {
                 }
                 cx.notify();
             }
+            UiEvent::ModelsLoaded { models } => {
+                self.models = models;
+                cx.notify();
+            }
             UiEvent::WandAsk { wand_id, ask_id, title } => {
                 self.wand_ask = Some((wand_id, ask_id, title, 15));
                 cx.notify();
@@ -342,6 +349,25 @@ impl Store {
             pat,
             custom_base: settings.repos.azure_dev_ops_url.clone(),
         });
+    }
+
+    /// Loads the model catalog (cache-backed; the CLI runs on the net thread).
+    pub fn load_models(&mut self, cx: &mut Context<Self>) {
+        let settings = self.settings();
+        if !settings.opencode.enable_opencode {
+            self.models = devtools_core::opencode::cached_models("");
+            cx.notify();
+            return;
+        }
+        if let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) {
+            let _ = self.net.send_blocking(NetCommand::LoadModels {
+                opencode_exe: exe.to_string_lossy().to_string(),
+                default_model: settings.opencode.default_model.clone(),
+            });
+        } else {
+            self.models = devtools_core::opencode::cached_models(&settings.opencode.default_model);
+            cx.notify();
+        }
     }
 
     /// Kicks one wand run for the selected repo.

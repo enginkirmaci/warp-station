@@ -45,6 +45,8 @@ pub enum NetCommand {
     Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, opencode_exe: String },
     /// A reply to a pending permission ask.
     WandRespond { wand_id: String, ask_id: String, response: String },
+    /// The opencode model catalog (`opencode models` + cache).
+    LoadModels { opencode_exe: String, default_model: String },
 }
 
 /// Which generator a wand run is.
@@ -128,6 +130,7 @@ pub enum UiEvent {
     WandAsk { wand_id: String, ask_id: String, title: String },
     WandLog { wand_id: String, line: String },
     WandDone { wand_id: String, kind: WandKind, result: Result<String, String> },
+    ModelsLoaded { models: Vec<String> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -213,6 +216,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .map(|m| m.into_inner().unwrap())
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
+            }
+            NetCommand::LoadModels { opencode_exe, default_model } => {
+                let models = devtools_core::opencode::list_models(&opencode_exe, &default_model).await;
+                let _ = evt_tx.send_blocking(UiEvent::ModelsLoaded { models });
             }
             NetCommand::WandRespond { wand_id, ask_id, response } => {
                 let wands = wands.clone();

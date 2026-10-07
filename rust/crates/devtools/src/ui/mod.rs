@@ -9,6 +9,7 @@ pub mod notes;
 pub mod overview;
 pub mod pr_issues;
 pub mod repos;
+pub mod settings;
 pub mod window;
 
 use gpui::Styled;

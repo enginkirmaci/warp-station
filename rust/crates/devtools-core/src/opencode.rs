@@ -421,9 +421,107 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
     lines.join("\n")
 }
 
+// ---- model catalog (`opencode models` + TTL cache) -----------------------------
+
+const MODEL_CLI_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn models_cache_path() -> std::path::PathBuf {
+    crate::paths::AppPaths::opencode_dir().join("models.cache.json")
+}
+
+/// The cached catalog (no CLI spawn); the configured default lands on top
+/// when it is missing from the list.
+pub fn cached_models(default_model: &str) -> Vec<String> {
+    let mut models: Vec<String> = std::fs::read_to_string(models_cache_path())
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    merge_default(&mut models, default_model);
+    models
+}
+
+/// Lists models via `opencode models` (one line per provider/model-id; the
+/// '/' guard drops banners). Only a non-empty result is cached, so a
+/// transient CLI failure never clobbers a good catalog.
+pub async fn list_models(executable: &str, default_model: &str) -> Vec<String> {
+    let argv = vec!["models".to_string()];
+    let result = crate::process::run(crate::process::ProcessRunOptions {
+        file_name: executable,
+        args: &argv,
+        timeout: Some(MODEL_CLI_TIMEOUT),
+        strip_electron_variable: true,
+        ..Default::default()
+    })
+    .await;
+    let models: Vec<String> = match result {
+        Ok(result) if result.succeeded() => result
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.contains('/'))
+            .map(str::to_string)
+            .collect(),
+        Ok(result) => {
+            if result.timed_out {
+                tracing::warn!("'{executable} models' timed out after 15s");
+            }
+            Vec::new()
+        }
+        Err(err) => {
+            tracing::warn!("'{executable} models' failed: {err}");
+            Vec::new()
+        }
+    };
+
+    if !models.is_empty() {
+        let mut unique = models.clone();
+        unique.dedup();
+        let mut merged = unique.clone();
+        merge_default(&mut merged, default_model);
+        let path = models_cache_path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&merged) {
+            let _ = std::fs::write(&path, json);
+        }
+        return merged;
+    }
+    let mut cached = cached_models(default_model);
+    merge_default(&mut cached, default_model);
+    cached
+}
+
+fn merge_default(models: &mut Vec<String>, default_model: &str) {
+    let default = default_model.trim();
+    if default.is_empty() {
+        return;
+    }
+    match models.iter().position(|m| m.eq_ignore_ascii_case(default)) {
+        Some(0) => {}
+        Some(ix) => {
+            let entry = models.remove(ix);
+            models.insert(0, entry);
+        }
+        None => models.insert(0, default.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_model_floats_to_top() {
+        let mut models = vec!["a/x".to_string(), "b/y".to_string()];
+        merge_default(&mut models, "b/y");
+        assert_eq!(models, vec!["b/y".to_string(), "a/x".to_string()]);
+        merge_default(&mut models, "c/z");
+        assert_eq!(models[0], "c/z");
+        let mut empty: Vec<String> = Vec::new();
+        merge_default(&mut empty, "");
+        assert!(empty.is_empty());
+    }
 
     #[test]
     fn templates_fill_placeholders() {

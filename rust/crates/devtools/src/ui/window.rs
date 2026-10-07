@@ -13,6 +13,7 @@ use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Render, Windo
 enum Page {
     Repos,
     Notes,
+    Settings,
 }
 
 pub struct MainWindow {
@@ -20,6 +21,7 @@ pub struct MainWindow {
     page: Page,
     repos_page: Entity<crate::ui::repos::ReposPage>,
     notes_page: Entity<crate::ui::notes::NotesPage>,
+    settings_page: Entity<crate::ui::settings::SettingsPage>,
     bottom_bar: Entity<BottomBar>,
 }
 
@@ -27,10 +29,11 @@ impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
         let notes_page = cx.new(|cx| crate::ui::notes::NotesPage::new(store.clone(), window, cx));
+        let settings_page = cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
         // the bottom bar is store-driven; the window must repaint with it
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store, page: Page::Repos, repos_page, notes_page, bottom_bar }
+        Self { store, page: Page::Repos, repos_page, notes_page, settings_page, bottom_bar }
     }
 }
 
@@ -202,6 +205,28 @@ impl MainWindow {
                     }),
             )
             .child({
+                let on_settings = self.page == Page::Settings;
+                div()
+                    .id("settings-toggle")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .size(px(26.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
+                        cx.notify();
+                    }))
+                    .child(icon(
+                        "icons/icon-cog.svg",
+                        px(theme::ICON_MEDIUM),
+                        if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
+                    ))
+            })
+            .child({
                 let store_page = self.page;
                 let on_notes = store_page == Page::Notes;
                 div()
@@ -268,6 +293,11 @@ impl MainWindow {
                 .flex_1()
                 .min_h_0()
                 .child(self.notes_page.clone())
+                .into_any_element(),
+            Page::Settings => div()
+                .flex_1()
+                .min_h_0()
+                .child(self.settings_page.clone())
                 .into_any_element(),
         }
     }
