@@ -5,6 +5,7 @@ pub mod bottom_bar;
 pub mod changes;
 pub mod dialogs;
 pub mod diff;
+pub mod notes;
 pub mod overview;
 pub mod pr_issues;
 pub mod repos;

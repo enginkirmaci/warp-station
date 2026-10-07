@@ -8,19 +8,29 @@ use crate::ui::icon;
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
 
+/// Which page fills the window body (the bottom bar rides only with Repos).
+#[derive(Clone, Copy, PartialEq)]
+enum Page {
+    Repos,
+    Notes,
+}
+
 pub struct MainWindow {
     pub store: Entity<Store>,
+    page: Page,
     repos_page: Entity<crate::ui::repos::ReposPage>,
+    notes_page: Entity<crate::ui::notes::NotesPage>,
     bottom_bar: Entity<BottomBar>,
 }
 
 impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
+        let notes_page = cx.new(|cx| crate::ui::notes::NotesPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
         // the bottom bar is store-driven; the window must repaint with it
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store, repos_page, bottom_bar }
+        Self { store, page: Page::Repos, repos_page, notes_page, bottom_bar }
     }
 }
 
@@ -191,6 +201,29 @@ impl MainWindow {
                         window.start_window_move();
                     }),
             )
+            .child({
+                let store_page = self.page;
+                let on_notes = store_page == Page::Notes;
+                div()
+                    .id("notes-toggle")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .size(px(26.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(on_notes, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.page = if this.page == Page::Notes { Page::Repos } else { Page::Notes };
+                        cx.notify();
+                    }))
+                    .child(icon(
+                        "icons/icon-agent-sparkle.svg",
+                        px(theme::ICON_MEDIUM),
+                        if on_notes { theme::ACCENT } else { theme::TEXT_MUTED },
+                    ))
+            })
             .child(window_button(
                 "minimize-window",
                 "icons/icon-window-minimize.svg",
@@ -221,14 +254,21 @@ impl MainWindow {
             .into_any_element()
     }
 
-    fn render_body(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(div().flex_1().min_h_0().child(self.repos_page.clone()))
-            .child(self.bottom_bar.clone())
-            .into_any_element()
+    fn render_body(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> gpui::AnyElement {
+        match self.page {
+            Page::Repos => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(div().flex_1().min_h_0().child(self.repos_page.clone()))
+                .child(self.bottom_bar.clone())
+                .into_any_element(),
+            Page::Notes => div()
+                .flex_1()
+                .min_h_0()
+                .child(self.notes_page.clone())
+                .into_any_element(),
+        }
     }
 }
