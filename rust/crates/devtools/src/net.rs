@@ -8,7 +8,7 @@ use async_channel::{Receiver, Sender};
 use devtools_core::repo_store::{self, RepoEntry, StatusProbe};
 use devtools_core::scan;
 use devtools_core::settings::ReposSettings;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub enum NetCommand {
     /// The listing scan: direct children of each scan root, user tags and
@@ -16,11 +16,17 @@ pub enum NetCommand {
     Scan { settings: ReposSettings, previous: Vec<RepoEntry> },
     /// One status pass over every folder, 4-way parallel, burst-applied.
     ProbeAll { folders: Vec<PathBuf> },
+    /// The Add-Repositories dialog's deep scan under one root.
+    DeepScan { root: String, depth: i32, settings: ReposSettings },
+    /// The Clone-from-URL dialog's clone into a parent directory.
+    Clone { url: String, parent_dir: String, name: String },
 }
 
 pub enum UiEvent {
     ScanSettled { repos: Vec<RepoEntry>, removed: Vec<String> },
     StatusSettled { probes: Vec<StatusProbe> },
+    DeepScanSettled { root: String, found: Vec<devtools_core::scan::ScannedRepo> },
+    CloneSettled { url: String, parent_dir: String, name: String, result: devtools_core::model::GitSyncResult },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -56,6 +62,16 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             NetCommand::ProbeAll { folders } => {
                 let probes = probe_pass(folders).await;
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
+            }
+            NetCommand::DeepScan { root, depth, settings } => {
+                let found = tokio::task::spawn_blocking(move || scan::scan(&settings, Some(depth)))
+                    .await
+                    .unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::DeepScanSettled { root, found: found.repos });
+            }
+            NetCommand::Clone { url, parent_dir, name } => {
+                let result = devtools_core::git::cli::clone(&url, Path::new(&parent_dir), &name).await;
+                let _ = evt_tx.send_blocking(UiEvent::CloneSettled { url, parent_dir, name, result });
             }
         }
     }

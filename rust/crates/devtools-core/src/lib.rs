@@ -2,6 +2,7 @@
 //! and mutations, GitHub/Azure DevOps activity, opencode integration, notes.
 //! No gpui dependencies — everything here must be testable without a display.
 
+pub mod exe;
 pub mod git;
 pub mod jsonio;
 pub mod model;
@@ -11,4 +12,5 @@ pub mod refresh;
 pub mod rel_time;
 pub mod repo_store;
 pub mod scan;
+pub mod terminal;
 pub mod settings;

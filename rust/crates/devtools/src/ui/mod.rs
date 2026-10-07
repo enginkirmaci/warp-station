@@ -1,5 +1,6 @@
 //! ui module: shared helpers + the main window.
 
+pub mod dialogs;
 pub mod repos;
 pub mod window;
 

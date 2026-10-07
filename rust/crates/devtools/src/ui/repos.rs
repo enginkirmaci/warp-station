@@ -5,6 +5,7 @@
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
@@ -15,10 +16,11 @@ use gpui_kit::component::Sizable as _;
 use gpui_kit::component::table::{Column, DataTable, TableDelegate, TableEvent, TableState};
 
 pub struct ReposPage {
-    store: Entity<Store>,
+    pub store: Entity<Store>,
     table: Entity<TableState<ReposDelegate>>,
     search: Entity<InputState>,
     sort_menu_open: bool,
+    pub dialog: Option<Dialog>,
 }
 
 impl ReposPage {
@@ -51,17 +53,105 @@ impl ReposPage {
         .detach();
 
         cx.observe(&store_for_observe, |_, _, cx| cx.notify()).detach();
-        Self { store, table, search, sort_menu_open: false }
+        Self { store, table, search, sort_menu_open: false, dialog: None }
+    }
+}
+
+impl ReposPage {
+    /// Sends the Add-Repositories dialog's deep scan.
+    pub fn kick_deep_scan(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
+        let root = dialog.root.read(cx).value().to_string();
+        if root.trim().is_empty() {
+            return;
+        }
+        dialog.scanning = true;
+        dialog.found.clear();
+        let settings = self.store.read(cx).settings();
+        let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::DeepScan {
+            root: root.trim().to_string(),
+            depth: settings.repos.max_scan_depth,
+            settings: settings.repos.clone(),
+        });
+        cx.notify();
+    }
+
+    /// Adds every checked entry from the Add-Repositories dialog.
+    pub fn commit_add_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
+        let selected: Vec<devtools_core::scan::ScannedRepo> = dialog
+            .found
+            .iter()
+            .filter(|(_, checked, tracked)| *checked && !*tracked)
+            .map(|(repo, _, _)| repo.clone())
+            .collect();
+        if selected.is_empty() {
+            self.dialog = None;
+            cx.notify();
+            return;
+        }
+        self.store.update(cx, |store, cx| store.register_repos(&selected, cx));
+        self.dialog = None;
+        cx.notify();
+    }
+
+    /// Sends the Clone dialog's clone.
+    pub fn commit_clone(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::Clone(dialog)) = &mut self.dialog else { return };
+        let url = dialog.url.read(cx).value().to_string();
+        if url.trim().is_empty() {
+            return;
+        }
+        dialog.busy = true;
+        dialog.error = None;
+        let name = dialog.derived_name(cx);
+        let destination = dialog.destination.clone();
+        let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::Clone {
+            url: url.trim().to_string(),
+            parent_dir: destination,
+            name,
+        });
+        cx.notify();
     }
 }
 
 impl Render for ReposPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        div()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        // drain dialog-bound results the moment we are about to draw
+        let drained_deep_scan = self.store.update(cx, |store, _| store.deep_scan_result.take());
+        if let Some(found) = drained_deep_scan {
+            if let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
+                dialog.scanning = false;
+                dialog.found = found
+                    .into_iter()
+                    .map(|repo| {
+                        let tracked = self
+                            .store
+                            .read(cx)
+                            .repos
+                            .iter()
+                            .any(|r| r.folder_path == repo.folder_path);
+                        (repo, !tracked, tracked)
+                    })
+                    .collect();
+            }
+        }
+        let drained_clone = self.store.update(cx, |store, _| store.clone_result.take());
+        if let Some((parent_dir, name, result)) = drained_clone {
+            if result.success {
+                self.store.update(cx, |store, cx| store.adopt_clone(&parent_dir, &name, cx));
+                self.dialog = None;
+            } else if let Some(Dialog::Clone(dialog)) = &mut self.dialog {
+                dialog.busy = false;
+                dialog.error = result.error.or_else(|| Some("clone failed".into()));
+            }
+        }
+        let mut page = div()
             .size_full()
             .flex()
             .flex_col()
             .min_h_0()
+            .relative()
             .child(self.render_toolbar(cx))
             .child(self.render_totals(cx))
             .child(
@@ -71,7 +161,11 @@ impl Render for ReposPage {
                     .px_3()
                     .pb_2()
                     .child(DataTable::new(&self.table).stripe(false).bordered(false)),
-            )
+            );
+        if let Some(dialog) = &mut self.dialog {
+            page = page.child(dialog.render(window, cx));
+        }
+        page
     }
 }
 
@@ -122,6 +216,43 @@ impl ReposPage {
             .child(div().w(px(220.)).child(Input::new(&self.search).small()))
             .child(chips)
             .child(div().flex_1())
+            .child(
+                div()
+                    .id("add-repo-button")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_1()
+                    .text_size(px(theme::FONT_SMALL))
+                    .text_color(theme::TEXT_DIM)
+                    .bg(theme::CHIP)
+                    .hover(|s| s.opacity(0.9))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, cx)));
+                        cx.notify();
+                    }))
+                    .child("+ Add"),
+            )
+            .child(
+                div()
+                    .id("clone-button")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_1()
+                    .text_size(px(theme::FONT_SMALL))
+                    .text_color(theme::TEXT_DIM)
+                    .bg(theme::CHIP)
+                    .hover(|s| s.opacity(0.9))
+                    .on_click({
+                        let store = self.store.clone();
+                        cx.listener(move |this, _, window, cx| {
+                            this.dialog = Some(Dialog::Clone(CloneDialog::new(&store, window, cx)));
+                            cx.notify();
+                        })
+                    })
+                    .child("Clone"),
+            )
             .child(
                 div()
                     .id("sort-button")
@@ -281,6 +412,7 @@ fn sort_label(mode: RepoSortMode) -> &'static str {
 enum ColKind {
     Star,
     Name,
+    Shortcuts,
     Branch,
     Changes,
     Github,
@@ -292,10 +424,11 @@ fn column_kind(col_ix: usize, settings: &AppSettings) -> ColKind {
     match col_ix {
         0 => ColKind::Star,
         1 => ColKind::Name,
-        2 => ColKind::Branch,
-        3 => ColKind::Changes,
+        2 => ColKind::Shortcuts,
+        3 => ColKind::Branch,
+        4 => ColKind::Changes,
         _ => {
-            let mut ix = 4;
+            let mut ix = 5;
             if settings.repos.enable_git_hub {
                 if col_ix == ix {
                     return ColKind::Github;
@@ -340,7 +473,7 @@ impl ReposDelegate {
 impl TableDelegate for ReposDelegate {
     fn columns_count(&self, cx: &App) -> usize {
         let settings = self.store.read(cx).settings();
-        5 + settings.repos.enable_git_hub as usize + settings.repos.enable_azure_dev_ops as usize
+        6 + settings.repos.enable_git_hub as usize + settings.repos.enable_azure_dev_ops as usize
     }
 
     fn rows_count(&self, cx: &App) -> usize {
@@ -353,7 +486,10 @@ impl TableDelegate for ReposDelegate {
             ColKind::Star => {
                 Column::new("star", "").width(px(36.)).resizable(false).text_center()
             }
-            ColKind::Name => Column::new("name", "Repository").width(px(280.)).sortable(),
+            ColKind::Name => Column::new("name", "Repository").width(px(260.)).sortable(),
+            ColKind::Shortcuts => {
+                Column::new("shortcuts", "").width(px(96.)).resizable(false)
+            }
             ColKind::Branch => Column::new("branch", "Branch").width(px(130.)).resizable(false),
             ColKind::Changes => Column::new("changes", "Changes").width(px(96.)).text_center().sortable(),
             ColKind::Github => Column::new("github", "GitHub").width(px(120.)).text_center().sortable(),
@@ -440,6 +576,7 @@ impl TableDelegate for ReposDelegate {
                         .child(folder.clone()),
                 )
                 .into_any_element(),
+            ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix),
             ColKind::Branch => branch_pill(repo.git_branch_name.as_deref()),
             ColKind::Changes => changes_cell(&repo),
             ColKind::Github => github_cell(&repo),
@@ -599,4 +736,80 @@ fn azure_cell(_repo: &RepoEntry) -> gpui::AnyElement {
         .text_color(theme::TEXT_FAINT)
         .child("·")
         .into_any_element()
+}
+
+/// Per-row launch buttons: open folder, VS Code, terminal. Purely visibility
+/// switches from settings — a configured-but-missing executable reports at
+/// launch time. Each click runs the desktop opener directly (fire and forget).
+fn shortcuts_cell(repo: &RepoEntry, settings: &AppSettings, row_ix: usize) -> gpui::AnyElement {
+    use devtools_core::terminal;
+    let folder = repo.folder_path.to_string_lossy().to_string();
+    let mut row = div().flex().flex_row().items_center().gap_1();
+
+    let button = |row_ix: usize, kind: &'static str, icon_path: &'static str, launch: Box<dyn Fn() -> Result<(), String>>| {
+        div()
+            .id((kind, row_ix))
+            .cursor_pointer()
+            .rounded_md()
+            .size(px(22.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .hover(|s| s.bg(theme::HOVER))
+            .on_click(move |_, _, _| {
+                if let Err(err) = launch() {
+                    tracing::warn!("launch failed: {err}");
+                }
+            })
+            .child(icon(icon_path, px(theme::ICON_SMALL), theme::TEXT_MUTED))
+    };
+
+    row = row.child(button(
+        row_ix,
+        "open-folder",
+        "icons/icon-folder.svg",
+        Box::new({
+            let folder = folder.clone();
+            move || terminal::open_folder(&folder)
+        }),
+    ));
+    if settings.repos.enable_vscode {
+        row = row.child(button(
+            row_ix,
+            "open-vscode",
+            "icons/icon-code.svg",
+            Box::new({
+                let folder = folder.clone();
+                let exe = settings.repos.vscode_executable.clone();
+                let profile = settings.repos.vscode_profile.clone();
+                move || terminal::open_in_vscode(&folder, &exe, &profile)
+            }),
+        ));
+    }
+    if settings.repos.enable_terminal {
+        row = row.child(button(
+            row_ix,
+            "open-terminal",
+            "icons/icon-terminal.svg",
+            Box::new({
+                let folder = folder.clone();
+                let term = settings.repos.terminal_executable.clone();
+                move || terminal::open_terminal(&folder, &term)
+            }),
+        ));
+    }
+    if settings.repos.enable_zcode {
+        row = row.child(button(
+            row_ix,
+            "open-zcode",
+            "icons/icon-agent-sparkle.svg",
+            Box::new({
+                let folder = folder.clone();
+                let term = settings.repos.terminal_executable.clone();
+                let zcode = settings.repos.zcode_executable.clone();
+                move || terminal::launch_in_terminal(&folder, &zcode, &term)
+            }),
+        ));
+    }
+    row.into_any_element()
 }

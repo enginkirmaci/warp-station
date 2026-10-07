@@ -22,6 +22,9 @@ pub struct Store {
     /// Folder path of the repo the bottom bar is attached to.
     pub selected_repo: Option<String>,
     pub scanning: bool,
+    /// Dialog-bound net results, drained by the page's render pass.
+    pub deep_scan_result: Option<Vec<devtools_core::scan::ScannedRepo>>,
+    pub clone_result: Option<(String, String, devtools_core::model::GitSyncResult)>,
 
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
@@ -46,6 +49,8 @@ impl Store {
             projected: Vec::new(),
             selected_repo: None,
             scanning: false,
+            deep_scan_result: None,
+            clone_result: None,
             save_generation: 0,
         };
         store.reproject();
@@ -114,7 +119,65 @@ impl Store {
                 self.reproject();
                 cx.notify();
             }
+            UiEvent::DeepScanSettled { found, .. } => {
+                self.deep_scan_result = Some(found);
+                cx.notify();
+            }
+            UiEvent::CloneSettled { parent_dir, name, result, .. } => {
+                self.clone_result = Some((parent_dir, name, result));
+                cx.notify();
+            }
         }
+    }
+
+    /// Adopts scan results into the tracked list (the Add-Repositories
+    /// dialog's Add button): new folders append; known folders keep their
+    /// tags. Persists immediately and re-probes the new arrivals.
+    pub fn register_repos(&mut self, found: &[devtools_core::scan::ScannedRepo], cx: &mut Context<Self>) {
+        let previous: Vec<RepoEntry> = self.repos.clone();
+        let (mut merged, _) = repo_store::merge_scan(&previous, found);
+        // merge_scan drops repos absent from `found`; the dialog adds to the
+        // EXISTING list, so union instead
+        for existing in &previous {
+            if !merged
+                .iter()
+                .any(|m: &RepoEntry| m.folder_path == existing.folder_path)
+            {
+                merged.push(existing.clone());
+            }
+        }
+        merged.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        let new_folders: Vec<std::path::PathBuf> = merged
+            .iter()
+            .filter(|m| !previous.iter().any(|p| p.folder_path == m.folder_path))
+            .map(|m| m.folder_path.clone())
+            .collect();
+        self.repos = merged;
+        self.reproject();
+        if let Err(err) = repo_store::save_cache(&repo_store::cache_path(), &self.repos) {
+            tracing::warn!("could not save repo cache: {err}");
+        }
+        if !new_folders.is_empty() {
+            let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: new_folders });
+        }
+        cx.notify();
+    }
+
+    /// Adopts a finished clone: register its folder and select it.
+    pub fn adopt_clone(&mut self, parent_dir: &str, name: &str, cx: &mut Context<Self>) {
+        let folder = std::path::PathBuf::from(parent_dir).join(name);
+        if !folder.join(".git").is_dir() {
+            tracing::warn!("clone destination missing after clone: {}", folder.display());
+            return;
+        }
+        let scanned = vec![devtools_core::scan::ScannedRepo {
+            name: name.to_string(),
+            folder_path: folder.clone(),
+            solution_path: None,
+            tags: Vec::new(),
+        }];
+        self.register_repos(&scanned, cx);
+        self.select_repo(Some(folder.to_string_lossy().to_string()), cx);
     }
 
     // ---- list shaping ------------------------------------------------------
