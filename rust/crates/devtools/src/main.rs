@@ -92,7 +92,13 @@ fn main() {
             )
             .unwrap();
 
-            cx.on_window_closed(|cx, _window_id| cx.quit()).detach();
+            cx.on_window_closed(|cx, _window_id| {
+                // the notes window closing must not quit the app
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
             cx.activate(true);
         });
 }

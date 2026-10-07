@@ -47,6 +47,16 @@ pub enum NetCommand {
     WandRespond { wand_id: String, ask_id: String, response: String },
     /// The opencode model catalog (`opencode models` + cache).
     LoadModels { opencode_exe: String, default_model: String },
+    /// The yesterday-summary wand: day activity across every repo → prompt →
+    /// one run → the summary file path.
+    WandSummary {
+        id: String,
+        folders: Vec<(String, PathBuf)>,
+        day: chrono::NaiveDate,
+        model: Option<String>,
+        opencode_exe: String,
+        summaries_dir: PathBuf,
+    },
 }
 
 /// Which generator a wand run is.
@@ -131,6 +141,8 @@ pub enum UiEvent {
     WandLog { wand_id: String, line: String },
     WandDone { wand_id: String, kind: WandKind, result: Result<String, String> },
     ModelsLoaded { models: Vec<String> },
+    /// The summary wand finished (Ok = the written file path).
+    SummaryDone { wand_id: String, result: Result<String, String> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -216,6 +228,72 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .map(|m| m.into_inner().unwrap())
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
+            }
+            NetCommand::WandSummary { id, folders, day, model, opencode_exe, summaries_dir } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    // gather every repo's day activity (blocking reads)
+                    let anchor = folders
+                        .first()
+                        .map(|(_, f)| f.clone())
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                    let activities = tokio::task::spawn_blocking(move || {
+                        let mut collected: Vec<(String, devtools_core::model::GitDayActivity)> = Vec::new();
+                        for (name, folder) in &folders {
+                            if let Some(activity) = devtools_core::git::read::day_activity(folder, day) {
+                                if !activity.is_empty() {
+                                    collected.push((name.clone(), activity));
+                                }
+                            }
+                        }
+                        collected.sort_by(|a, b| a.0.cmp(&b.0));
+                        collected
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    if activities.is_empty() {
+                        let _ = evt_tx.send_blocking(UiEvent::SummaryDone {
+                            wand_id: id,
+                            result: Err("no repository activity that day".into()),
+                        });
+                        return;
+                    }
+
+                    let date_label = day.format("%A, %b %-d, %Y").to_string();
+                    let prompt = devtools_core::opencode::daily_summary_prompt(
+                        &date_label,
+                        &devtools_core::opencode::format_repositories_block(&activities),
+                    );
+
+                    let (events_tx, events_rx) = async_channel::unbounded::<devtools_core::opencode::WandEvent>();
+                    let (_control_tx, control_rx) = async_channel::unbounded::<devtools_core::opencode::WandControl>();
+                    let result = devtools_core::opencode::run_prompt(
+                        &opencode_exe,
+                        &anchor,
+                        model.as_deref(),
+                        &prompt,
+                        events_tx,
+                        control_rx,
+                    )
+                    .await;
+                    drop(events_rx);
+
+                    let outcome = match result {
+                        Ok(summary) => {
+                            let summary: String = summary.chars().take(30000).collect();
+                            let path = summaries_dir.join(format!("{}.md", day.format("%Y-%m-%d")));
+                            match std::fs::create_dir_all(&summaries_dir)
+                                .and_then(|_| std::fs::write(&path, format!("{summary}\n")))
+                            {
+                                Ok(()) => Ok(path.to_string_lossy().to_string()),
+                                Err(err) => Err(format!("write failed: {err}")),
+                            }
+                        }
+                        Err(err) => Err(format!("{err:#}")),
+                    };
+                    let _ = evt_tx.send_blocking(UiEvent::SummaryDone { wand_id: id, result: outcome });
+                });
             }
             NetCommand::LoadModels { opencode_exe, default_model } => {
                 let models = devtools_core::opencode::list_models(&opencode_exe, &default_model).await;

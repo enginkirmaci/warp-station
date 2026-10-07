@@ -171,9 +171,14 @@ impl Render for ReposPage {
 
 impl ReposPage {
     fn render_toolbar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (tags, active_tag, scanning) = {
+        let (tags, active_tag, scanning, summary_busy, notice) = {
             let store = self.store.read(cx);
-            (store.all_tags(), store.tag_filter.clone(), store.scanning)
+            let notice = store
+                .notice
+                .as_ref()
+                .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(4))
+                .map(|(text, _)| text.clone());
+            (store.all_tags(), store.tag_filter.clone(), store.scanning, store.summary_busy, notice)
         };
 
         let mut chips = div().flex().flex_row().gap_1();
@@ -216,6 +221,15 @@ impl ReposPage {
             .child(div().w(px(220.)).child(Input::new(&self.search).small()))
             .child(chips)
             .child(div().flex_1())
+            .when_some(notice, |row, notice| {
+                row.child(
+                    div()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::TEXT_MUTED)
+                        .child(notice),
+                )
+            })
+            .child(summary_button(&self.store, summary_busy, cx))
             .child(
                 div()
                     .id("add-repo-button")
@@ -863,4 +877,27 @@ fn shortcuts_cell(repo: &RepoEntry, settings: &AppSettings, row_ix: usize) -> gp
         ));
     }
     row.into_any_element()
+}
+
+fn summary_button(store: &Entity<Store>, busy: bool, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
+    let handle = store.clone();
+    div()
+        .id("summary-button")
+        .cursor_pointer()
+        .rounded_md()
+        .px_2()
+        .py_1()
+        .text_size(px(theme::FONT_SMALL))
+        .when(busy, |d| d.text_color(theme::ACCENT))
+        .when(!busy, |d| d.text_color(theme::TEXT_DIM))
+        .bg(theme::CHIP)
+        .hover(|s| s.opacity(0.9))
+        .on_click({
+            let store = handle.clone();
+            move |_, _, cx| {
+                store.update(cx, |s, cx| s.run_summary(cx));
+            }
+        })
+        .child(if busy { "✦ summarizing…" } else { "✦ Summary" })
+        .into_any_element()
 }

@@ -56,6 +56,14 @@ pub struct Store {
     pub readme_draft: Option<String>,
     /// The opencode model catalog (settings pickers + wands).
     pub models: Vec<String>,
+    pub summary_busy: bool,
+    /// Transient user-facing message (summary written, wand failed…).
+    pub notice: Option<(String, std::time::Instant)>,
+    /// A note to open in the Notes window (global search click), drained by
+    /// the Notes page's render.
+    pub pending_note_open: Option<std::path::PathBuf>,
+    /// Global-search results (repos by name/path + note content hits).
+    pub global_search: Vec<GlobalSearchHit>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -104,6 +112,10 @@ impl Store {
             commit_message_draft: None,
             readme_draft: None,
             models: Vec::new(),
+            summary_busy: false,
+            notice: None,
+            pending_note_open: None,
+            global_search: Vec::new(),
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -259,6 +271,14 @@ impl Store {
                 self.models = models;
                 cx.notify();
             }
+            UiEvent::SummaryDone { result, .. } => {
+                self.summary_busy = false;
+                self.notice = Some(match result {
+                    Ok(path) => (format!("summary written: {path}"), std::time::Instant::now()),
+                    Err(err) => (format!("summary failed: {err}"), std::time::Instant::now()),
+                });
+                cx.notify();
+            }
             UiEvent::WandAsk { wand_id, ask_id, title } => {
                 self.wand_ask = Some((wand_id, ask_id, title, 15));
                 cx.notify();
@@ -349,6 +369,51 @@ impl Store {
             pat,
             custom_base: settings.repos.azure_dev_ops_url.clone(),
         });
+    }
+
+    /// Kicks the yesterday-summary wand across every tracked repo.
+    pub fn run_summary(&mut self, cx: &mut Context<Self>) {
+        if self.summary_busy {
+            return;
+        }
+        let settings = self.settings();
+        if !settings.opencode.enable_opencode {
+            self.notice = Some(("OpenCode is disabled in settings".into(), std::time::Instant::now()));
+            cx.notify();
+            return;
+        }
+        let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
+            self.notice = Some(("opencode executable not found".into(), std::time::Instant::now()));
+            cx.notify();
+            return;
+        };
+        let model = {
+            let m = settings.opencode.default_model.clone();
+            (!m.is_empty()).then_some(m)
+        };
+        let folders: Vec<(String, std::path::PathBuf)> = self
+            .repos
+            .iter()
+            .map(|r| (r.name.clone(), r.folder_path.clone()))
+            .collect();
+        if folders.is_empty() {
+            return;
+        }
+        let summaries_dir = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path)
+            .join("Summaries");
+        let day = chrono::Local::now().date_naive() - chrono::Duration::days(1);
+        self.summary_busy = true;
+        let id = format!("summary-{}", self.save_generation);
+        self.save_generation += 1;
+        let _ = self.net.send_blocking(NetCommand::WandSummary {
+            id,
+            folders,
+            day,
+            model,
+            opencode_exe: exe.to_string_lossy().to_string(),
+            summaries_dir,
+        });
+        cx.notify();
     }
 
     /// Loads the model catalog (cache-backed; the CLI runs on the net thread).
@@ -633,6 +698,59 @@ impl Store {
             });
         })
         .detach();
+        cx.notify();
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum GlobalSearchHit {
+    Repo { name: String, folder: String },
+    Note { title: String, excerpt: String, path: std::path::PathBuf },
+}
+
+impl Store {
+    /// One global search: repo name/path matches plus capped note-content
+    /// hits across every tracked repo's notes root.
+    pub fn run_global_search(&mut self, term: &str, cx: &mut Context<Self>) {
+        let term = term.trim();
+        if term.is_empty() {
+            self.global_search.clear();
+            cx.notify();
+            return;
+        }
+        let mut hits: Vec<GlobalSearchHit> = self
+            .repos
+            .iter()
+            .filter(|repo| {
+                repo.name.to_lowercase().contains(&term.to_lowercase())
+                    || repo.folder_path.to_string_lossy().to_lowercase().contains(&term.to_lowercase())
+            })
+            .map(|repo| GlobalSearchHit::Repo {
+                name: repo.name.clone(),
+                folder: repo.folder_path.to_string_lossy().to_string(),
+            })
+            .collect();
+
+        // note content: the settings' store root, per-repo subfolders
+        let settings = self.settings();
+        let root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
+        for repo in &self.repos {
+            if hits.len() > 20 {
+                break;
+            }
+            let notes_root = devtools_core::notes::repo_notes_root(&root, &repo.name);
+            for hit in devtools_core::notes::search(&notes_root, term) {
+                hits.push(GlobalSearchHit::Note {
+                    title: hit.title,
+                    excerpt: hit.excerpt,
+                    path: hit.path,
+                });
+                if hits.len() > 20 {
+                    break;
+                }
+            }
+        }
+        self.global_search = hits;
         cx.notify();
     }
 }

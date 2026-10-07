@@ -177,6 +177,22 @@ impl NotesPage {
 impl Render for NotesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.reload_tree(cx);
+        // a global-search click parked a note to open
+        if let Some(path) = self.store.update(cx, |store, _| store.pending_note_open.take()) {
+            let note_path = path.clone();
+            self.open_note(note_path, window, cx);
+            let root = self.notes_root(cx);
+            while let Some(parent) = path.parent() {
+                if let Some(root) = &root {
+                    if parent.starts_with(root) {
+                        self.expanded.insert(parent.to_path_buf());
+                    }
+                }
+                if parent.parent().is_none() {
+                    break;
+                }
+            }
+        }
         let preview_text = self.editor.read(cx).value().to_string();
         let has_repo = self.store.read(cx).selected_entry().is_some();
         let dirty = self

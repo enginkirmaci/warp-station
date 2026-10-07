@@ -421,6 +421,86 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
     lines.join("\n")
 }
 
+// ---- the daily-summary repositories block --------------------------------------
+
+/// The summary prompt's repository activity block (12 repos, 20 commits, 80
+/// files, 4000 chars per repo — the C# caps).
+pub fn format_repositories_block(
+    activities: &[(String, crate::model::GitDayActivity)],
+) -> String {
+    const MAX_REPOS: usize = 12;
+    const MAX_COMMITS: usize = 20;
+    const MAX_FILES: usize = 80;
+    const MAX_WORKING_CHARS: usize = 4000;
+
+    let mut out = String::new();
+    for (repo_name, activity) in activities.iter().take(MAX_REPOS) {
+        out.push_str("## ");
+        out.push_str(repo_name);
+        if let Some(branch) = &activity.branch_name {
+            out.push_str(&format!(" (branch {branch})"));
+        }
+        out.push_str("\nCommits:\n");
+        if activity.commits.is_empty() {
+            out.push_str("(no commits that day)\n");
+        } else {
+            for commit in activity.commits.iter().take(MAX_COMMITS) {
+                let (additions, deletions): (u32, u32) = commit
+                    .files
+                    .iter()
+                    .filter(|f| f.additions.is_some() || f.deletions.is_some())
+                    .fold((0, 0), |(a, d), f| {
+                        (a + f.additions.unwrap_or(0), d + f.deletions.unwrap_or(0))
+                    });
+                let counts = if commit.files.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {} file(s), +{additions}/−{deletions}", commit.files.len())
+                };
+                out.push_str(&format!(
+                    "- {} {} {}{}\n",
+                    &commit.hash[..7.min(commit.hash.len())],
+                    commit.when.format("%H:%M"),
+                    commit.subject.replace('\n', " "),
+                    counts,
+                ));
+            }
+            if activity.commits.len() > MAX_COMMITS {
+                out.push_str(&format!("… and {} more commits\n", activity.commits.len() - MAX_COMMITS));
+            }
+        }
+        out.push_str("Uncommitted changes:\n");
+        if activity.uncommitted_files.is_empty() {
+            out.push_str("(working tree clean — nothing uncommitted)\n");
+        } else {
+            let mut working = String::new();
+            for file in activity.uncommitted_files.iter().take(MAX_FILES) {
+                let counts = match (file.additions, file.deletions) {
+                    (Some(a), Some(d)) => format!(" (+{a}/−{d})"),
+                    (Some(a), None) => format!(" (+{a})"),
+                    (None, Some(d)) => format!(" (−{d})"),
+                    (None, None) => String::new(),
+                };
+                working.push_str(&format!("- {}  {}{}\n", file.display_status_code(), file.path, counts));
+                if working.len() > MAX_WORKING_CHARS {
+                    working.push_str("… (truncated)\n");
+                    break;
+                }
+            }
+            if activity.uncommitted_files.len() > MAX_FILES {
+                working.push_str(&format!("… and {} more files\n", activity.uncommitted_files.len() - MAX_FILES));
+            }
+            out.push_str(working.trim_end_matches('\n'));
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    if activities.len() > MAX_REPOS {
+        out.push_str(&format!("(… and {} more active repositories omitted)\n", activities.len() - MAX_REPOS));
+    }
+    out.trim_end().to_string()
+}
+
 // ---- model catalog (`opencode models` + TTL cache) -----------------------------
 
 const MODEL_CLI_TIMEOUT: Duration = Duration::from_secs(15);

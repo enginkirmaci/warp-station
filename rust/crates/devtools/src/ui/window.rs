@@ -5,14 +5,16 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::bottom_bar::BottomBar;
 use crate::ui::icon;
+use crate::ui::notes::NotesPage;
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
+use gpui::{div, px, size, App, Bounds, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::Sizable as _;
 
 /// Which page fills the window body (the bottom bar rides only with Repos).
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
     Repos,
-    Notes,
     Settings,
 }
 
@@ -20,20 +22,38 @@ pub struct MainWindow {
     pub store: Entity<Store>,
     page: Page,
     repos_page: Entity<crate::ui::repos::ReposPage>,
-    notes_page: Entity<crate::ui::notes::NotesPage>,
     settings_page: Entity<crate::ui::settings::SettingsPage>,
     bottom_bar: Entity<BottomBar>,
+    global_search: Entity<InputState>,
+    notes_window: Option<gpui::AnyWindowHandle>,
 }
 
 impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
-        let notes_page = cx.new(|cx| crate::ui::notes::NotesPage::new(store.clone(), window, cx));
         let settings_page = cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
-        // the bottom bar is store-driven; the window must repaint with it
+        let global_search = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search repos and notes  (Ctrl+K)")
+        });
+        let search_store = store.clone();
+        cx.subscribe(&global_search, move |_, field, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                let term = field.read(cx).value().to_string();
+                search_store.update(cx, |store, cx| store.run_global_search(&term, cx));
+            }
+        })
+        .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store, page: Page::Repos, repos_page, notes_page, settings_page, bottom_bar }
+        Self {
+            store,
+            page: Page::Repos,
+            repos_page,
+            settings_page,
+            bottom_bar,
+            global_search,
+            notes_window: None,
+        }
     }
 }
 
@@ -52,7 +72,144 @@ impl Render for MainWindow {
         if let Some(ask) = self.render_wand_ask(cx) {
             root = root.child(ask);
         }
+        if let Some(popup) = self.render_search_popup(cx) {
+            root = root.child(popup);
+        }
         root
+    }
+}
+
+impl MainWindow {
+    /// The global-search results popup under the titlebar field.
+    fn render_search_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let term = self.global_search.read(cx).value().to_string();
+        if term.trim().is_empty() {
+            return None;
+        }
+        let hits = self.store.read(cx).global_search.clone();
+        if hits.is_empty() {
+            return None;
+        }
+        let mut rows = div().flex().flex_col().gap_0p5();
+        for (index, hit) in hits.iter().take(12).enumerate() {
+            let (title, detail, kind_color) = match hit {
+                crate::store::GlobalSearchHit::Repo { name, folder } => {
+                    (name.clone(), folder.clone(), theme::ACCENT)
+                }
+                crate::store::GlobalSearchHit::Note { title, excerpt, .. } => {
+                    (title.clone(), excerpt.clone(), theme::BLUE_BRIGHT)
+                }
+            };
+            let hit_for_click = hit.clone();
+            rows = rows.child(
+                div()
+                    .id(("search-hit", index as u64))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate_search_hit(&hit_for_click, window, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_color(kind_color)
+                            .child(match hit {
+                                crate::store::GlobalSearchHit::Repo { .. } => "repo",
+                                crate::store::GlobalSearchHit::Note { .. } => "note",
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_DIM).child(title))
+                            .child(
+                                div()
+                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child(detail),
+                            ),
+                    ),
+            );
+        }
+        Some(
+            div()
+                .id("search-popup")
+                .absolute()
+                .top(px(40.))
+                .left(px(150.))
+                .w(px(420.))
+                .occlude()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::HAIRLINE)
+                .bg(theme::POPUP)
+                .shadow_lg()
+                .p_1()
+                .child(rows)
+                .into_any_element(),
+        )
+    }
+
+    fn activate_search_hit(
+        &mut self,
+        hit: &crate::store::GlobalSearchHit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match hit {
+            crate::store::GlobalSearchHit::Repo { folder, .. } => {
+                self.page = Page::Repos;
+                self.store.update(cx, |s, cx| s.select_repo(Some(folder.clone()), cx));
+            }
+            crate::store::GlobalSearchHit::Note { path, .. } => {
+                self.store.update(cx, |s, _| s.pending_note_open = Some(path.clone()));
+                self.open_notes_window(window, cx);
+            }
+        }
+        self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
+        self.store.update(cx, |s, cx| s.run_global_search("", cx));
+        cx.notify();
+    }
+
+    /// Opens (or focuses) the floating notes window.
+    pub fn open_notes_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(handle) = &self.notes_window {
+            if cx.windows().contains(handle) {
+                let _ = handle.update(cx, |_, window, _| window.activate_window());
+                return;
+            }
+            self.notes_window = None;
+        }
+        let _ = window;
+        let store = self.store.clone();
+        let bounds = Bounds::centered(None, size(px(980.), px(700.)), cx);
+        if let Ok((handle, _)) = gpui_kit::open_window(
+            gpui::WindowOptions {
+                window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+                app_id: Some("devtools".into()),
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Notes".into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            cx,
+            move |window, cx| {
+                cx.new(|cx| NotesPage::new(store.clone(), window, cx))
+            },
+        ) {
+            self.notes_window = Some(handle);
+        }
+        cx.notify();
     }
 }
 
@@ -191,6 +348,7 @@ impl MainWindow {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Dev Tools"),
             )
+            .child(div().w(px(220.)).child(Input::new(&self.global_search).small()))
             .child(
                 div()
                     .id("titlebar-drag")
@@ -227,8 +385,6 @@ impl MainWindow {
                     ))
             })
             .child({
-                let store_page = self.page;
-                let on_notes = store_page == Page::Notes;
                 div()
                     .id("notes-toggle")
                     .cursor_pointer()
@@ -237,16 +393,15 @@ impl MainWindow {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .when(on_notes, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
                     .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.page = if this.page == Page::Notes { Page::Repos } else { Page::Notes };
-                        cx.notify();
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_notes_window(window, cx);
                     }))
                     .child(icon(
                         "icons/icon-agent-sparkle.svg",
                         px(theme::ICON_MEDIUM),
-                        if on_notes { theme::ACCENT } else { theme::TEXT_MUTED },
+                        if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))
             })
             .child(window_button(
@@ -288,11 +443,6 @@ impl MainWindow {
                 .flex_col()
                 .child(div().flex_1().min_h_0().child(self.repos_page.clone()))
                 .child(self.bottom_bar.clone())
-                .into_any_element(),
-            Page::Notes => div()
-                .flex_1()
-                .min_h_0()
-                .child(self.notes_page.clone())
                 .into_any_element(),
             Page::Settings => div()
                 .flex_1()
