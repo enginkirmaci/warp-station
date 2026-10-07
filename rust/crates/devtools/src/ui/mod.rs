@@ -1,9 +1,12 @@
 //! ui module: shared helpers + the main window.
 
+pub mod azure_tab;
 pub mod bottom_bar;
 pub mod changes;
 pub mod dialogs;
 pub mod diff;
+pub mod overview;
+pub mod pr_issues;
 pub mod repos;
 pub mod window;
 

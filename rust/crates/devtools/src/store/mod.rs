@@ -38,6 +38,11 @@ pub struct Store {
     /// One freshly loaded change-row patch, drained by the Changes view.
     pub change_patch_result: Option<(String, bool, String)>,
     pub history: Vec<devtools_core::model::GitCommitInfo>,
+    /// GitHub activity per folder — feeds the PR/Issues tabs; the entry
+    /// counts on the repos table come from these snapshots.
+    pub github_by_folder: std::collections::HashMap<String, devtools_core::github::GitHubSnapshot>,
+    pub azure_by_folder: std::collections::HashMap<String, devtools_core::azure::AzureSnapshot>,
+    pub github_details: Option<devtools_core::github::GitHubRepoDetails>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -77,6 +82,9 @@ impl Store {
             last_git_error: None,
             change_patch_result: None,
             history: Vec::new(),
+            github_by_folder: std::collections::HashMap::new(),
+            azure_by_folder: std::collections::HashMap::new(),
+            github_details: None,
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -88,7 +96,9 @@ impl Store {
         // list).
         let folders: Vec<std::path::PathBuf> =
             store.repos.iter().map(|r| r.folder_path.clone()).collect();
-        let _ = store.net.send_blocking(NetCommand::ProbeAll { folders });
+        let _ = store.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
+        store.kick_github_pass(&folders);
+        store.kick_azure_pass(&folders);
         store.scanning = true;
         let _ = store.net.send_blocking(NetCommand::Scan {
             settings: app_settings.repos.clone(),
@@ -147,7 +157,9 @@ impl Store {
                 // statuses re-check after every rescan without coordination
                 let folders: Vec<std::path::PathBuf> =
                     self.repos.iter().map(|r| r.folder_path.clone()).collect();
-                let _ = self.net.send_blocking(NetCommand::ProbeAll { folders });
+                let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
+                self.kick_github_pass(&folders);
+                self.kick_azure_pass(&folders);
                 cx.notify();
             }
             UiEvent::StatusSettled { probes } => {
@@ -196,6 +208,34 @@ impl Store {
                 }
                 cx.notify();
             }
+            UiEvent::AzureSettled { items } => {
+                for (folder, snapshot) in items {
+                    self.azure_by_folder.insert(folder, snapshot);
+                }
+                self.reproject();
+                cx.notify();
+            }
+            UiEvent::GitHubSettled { items } => {
+                for (folder, snapshot) in items {
+                    if let Some(entry) = self
+                        .repos
+                        .iter_mut()
+                        .find(|r| r.folder_path.to_string_lossy() == folder)
+                    {
+                        entry.github_pr_count = snapshot.pulls.len() as u32;
+                        entry.github_issue_count = snapshot.issues.len() as u32;
+                    }
+                    self.github_by_folder.insert(folder, snapshot);
+                }
+                self.reproject();
+                cx.notify();
+            }
+            UiEvent::GitHubDetailsLoaded { folder, details } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.github_details = details;
+                }
+                cx.notify();
+            }
             UiEvent::CommitDetailsLoaded { folder, details } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.commit_details = details;
@@ -222,6 +262,46 @@ impl Store {
                 cx.notify();
             }
         }
+    }
+
+    /// Fires the GitHub activity pass when the column is enabled and gh
+    /// resolves; a disabled column spawns no processes at all.
+    pub fn kick_github_pass(&mut self, folders: &[std::path::PathBuf]) {
+        let settings = self.settings();
+        if !settings.repos.enable_git_hub || folders.is_empty() {
+            return;
+        }
+        let Some(gh_path) = devtools_core::exe::locate(&settings.repos.git_hub_executable) else {
+            tracing::warn!(
+                "GitHub column enabled but the gh CLI could not be located ({})",
+                settings.repos.git_hub_executable
+            );
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::GitHubPass {
+            folders: folders.to_vec(),
+            gh_exe: gh_path.to_string_lossy().to_string(),
+        });
+    }
+
+    /// Fires the Azure DevOps pass when the column is enabled and a PAT
+    /// resolves (settings or the environment fallbacks).
+    pub fn kick_azure_pass(&mut self, folders: &[std::path::PathBuf]) {
+        let settings = self.settings();
+        if !settings.repos.enable_azure_dev_ops || folders.is_empty() {
+            return;
+        }
+        let Some(pat) = devtools_core::azure::resolve_pat(&settings.repos.azure_dev_ops_pat) else {
+            tracing::warn!(
+                "Azure DevOps column enabled but no personal access token is configured; set one in Repos settings (or the AZURE_DEVOPS_PAT environment variable)"
+            );
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::AzurePass {
+            folders: folders.to_vec(),
+            pat,
+            custom_base: settings.repos.azure_dev_ops_url.clone(),
+        });
     }
 
     /// Sends one mutation for the selected repo and marks the rail busy; the

@@ -34,6 +34,12 @@ pub enum NetCommand {
     GetCommitDetails { folder: PathBuf, hash: String },
     /// One drill-down file's patch.
     GetCommitFilePatch { folder: PathBuf, hash: String, path: String },
+    /// The GitHub activity pass over every repo (2-way parallel gh spawns).
+    GitHubPass { folders: Vec<PathBuf>, gh_exe: String },
+    /// The Overview sidebar's repo details.
+    GitHubDetails { folder: PathBuf, gh_exe: String },
+    /// The Azure DevOps activity pass (2-way parallel REST probes).
+    AzurePass { folders: Vec<PathBuf>, pat: String, custom_base: String },
 }
 
 /// Every state-changing git operation the bottom bar drives. The label rides
@@ -104,6 +110,9 @@ pub enum UiEvent {
     },
     CommitDetailsLoaded { folder: String, details: Option<devtools_core::model::GitCommitDetails> },
     CommitFilePatchLoaded { folder: String, hash: String, path: String, patch: String },
+    GitHubSettled { items: Vec<(String, devtools_core::github::GitHubSnapshot)> },
+    GitHubDetailsLoaded { folder: String, details: Option<devtools_core::github::GitHubRepoDetails> },
+    AzureSettled { items: Vec<(String, devtools_core::azure::AzureSnapshot)> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -165,6 +174,51 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     path,
                     staged,
                     patch,
+                });
+            }
+            NetCommand::GitHubPass { folders, gh_exe } => {
+                use std::sync::{Arc, Mutex};
+                let collected = Arc::new(Mutex::new(Vec::new()));
+                let sink = collected.clone();
+                let gh = gh_exe.clone();
+                devtools_core::refresh::throttled_pass(folders, 2, move |folder| {
+                    let sink = sink.clone();
+                    let gh = gh.clone();
+                    async move {
+                        let snapshot = devtools_core::github::refresh(&folder, &gh).await;
+                        sink.lock().unwrap().push((folder.to_string_lossy().to_string(), snapshot));
+                    }
+                })
+                .await;
+                let items = Arc::try_unwrap(collected)
+                    .map(|m| m.into_inner().unwrap())
+                    .unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
+            }
+            NetCommand::AzurePass { folders, pat, custom_base } => {
+                use std::sync::{Arc, Mutex};
+                let collected = Arc::new(Mutex::new(Vec::new()));
+                let sink = collected.clone();
+                devtools_core::refresh::throttled_pass(folders, 2, move |folder| {
+                    let sink = sink.clone();
+                    let pat = pat.clone();
+                    let custom_base = custom_base.clone();
+                    async move {
+                        let snapshot = devtools_core::azure::refresh(&folder, &pat, &custom_base).await;
+                        sink.lock().unwrap().push((folder.to_string_lossy().to_string(), snapshot));
+                    }
+                })
+                .await;
+                let items = Arc::try_unwrap(collected)
+                    .map(|m| m.into_inner().unwrap())
+                    .unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::AzureSettled { items });
+            }
+            NetCommand::GitHubDetails { folder, gh_exe } => {
+                let details = devtools_core::github::repo_details(&folder, &gh_exe).await;
+                let _ = evt_tx.send_blocking(UiEvent::GitHubDetailsLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    details,
                 });
             }
             NetCommand::LoadHistory { folder } => {

@@ -580,7 +580,7 @@ impl TableDelegate for ReposDelegate {
             ColKind::Branch => branch_pill(repo.git_branch_name.as_deref()),
             ColKind::Changes => changes_cell(&repo),
             ColKind::Github => github_cell(&repo),
-            ColKind::Azure => azure_cell(&repo),
+            ColKind::Azure => azure_cell(&repo, &self.store, cx),
             ColKind::Activity => div()
                 .text_size(px(theme::FONT_SMALL))
                 .text_color(theme::TEXT_MUTED)
@@ -730,12 +730,63 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
     row.into_any_element()
 }
 
-fn azure_cell(_repo: &RepoEntry) -> gpui::AnyElement {
-    div()
-        .text_size(px(theme::FONT_SMALL))
-        .text_color(theme::TEXT_FAINT)
-        .child("·")
-        .into_any_element()
+fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyElement {
+    let folder = repo.folder_path.to_string_lossy().to_string();
+    let Some(snapshot) = store.read(cx).azure_by_folder.get(&folder) else {
+        return div()
+            .text_size(px(theme::FONT_SMALL))
+            .text_color(theme::TEXT_FAINT)
+            .child("·")
+            .into_any_element();
+    };
+    if snapshot.pipelines.is_empty() && snapshot.pulls.is_empty() && snapshot.work_items.is_empty() {
+        return div()
+            .text_size(px(theme::FONT_SMALL))
+            .text_color(theme::TEXT_FAINT)
+            .child("·")
+            .into_any_element();
+    }
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .text_size(px(theme::FONT_SMALL));
+    // the newest run's state is the repo's pipeline state
+    if snapshot.pipelines.first().is_some() {
+        let (glyph, color) = if snapshot.pipeline_running() {
+            ("◐", theme::BLUE_BRIGHT)
+        } else if snapshot.pipeline_failed() {
+            ("✗", theme::DANGER)
+        } else if snapshot.pipeline_ok() {
+            ("✓", theme::SUCCESS_BRIGHT)
+        } else {
+            ("·", theme::TEXT_MUTED)
+        };
+        row = row.child(div().text_color(color).child(glyph));
+    }
+    if !snapshot.pulls.is_empty() {
+        row = row.child(
+            div()
+                .rounded_md()
+                .bg(theme::tint(theme::PURPLE_BRIGHT))
+                .px_1p5()
+                .text_color(theme::PURPLE_BRIGHT)
+                .child(format!("PR {}", snapshot.pulls.len())),
+        );
+    }
+    if !snapshot.work_items.is_empty() {
+        row = row.child(
+            div()
+                .rounded_md()
+                .bg(theme::tint(theme::AMBER_BRIGHT))
+                .px_1p5()
+                .text_color(theme::AMBER_BRIGHT)
+                .child(format!("WI {}", snapshot.work_items.len())),
+        );
+    }
+    row.into_any_element()
 }
 
 /// Per-row launch buttons: open folder, VS Code, terminal. Purely visibility

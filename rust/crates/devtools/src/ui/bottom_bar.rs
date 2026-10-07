@@ -6,18 +6,29 @@ use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::changes::ChangesView;
 use crate::ui::icon;
+use crate::ui::azure_tab::AzureView;
+use crate::ui::overview::OverviewView;
+use crate::ui::pr_issues::ItemListView;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
 
 pub struct BottomBar {
     pub store: Entity<Store>,
     changes_view: Entity<ChangesView>,
+    overview_view: Entity<OverviewView>,
+    pr_view: Entity<ItemListView>,
+    issue_view: Entity<ItemListView>,
+    azure_view: Entity<AzureView>,
 }
 
 impl BottomBar {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let changes_view = cx.new(|cx| ChangesView::new(store.clone(), window, cx));
-        Self { store, changes_view }
+        let overview_view = cx.new(|cx| OverviewView::new(store.clone(), window, cx));
+        let pr_view = cx.new(|_| ItemListView { store: store.clone(), pull_requests: true });
+        let issue_view = cx.new(|_| ItemListView { store: store.clone(), pull_requests: false });
+        let azure_view = cx.new(|_| AzureView { store: store.clone() });
+        Self { store, changes_view, overview_view, pr_view, issue_view, azure_view }
     }
 }
 
@@ -130,19 +141,11 @@ impl BottomBar {
     fn render_panel(&mut self, tab: BottomBarTab, cx: &mut Context<Self>) -> gpui::AnyElement {
         match tab {
             BottomBarTab::Changes => self.changes_view.clone().into_any_element(),
-            _ => placeholder(tab.label(), cx),
+            BottomBarTab::Overview => self.overview_view.clone().into_any_element(),
+            BottomBarTab::PullRequests => self.pr_view.clone().into_any_element(),
+            BottomBarTab::Issues => self.issue_view.clone().into_any_element(),
+            BottomBarTab::Azure => self.azure_view.clone().into_any_element(),
         }
     }
 }
 
-fn placeholder(label: &str, _cx: &mut Context<BottomBar>) -> gpui::AnyElement {
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(theme::FONT_BODY))
-        .text_color(theme::TEXT_FAINT)
-        .child(format!("{label} lands in a later wave"))
-        .into_any_element()
-}

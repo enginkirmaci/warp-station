@@ -28,6 +28,9 @@ pub struct ProcessRunOptions<'a> {
     /// run completes with the head (`truncated` flags it — the killed exit
     /// code is non-zero by contract).
     pub max_output_bytes: Option<usize>,
+    /// Environment additions/overrides for the child (GIT_TERMINAL_PROMPT,
+    /// GH_PROMPT, …).
+    pub environment: Vec<(String, String)>,
 }
 
 impl<'a> Default for ProcessRunOptions<'a> {
@@ -40,6 +43,7 @@ impl<'a> Default for ProcessRunOptions<'a> {
             close_stdin: false,
             strip_electron_variable: false,
             max_output_bytes: None,
+            environment: Vec::new(),
         }
     }
 }
@@ -73,6 +77,9 @@ pub async fn run(options: ProcessRunOptions<'_>) -> anyhow::Result<ProcessRunRes
     }
     if options.strip_electron_variable {
         command.env_remove(ELECTRON_RUN_AS_NODE);
+    }
+    for (name, value) in &options.environment {
+        command.env(name, value);
     }
     // Own process group on Unix so a timeout can kill the whole tree with one
     // signal; Windows tree-kill goes through taskkill /T.
