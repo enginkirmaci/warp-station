@@ -8,6 +8,7 @@ pub mod git;
 pub mod github;
 pub mod jsonio;
 pub mod model;
+pub mod opencode;
 pub mod paths;
 pub mod process;
 pub mod refresh;

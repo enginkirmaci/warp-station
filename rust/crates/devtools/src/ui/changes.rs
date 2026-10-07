@@ -130,9 +130,12 @@ impl ChangesView {
 
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        // drain freshly loaded patches onto the view's caches
+        // drain freshly loaded patches + the commit wand's draft
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
             self.patches.insert((path, staged), patch);
+        }
+        if let Some(draft) = self.store.update(cx, |store, _| store.commit_message_draft.take()) {
+            self.commit_message.update(cx, |state, cx| state.set_value(draft.as_str(), window, cx));
         }
         if let Some((key, patch)) = self.store.update(cx, |store, _| store.commit_file_patch.take()) {
             self.detail_patches.insert(key, patch);
@@ -740,23 +743,33 @@ impl ChangesView {
                 .min_h_0()
                 .child(Textarea::new(&self.commit_message).bordered(true)),
         );
+        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
         rail = rail.child(
             div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .child(
+                .child({
+                    let store = self.store.clone();
                     div()
                         .id("wand-button")
+                        .cursor_pointer()
                         .rounded_md()
                         .px_2()
                         .py_1()
                         .text_size(px(theme::FONT_SMALL))
-                        .text_color(theme::TEXT_FAINT)
-                        .border_1()
-                        .border_color(theme::HAIRLINE)
-                        .child("✦ wand"),
-                )
+                        .when(wand_active, |d| {
+                            d.text_color(theme::ACCENT).border_1().border_color(theme::tint(theme::ACCENT))
+                        })
+                        .when(!wand_active, |d| {
+                            d.text_color(theme::TEXT_MUTED).border_1().border_color(theme::HAIRLINE)
+                        })
+                        .hover(|s| s.opacity(0.85))
+                        .on_click(move |_, _, cx| {
+                            store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                        })
+                        .child(if wand_active { "✦ working…" } else { "✦ wand" })
+                })
                 .child(div().flex_1())
                 .child(rail_button("Commit", !busy, {
                     let store = self.store.clone();

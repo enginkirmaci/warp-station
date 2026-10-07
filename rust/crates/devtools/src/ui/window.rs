@@ -26,7 +26,7 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        div()
+        let mut root = div()
             .size_full()
             .flex()
             .flex_col()
@@ -35,7 +35,103 @@ impl Render for MainWindow {
             .font_family(theme::ui_font())
             .child(self.render_titlebar(window, cx))
             .child(self.render_body(window, cx))
+            .relative();
+        if let Some(ask) = self.render_wand_ask(cx) {
+            root = root.child(ask);
+        }
+        root
     }
+}
+
+impl MainWindow {
+    /// The opencode permission popup: allow once / allow all / reject, with
+    /// the auto-reject countdown.
+    fn render_wand_ask(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let (wand_id, ask_id, title, secs) = self.store.read(cx).wand_ask.clone()?;
+        let store = self.store.clone();
+        let store_all = self.store.clone();
+        let store_reject = self.store.clone();
+        let _ = (&wand_id, &ask_id);
+        Some(
+            div()
+                .id("wand-ask-overlay")
+                .absolute()
+                .inset_0()
+                .occlude()
+                .bg(gpui::black().opacity(0.45))
+                .flex()
+                .items_start()
+                .justify_center()
+                .pt(px(90.))
+                .child(
+                    div()
+                        .id("wand-ask-card")
+                        .occlude()
+                        .min_w(px(420.))
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::tint(theme::WARN))
+                        .bg(theme::POPUP)
+                        .shadow_lg()
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .on_click(|_, _, _| {})
+                        .child(
+                            div()
+                                .text_size(px(theme::FONT_TITLE))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("OpenCode needs permission"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::FONT_SMALL))
+                                .text_color(theme::TEXT_DIM)
+                                .child(title.clone()),
+                        )
+                        .child(
+                            div().flex().flex_row().justify_end().gap_2()
+                                .child(ask_button("Reject", theme::DANGER, move |_, _, cx| {
+                                    store_reject.update(cx, |s, cx| s.respond_wand("reject", cx));
+                                }))
+                                .child(ask_button("Allow all", theme::ACCENT, move |_, _, cx| {
+                                    store_all.update(cx, |s, cx| s.respond_wand("always", cx));
+                                }))
+                                .child(ask_button("Allow once", theme::SUCCESS_BRIGHT, move |_, _, cx| {
+                                    store.update(cx, |s, cx| s.respond_wand("once", cx));
+                                })),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::FONT_SMALL - 1.))
+                                .text_color(theme::TEXT_FAINT)
+                                .child(format!("auto-reject in {secs}s")),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
+fn ask_button(
+    label: &str,
+    color: gpui::Rgba,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(gpui::SharedString::from(format!("wand-ask-{label}")))
+        .cursor_pointer()
+        .rounded_md()
+        .px_3()
+        .py_1()
+        .text_size(px(theme::FONT_SMALL))
+        .font_weight(FontWeight::SEMIBOLD)
+        .bg(theme::tint(color))
+        .text_color(color)
+        .hover(|s| s.opacity(0.85))
+        .on_click(on_click)
+        .into_any_element()
 }
 
 fn window_button(

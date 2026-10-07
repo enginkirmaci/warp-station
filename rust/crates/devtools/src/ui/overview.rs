@@ -1,9 +1,9 @@
 //! The Overview tab: the repo's README rendered as markdown (the kit's
 //! TextView) with a details sidebar (GitHub owner/language/license/topics via
-//! the gh details probe, plus the local folder). The README pane reads
-//! readme.md from disk on load; editing/saving and the wand arrive with the
-//! opencode wave.
+//! the gh details probe, plus the local folder). The wand generates a draft
+//! that renders in place with Save/Discard; Save writes README.md.
 
+use crate::net::WandKind;
 use crate::store::Store;
 use crate::theme;
 use gpui::prelude::*;
@@ -24,7 +24,7 @@ impl OverviewView {
                 this.readme = selected.as_ref().and_then(|folder| read_readme(folder));
                 this.readme_loaded_for = selected.clone();
                 // details probe rides along with the pane's first open
-                if let Some(folder) = selected.clone() {
+                if let Some(folder) = selected {
                     let settings = store.read(cx).settings();
                     if settings.repos.enable_git_hub {
                         if let Some(gh) = devtools_core::exe::locate(&settings.repos.git_hub_executable) {
@@ -51,9 +51,138 @@ impl Render for OverviewView {
         let folder = self.store.read(cx).selected_repo.clone();
         let details = self.store.read(cx).github_details.clone();
         let entry = self.store.read(cx).selected_entry().cloned();
-        let has_readme = self.readme.is_some();
+        let draft = self.store.read(cx).readme_draft.clone();
+        let wand_active = self.store.read(cx).wand_busy == Some(WandKind::Readme);
+        let has_draft = draft.is_some();
+        let shown = draft.clone().or_else(|| self.readme.clone());
 
-        // 60/40 like the C# overview: README pane + details sidebar
+        let header = div()
+            .id("readme-header")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .child(
+                div()
+                    .text_size(px(theme::FONT_SMALL))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(if has_draft { "README draft (unsaved)" } else { "README" }),
+            )
+            .child(div().flex_1())
+            .when(has_draft, |row| {
+                let folder_save = folder.clone();
+                row.child(
+                    div()
+                        .id("readme-discard")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::TEXT_DIM)
+                        .border_1()
+                        .border_color(theme::HAIRLINE)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.store.update(cx, |s: &mut Store, cx| {
+                                s.readme_draft = None;
+                                cx.notify();
+                            });
+                        }))
+                        .child("Discard"),
+                )
+                .child(
+                    div()
+                        .id("readme-save")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .bg(theme::ACCENT)
+                        .text_color(theme::ON_ACCENT)
+                        .hover(|s| s.opacity(0.9))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let Some(folder) = folder_save.clone() else { return };
+                            let draft = this.store.update(cx, |s: &mut Store, _| s.readme_draft.take());
+                            if let Some(draft) = draft {
+                                let path = std::path::Path::new(&folder).join("README.md");
+                                match std::fs::write(&path, format!("{draft}\n")) {
+                                    Ok(()) => {
+                                        this.readme = Some(draft);
+                                        tracing::info!("saved {}", path.display());
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!("README save failed: {err}");
+                                        this.store.update(cx, |s: &mut Store, cx| {
+                                            s.wand_error = Some(format!("save failed: {err}"));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            }
+                            cx.notify();
+                        }))
+                        .child("Save"),
+                )
+            })
+            .child({
+                let store = self.store.clone();
+                div()
+                    .id("readme-wand")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_0p5()
+                    .text_size(px(theme::FONT_SMALL))
+                    .when(wand_active, |d| {
+                        d.text_color(theme::ACCENT)
+                            .border_1()
+                            .border_color(theme::tint(theme::ACCENT))
+                    })
+                    .when(!wand_active, |d| {
+                        d.text_color(theme::TEXT_MUTED)
+                            .border_1()
+                            .border_color(theme::HAIRLINE)
+                    })
+                    .hover(|s| s.opacity(0.85))
+                    .on_click(move |_, _, cx| {
+                        store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
+                    })
+                    .child(if wand_active { "✦ generating…" } else { "✦ generate" })
+            });
+
+        let pane = div()
+            .id("readme-pane")
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p_3()
+            .when(shown.is_some(), |pane| {
+                pane.child(render_markdown(shown.as_deref().unwrap_or("")))
+            })
+            .when(shown.is_none(), |pane| {
+                pane.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .h_full()
+                        .child(
+                            div()
+                                .text_size(px(theme::FONT_BODY))
+                                .text_color(theme::TEXT_FAINT)
+                                .child("No README"),
+                        ),
+                )
+            });
+
+        // 60/40 like the C# overview: README column + details sidebar
         div()
             .size_full()
             .flex()
@@ -61,83 +190,94 @@ impl Render for OverviewView {
             .min_h_0()
             .child(
                 div()
-                    .id("readme-pane")
+                    .id("readme-column")
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .overflow_y_scroll()
-                    .p_3()
-                    .when(has_readme, |pane| pane.child(render_markdown(self.readme.as_deref().unwrap_or(""))))
-                    .when(!has_readme, |pane| {
-                        pane.child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .justify_center()
-                                .h_full()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_size(px(theme::FONT_BODY))
-                                        .text_color(theme::TEXT_FAINT)
-                                        .child("No README"),
-                                ),
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .id("overview-sidebar")
-                    .w(px(300.))
-                    .h_full()
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .border_l_1()
-                    .border_color(theme::HAIRLINE)
-                    .overflow_y_scroll()
-                    .child(div().text_size(px(theme::FONT_TITLE)).font_weight(FontWeight::SEMIBOLD).child("Repository Details"))
-                    .child(detail_row("Folder", folder.clone().unwrap_or_default()))
-                    .when_some(entry.as_ref().and_then(|e| e.git_branch_name.clone()), |side, branch| {
-                        side.child(detail_row("Branch", branch))
-                    })
-                    .when_some(details.as_ref(), |side, details| {
-                        side
-                            .when_some(details.url.clone(), |side, url| side.child(link_row("GitHub", url)))
-                            .when_some(details.owner.clone(), |side, owner| side.child(detail_row("Owner", owner)))
-                            .when_some(details.created_at.clone(), |side, created| {
-                                side.child(detail_row("Created", date_only(&created)))
-                            })
-                            .when_some(details.primary_language.clone(), |side, lang| side.child(detail_row("Language", lang)))
-                            .when_some(details.license.clone(), |side, license| side.child(detail_row("License", license)))
-                            .when_some(details.default_branch.clone(), |side, branch| side.child(detail_row("Default branch", branch)))
-                            .when(!details.topics.is_empty(), |side| {
-                                side.child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_MUTED).child("Topics"))
-                                        .child(
-                                            div().flex().flex_row().flex_wrap().gap_1().children(
-                                                details.topics.iter().map(|topic| {
-                                                    div()
-                                                        .rounded_md()
-                                                        .bg(theme::tint(theme::BLUE_BRIGHT))
-                                                        .px_1p5()
-                                                        .text_size(px(theme::FONT_SMALL - 2.))
-                                                        .text_color(theme::BLUE_BRIGHT)
-                                                        .child(topic.clone())
-                                                }),
-                                            ),
-                                        ),
-                                )
-                            })
-                    }),
+                    .min_h_0()
+                    .child(header)
+                    .child(pane),
             )
+            .child(render_sidebar(folder, entry, details))
     }
+}
+
+fn render_sidebar(
+    folder: Option<String>,
+    entry: Option<devtools_core::repo_store::RepoEntry>,
+    details: Option<devtools_core::github::GitHubRepoDetails>,
+) -> gpui::AnyElement {
+    let mut side = div()
+        .id("overview-sidebar")
+        .w(px(300.))
+        .h_full()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .p_3()
+        .border_l_1()
+        .border_color(theme::HAIRLINE)
+        .overflow_y_scroll()
+        .child(
+            div()
+                .text_size(px(theme::FONT_TITLE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Repository Details"),
+        )
+        .child(detail_row("Folder", folder.unwrap_or_default()));
+    if let Some(branch) = entry.and_then(|e| e.git_branch_name) {
+        side = side.child(detail_row("Branch", branch));
+    }
+    if let Some(details) = &details {
+        if let Some(url) = &details.url {
+            side = side.child(link_row("GitHub", url.clone()));
+        }
+        if let Some(owner) = &details.owner {
+            side = side.child(detail_row("Owner", owner.clone()));
+        }
+        if let Some(created) = &details.created_at {
+            side = side.child(detail_row("Created", created.get(..10).unwrap_or(created.as_str()).to_string()));
+        }
+        if let Some(language) = &details.primary_language {
+            side = side.child(detail_row("Language", language.clone()));
+        }
+        if let Some(license) = &details.license {
+            side = side.child(detail_row("License", license.clone()));
+        }
+        if let Some(branch) = &details.default_branch {
+            side = side.child(detail_row("Default branch", branch.clone()));
+        }
+        if !details.topics.is_empty() {
+            side = side.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_SMALL))
+                            .text_color(theme::TEXT_MUTED)
+                            .child("Topics"),
+                    )
+                    .child(
+                        div().flex().flex_row().flex_wrap().gap_1().children(
+                            details.topics.iter().map(|topic| {
+                                div()
+                                    .rounded_md()
+                                    .bg(theme::tint(theme::BLUE_BRIGHT))
+                                    .px_1p5()
+                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_color(theme::BLUE_BRIGHT)
+                                    .child(topic.clone())
+                            }),
+                        ),
+                    ),
+            );
+        }
+    }
+    side.into_any_element()
 }
 
 fn read_readme(folder: &str) -> Option<String> {
@@ -147,10 +287,6 @@ fn read_readme(folder: &str) -> Option<String> {
         }
     }
     None
-}
-
-fn date_only(iso: &str) -> String {
-    iso.get(..10).unwrap_or(iso).to_string()
 }
 
 fn detail_row(label: &str, value: String) -> impl IntoElement + use<> {
@@ -170,7 +306,7 @@ fn detail_row(label: &str, value: String) -> impl IntoElement + use<> {
 fn link_row(label: &str, url: String) -> impl IntoElement + use<> {
     let open_url = url.clone();
     div()
-        .id(SharedString_from(label))
+        .id(gpui::SharedString::from(format!("detail-link-{label}")))
         .cursor_pointer()
         .flex()
         .flex_col()
@@ -185,10 +321,6 @@ fn link_row(label: &str, url: String) -> impl IntoElement + use<> {
                 .text_color(theme::ACCENT)
                 .child(url),
         )
-}
-
-fn SharedString_from(label: &str) -> gpui::SharedString {
-    gpui::SharedString::from(format!("detail-link-{label}"))
 }
 
 fn render_markdown(source: &str) -> impl IntoElement + use<> {

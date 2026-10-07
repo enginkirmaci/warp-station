@@ -56,6 +56,20 @@ fn main() {
             })
             .detach();
 
+            // wand permission-ask countdown ticks once per second
+            let wand_store = store.downgrade();
+            cx.spawn(async move |cx| loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(1))
+                    .await;
+                if let Some(store) = wand_store.upgrade() {
+                    store.update(cx, |s, cx| s.tick_wand(cx));
+                } else {
+                    break;
+                }
+            })
+            .detach();
+
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             gpui_kit::open_window(
                 WindowOptions {

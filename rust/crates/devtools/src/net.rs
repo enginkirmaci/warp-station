@@ -40,6 +40,18 @@ pub enum NetCommand {
     GitHubDetails { folder: PathBuf, gh_exe: String },
     /// The Azure DevOps activity pass (2-way parallel REST probes).
     AzurePass { folders: Vec<PathBuf>, pat: String, custom_base: String },
+    /// One AI wand run (opencode serve, one session). The net thread builds
+    /// the prompt for the kind; the id routes asks and the result.
+    Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, opencode_exe: String },
+    /// A reply to a pending permission ask.
+    WandRespond { wand_id: String, ask_id: String, response: String },
+}
+
+/// Which generator a wand run is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WandKind {
+    Commit,
+    Readme,
 }
 
 /// Every state-changing git operation the bottom bar drives. The label rides
@@ -113,6 +125,9 @@ pub enum UiEvent {
     GitHubSettled { items: Vec<(String, devtools_core::github::GitHubSnapshot)> },
     GitHubDetailsLoaded { folder: String, details: Option<devtools_core::github::GitHubRepoDetails> },
     AzureSettled { items: Vec<(String, devtools_core::azure::AzureSnapshot)> },
+    WandAsk { wand_id: String, ask_id: String, title: String },
+    WandLog { wand_id: String, line: String },
+    WandDone { wand_id: String, kind: WandKind, result: Result<String, String> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -133,6 +148,10 @@ pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, R
 }
 
 async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
+    // live wand runs: id → the run's control channel (permission replies)
+    let wands: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<devtools_core::opencode::WandControl>>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+
     while let Ok(cmd) = cmd_rx.recv().await {
         match cmd {
             NetCommand::Scan { settings, previous } => {
@@ -194,6 +213,111 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .map(|m| m.into_inner().unwrap())
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
+            }
+            NetCommand::WandRespond { wand_id, ask_id, response } => {
+                let wands = wands.clone();
+                tokio::spawn(async move {
+                    let guard = wands.lock().await;
+                    if let Some(control) = guard.get(&wand_id) {
+                        let _ = control
+                            .send(devtools_core::opencode::WandControl::Respond { id: ask_id, response })
+                            .await;
+                    }
+                });
+            }
+            NetCommand::Wand { id, kind, folder, model, opencode_exe } => {
+                let evt_tx = evt_tx.clone();
+                let wands = wands.clone();
+                tokio::spawn(async move {
+                    let (control_tx, control_rx) = async_channel::unbounded::<devtools_core::opencode::WandControl>();
+                    let (events_tx, events_rx) = async_channel::unbounded::<devtools_core::opencode::WandEvent>();
+                    wands.lock().await.insert(id.clone(), control_tx.clone());
+
+                    // forward run events to the UI
+                    let forward_tx = evt_tx.clone();
+                    let forward_id = id.clone();
+                    tokio::spawn(async move {
+                        while let Ok(event) = events_rx.recv().await {
+                            match event {
+                                devtools_core::opencode::WandEvent::Ask { id: ask_id, title } => {
+                                    let _ = forward_tx.send_blocking(UiEvent::WandAsk {
+                                        wand_id: forward_id.clone(),
+                                        ask_id,
+                                        title,
+                                    });
+                                }
+                                devtools_core::opencode::WandEvent::Log(line) => {
+                                    let _ = forward_tx.send_blocking(UiEvent::WandLog {
+                                        wand_id: forward_id.clone(),
+                                        line,
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    // build the prompt for the kind (blocking reads)
+                    let prompt = tokio::task::spawn_blocking({
+                        let folder = folder.clone();
+                        move || match kind {
+                            WandKind::Commit => {
+                                let patch = devtools_core::git::read::staged_patch(&folder)
+                                    .unwrap_or_default();
+                                let patch: String = patch.chars().take(8000).collect();
+                                let snapshot = devtools_core::git::read::change_snapshot(&folder);
+                                let file_list = snapshot
+                                    .as_ref()
+                                    .map(|s| {
+                                        s.staged_files
+                                            .iter()
+                                            .map(|f| f.path.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    })
+                                    .unwrap_or_default();
+                                let subjects = devtools_core::git::read::recent_commits(&folder)
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .take(8)
+                                    .map(|c| c.subject.clone())
+                                    .collect::<Vec<_>>();
+                                let context = if subjects.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("Recent commit subjects for tone:\n{}", subjects.join("\n"))
+                                };
+                                devtools_core::opencode::commit_message_prompt(&file_list, &patch, &context)
+                            }
+                            WandKind::Readme => {
+                                let name = folder
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                let tree = devtools_core::opencode::file_tree(&folder, 200);
+                                devtools_core::opencode::readme_prompt(&name, &tree, "")
+                            }
+                        }
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    let result = devtools_core::opencode::run_prompt(
+                        &opencode_exe,
+                        &folder,
+                        model.as_deref(),
+                        &prompt,
+                        events_tx,
+                        control_rx,
+                    )
+                    .await;
+
+                    wands.lock().await.remove(&id);
+                    let _ = evt_tx.send_blocking(UiEvent::WandDone {
+                        wand_id: id,
+                        kind,
+                        result: result.map_err(|err| format!("{err:#}")),
+                    });
+                });
             }
             NetCommand::AzurePass { folders, pat, custom_base } => {
                 use std::sync::{Arc, Mutex};

@@ -4,7 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{GitAction, NetCommand, UiEvent};
+use crate::net::{GitAction, NetCommand, UiEvent, WandKind};
 use devtools_core::repo_store::{self, RepoEntry};
 use devtools_core::settings::{AppSettings, RepoSortMode, SettingsService};
 use gpui::{App, Context};
@@ -43,6 +43,17 @@ pub struct Store {
     pub github_by_folder: std::collections::HashMap<String, devtools_core::github::GitHubSnapshot>,
     pub azure_by_folder: std::collections::HashMap<String, devtools_core::azure::AzureSnapshot>,
     pub github_details: Option<devtools_core::github::GitHubRepoDetails>,
+
+    // ---- wand (opencode) state ----
+    pub wand_busy: Option<WandKind>,
+    /// A pending permission ask: (wand id, ask id, title, seconds left on the
+    /// auto-reject countdown).
+    pub wand_ask: Option<(String, String, String, u32)>,
+    pub wand_error: Option<String>,
+    /// The commit-message wand's draft, drained into the Changes commit box.
+    pub commit_message_draft: Option<String>,
+    /// The README wand's draft, rendered by the Overview pane with Save/Discard.
+    pub readme_draft: Option<String>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -85,6 +96,11 @@ impl Store {
             github_by_folder: std::collections::HashMap::new(),
             azure_by_folder: std::collections::HashMap::new(),
             github_details: None,
+            wand_busy: None,
+            wand_ask: None,
+            wand_error: None,
+            commit_message_draft: None,
+            readme_draft: None,
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -236,6 +252,30 @@ impl Store {
                 }
                 cx.notify();
             }
+            UiEvent::WandAsk { wand_id, ask_id, title } => {
+                self.wand_ask = Some((wand_id, ask_id, title, 15));
+                cx.notify();
+            }
+            UiEvent::WandLog { line, .. } => {
+                tracing::info!("wand: {line}");
+            }
+            UiEvent::WandDone { kind, result, .. } => {
+                self.wand_busy = None;
+                self.wand_ask = None;
+                match (&result, kind) {
+                    (Ok(text), WandKind::Commit) => {
+                        self.commit_message_draft = Some(text.trim().to_string());
+                    }
+                    (Ok(text), WandKind::Readme) => {
+                        self.readme_draft = Some(text.trim().to_string());
+                    }
+                    (Err(err), _) => {
+                        tracing::warn!("wand failed: {err}");
+                        self.wand_error = Some(err.clone());
+                    }
+                }
+                cx.notify();
+            }
             UiEvent::CommitDetailsLoaded { folder, details } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.commit_details = details;
@@ -302,6 +342,82 @@ impl Store {
             pat,
             custom_base: settings.repos.azure_dev_ops_url.clone(),
         });
+    }
+
+    /// Kicks one wand run for the selected repo.
+    pub fn run_wand(&mut self, kind: WandKind, cx: &mut Context<Self>) {
+        if self.wand_busy.is_some() {
+            return;
+        }
+        let Some(folder) = self.selected_repo.clone() else { return };
+        let settings = self.settings();
+        if !settings.opencode.enable_opencode {
+            self.wand_error = Some("OpenCode is disabled in settings".into());
+            cx.notify();
+            return;
+        }
+        let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
+            self.wand_error = Some("opencode executable not found".into());
+            cx.notify();
+            return;
+        };
+        let model = match kind {
+            WandKind::Commit => settings
+                .opencode
+                .commit_model
+                .clone()
+                .filter(|m| !m.is_empty())
+                .or_else(|| {
+                    let m = settings.opencode.default_model.clone();
+                    (!m.is_empty()).then_some(m)
+                }),
+            WandKind::Readme => {
+                let m = settings.opencode.default_model.clone();
+                (!m.is_empty()).then_some(m)
+            }
+        };
+        self.wand_busy = Some(kind);
+        self.wand_error = None;
+        let id = format!("wand-{}", self.save_generation);
+        self.save_generation += 1;
+        let _ = self.net.send_blocking(NetCommand::Wand {
+            id,
+            kind,
+            folder: std::path::PathBuf::from(folder),
+            model,
+            opencode_exe: exe.to_string_lossy().to_string(),
+        });
+        cx.notify();
+    }
+
+    /// Answers a pending permission ask.
+    pub fn respond_wand(&mut self, response: &str, cx: &mut Context<Self>) {
+        if let Some((wand_id, ask_id, _, _)) = self.wand_ask.clone() {
+            self.wand_ask = None;
+            let _ = self.net.send_blocking(NetCommand::WandRespond {
+                wand_id,
+                ask_id,
+                response: response.to_string(),
+            });
+            cx.notify();
+        }
+    }
+
+    /// Once-per-second countdown tick: auto-rejects a pending ask at zero.
+    pub fn tick_wand(&mut self, cx: &mut Context<Self>) {
+        if let Some((wand, ask, title, secs)) = self.wand_ask.clone() {
+            if secs <= 1 {
+                self.wand_ask = None;
+                let _ = self.net.send_blocking(NetCommand::WandRespond {
+                    wand_id: wand,
+                    ask_id: ask,
+                    response: "reject".into(),
+                });
+            } else {
+                self.wand_ask = Some((wand, ask, title, secs - 1));
+            }
+            cx.notify();
+        }
     }
 
     /// Sends one mutation for the selected repo and marks the rail busy; the
