@@ -1,5 +1,6 @@
 //! ui module: shared helpers + the main window.
 
+pub mod repos;
 pub mod window;
 
 use gpui::Styled;

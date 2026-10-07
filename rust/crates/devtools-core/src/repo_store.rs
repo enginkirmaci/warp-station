@@ -70,6 +70,9 @@ pub struct RepoEntry {
     pub git_has_remote: bool,
     pub git_branch_published: bool,
     pub git_status_loaded: bool,
+    /// Open pull requests / issues from the GitHub pass (wave 4 fills these).
+    pub github_pr_count: u32,
+    pub github_issue_count: u32,
 }
 
 impl RepoEntry {
@@ -124,6 +127,8 @@ pub fn entry_from_cache(cached: &CachedRepo) -> RepoEntry {
         git_has_remote: false,
         git_branch_published: false,
         git_status_loaded: false,
+        github_pr_count: 0,
+        github_issue_count: 0,
     }
 }
 
@@ -152,6 +157,8 @@ pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoE
             git_has_remote: false,
             git_branch_published: false,
             git_status_loaded: false,
+            github_pr_count: 0,
+            github_issue_count: 0,
         };
         if let Some(prev) = prev {
             for tag in &prev.tags {
@@ -171,6 +178,8 @@ pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoE
             entry.git_has_remote = prev.git_has_remote;
             entry.git_branch_published = prev.git_branch_published;
             entry.git_status_loaded = prev.git_status_loaded;
+            entry.github_pr_count = prev.github_pr_count;
+            entry.github_issue_count = prev.github_issue_count;
         }
         merged.push(entry);
     }
@@ -248,6 +257,8 @@ mod tests {
             git_has_remote: true,
             git_branch_published: false,
             git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
         };
         let scanned = ScannedRepo {
             name: "repo".into(),
@@ -279,6 +290,8 @@ mod tests {
             git_has_remote: false,
             git_branch_published: false,
             git_status_loaded: false,
+            github_pr_count: 0,
+            github_issue_count: 0,
         };
         let newer = chrono::Local::now() - chrono::Duration::hours(1);
         apply_status_probe(

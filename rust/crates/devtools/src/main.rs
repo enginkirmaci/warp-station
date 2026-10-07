@@ -2,17 +2,10 @@
 // no console window behind the packaged Windows exe; debug builds keep it for logs
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
-mod assets;
-mod logging;
-mod store;
-mod theme;
-mod ui;
-
+use devtools::{assets, logging, net, store::Store, theme, ui::window::MainWindow};
 use gpui::prelude::*;
 use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use gpui_platform::application;
-use store::Store;
-use ui::window::MainWindow;
 
 fn main() {
     let _log_guard = logging::initialize();
@@ -24,8 +17,44 @@ fn main() {
             // onto their theme tokens — must run before any kit component renders
             gpui_kit::init(cx);
 
-            let store = cx.new(|_| Store::new());
+            let (_net_handle, net_sender, event_rx) = devtools::net::spawn_net_thread();
+            let store = cx.new(|cx| Store::new(cx, net_sender));
             theme::apply_kit_theme(cx);
+
+            // net events → store. Polled with a timer fallback: this gpui rev
+            // does not service cross-thread channel wakeups on foreground tasks,
+            // so a plain recv().await would sleep forever (async_channel recv is
+            // cancel-safe, re-creating the future each lap is fine). A wake drains
+            // the whole pending burst in one pass — one timer and one frame per
+            // burst instead of one per event.
+            let event_store = store.downgrade();
+            cx.spawn(async move |cx| {
+                loop {
+                    let timeout = cx
+                        .background_executor()
+                        .timer(std::time::Duration::from_millis(200));
+                    let mut recv = Box::pin(event_rx.recv());
+                    match futures_util::future::select(recv.as_mut(), timeout).await {
+                        futures_util::future::Either::Left((received, _)) => {
+                            let Ok(first) = received else { break };
+                            let Some(store) = event_store.upgrade() else { break };
+                            store.update(cx, |s, cx| s.on_net_event(first, cx));
+                            let mut batch = 1;
+                            while batch < 64 {
+                                match event_rx.try_recv() {
+                                    Ok(event) => {
+                                        store.update(cx, |s, cx| s.on_net_event(event, cx));
+                                        batch += 1;
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                        futures_util::future::Either::Right((_, _)) => continue,
+                    }
+                }
+            })
+            .detach();
 
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             gpui_kit::open_window(
@@ -42,9 +71,9 @@ fn main() {
                     ..Default::default()
                 },
                 cx,
-                |_, cx| {
+                |window, cx| {
                     let window_store = store.clone();
-                    cx.new(|cx| MainWindow::new(window_store, cx))
+                    cx.new(|cx| MainWindow::new(window_store, window, cx))
                 },
             )
             .unwrap();
