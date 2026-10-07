@@ -37,6 +37,10 @@ pub struct Store {
     pub last_git_error: Option<String>,
     /// One freshly loaded change-row patch, drained by the Changes view.
     pub change_patch_result: Option<(String, bool, String)>,
+    pub history: Vec<devtools_core::model::GitCommitInfo>,
+    /// Drill-down for the selected history commit, drained by the view.
+    pub commit_details: Option<devtools_core::model::GitCommitDetails>,
+    pub commit_file_patch: Option<(String, String)>,
 
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
@@ -72,6 +76,9 @@ impl Store {
             git_busy: false,
             last_git_error: None,
             change_patch_result: None,
+            history: Vec::new(),
+            commit_details: None,
+            commit_file_patch: None,
             save_generation: 0,
         };
         store.reproject();
@@ -179,6 +186,25 @@ impl Store {
             UiEvent::ChangePatchLoaded { folder, path, staged, patch } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.change_patch_result = Some((path, staged, patch));
+                }
+                cx.notify();
+            }
+            UiEvent::HistoryLoaded { folder, commits, unpushed } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.history = commits;
+                    self.unpushed = unpushed;
+                }
+                cx.notify();
+            }
+            UiEvent::CommitDetailsLoaded { folder, details } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.commit_details = details;
+                }
+                cx.notify();
+            }
+            UiEvent::CommitFilePatchLoaded { folder, hash, path, patch } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.commit_file_patch = Some((format!("{hash}|{path}"), patch));
                 }
                 cx.notify();
             }
@@ -300,8 +326,10 @@ impl Store {
         self.changes_loaded_for = None;
         self.branches.clear();
         self.recent_commits.clear();
+        self.history.clear();
         self.unpushed = None;
         self.last_git_error = None;
+        self.commit_details = None;
         if let Some(folder) = &self.selected_repo {
             let _ = self.net.send_blocking(NetCommand::LoadChanges {
                 folder: std::path::PathBuf::from(folder),

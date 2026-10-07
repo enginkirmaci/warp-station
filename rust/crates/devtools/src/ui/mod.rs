@@ -3,6 +3,7 @@
 pub mod bottom_bar;
 pub mod changes;
 pub mod dialogs;
+pub mod diff;
 pub mod repos;
 pub mod window;
 

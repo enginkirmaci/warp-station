@@ -28,6 +28,12 @@ pub enum NetCommand {
     Git { folder: PathBuf, action: GitAction },
     /// One change row's expandable patch.
     GetChangePatch { folder: PathBuf, path: String, staged: bool },
+    /// The history list's deeper commit cut plus the unpushed set.
+    LoadHistory { folder: PathBuf },
+    /// One commit's drill-down: files with counts + message body.
+    GetCommitDetails { folder: PathBuf, hash: String },
+    /// One drill-down file's patch.
+    GetCommitFilePatch { folder: PathBuf, hash: String, path: String },
 }
 
 /// Every state-changing git operation the bottom bar drives. The label rides
@@ -91,6 +97,13 @@ pub enum UiEvent {
         commit_hash: Option<String>,
     },
     ChangePatchLoaded { folder: String, path: String, staged: bool, patch: String },
+    HistoryLoaded {
+        folder: String,
+        commits: Vec<devtools_core::model::GitCommitInfo>,
+        unpushed: Option<std::collections::HashSet<String>>,
+    },
+    CommitDetailsLoaded { folder: String, details: Option<devtools_core::model::GitCommitDetails> },
+    CommitFilePatchLoaded { folder: String, hash: String, path: String, patch: String },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -151,6 +164,56 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     folder: folder.to_string_lossy().to_string(),
                     path,
                     staged,
+                    patch,
+                });
+            }
+            NetCommand::LoadHistory { folder } => {
+                let (commits, unpushed) = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    move || {
+                        (
+                            devtools_core::git::read::history_commits(&folder, 200).unwrap_or_default(),
+                            devtools_core::git::read::unpushed_hashes(&folder),
+                        )
+                    }
+                })
+                .await
+                .unwrap_or((Vec::new(), None));
+                let _ = evt_tx.send_blocking(UiEvent::HistoryLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    commits,
+                    unpushed,
+                });
+            }
+            NetCommand::GetCommitDetails { folder, hash } => {
+                let details = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    let hash = hash.clone();
+                    move || devtools_core::git::read::commit_details(&folder, &hash)
+                })
+                .await
+                .ok()
+                .flatten();
+                let _ = evt_tx.send_blocking(UiEvent::CommitDetailsLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    details,
+                });
+            }
+            NetCommand::GetCommitFilePatch { folder, hash, path } => {
+                let patch = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    let hash = hash.clone();
+                    let path = path.clone();
+                    move || devtools_core::git::read::commit_file_patch(&folder, &hash, &path)
+                })
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::CommitFilePatchLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    hash,
+                    path,
                     patch,
                 });
             }

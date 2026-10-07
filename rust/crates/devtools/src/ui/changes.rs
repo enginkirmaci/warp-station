@@ -25,6 +25,11 @@ pub struct ChangesView {
     new_branch_open: bool,
     new_branch_name: Entity<InputState>,
     commit_message: Entity<TextareaState>,
+    history_open: bool,
+    /// Hash of the drilled-in commit (None = the list view).
+    drilled_commit: Option<String>,
+    detail_patches: std::collections::HashMap<String, String>,
+    expanded_details: std::collections::HashSet<String>,
 }
 
 impl ChangesView {
@@ -48,7 +53,58 @@ impl ChangesView {
             new_branch_open: false,
             new_branch_name,
             commit_message,
+            history_open: false,
+            drilled_commit: None,
+            detail_patches: std::collections::HashMap::new(),
+            expanded_details: std::collections::HashSet::new(),
         }
+    }
+
+    /// Opens the history list, loading it once per selection.
+    pub fn open_history(&mut self, cx: &mut Context<Self>) {
+        let needs_load = self.store.read(cx).history.is_empty();
+        self.history_open = true;
+        self.drilled_commit = None;
+        if needs_load {
+            if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+                let _ = self.store.read(cx).net.send_blocking(NetCommand::LoadHistory {
+                    folder: std::path::PathBuf::from(folder),
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    /// Drills into one commit's detail.
+    pub fn drill_commit(&mut self, hash: &str, cx: &mut Context<Self>) {
+        self.drilled_commit = Some(hash.to_string());
+        self.expanded_details.clear();
+        if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+            let _ = self.store.read(cx).net.send_blocking(NetCommand::GetCommitDetails {
+                folder: std::path::PathBuf::from(folder),
+                hash: hash.to_string(),
+            });
+        }
+        cx.notify();
+    }
+
+    fn toggle_detail_patch(&mut self, hash: &str, path: &str, cx: &mut Context<Self>) {
+        let key = format!("{hash}|{path}");
+        if self.expanded_details.contains(&key) {
+            self.expanded_details.remove(&key);
+        } else {
+            self.expanded_details.insert(key.clone());
+            if !self.detail_patches.contains_key(&key) {
+                if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+                    let _ = self.store.read(cx).net.send_blocking(NetCommand::GetCommitFilePatch {
+                        folder: std::path::PathBuf::from(folder),
+                        hash: hash.to_string(),
+                        path: path.to_string(),
+                    });
+                }
+            }
+        }
+        cx.notify();
     }
 
     fn toggle_expanded(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
@@ -73,10 +129,13 @@ impl ChangesView {
 }
 
 impl Render for ChangesView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        // drain freshly loaded patches onto the view's cache
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        // drain freshly loaded patches onto the view's caches
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
             self.patches.insert((path, staged), patch);
+        }
+        if let Some((key, patch)) = self.store.update(cx, |store, _| store.commit_file_patch.take()) {
+            self.detail_patches.insert(key, patch);
         }
 
         let store = self.store.read(cx);
@@ -85,14 +144,19 @@ impl Render for ChangesView {
         let busy = store.git_busy;
         drop(store);
 
+        let left = if self.history_open {
+            self.render_history(window, cx)
+        } else {
+            self.render_file_list(staged, unstaged, window, cx)
+        };
         div()
             .size_full()
             .flex()
             .flex_row()
             .min_h_0()
             .relative()
-            .child(self.render_file_list(staged, unstaged, cx))
-            .child(self.render_rail(busy, cx))
+            .child(left)
+            .child(self.render_rail(busy, window, cx))
     }
 }
 
@@ -101,6 +165,7 @@ impl ChangesView {
         &mut self,
         staged: Vec<GitChangedFile>,
         unstaged: Vec<GitChangedFile>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let mut list = div()
@@ -136,7 +201,7 @@ impl ChangesView {
                 self.store.clone(),
             ));
             for file in &staged {
-                list = list.child(self.render_row(file, true, cx));
+                list = list.child(self.render_row(file, true, window, cx));
             }
         }
         if !unstaged.is_empty() {
@@ -147,13 +212,13 @@ impl ChangesView {
                 self.store.clone(),
             ));
             for file in &unstaged {
-                list = list.child(self.render_row(file, false, cx));
+                list = list.child(self.render_row(file, false, window, cx));
             }
         }
         list.into_any_element()
     }
 
-    fn render_row(&mut self, file: &GitChangedFile, staged: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_row(&mut self, file: &GitChangedFile, staged: bool, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let key = (file.path.clone(), staged);
         let expanded = self.expanded.contains(&key);
         let status_color = status_color(file.status_code.as_str());
@@ -262,16 +327,300 @@ impl ChangesView {
                     .p_2()
                     .max_h(px(220.))
                     .overflow_y_scroll()
-                    .text_size(px(theme::FONT_SMALL - 1.))
-                    .font_family(gpui::SharedString::from(theme::code_font()))
-                    .text_color(theme::TEXT_DIM)
-                    .child(patch.to_string()),
+                    .child(crate::ui::diff::render_diff(patch, theme::FONT_SMALL - 2.0, window)),
             );
         }
         row.into_any_element()
     }
 
-    fn render_rail(&mut self, busy: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// The history pane: day-grouped commit list with unpushed markers, and
+    /// the drilled-in commit detail with expandable per-file patches.
+    fn render_history(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let store = self.store.read(cx);
+        let unpushed = store.unpushed.clone();
+        let history = store.history.clone();
+        let details = store.commit_details.clone();
+        drop(store);
+
+        if let Some(hash) = self.drilled_commit.clone() {
+            return self.render_commit_detail(hash, details, window, cx);
+        }
+
+        if history.is_empty() {
+            return div()
+                .id("history-list")
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::FONT_BODY))
+                .text_color(theme::TEXT_FAINT)
+                .child("Loading history…")
+                .into_any_element();
+        }
+
+        let mut list = div()
+            .id("history-list")
+            .flex_1()
+            .h_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .px_2();
+
+        let today = chrono::Local::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+        let mut current_day: Option<chrono::NaiveDate> = None;
+        for commit in &history {
+            let day = commit.date.date_naive();
+            if current_day != Some(day) {
+                current_day = Some(day);
+                let label = if day == today {
+                    "Today".to_string()
+                } else if day == yesterday {
+                    "Yesterday".to_string()
+                } else {
+                    day.format("%b %e").to_string()
+                };
+                list = list.child(
+                    div()
+                        .py_1()
+                        .px_1()
+                        .text_size(px(theme::FONT_SMALL))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::TEXT_MUTED)
+                        .child(label),
+                );
+            }
+            let unpushed_mark = unpushed
+                .as_ref()
+                .map(|set| set.contains(&commit.hash))
+                .unwrap_or(false);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("commit-{}", commit.short_hash())))
+                    .cursor_pointer()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_1()
+                    .py_1()
+                    .rounded_md()
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click({
+                        let hash = commit.hash.clone();
+                        cx.listener(move |this, _, _, cx| this.drill_commit(&hash, cx))
+                    })
+                    .child(
+                        div()
+                            .rounded_full()
+                            .bg(theme::CHIP)
+                            .w(px(22.))
+                            .h(px(22.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(9.))
+                            .text_color(theme::TEXT_MUTED)
+                            .child(commit.initials()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(theme::FONT_SMALL))
+                            .text_color(theme::TEXT_DIM)
+                            .child(commit.subject.clone()),
+                    )
+                    .when(unpushed_mark, |row| {
+                        row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
+                    })
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .font_family(gpui::SharedString::from(theme::code_font()))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(commit.short_hash().to_string()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(devtools_core::rel_time::format(commit.date)),
+                    ),
+            );
+        }
+        list.into_any_element()
+    }
+
+    fn render_commit_detail(
+        &mut self,
+        hash: String,
+        details: Option<devtools_core::model::GitCommitDetails>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let Some(details) = details.filter(|d| d.hash.starts_with(&hash[..hash.len().min(7)])) else {
+            return div()
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::FONT_BODY))
+                .text_color(theme::TEXT_FAINT)
+                .child("Loading commit…")
+                .into_any_element();
+        };
+
+        let mut list = div()
+            .id("commit-detail")
+            .flex_1()
+            .h_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .px_2()
+            .gap_2();
+
+        list = list.child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id("detail-back")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_1p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::ACCENT)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.drilled_commit = None;
+                            cx.notify();
+                        }))
+                        .child("← History"),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(theme::FONT_BODY))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(details.files.len().to_string() + " files changed"),
+                ),
+        );
+
+        list = list.child(
+            div()
+                .id("detail-files")
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(
+                    // "N files" summary row mirrors the files' totals
+                    div()
+                        .px_1()
+                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_color(theme::TEXT_MUTED)
+                        .child(format!(
+                            "+{} −{}",
+                            details.files.iter().filter_map(|f| f.additions).sum::<u32>(),
+                            details.files.iter().filter_map(|f| f.deletions).sum::<u32>()
+                        )),
+                ),
+        );
+
+        let mut files = div().flex().flex_col().gap_0p5();
+        for file in &details.files {
+            let key = format!("{}|{}", details.hash, file.path);
+            let expanded = self.expanded_details.contains(&key);
+            let mut row = div()
+                .id(SharedString::from(format!("detail-file-{}", file.path)))
+                .cursor_pointer()
+                .flex()
+                .flex_col()
+                .rounded_md()
+                .px_1()
+                .when(expanded, |d| d.bg(theme::tint(theme::ACCENT)))
+                .hover(|s| s.bg(theme::HOVER))
+                .on_click({
+                    let hash = details.hash.clone();
+                    let path = file.path.clone();
+                    cx.listener(move |this, _, _, cx| this.toggle_detail_patch(&hash, &path, cx))
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .py_0p5()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(theme::FONT_SMALL))
+                                .font_family(gpui::SharedString::from(theme::code_font()))
+                                .text_color(theme::TEXT_DIM)
+                                .child(file.path.clone()),
+                        )
+                        .when_some(file.additions, |row, a| {
+                            row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::SUCCESS_BRIGHT).child(format!("+{a}")))
+                        })
+                        .when_some(file.deletions, |row, d| {
+                            row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::DANGER).child(format!("−{d}")))
+                        }),
+                );
+            if expanded {
+                let patch = self
+                    .detail_patches
+                    .get(&key)
+                    .map(|p| p.as_str())
+                    .unwrap_or("loading patch…");
+                row = row.child(
+                    div()
+                        .id(SharedString::from(format!("detail-patch-{}", file.path)))
+                        .ml_4()
+                        .mr_1()
+                        .mb_1()
+                        .rounded_md()
+                        .bg(theme::CARD)
+                        .border_1()
+                        .border_color(theme::BORDER_LIGHT)
+                        .p_2()
+                        .max_h(px(220.))
+                        .overflow_y_scroll()
+                        .child(crate::ui::diff::render_diff(patch, theme::FONT_SMALL - 2.0, window)),
+                );
+            }
+            files = files.child(row);
+        }
+        list = list.child(files);
+
+        if let Some(body) = &details.body {
+            list = list.child(
+                div()
+                    .id("detail-body")
+                    .rounded_md()
+                    .bg(theme::CARD)
+                    .border_1()
+                    .border_color(theme::BORDER_LIGHT)
+                    .p_2()
+                    .text_size(px(theme::FONT_SMALL))
+                    .text_color(theme::TEXT_DIM)
+                    .child(body.clone()),
+            );
+        }
+        list.into_any_element()
+    }
+
+    fn render_rail(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let store = self.store.read(cx);
         let entry = store.selected_entry().cloned();
         let branch = entry.as_ref().and_then(|e| e.git_branch_name.clone());
@@ -348,9 +697,40 @@ impl ChangesView {
         rail = rail.child(buttons);
         rail = rail.child(
             div()
-                .text_size(px(theme::FONT_SMALL - 1.))
-                .text_color(theme::TEXT_FAINT)
-                .child(format!("Last fetched {last_fetch}")),
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_color(theme::TEXT_FAINT)
+                        .child(format!("Last fetched {last_fetch}")),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("history-button")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_1p5()
+                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .when(self.history_open, |d| {
+                            d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
+                        })
+                        .when(!self.history_open, |d| d.text_color(theme::TEXT_MUTED))
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.history_open {
+                                this.history_open = false;
+                                this.drilled_commit = None;
+                                cx.notify();
+                            } else {
+                                this.open_history(cx);
+                            }
+                        }))
+                        .child("History"),
+                ),
         );
 
         // commit message + commit

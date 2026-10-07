@@ -350,6 +350,27 @@ pub fn staged_patch(folder: &Path) -> Option<String> {
     .flatten()
 }
 
+/// The most recent commits, newest first (the history list's deeper cut).
+pub fn history_commits(folder: &Path, limit: usize) -> Option<Vec<GitCommitInfo>> {
+    with_repo(folder, |repo| {
+        let mut walker = repo.revwalk().ok()?;
+        walker.push_head().ok()?;
+        let mut commits = Vec::new();
+        for oid in walker.take(limit).flatten() {
+            if let Ok(commit) = repo.find_commit(oid) {
+                commits.push(GitCommitInfo {
+                    hash: commit.id().to_string(),
+                    subject: commit.summary().ok().flatten().unwrap_or_default().to_string(),
+                    author: commit.author().name().ok().map(str::to_string),
+                    date: to_local(commit.time()),
+                });
+            }
+        }
+        Some(commits)
+    })
+    .flatten()
+}
+
 /// The most recent commits, newest first.
 pub fn recent_commits(folder: &Path) -> Option<Vec<GitCommitInfo>> {
     with_repo(folder, |repo| {

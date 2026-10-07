@@ -65,3 +65,71 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
     let loaded = cx.read_entity(&store, |s, _| s.changes_loaded_for.is_some());
     assert!(loaded, "changes should be loaded for the selected repo");
 }
+
+#[gpui_kit::gpui::test]
+fn history_and_drill_down_draw(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+
+    let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .to_path_buf();
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.replace_repos(vec![devtools_core::repo_store::RepoEntry {
+            name: "probe-repo".into(),
+            folder_path: here.clone(),
+            solution_path: None,
+            tags: vec![],
+            git_branch_name: Some("main".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+        }]);
+        store.select_repo(Some(here.to_string_lossy().to_string()), cx);
+        store.changes = devtools_core::git::read::change_snapshot(&here);
+        store.changes_loaded_for = Some(here.to_string_lossy().to_string());
+        store.history = devtools_core::git::read::history_commits(&here, 30).unwrap_or_default();
+        store.unpushed = devtools_core::git::read::unpushed_hashes(&here);
+        store
+    });
+    assert!(
+        cx.read_entity(&store, |s, _| s.history.len()) > 5,
+        "probe repo should have history"
+    );
+
+    let (view_handle, cx) = cx.add_window_view(|window, cx| {
+        devtools::ui::changes::ChangesView::new(store.clone(), window, cx)
+    });
+    cx.run_until_parked();
+
+    // list pane
+    view_handle.update(cx, |view, cx| view.open_history(cx));
+    cx.run_until_parked();
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // drill into the newest commit (details pre-seeded the way the net would)
+    let head_hash = cx.read_entity(&store, |s, _| {
+        s.history.first().map(|c| c.hash.clone()).unwrap_or_default()
+    });
+    let details = devtools_core::git::read::commit_details(&here, &head_hash);
+    view_handle.update(cx, |view, cx| view.drill_commit(&head_hash, cx));
+    store.update(cx, |s: &mut Store, _| {
+        s.commit_details = details;
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
