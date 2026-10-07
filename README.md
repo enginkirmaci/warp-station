@@ -1,8 +1,31 @@
 # Dev Tools
 
-Compact Avalonia developer utilities collection.
+Compact developer utilities collection. Two implementations live side by side:
 
-## Quick start
+- **`src/`** — the original C#/Avalonia app (the reference; also hosts SnapIt).
+- **`rust/`** — the Rust/GPUI port (the active development target).
+
+## Rust port quick start
+
+```sh
+cd rust
+cargo run            # debug run
+cargo test           # unit + live git parity + headless UI probes
+```
+
+User data is shared with the C# app (`~/.devtools` — settings, repos cache,
+notes, opencode prompts). Linux install / AppImage:
+
+```sh
+rust/packaging/linux/install.sh install rust/target/release/devtools
+rust/packaging/linux/build-appimage.sh          # → portable/DevTools-<v>-x86_64.AppImage
+```
+
+Windows: `rust/packaging/windows/build-portable.ps1` (+ Inno Setup script
+`devtools.iss`). The opencode AI wands need `opencode` on PATH and the
+OpenCode section enabled in Settings.
+
+## C# app quick start
  
 Build:
 ```sh

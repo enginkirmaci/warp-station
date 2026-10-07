@@ -214,6 +214,8 @@ impl SettingsPage {
             store.load_models(cx);
             cx.notify();
         });
+        // the boot registration follows the saved flag
+        devtools_core::autostart::reconcile(self.start_at_boot);
         self.saved_note = Some(std::time::Instant::now());
         cx.notify();
     }

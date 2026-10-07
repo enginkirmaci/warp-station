@@ -1,0 +1,311 @@
+//! The Formatters drawer panel: one input box, four operations (Base64
+//! encode/decode, snake_case, PascalCase) and a recent-results history you
+//! can click back into the input.
+
+use crate::store::Store;
+use crate::theme;
+use gpui::prelude::*;
+use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::Sizable as _;
+
+#[derive(Clone, Copy, PartialEq)]
+enum FormatterMode {
+    Base64Encode,
+    Base64Decode,
+    SnakeCase,
+    PascalCase,
+}
+
+impl FormatterMode {
+    fn label(&self) -> &'static str {
+        match self {
+            FormatterMode::Base64Encode => "Base64 encode",
+            FormatterMode::Base64Decode => "Base64 decode",
+            FormatterMode::SnakeCase => "snake_case",
+            FormatterMode::PascalCase => "PascalCase",
+        }
+    }
+
+    fn run(&self, input: &str) -> Result<String, String> {
+        match self {
+            FormatterMode::Base64Encode => Ok(b64_encode(input.as_bytes())),
+            FormatterMode::Base64Decode => b64_decode(input.trim()).map(|bytes| String::from_utf8_lossy(&bytes).to_string()),
+            FormatterMode::SnakeCase => Ok(to_snake_case(input)),
+            FormatterMode::PascalCase => Ok(to_pascal_case(input)),
+        }
+    }
+}
+
+pub struct FormattersDrawer {
+    pub store: Entity<Store>,
+    mode: FormatterMode,
+    input: Entity<InputState>,
+    output: String,
+    history: Vec<String>,
+}
+
+impl FormattersDrawer {
+    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Paste text…"));
+        cx.subscribe(&input, |this, field, event: &InputEvent, cx| {
+            if let InputEvent::PressEnter { .. } = event {
+                this.run(field.read(cx).value().to_string());
+                cx.notify();
+            }
+        })
+        .detach();
+        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new() }
+    }
+
+    fn run(&mut self, text: String) {
+        if text.trim().is_empty() {
+            return;
+        }
+        match self.mode.run(&text) {
+            Ok(result) => {
+                self.output = result.clone();
+                self.history.insert(0, result);
+                self.history.truncate(8);
+            }
+            Err(err) => self.output = err,
+        }
+    }
+}
+
+impl Render for FormattersDrawer {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let mut modes = div().flex().flex_row().gap_1().flex_wrap();
+        for mode in [
+            FormatterMode::Base64Encode,
+            FormatterMode::Base64Decode,
+            FormatterMode::SnakeCase,
+            FormatterMode::PascalCase,
+        ] {
+            let active = self.mode == mode;
+            modes = modes.child(
+                div()
+                    .id(SharedString::from(format!("fmt-mode-{}", mode.label())))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_1()
+                    .text_size(px(theme::FONT_SMALL))
+                    .when(active, |d| {
+                        d.bg(theme::tint(theme::ACCENT))
+                            .text_color(theme::ACCENT)
+                            .font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .when(!active, |d| d.bg(theme::CHIP).text_color(theme::TEXT_MUTED))
+                    .hover(|s| s.opacity(0.9))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.mode = mode;
+                        cx.notify();
+                    }))
+                    .child(mode.label()),
+            );
+        }
+
+        let mut history = div().flex().flex_col();
+        for (index, item) in self.history.iter().enumerate() {
+            history = history.child(
+                div()
+                    .id(("fmt-history", index as u64))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_1p5()
+                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .font_family(gpui::SharedString::from(theme::code_font()))
+                    .text_color(theme::TEXT_FAINT)
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click({
+                        let item = item.clone();
+                        cx.listener(move |this, _, window, cx| {
+                            this.input.update(cx, |state, cx| state.set_value(item.as_str(), window, cx));
+                        })
+                    })
+                    .child(truncate_middle(item, 48)),
+            );
+        }
+
+        div()
+            .id("formatters-drawer")
+            .w(px(380.))
+            .h_full()
+            .bg(theme::POPUP)
+            .border_l_1()
+            .border_color(theme::HAIRLINE)
+            .shadow_lg()
+            .p_3()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .occlude()
+            .child(
+                div()
+                    .text_size(px(theme::FONT_TITLE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Formatters"),
+            )
+            .child(modes)
+            .child(Input::new(&self.input).small())
+            .child(
+                div().flex().flex_row().justify_end().child(run_button(cx)),
+            )
+            .child(
+                div()
+                    .id("fmt-output")
+                    .rounded_md()
+                    .bg(theme::CARD)
+                    .border_1()
+                    .border_color(theme::BORDER_LIGHT)
+                    .p_2()
+                    .min_h(px(72.))
+                    .max_h(px(180.))
+                    .overflow_y_scroll()
+                    .text_size(px(theme::FONT_SMALL))
+                    .font_family(gpui::SharedString::from(theme::code_font()))
+                    .text_color(theme::TEXT_DIM)
+                    .when(self.output.is_empty(), |d| d.text_color(theme::TEXT_FAINT))
+                    .child(if self.output.is_empty() { "—".to_string() } else { self.output.clone() }),
+            )
+            .when(!self.history.is_empty(), |drawer| {
+                drawer.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::TEXT_FAINT).child("Recent")).child(history)
+            })
+    }
+}
+
+fn run_button(cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
+    div()
+        .id("fmt-run")
+        .cursor_pointer()
+        .rounded_md()
+        .px_3()
+        .py_1()
+        .text_size(px(theme::FONT_SMALL))
+        .font_weight(FontWeight::SEMIBOLD)
+        .bg(theme::ACCENT)
+        .text_color(theme::ON_ACCENT)
+        .hover(|s| s.opacity(0.9))
+        .on_click(cx.listener(|this, _, _, cx| {
+            let text = this.input.read(cx).value().to_string();
+            this.run(text);
+            cx.notify();
+        }))
+        .child("Run")
+        .into_any_element()
+}
+
+fn truncate_middle(text: &str, max: usize) -> String {
+    let count = text.chars().count();
+    if count <= max {
+        return text.to_string();
+    }
+    let half = (max - 1) / 2;
+    let start: String = text.chars().take(half).collect();
+    let end: String = text.chars().skip(count - half).collect();
+    format!("{start}…{end}")
+}
+
+// ---- the operations ------------------------------------------------------------
+
+fn to_snake_case(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 4);
+    for (index, ch) in input.chars().enumerate() {
+        if ch.is_uppercase() {
+            if index > 0 {
+                out.push('_');
+            }
+            out.extend(ch.to_lowercase());
+        } else if ch == ' ' || ch == '-' {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn to_pascal_case(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut capitalize = true;
+    for ch in input.chars() {
+        if ch == ' ' || ch == '_' || ch == '-' {
+            capitalize = true;
+        } else if capitalize {
+            out.extend(ch.to_uppercase());
+            capitalize = false;
+        } else {
+            out.extend(ch.to_lowercase());
+        }
+    }
+    out
+}
+
+fn b64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let value_of = |c: u8| -> Option<u32> {
+        TABLE.iter().position(|&t| t == c).map(|ix| ix as u32)
+    };
+    let mut out = Vec::new();
+    let mut buffer: u32 = 0;
+    let mut bits = 0u32;
+    for &c in input.as_bytes() {
+        if c == b'=' || c == b'\n' || c == b'\r' || c == b' ' {
+            continue;
+        }
+        let Some(value) = value_of(c) else {
+            return Err(format!("'{}' is not a base64 character", c as char));
+        };
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn casing_conversions() {
+        assert_eq!(to_snake_case("DeviceIdentifier"), "device_identifier");
+        assert_eq!(to_snake_case("already snake"), "already_snake");
+        assert_eq!(to_pascal_case("device_identifier"), "DeviceIdentifier");
+        assert_eq!(to_pascal_case("hello world"), "HelloWorld");
+    }
+
+    #[test]
+    fn base64_round_trip() {
+        let encoded = b64_encode(b"hello devtools");
+        assert_eq!(encoded, "aGVsbG8gZGV2dG9vbHM=");
+        assert_eq!(b64_decode(&encoded).unwrap(), b"hello devtools");
+        assert!(b64_decode("not@base64!").is_err());
+    }
+
+    #[test]
+    fn formatter_modes_run() {
+        assert_eq!(FormatterMode::SnakeCase.run("FooBar").unwrap(), "foo_bar");
+        assert_eq!(FormatterMode::PascalCase.run("foo_bar").unwrap(), "FooBar");
+        assert_eq!(FormatterMode::Base64Encode.run("a").unwrap(), "YQ==");
+        assert_eq!(FormatterMode::Base64Decode.run("YQ==").unwrap(), "a");
+    }
+}

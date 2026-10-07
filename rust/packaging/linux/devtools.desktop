@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DevTools
+GenericName=Repository workbench
+Comment=Repositories, git changes, pull requests and notes
+Exec=devtools
+Icon=devtools
+Terminal=false
+Categories=Development;RevisionControl;
+StartupWMClass=devtools

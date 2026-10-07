@@ -26,6 +26,8 @@ pub struct MainWindow {
     bottom_bar: Entity<BottomBar>,
     global_search: Entity<InputState>,
     notes_window: Option<gpui::AnyWindowHandle>,
+    formatters_open: bool,
+    formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
 }
 
 impl MainWindow {
@@ -53,6 +55,8 @@ impl MainWindow {
             bottom_bar,
             global_search,
             notes_window: None,
+            formatters_open: false,
+            formatters: None,
         }
     }
 }
@@ -66,6 +70,10 @@ impl Render for MainWindow {
             .bg(theme::BACKGROUND)
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
+            // mounts the window's selection machinery: without this layer the
+            // kit's global mouse handlers never register and selectable
+            // TextViews (README, notes preview) ignore drags entirely
+            .child(gpui_kit::base::TextSelectionLayer)
             .child(self.render_titlebar(window, cx))
             .child(self.render_body(window, cx))
             .relative();
@@ -74,6 +82,31 @@ impl Render for MainWindow {
         }
         if let Some(popup) = self.render_search_popup(cx) {
             root = root.child(popup);
+        }
+        if self.formatters_open {
+            if let Some(drawer) = &self.formatters {
+                let scrim_store = self.store.clone();
+                root = root.child(
+                    div()
+                        .id("formatters-scrim")
+                        .absolute()
+                        .inset_0()
+                        .occlude()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.formatters_open = false;
+                            cx.notify();
+                            let _ = scrim_store;
+                        }))
+                        .child(
+                            div()
+                                .absolute()
+                                .top(px(38.))
+                                .right_0()
+                                .bottom_0()
+                                .child(drawer.clone()),
+                        ),
+                );
+            }
         }
         root
     }
@@ -362,6 +395,32 @@ impl MainWindow {
                         window.start_window_move();
                     }),
             )
+            .child({
+                div()
+                    .id("tools-toggle")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .size(px(26.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(self.formatters_open, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.formatters_open = !this.formatters_open;
+                        if this.formatters_open && this.formatters.is_none() {
+                            this.formatters = Some(cx.new(|cx| {
+                                crate::ui::formatters::FormattersDrawer::new(this.store.clone(), window, cx)
+                            }));
+                        }
+                        cx.notify();
+                    }))
+                    .child(icon(
+                        "icons/icon-grid.svg",
+                        px(theme::ICON_MEDIUM),
+                        if self.formatters_open { theme::ACCENT } else { theme::TEXT_MUTED },
+                    ))
+            })
             .child({
                 let on_settings = self.page == Page::Settings;
                 div()

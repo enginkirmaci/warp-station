@@ -1,0 +1,63 @@
+//! OS autostart registration, reconciled to the StartAtBoot setting on every
+//! settings save: an XDG autostart entry on Linux (pointing at the running
+//! executable), the per-user registry Run key on Windows (via reg.exe — no
+//! extra dependency).
+
+pub fn reconcile(enable: bool) {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let dir = xdg_autostart_dir();
+        let entry = dir.join("devtools.desktop");
+        if enable {
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "devtools".into());
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(
+                &entry,
+                format!(
+                    "[Desktop Entry]\\nType=Application\\nName=DevTools\\nExec={exe}\\nTerminal=false\\nX-GNOME-Autostart-enabled=true\\n"
+                ),
+            );
+        } else if entry.exists() {
+            let _ = std::fs::remove_file(&entry);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let exe = match std::env::current_exe() {
+            Ok(path) => path.to_string_lossy().to_string(),
+            Err(_) => return,
+        };
+        use std::process::Command;
+        let result = if enable {
+            Command::new("reg")
+                .args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", &exe, "/f"])
+                .output()
+        } else {
+            Command::new("reg")
+                .args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/f"])
+                .output()
+        };
+        if let Ok(output) = result {
+            if !output.status.success() && enable {
+                tracing::warn!("autostart registration failed: {}", String::from_utf8_lossy(&output.stderr));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = enable; // launchd agent left for a later pass
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn xdg_autostart_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".config")
+        })
+        .join("autostart")
+}
