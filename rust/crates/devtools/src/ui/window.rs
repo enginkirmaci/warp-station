@@ -63,6 +63,10 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        if self.store.read(cx).notes_requested {
+            self.store.update(cx, |s, _| s.notes_requested = false);
+            self.open_notes_window(window, cx);
+        }
         let mut root = div()
             .size_full()
             .flex()
@@ -381,7 +385,13 @@ impl MainWindow {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Dev Tools"),
             )
-            .child(div().w(px(220.)).child(Input::new(&self.global_search).small()))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .justify_center()
+                    .child(div().w(px(320.)).child(Input::new(&self.global_search).small())),
+            )
             .child(
                 div()
                     .id("titlebar-drag")

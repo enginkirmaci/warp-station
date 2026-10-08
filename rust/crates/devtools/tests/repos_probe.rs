@@ -102,6 +102,6 @@ fn px_col() -> gpui::Pixels {
 }
 
 fn px_row() -> gpui::Pixels {
-    // titlebar 38 + toolbar ~42 + totals ~36 + table head ~30 + row center ~22
-    gpui::px(168.)
+    // titlebar 38 + toolbar ~44 (no totals row, header collapsed) + row center
+    gpui::px(100.)
 }

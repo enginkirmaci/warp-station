@@ -64,6 +64,8 @@ pub struct Store {
     pub pending_note_open: Option<std::path::PathBuf>,
     /// Global-search results (repos by name/path + note content hits).
     pub global_search: Vec<GlobalSearchHit>,
+    /// The repos-table notes button asks for the floating notes window.
+    pub notes_requested: bool,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -116,6 +118,7 @@ impl Store {
             notice: None,
             pending_note_open: None,
             global_search: Vec::new(),
+            notes_requested: false,
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -587,6 +590,15 @@ impl Store {
         cx.notify();
     }
 
+    /// Clears the search text and tag filter in one transition (the toolbar's
+    /// Clear).
+    pub fn clear_filters(&mut self, cx: &mut Context<Self>) {
+        self.search.clear();
+        self.tag_filter = None;
+        self.reproject();
+        cx.notify();
+    }
+
     pub fn set_sort(&mut self, mode: RepoSortMode, cx: &mut Context<Self>) {
         self.sort_mode = mode;
         self.update_settings(|s| s.repos.sort_mode = mode);
@@ -635,6 +647,10 @@ impl Store {
     /// dialog's adoption path).
     pub fn replace_repos(&mut self, repos: Vec<RepoEntry>) {
         self.repos = repos;
+        self.reproject();
+    }
+
+    pub fn reproject_pub(&mut self) {
         self.reproject();
     }
 

@@ -54,22 +54,16 @@ fn changes_weight(repo: &RepoEntry) -> u32 {
     repo.git_modified_count * 10 + repo.git_to_push_count * 5 + repo.git_to_pull_count
 }
 
-/// Every distinct tag across the list, favorites and platform leading.
+/// Every distinct tag across the list; favorites and platform always lead
+/// (the .NET toolbar shows both unconditionally).
 pub fn all_tags(repos: &[RepoEntry]) -> Vec<String> {
-    let mut tags: Vec<String> = vec![FAVORITES_TAG.to_string()];
+    let mut tags: Vec<String> = vec![FAVORITES_TAG.to_string(), devtools_core::scan::PLATFORM_TAG.to_string()];
     for repo in repos {
         for tag in &repo.tags {
             if !tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
                 tags.push(tag.clone());
             }
         }
-    }
-    // platform lands right after favorites when present
-    let platform = devtools_core::scan::PLATFORM_TAG;
-    if tags.iter().any(|t| t.eq_ignore_ascii_case(platform)) {
-        let ix = tags.iter().position(|t| t.eq_ignore_ascii_case(platform)).unwrap();
-        let tag = tags.remove(ix);
-        tags.insert(1, tag);
     }
     tags
 }

@@ -94,6 +94,18 @@ pub fn apply_kit_theme(cx: &mut App) {
 
         t.font_family = gpui::SharedString::from(ui_font());
         t.mono_font_family = gpui::SharedString::from(code_font());
+
+        // the repos table blends into the page like the .NET row list: no
+        // near-black canvas, no zebra, no visible grid (the color fields
+        // reconcile into the tokens)
+        t.table = BACKGROUND.into();
+        t.table_head = BACKGROUND.into();
+        t.table_even = BACKGROUND.into();
+        t.table_hover = HOVER;
+        t.table_active = tint(ACCENT);
+        t.table_active_border = ACCENT.into();
+        t.table_row_border = BORDER_LIGHT.into();
+        t.table_foot = BACKGROUND.into();
     });
 }
 
