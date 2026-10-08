@@ -4,7 +4,7 @@
 //! that renders in place with Save/Discard; Save writes README.md.
 
 use crate::net::WandKind;
-use crate::store::Store;
+use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, Window};
@@ -118,7 +118,10 @@ impl Render for OverviewView {
                                     Err(err) => {
                                         tracing::warn!("README save failed: {err}");
                                         this.store.update(cx, |s: &mut Store, cx| {
-                                            s.wand_error = Some(format!("save failed: {err}"));
+                                            s.notice = Some((
+                                                "Could not save README.md".into(),
+                                                std::time::Instant::now(),
+                                            ));
                                             cx.notify();
                                         });
                                     }
@@ -129,30 +132,38 @@ impl Render for OverviewView {
                         .child("Save"),
                 )
             })
-            .child({
-                let store = self.store.clone();
-                div()
-                    .id("readme-wand")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(theme::FONT_SMALL))
-                    .when(wand_active, |d| {
-                        d.text_color(theme::ACCENT)
-                            .border_1()
-                            .border_color(theme::tint(theme::ACCENT))
-                    })
-                    .when(!wand_active, |d| {
-                        d.text_color(theme::TEXT_MUTED)
-                            .border_1()
-                            .border_color(theme::HAIRLINE)
-                    })
-                    .hover(|s| s.opacity(0.85))
-                    .on_click(move |_, _, cx| {
-                        store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
-                    })
-                    .child(if wand_active { "✦ generating…" } else { "✦ generate" })
+            .when(!wand_active && self.store.read(cx).settings().opencode.enable_opencode, |row| {
+                row.child({
+                    let store = self.store.clone();
+                    div()
+                        .id("readme-wand")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::TEXT_MUTED)
+                        .border_1()
+                        .border_color(theme::HAIRLINE)
+                        .hover(|s| s.opacity(0.85))
+                        .on_click(move |_, _, cx| {
+                            store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
+                        })
+                        .child("✦ generate")
+                })
+            })
+            .when(wand_active, |row| {
+                row.child(
+                    div()
+                        .rounded_md()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::ACCENT)
+                        .border_1()
+                        .border_color(theme::tint(theme::ACCENT))
+                        .child("✦ generating…"),
+                )
             });
 
         let pane = div()
@@ -200,7 +211,7 @@ impl Render for OverviewView {
                     .child(header)
                     .child(pane),
             )
-            .child(render_sidebar(folder, entry, details))
+            .child(render_sidebar(folder, entry, details, self.store.clone(), cx))
     }
 }
 
@@ -208,7 +219,53 @@ fn render_sidebar(
     folder: Option<String>,
     entry: Option<devtools_core::repo_store::RepoEntry>,
     details: Option<devtools_core::github::GitHubRepoDetails>,
+    store: Entity<Store>,
+    cx: &Context<OverviewView>,
 ) -> gpui::AnyElement {
+    let settings = store.read(cx).settings();
+    // the .NET overview's three stat tiles: each opens its tab
+    let tile = |id: &'static str, label: &'static str, count: u32, color: gpui::Rgba, tab: BottomBarTab| {
+        let store = store.clone();
+        div()
+            .id(id)
+            .cursor_pointer()
+            .when(count > 0, |d| d.cursor_pointer())
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .rounded_md()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::CARD)
+            .p_2()
+            .hover(|s| s.border_color(theme::TEXT_FAINT))
+            .on_click(move |_, _, cx| {
+                let folder = store.read(cx).selected_repo.clone().unwrap_or_default();
+                store.update(cx, |s, cx| s.open_repo_tab(&folder, tab, cx));
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(theme::FONT_TITLE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(format!("{count}")),
+            )
+            .child(
+                div()
+                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(label),
+            )
+    };
+    let modified = entry.as_ref().map(|e| e.git_modified_count).unwrap_or(0);
+    let prs = entry.as_ref().map(|e| e.github_pr_count).unwrap_or(0);
+    let issues = entry.as_ref().map(|e| e.github_issue_count).unwrap_or(0);
+
     let mut side = div()
         .id("overview-sidebar")
         .w(px(300.))
@@ -220,6 +277,23 @@ fn render_sidebar(
         .border_l_1()
         .border_color(theme::HAIRLINE)
         .overflow_y_scroll()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .child(tile("tile-changes", "Changes", modified, theme::AMBER_BRIGHT, BottomBarTab::Changes))
+                .when(settings.repos.enable_git_hub, |row| {
+                    row.child(tile(
+                        "tile-prs",
+                        "Pull Requests",
+                        prs,
+                        theme::PURPLE_BRIGHT,
+                        BottomBarTab::PullRequests,
+                    ))
+                    .child(tile("tile-issues", "Issues", issues, theme::SUCCESS_BRIGHT, BottomBarTab::Issues))
+                }),
+        )
         .child(
             div()
                 .text_size(px(theme::FONT_TITLE))
@@ -238,7 +312,7 @@ fn render_sidebar(
             side = side.child(detail_row("Owner", owner.clone()));
         }
         if let Some(created) = &details.created_at {
-            side = side.child(detail_row("Created", created.get(..10).unwrap_or(created.as_str()).to_string()));
+            side = side.child(detail_row("Created", format_created(created)));
         }
         if let Some(language) = &details.primary_language {
             side = side.child(detail_row("Language", language.clone()));
@@ -287,6 +361,13 @@ fn read_readme(folder: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// gh returns ISO timestamps; the .NET details card shows "27 Nov 2023".
+fn format_created(iso: &str) -> String {
+    chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
+        .map(|d| d.format("%-d %b %Y").to_string())
+        .unwrap_or_else(|_| iso.to_string())
 }
 
 fn detail_row(label: &str, value: String) -> impl IntoElement + use<> {

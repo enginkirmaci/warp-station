@@ -105,16 +105,62 @@ fn probed_terminals() -> &'static [&'static str] {
 
 /// Runs a command (zcode, opencode, …) inside a terminal at the folder.
 pub fn launch_in_terminal(folder: &str, command: &str, terminal_executable: &str) -> Result<(), String> {
-    type ArgsFn = fn(&str, &str) -> Vec<String>;
+    launch_argv_in_terminal(folder, &[command.to_string()], terminal_executable)
+}
+
+/// Runs a full argv (e.g. `opencode --model <id>`) inside a terminal at the
+/// folder — the quick-launch path, where the command carries arguments.
+pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executable: &str) -> Result<(), String> {
+    if argv.is_empty() {
+        return Err("nothing to launch".into());
+    }
+    type ArgsFn = fn(&str, &[String]) -> Vec<String>;
     let table: &[(&str, ArgsFn)] = &[
-        ("alacritty", |dir, exe| vec!["--working-directory".into(), dir.into(), "-e".into(), exe.into()]),
-        ("ghostty", |dir, exe| vec![format!("--working-directory={dir}"), "-e".into(), exe.into()]),
-        ("foot", |dir, exe| vec![format!("--working-directory={dir}"), exe.into()]),
-        ("kitty", |dir, exe| vec!["--directory".into(), dir.into(), exe.into()]),
-        ("wezterm", |dir, exe| vec!["start".into(), "--cwd".into(), dir.into(), "--".into(), exe.into()]),
-        ("gnome-terminal", |dir, exe| vec![format!("--working-directory={dir}"), "--".into(), exe.into()]),
-        ("konsole", |dir, exe| vec!["--workdir".into(), dir.into(), "-e".into(), exe.into()]),
-        ("xterm", |_dir, exe| vec!["-e".into(), exe.into()]),
+        ("alacritty", |dir, cmd| {
+            vec!["--working-directory".into(), dir.into(), "-e".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("ghostty", |dir, cmd| {
+            vec![format!("--working-directory={dir}"), "-e".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("foot", |dir, cmd| {
+            vec![format!("--working-directory={dir}")]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("kitty", |dir, cmd| {
+            vec!["--directory".into(), dir.into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("wezterm", |dir, cmd| {
+            vec!["start".into(), "--cwd".into(), dir.into(), "--".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("gnome-terminal", |dir, cmd| {
+            vec![format!("--working-directory={dir}"), "--".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("konsole", |dir, cmd| {
+            vec!["--workdir".into(), dir.into(), "-e".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("xterm", |_dir, cmd| {
+            vec!["-e".into()].into_iter().chain(cmd.iter().cloned()).collect()
+        }),
     ];
     // the configured terminal wins when it names a known shape
     let configured_base = terminal_executable
@@ -135,13 +181,13 @@ pub fn launch_in_terminal(folder: &str, command: &str, terminal_executable: &str
     for (name, args) in ordered {
         if let Some(path) = exe::locate(name) {
             let mut command_builder = std::process::Command::new(&path);
-            command_builder.args(args(folder, command));
+            command_builder.args(args(folder, argv));
             if Path::new(folder).exists() {
                 command_builder.current_dir(folder);
             }
             match command_builder.spawn() {
                 Ok(_) => {
-                    tracing::info!("launched {name} running {command} in {folder}");
+                    tracing::info!("launched {name} running {:?} in {folder}", argv);
                     return Ok(());
                 }
                 Err(err) => return Err(err.to_string()),

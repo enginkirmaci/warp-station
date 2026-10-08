@@ -36,12 +36,18 @@ pub struct NotesPage {
     editor: Entity<TextareaState>,
     /// Delete arming: (path, expire-instant) — a second click within 3s fires.
     armed_delete: Option<(PathBuf, std::time::Instant)>,
+    /// The "+ note" create form (name + optional folder), like the .NET flyout.
+    create_open: bool,
+    create_name: Entity<InputState>,
+    create_folder: Entity<InputState>,
 }
 
 impl NotesPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search notes"));
         let editor = cx.new(|cx| TextareaState::new(window, cx).placeholder("# Title"));
+        let create_name = cx.new(|cx| InputState::new(window, cx).placeholder("New note name"));
+        let create_folder = cx.new(|cx| InputState::new(window, cx).placeholder("Folder (optional)"));
         cx.subscribe(&search, |this, field, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.run_search(field.read(cx).value().to_string(), cx);
@@ -61,6 +67,9 @@ impl NotesPage {
             search_hits: Vec::new(),
             editor,
             armed_delete: None,
+            create_open: false,
+            create_name,
+            create_folder,
         }
     }
 
@@ -68,8 +77,12 @@ impl NotesPage {
         let store = self.store.read(cx);
         let settings = store.settings();
         let root = notes_core::resolve_store_root(&settings.general.notes_store_path);
-        let repo = store.selected_entry()?;
-        Some(notes_core::repo_notes_root(&root, &repo.name))
+        // repo-scoped when a repo is selected, whole-store otherwise (the
+        // .NET title-bar notes view roots at the store, one folder per repo)
+        match store.selected_entry() {
+            Some(repo) => Some(notes_core::repo_notes_root(&root, &repo.name)),
+            None => Some(root),
+        }
     }
 
     fn reload_tree(&mut self, cx: &mut Context<Self>) {
@@ -111,7 +124,7 @@ impl NotesPage {
                 tracing::info!("saved {}", path.display());
                 let _ = root;
             }
-            Err(err) => tracing::warn!("note save failed: {err}"),
+            Err(err) => self.notice(cx, &format!("note save failed: {err}")),
         }
         cx.notify();
     }
@@ -130,14 +143,46 @@ impl NotesPage {
 
     fn create_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.notes_root(cx) else { return };
-        let name = format!("note-{}", chrono::Local::now().format("%H%M%S"));
-        match notes_core::create_note(&root, &root, &name) {
+        let raw_name = self.create_name.read(cx).value().to_string();
+        let raw_folder = self.create_folder.read(cx).value().to_string();
+        let Some(name) = notes_core::sanitize_entry_name(raw_name.trim(), true) else {
+            self.notice(cx, "Enter a note name");
+            return;
+        };
+        // optional subfolder under the root (sanitized per segment)
+        let mut target = root.clone();
+        if !raw_folder.trim().is_empty() {
+            for segment in raw_folder.trim().split(['/', '\\']) {
+                match notes_core::sanitize_entry_name(segment, false) {
+                    Some(clean) => target.push(clean),
+                    None => {
+                        self.notice(cx, "Folder name is not usable");
+                        return;
+                    }
+                }
+            }
+        }
+        match notes_core::create_note(&root, &target, &name) {
             Ok(path) => {
                 self.tree = notes_core::load_tree(&root);
+                self.create_open = false;
+                self.create_name.update(cx, |f, cx| f.set_value(String::new(), window, cx));
+                self.create_folder.update(cx, |f, cx| f.set_value(String::new(), window, cx));
+                if let Some(parent) = path.parent() {
+                    self.expanded.insert(parent.to_path_buf());
+                }
                 self.open_note(path, window, cx);
             }
-            Err(err) => tracing::warn!("note create failed: {err}"),
+            Err(err) => self.notice(cx, &format!("note create failed: {err}")),
         }
+    }
+
+    fn notice(&mut self, cx: &mut Context<Self>, text: &str) {
+        self.store.update(cx, |s, cx| {
+            s.notice = Some((text.to_string(), std::time::Instant::now()));
+            cx.notify();
+        });
+        cx.notify();
     }
 
     fn delete_current(&mut self, cx: &mut Context<Self>) {
@@ -151,7 +196,7 @@ impl NotesPage {
                         self.open_note = None;
                         self.tree = notes_core::load_tree(&root);
                     }
-                    Err(err) => tracing::warn!("note delete failed: {err}"),
+                    Err(err) => self.notice(cx, &format!("note delete failed: {err}")),
                 }
                 self.armed_delete = None;
             }
@@ -163,15 +208,29 @@ impl NotesPage {
     }
 
     fn apply_format(&mut self, format: &str, window: &mut Window, cx: &mut Context<Self>) {
-        // the kit textarea keeps its own selection; apply over the whole
-        // buffer's caret-less form until selection extraction is wired
+        // the kit textarea owns the selection: read it, apply over the exact
+        // range, and restore the op's returned selection
         let text = self.editor.read(cx).value().to_string();
-        let caret = text.chars().count();
-        let result = devtools_core::notes::markdown_apply(format, &text, caret, 0);
-        self.editor
-            .update(cx, |state, cx| state.set_value(result.text.as_str(), window, cx));
+        let range = self.editor.read(cx).selected_range();
+        let start_ch = byte_to_char(&text, range.start);
+        let end_ch = byte_to_char(&text, range.end);
+        let result = devtools_core::notes::markdown_apply(format, &text, start_ch, end_ch - start_ch);
+        self.editor.update(cx, |state, cx| {
+            state.set_value(result.text.as_str(), window, cx);
+            let start_b = char_to_byte(&result.text, result.start);
+            let end_b = char_to_byte(&result.text, result.start + result.length);
+            state.set_selected_range(start_b..end_b, cx);
+        });
         cx.notify();
     }
+}
+
+fn byte_to_char(text: &str, byte: usize) -> usize {
+    text[..byte.min(text.len())].chars().count()
+}
+
+fn char_to_byte(text: &str, char_ix: usize) -> usize {
+    text.char_indices().nth(char_ix).map(|(i, _)| i).unwrap_or(text.len())
 }
 
 impl Render for NotesPage {
@@ -203,7 +262,9 @@ impl Render for NotesPage {
         let armed = self
             .armed_delete
             .as_ref()
-            .map(|(path, deadline)| path == self.open_note.as_ref().unwrap() && *deadline > std::time::Instant::now())
+            .map(|(path, deadline)| {
+                Some(path) == self.open_note.as_ref() && *deadline > std::time::Instant::now()
+            })
             .unwrap_or(false);
         let note_title = self
             .open_note
@@ -228,30 +289,47 @@ impl Render for NotesPage {
                     .flex_col()
                     .min_h_0()
                     .child(self.render_toolbar(note_title, dirty, armed, has_repo, window, cx))
-                    .child(self.render_editor(preview_text)),
+                    .child(self.render_editor(preview_text))
+                    .child(self.render_status_bar(cx)),
             )
     }
 }
 
 impl NotesPage {
+    /// The .NET status strip: "N words · N chars · N lines" and "Ln x, Col y".
+    fn render_status_bar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let text = if self.open_note.is_some() { self.editor.read(cx).value().to_string() } else { String::new() };
+        let words = text.split_whitespace().count();
+        let chars = text.chars().count();
+        let lines = text.lines().count();
+        let (line, col) = if self.open_note.is_some() {
+            let byte = self.editor.read(cx).selected_range().start;
+            let prefix = &text[..byte.min(text.len())];
+            let line = prefix.matches('\n').count() + 1;
+            let col = prefix.rsplit('\n').next().map(|l| l.chars().count()).unwrap_or(0) + 1;
+            (line, col)
+        } else {
+            (1, 1)
+        };
+        div()
+            .id("notes-status")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .px_2()
+            .py_1()
+            .border_t_1()
+            .border_color(theme::HAIRLINE)
+            .text_size(px(theme::FONT_SMALL - 1.))
+            .text_color(theme::TEXT_FAINT)
+            .child(format!("{words} words · {chars} chars · {lines} lines"))
+            .child(div().flex_1())
+            .child(format!("Ln {line}, Col {col}"))
+            .into_any_element()
+    }
+
     fn render_tree(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let has_repo = self.store.read(cx).selected_entry().is_some();
-        if !has_repo {
-            return div()
-                .id("notes-tree")
-                .w(px(240.))
-                .h_full()
-                .border_r_1()
-                .border_color(theme::HAIRLINE)
-                .flex()
-                .items_center()
-                .justify_center()
-                .px_2()
-                .text_size(px(theme::FONT_SMALL))
-                .text_color(theme::TEXT_FAINT)
-                .child("Select a repository first")
-                .into_any_element();
-        }
         let term = self.search.read(cx).value().to_string();
         let mut tree = div()
             .id("notes-tree")
@@ -264,7 +342,15 @@ impl NotesPage {
             .min_h_0()
             .p_2()
             .gap_2()
-            .child(Input::new(&self.search).small());
+            .child(
+                div().on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                    if event.keystroke.key == "escape" {
+                        this.search.update(cx, |field, cx| field.set_value(String::new(), window, cx));
+                        this.search_hits.clear();
+                        cx.notify();
+                    }
+                })).child(Input::new(&self.search).small()),
+            );
 
         if !term.trim().is_empty() {
             let mut hits = div().id("notes-hits").flex().flex_col().gap_1().overflow_y_scroll();
@@ -410,8 +496,9 @@ impl NotesPage {
 
         let mut formats = div().flex().flex_row().gap_1();
         for (format, glyph) in [
-            ("bold", "B"), ("italic", "I"), ("code", "</>"), ("link", "🔗"),
-            ("h1", "H1"), ("h2", "H2"), ("bullet", "•"), ("task", "☑"), ("quote", ">"), ("hr", "―"),
+            ("bold", "B"), ("italic", "I"), ("strike", "S"), ("code", "</>"), ("codeblock", "▣"),
+            ("link", "🔗"), ("h1", "H1"), ("h2", "H2"), ("h3", "H3"),
+            ("bullet", "•"), ("numbered", "1."), ("task", "☑"), ("quote", ">"), ("hr", "―"),
         ] {
             formats = formats.child(
                 div()
@@ -451,7 +538,7 @@ impl NotesPage {
                     .when(dirty, |row| row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
                     .child(div().flex_1())
                     .child(modes)
-                    .when(has_repo, |row| {
+                    .when(has_repo || !self.tree.is_empty(), |row| {
                         row.child(
                             div()
                                 .id("note-new")
@@ -462,7 +549,10 @@ impl NotesPage {
                                 .text_size(px(theme::FONT_SMALL))
                                 .text_color(theme::ACCENT)
                                 .hover(|s| s.bg(theme::tint(theme::ACCENT)))
-                                .on_click(cx.listener(|this, _, window, cx| this.create_note(window, cx)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.create_open = !this.create_open;
+                                    cx.notify();
+                                }))
                                 .child("+ note"),
                         )
                         .child(
@@ -497,6 +587,33 @@ impl NotesPage {
                     }),
             )
             .when(self.mode != NotesMode::Preview, |toolbar| toolbar.child(formats))
+            .when(self.create_open, |toolbar| {
+                toolbar.child(
+                    div()
+                        .id("note-create-form")
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(div().w(px(180.)).child(Input::new(&self.create_name).small()))
+                        .child(div().w(px(180.)).child(Input::new(&self.create_folder).small()))
+                        .child(
+                            div()
+                                .id("note-create-confirm")
+                                .cursor_pointer()
+                                .rounded_md()
+                                .px_2()
+                                .py_0p5()
+                                .text_size(px(theme::FONT_SMALL))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .bg(theme::ACCENT)
+                                .text_color(theme::ON_ACCENT)
+                                .hover(|s| s.opacity(0.9))
+                                .on_click(cx.listener(|this, _, window, cx| this.create_note(window, cx)))
+                                .child("Create"),
+                        ),
+                )
+            })
             .into_any_element()
     }
 

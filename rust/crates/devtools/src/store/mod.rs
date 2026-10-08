@@ -15,7 +15,8 @@ pub struct Store {
     settings: Arc<SettingsService>,
     pub repos: Vec<RepoEntry>,
     pub search: String,
-    pub tag_filter: Option<String>,
+    /// Checked tag-filter chips (OR semantics: a repo matches when it has any).
+    pub tag_filters: Vec<String>,
     pub sort_mode: RepoSortMode,
     /// Row order for the table: indices into `repos` after filter+sort.
     pub projected: Vec<usize>,
@@ -88,14 +89,14 @@ impl Store {
             settings,
             repos: cached,
             search: String::new(),
-            tag_filter: None,
+            tag_filters: Vec::new(),
             sort_mode: app_settings.repos.sort_mode,
             projected: Vec::new(),
             selected_repo: None,
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
-            selected_tab: BottomBarTab::Changes,
+            selected_tab: BottomBarTab::Overview,
             changes: None,
             changes_loaded_for: None,
             branches: Vec::new(),
@@ -299,9 +300,19 @@ impl Store {
                     (Ok(text), WandKind::Readme) => {
                         self.readme_draft = Some(text.trim().to_string());
                     }
-                    (Err(err), _) => {
+                    (Err(err), WandKind::Commit) => {
                         tracing::warn!("wand failed: {err}");
                         self.wand_error = Some(err.clone());
+                        self.notice = Some((
+                            "Could not generate a commit message".into(),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    (Err(err), WandKind::Readme) => {
+                        tracing::warn!("wand failed: {err}");
+                        self.wand_error = Some(err.clone());
+                        self.notice =
+                            Some(("Could not generate a README".into(), std::time::Instant::now()));
                     }
                 }
                 cx.notify();
@@ -318,13 +329,48 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::GitDone { folder, label, error, commit_hash } => {
+            UiEvent::GitDone { folder, label, error, commit_hash, detail } => {
                 self.git_busy = false;
+                let name = self
+                    .repos
+                    .iter()
+                    .find(|r| r.folder_path.to_string_lossy() == folder)
+                    .map(|r| r.name.clone())
+                    .unwrap_or_else(|| folder.clone());
                 if let Some(err) = error {
                     tracing::warn!("git {label} failed in {folder}: {err}");
-                    self.last_git_error = Some(err);
+                    self.last_git_error = Some(err.clone());
+                    self.notice = Some((
+                        format!("{} failed for {}: {err}", capitalized_label(label), name),
+                        std::time::Instant::now(),
+                    ));
                 } else {
                     self.last_git_error = None;
+                    let now = std::time::Instant::now();
+                    self.notice = Some((
+                        match (label, commit_hash.as_deref()) {
+                            ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
+                            ("fetch", _) => format!("Fetched {name}"),
+                            ("pull", _) => format!("Pulled {name}"),
+                            ("push", _) => format!("Pushed {name}"),
+                            ("sync", _) => format!("Synced {name}"),
+                            ("publish", _) => format!(
+                                "Published {} — it tracks the remote",
+                                detail.as_deref().unwrap_or(&name)
+                            ),
+                            ("checkout", _) => format!(
+                                "Checked out {} in {name}",
+                                detail.as_deref().unwrap_or(&name)
+                            ),
+                            ("create branch", _) => format!(
+                                "Created {} in {name}",
+                                detail.as_deref().unwrap_or(&name)
+                            ),
+                            ("revert", _) => format!("Reverted in {name}"),
+                            _ => format!("{label} ok"),
+                        },
+                        now,
+                    ));
                     if let Some(hash) = commit_hash {
                         tracing::info!("committed {hash} in {folder}");
                     }
@@ -390,10 +436,7 @@ impl Store {
             cx.notify();
             return;
         };
-        let model = {
-            let m = settings.opencode.default_model.clone();
-            (!m.is_empty()).then_some(m)
-        };
+        let model = Self::wand_model(&settings);
         let folders: Vec<(String, std::path::PathBuf)> = self
             .repos
             .iter()
@@ -438,6 +481,20 @@ impl Store {
         }
     }
 
+    /// Every one-shot wand (commit message, README, summary) runs on the
+    /// commit model when set, falling back to the default model.
+    fn wand_model(settings: &AppSettings) -> Option<String> {
+        settings
+            .opencode
+            .commit_model
+            .clone()
+            .filter(|m| !m.is_empty())
+            .or_else(|| {
+                let m = settings.opencode.default_model.clone();
+                (!m.is_empty()).then_some(m)
+            })
+    }
+
     /// Kicks one wand run for the selected repo.
     pub fn run_wand(&mut self, kind: WandKind, cx: &mut Context<Self>) {
         if self.wand_busy.is_some() {
@@ -446,30 +503,22 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else { return };
         let settings = self.settings();
         if !settings.opencode.enable_opencode {
-            self.wand_error = Some("OpenCode is disabled in settings".into());
+            self.notice = Some((
+                "Could not generate — OpenCode is disabled in settings".into(),
+                std::time::Instant::now(),
+            ));
             cx.notify();
             return;
         }
         let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
-            self.wand_error = Some("opencode executable not found".into());
+            self.notice = Some((
+                "Could not generate — opencode executable not found".into(),
+                std::time::Instant::now(),
+            ));
             cx.notify();
             return;
         };
-        let model = match kind {
-            WandKind::Commit => settings
-                .opencode
-                .commit_model
-                .clone()
-                .filter(|m| !m.is_empty())
-                .or_else(|| {
-                    let m = settings.opencode.default_model.clone();
-                    (!m.is_empty()).then_some(m)
-                }),
-            WandKind::Readme => {
-                let m = settings.opencode.default_model.clone();
-                (!m.is_empty()).then_some(m)
-            }
-        };
+        let model = Self::wand_model(&settings);
         self.wand_busy = Some(kind);
         self.wand_error = None;
         let id = format!("wand-{}", self.save_generation);
@@ -565,13 +614,29 @@ impl Store {
         cx.notify();
     }
 
-    /// Adopts a finished clone: register its folder and select it.
+    /// Adopts a finished clone: its folder joins the persisted scan roots
+    /// (the roots are repo folders — this is how the rescan keeps finding it),
+    /// the list re-scans, and the bar opens on the clone's Overview.
     pub fn adopt_clone(&mut self, parent_dir: &str, name: &str, cx: &mut Context<Self>) {
         let folder = std::path::PathBuf::from(parent_dir).join(name);
         if !folder.join(".git").is_dir() {
             tracing::warn!("clone destination missing after clone: {}", folder.display());
+            self.notice =
+                Some(("The clone landed but could not be added to the list".into(), std::time::Instant::now()));
+            cx.notify();
             return;
         }
+        let folder_str = folder.to_string_lossy().to_string();
+        self.update_settings(|s| {
+            if let Some(roots) = &mut s.repos.repo_scan_folders {
+                if !roots.iter().any(|f| f == &folder_str) {
+                    roots.push(folder_str.clone());
+                    roots.sort();
+                }
+            } else {
+                s.repos.repo_scan_folders = Some(vec![folder_str.clone()]);
+            }
+        });
         let scanned = vec![devtools_core::scan::ScannedRepo {
             name: name.to_string(),
             folder_path: folder.clone(),
@@ -579,7 +644,8 @@ impl Store {
             tags: Vec::new(),
         }];
         self.register_repos(&scanned, cx);
-        self.select_repo(Some(folder.to_string_lossy().to_string()), cx);
+        self.kick_scan(&self.settings());
+        self.open_repo_tab(&folder_str, BottomBarTab::Overview, cx);
     }
 
     // ---- list shaping ------------------------------------------------------
@@ -594,7 +660,7 @@ impl Store {
     /// Clear).
     pub fn clear_filters(&mut self, cx: &mut Context<Self>) {
         self.search.clear();
-        self.tag_filter = None;
+        self.tag_filters.clear();
         self.reproject();
         cx.notify();
     }
@@ -606,21 +672,72 @@ impl Store {
         cx.notify();
     }
 
+    /// Checks/unchecks one tag-filter chip (OR semantics across the set).
     pub fn toggle_tag_filter(&mut self, tag: &str, cx: &mut Context<Self>) {
-        self.tag_filter = if self.tag_filter.as_deref() == Some(tag) {
-            None
-        } else {
-            Some(tag.to_string())
-        };
+        match self.tag_filters.iter().position(|t| t.eq_ignore_ascii_case(tag)) {
+            Some(ix) => {
+                self.tag_filters.remove(ix);
+            }
+            None => self.tag_filters.push(tag.to_string()),
+        }
         self.reproject();
         cx.notify();
     }
 
+    /// Row press: selects the repo and opens the bar on Overview; pressing
+    /// the already-highlighted row closes the bar (the .NET toggle rule).
+    /// Chip presses route through [open_repo_tab] instead.
     pub fn select_repo(&mut self, folder: Option<String>, cx: &mut Context<Self>) {
-        if self.selected_repo == folder {
+        if self.selected_repo.as_deref() == folder.as_deref() {
+            // same row pressed again → close the bar entirely
+            self.close_bar(cx);
             return;
         }
         self.selected_repo = folder;
+        self.selected_tab = BottomBarTab::Overview;
+        self.reset_repo_workspace();
+        if let Some(folder) = &self.selected_repo {
+            let _ = self.net.send_blocking(NetCommand::LoadChanges {
+                folder: std::path::PathBuf::from(folder),
+            });
+        }
+        cx.notify();
+    }
+
+    /// Selects the repo (if needed) and lands the bar on one specific tab —
+    /// the table's clickable chips (branch, changes count, PR/issue/pipeline
+    /// cells) come through here.
+    pub fn open_repo_tab(&mut self, folder: &str, tab: BottomBarTab, cx: &mut Context<Self>) {
+        if self.selected_repo.as_deref() != Some(folder) {
+            self.selected_repo = Some(folder.to_string());
+            self.selected_tab = tab;
+            self.reset_repo_workspace();
+            let _ = self.net.send_blocking(NetCommand::LoadChanges {
+                folder: std::path::PathBuf::from(folder),
+            });
+        } else {
+            self.selected_tab = tab;
+        }
+        cx.notify();
+    }
+
+    /// Selects the repo without the row-press toggle (the row's notes button
+    /// must keep the bar open even when the repo is already selected).
+    pub fn ensure_repo_selected(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if self.selected_repo.as_deref() != Some(folder) {
+            self.select_repo(Some(folder.to_string()), cx);
+        }
+    }
+
+    /// Closes the bar and clears the row highlight.
+    pub fn close_bar(&mut self, cx: &mut Context<Self>) {
+        self.selected_repo = None;
+        self.selected_tab = BottomBarTab::Overview;
+        self.reset_repo_workspace();
+        cx.notify();
+    }
+
+    fn reset_repo_workspace(&mut self) {
         self.changes = None;
         self.changes_loaded_for = None;
         self.branches.clear();
@@ -629,12 +746,8 @@ impl Store {
         self.unpushed = None;
         self.last_git_error = None;
         self.commit_details = None;
-        if let Some(folder) = &self.selected_repo {
-            let _ = self.net.send_blocking(NetCommand::LoadChanges {
-                folder: std::path::PathBuf::from(folder),
-            });
-        }
-        cx.notify();
+        self.commit_file_patch = None;
+        self.github_details = None;
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {
@@ -655,8 +768,7 @@ impl Store {
     }
 
     fn reproject(&mut self) {
-        self.projected =
-            projection::project(&self.repos, &self.search, self.tag_filter.as_deref(), self.sort_mode);
+        self.projected = projection::project(&self.repos, &self.search, &self.tag_filters, self.sort_mode);
     }
 
     /// Every distinct tag across the list, favorites and platform leading —
@@ -678,6 +790,66 @@ impl Store {
             return;
         }
         self.toggle_repo_tag_inner(folder, tag, cx);
+    }
+
+    /// The bar header's "Add tag": case-insensitive duplicate check, then the
+    /// normal tag toggle (which pushes when absent).
+    pub fn add_repo_tag(&mut self, folder: &str, tag: &str, cx: &mut Context<Self>) {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let duplicate = self
+            .repos
+            .iter()
+            .find(|r| r.folder_path.to_string_lossy() == folder)
+            .is_some_and(|r| r.tags.iter().any(|t| t.eq_ignore_ascii_case(trimmed)));
+        if duplicate {
+            self.notice = Some((
+                format!("Tag \"{trimmed}\" already exists"),
+                std::time::Instant::now(),
+            ));
+            cx.notify();
+            return;
+        }
+        self.toggle_repo_tag(folder, trimmed, cx);
+    }
+
+    /// The bar rail's refresh: re-probe the repo, reload its changes and an
+    /// open history view (the .NET RefreshPanelAsync fan-out).
+    pub fn refresh_panel(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else { return };
+        let path = std::path::PathBuf::from(&folder);
+        let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: vec![path.clone()] });
+        let _ = self.net.send_blocking(NetCommand::LoadChanges { folder: path.clone() });
+        if !self.history.is_empty() {
+            let _ = self.net.send_blocking(NetCommand::LoadHistory { folder: path });
+        }
+        cx.notify();
+    }
+
+    /// The bar kebab's "Remove from repositories": drops the repo's folder
+    /// from the persisted scan roots (disk untouched), rescans so the row
+    /// leaves the list, and closes the bar.
+    pub fn remove_from_repositories(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else { return };
+        let name = self
+            .repos
+            .iter()
+            .find(|r| r.folder_path.to_string_lossy() == folder)
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| folder.clone());
+        self.update_settings(|s| {
+            if let Some(roots) = &mut s.repos.repo_scan_folders {
+                roots.retain(|f| f != &folder);
+            }
+        });
+        self.notice = Some((
+            format!("Removed \"{name}\" from repositories"),
+            std::time::Instant::now(),
+        ));
+        self.close_bar(cx);
+        self.kick_scan(&self.settings());
     }
 
     fn toggle_repo_tag_inner(&mut self, folder: &str, tag: &str, cx: &mut Context<Self>) {
@@ -726,7 +898,8 @@ pub enum GlobalSearchHit {
 
 impl Store {
     /// One global search: repo name/path matches plus capped note-content
-    /// hits across every tracked repo's notes root.
+    /// hits across every tracked repo's notes root (.NET caps: 6 repos,
+    /// 12 notes, 40 files scanned per repo).
     pub fn run_global_search(&mut self, term: &str, cx: &mut Context<Self>) {
         let term = term.trim();
         if term.is_empty() {
@@ -734,6 +907,8 @@ impl Store {
             cx.notify();
             return;
         }
+        const REPO_CAP: usize = 6;
+        const NOTE_CAP: usize = 12;
         let mut hits: Vec<GlobalSearchHit> = self
             .repos
             .iter()
@@ -741,6 +916,7 @@ impl Store {
                 repo.name.to_lowercase().contains(&term.to_lowercase())
                     || repo.folder_path.to_string_lossy().to_lowercase().contains(&term.to_lowercase())
             })
+            .take(REPO_CAP)
             .map(|repo| GlobalSearchHit::Repo {
                 name: repo.name.clone(),
                 folder: repo.folder_path.to_string_lossy().to_string(),
@@ -751,23 +927,32 @@ impl Store {
         let settings = self.settings();
         let root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
         for repo in &self.repos {
-            if hits.len() > 20 {
+            if hits.len() >= REPO_CAP + NOTE_CAP {
                 break;
             }
             let notes_root = devtools_core::notes::repo_notes_root(&root, &repo.name);
-            for hit in devtools_core::notes::search(&notes_root, term) {
+            for hit in devtools_core::notes::search_capped(&notes_root, term, 40) {
                 hits.push(GlobalSearchHit::Note {
                     title: hit.title,
                     excerpt: hit.excerpt,
                     path: hit.path,
                 });
-                if hits.len() > 20 {
+                if hits.len() >= REPO_CAP + NOTE_CAP {
                     break;
                 }
             }
         }
         self.global_search = hits;
         cx.notify();
+    }
+}
+
+/// Capitalizes a git action label for toast texts ("stage all" → "Stage all").
+fn capitalized_label(label: &str) -> String {
+    let mut chars = label.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }
 

@@ -1,0 +1,103 @@
+//! Headless probes for the bar-opening rules: a row press opens the bar on
+//! Overview, a second press on the highlighted row closes it, chip routing
+//! lands on a specific tab without toggling, and the notes-button path never
+//! closes the bar.
+
+use devtools::store::{BottomBarTab, Store};
+use devtools_core::repo_store::RepoEntry;
+use gpui::prelude::*;
+use gpui::TestAppContext;
+use std::path::PathBuf;
+
+fn entry(name: &str, path: &str) -> RepoEntry {
+    RepoEntry {
+        name: name.into(),
+        folder_path: PathBuf::from(path),
+        solution_path: None,
+        tags: Vec::new(),
+        git_branch_name: Some("main".into()),
+        git_modified_count: 3,
+        git_to_push_count: 1,
+        git_to_pull_count: 0,
+        git_last_commit_at: None,
+        git_last_fetch_at: None,
+        git_has_remote: true,
+        git_branch_published: true,
+        git_status_loaded: true,
+        github_pr_count: 2,
+        github_issue_count: 0,
+    }
+}
+
+fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.replace_repos(vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")]);
+        store
+    })
+}
+
+#[gpui::test]
+fn row_press_opens_overview_and_repress_closes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let store = fake_store(cx);
+
+    cx.update(|cx| {
+        store.update(cx, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
+        assert_eq!(s_tab(&store, cx), BottomBarTab::Overview);
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
+
+        // same row pressed again → the bar closes entirely
+        store.update(cx, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
+        assert_eq!(s_selected(&store, cx), None);
+
+        // a different row reopens on Overview
+        store.update(cx, |s, cx| s.select_repo(Some("/probe/beta".into()), cx));
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/beta"));
+        assert_eq!(s_tab(&store, cx), BottomBarTab::Overview);
+    });
+}
+
+#[gpui::test]
+fn chip_routing_lands_on_the_requested_tab(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let store = fake_store(cx);
+
+    cx.update(|cx| {
+        store.update(cx, |s, cx| s.open_repo_tab("/probe/alpha", BottomBarTab::PullRequests, cx));
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
+        assert_eq!(s_tab(&store, cx), BottomBarTab::PullRequests);
+
+        // routing to the same repo's other tab never closes the bar
+        store.update(cx, |s, cx| s.open_repo_tab("/probe/alpha", BottomBarTab::Azure, cx));
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
+        assert_eq!(s_tab(&store, cx), BottomBarTab::Azure);
+
+        // routing for a not-selected repo switches and keeps the requested tab
+        store.update(cx, |s, cx| s.open_repo_tab("/probe/beta", BottomBarTab::Issues, cx));
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/beta"));
+        assert_eq!(s_tab(&store, cx), BottomBarTab::Issues);
+    });
+}
+
+#[gpui::test]
+fn notes_button_path_never_closes_the_bar(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let store = fake_store(cx);
+
+    cx.update(|cx| {
+        store.update(cx, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
+        // the row's notes button re-fires on the selected repo: the bar stays
+        store.update(cx, |s, cx| s.ensure_repo_selected("/probe/alpha", cx));
+        assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
+    });
+}
+
+fn s_selected(store: &gpui::Entity<Store>, cx: &gpui::App) -> Option<String> {
+    store.read(cx).selected_repo.clone()
+}
+
+fn s_tab(store: &gpui::Entity<Store>, cx: &gpui::App) -> BottomBarTab {
+    store.read(cx).selected_tab
+}

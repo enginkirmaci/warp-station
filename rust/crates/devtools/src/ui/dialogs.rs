@@ -136,7 +136,9 @@ impl AddRepoDialog {
     }
 
     fn render(&mut self, _window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
-        let mut list = div().flex().flex_col().gap_1().max_h(px(280.)).overflow_hidden();
+        let selectable = self.found.iter().filter(|(_, _, tracked)| !*tracked).count();
+        let all_checked = selectable > 0 && self.found.iter().all(|(_, checked, tracked)| *tracked || *checked);
+        let mut list = div().id("found-repo-list").flex().flex_col().gap_1().max_h(px(280.)).overflow_y_scroll();
         for (index, (repo, checked, tracked)) in self.found.iter().enumerate() {
             let label: SharedString = if *tracked {
                 format!("{}   (already tracked)", repo.name).into()
@@ -150,8 +152,11 @@ impl AddRepoDialog {
                     .rounded_md()
                     .px_2()
                     .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
                     .text_size(px(theme::FONT_SMALL))
-                    .when(*checked, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .when(*checked && !*tracked, |d| d.bg(theme::tint(theme::ACCENT)))
                     .when(*tracked, |d| d.opacity(0.5))
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
@@ -162,6 +167,26 @@ impl AddRepoDialog {
                         }
                         cx.notify();
                     }))
+                    .child(
+                        // checkbox square mirroring the .NET checklist
+                        div()
+                            .rounded_xs()
+                            .size(px(13.))
+                            .border_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_color(theme::TEXT_FAINT)
+                            .when(*checked && !*tracked, |d| {
+                                d.bg(theme::ACCENT).border_color(theme::ACCENT).child(
+                                    div()
+                                        .text_size(px(9.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(theme::ON_ACCENT)
+                                        .child("✓"),
+                                )
+                            }),
+                    )
                     .child(label),
             );
         }
@@ -188,7 +213,56 @@ impl AddRepoDialog {
                     .text_color(theme::TEXT_MUTED)
                     .child(hint),
             )
-            .when(!self.found.is_empty(), |card| card.child(list))
+            .when(!self.found.is_empty(), |card| {
+                card.child(
+                    div()
+                        .id("select-all-row")
+                        .cursor_pointer()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(theme::FONT_SMALL))
+                        .text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
+                            if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
+                                // three-state header checkbox touches only the
+                                // selectable rows (.NET "Select all available")
+                                let target = !all_checked;
+                                for (_, checked, tracked) in dialog.found.iter_mut() {
+                                    if !*tracked {
+                                        *checked = target;
+                                    }
+                                }
+                            }
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .rounded_xs()
+                                .size(px(13.))
+                                .border_1()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .border_color(theme::TEXT_FAINT)
+                                .when(all_checked, |d| {
+                                    d.bg(theme::ACCENT).border_color(theme::ACCENT).child(
+                                        div()
+                                            .text_size(px(9.))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(theme::ON_ACCENT)
+                                            .child("✓"),
+                                    )
+                                }),
+                        )
+                        .child(format!("Select all available ({selectable})")),
+                )
+                .child(list)
+            })
             .child(
                 div()
                     .flex()
@@ -234,12 +308,22 @@ impl CloneDialog {
             }
         })
         .detach();
+        // the .NET default destination: the PARENT of the first existing scan
+        // root — roots are repo folders themselves, and cloning into one would
+        // nest a repo inside another repo's working tree
         let destination = store
             .read(cx)
             .settings()
             .repos
             .repo_scan_folders
-            .and_then(|folders| folders.first().cloned())
+            .iter()
+            .flatten()
+            .find(|f| std::path::Path::new(f).is_dir())
+            .and_then(|f| {
+                std::path::Path::new(f)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+            })
             .unwrap_or_default();
         Self { url, destination, busy: false, error: None }
     }

@@ -8,7 +8,7 @@ use devtools_core::settings::RepoSortMode;
 pub fn project(
     repos: &[RepoEntry],
     search: &str,
-    tag: Option<&str>,
+    checked_tags: &[String],
     sort: RepoSortMode,
 ) -> Vec<usize> {
     let needle = search.trim().to_lowercase();
@@ -22,11 +22,12 @@ pub fn project(
             {
                 return false;
             }
-            match tag {
-                None => true,
-                Some(t) if t.eq_ignore_ascii_case(FAVORITES_TAG) => repo.is_favorite(),
-                Some(t) => repo.tags.iter().any(|rt| rt.eq_ignore_ascii_case(t)),
-            }
+            // OR semantics: a repo matches when it carries any checked tag
+            checked_tags.is_empty()
+                || checked_tags.iter().any(|t| {
+                    t.eq_ignore_ascii_case(FAVORITES_TAG) && repo.is_favorite()
+                        || repo.tags.iter().any(|rt| rt.eq_ignore_ascii_case(t))
+                })
         })
         .map(|(ix, _)| ix)
         .collect();
@@ -104,7 +105,7 @@ mod tests {
     #[test]
     fn favorites_float_and_name_sorts() {
         let all = repos();
-        let rows = project(&all, "", None, RepoSortMode::Name);
+        let rows = project(&all, "", &[], RepoSortMode::Name);
         let names: Vec<&str> = rows.iter().map(|&i| all[i].name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "beta", "gamma"]);
     }
@@ -112,11 +113,11 @@ mod tests {
     #[test]
     fn search_matches_name_or_path() {
         let all = repos();
-        let rows = project(&all, "/x/beta", None, RepoSortMode::Name);
+        let rows = project(&all, "/x/beta", &[], RepoSortMode::Name);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "beta");
 
-        let rows = project(&all, "AMM", None, RepoSortMode::Name);
+        let rows = project(&all, "AMM", &[], RepoSortMode::Name);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "gamma");
     }
@@ -124,13 +125,28 @@ mod tests {
     #[test]
     fn tag_filter_favorites_and_user_tags() {
         let all = repos();
-        let rows = project(&all, "", Some("favorites"), RepoSortMode::Name);
+        let rows = project(&all, "", &["favorites".to_string()], RepoSortMode::Name);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "alpha");
 
-        let rows = project(&all, "", Some("work"), RepoSortMode::Name);
+        let rows = project(&all, "", &["work".to_string()], RepoSortMode::Name);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "beta");
+    }
+
+    #[test]
+    fn checked_tags_union_their_repos() {
+        let all = repos();
+        let rows = project(
+            &all,
+            "",
+            &["favorites".to_string(), "work".to_string()],
+            RepoSortMode::Name,
+        );
+        assert_eq!(rows.len(), 2);
+        let names: Vec<&str> = rows.iter().map(|&i| all[i].name.as_str()).collect();
+        assert!(names.contains(&"alpha"));
+        assert!(names.contains(&"beta"));
     }
 
     #[test]

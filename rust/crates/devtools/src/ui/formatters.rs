@@ -20,20 +20,40 @@ enum FormatterMode {
 impl FormatterMode {
     fn label(&self) -> &'static str {
         match self {
-            FormatterMode::Base64Encode => "Base64 encode",
-            FormatterMode::Base64Decode => "Base64 decode",
-            FormatterMode::SnakeCase => "snake_case",
-            FormatterMode::PascalCase => "PascalCase",
+            FormatterMode::Base64Encode => "Base64 Encode",
+            FormatterMode::Base64Decode => "Base64 Decode",
+            FormatterMode::SnakeCase => "Snake Case",
+            FormatterMode::PascalCase => "Pascal Case",
+        }
+    }
+
+    /// Runs one line (the .NET drawer converts each non-empty line
+    /// separately; invalid Base64 names the line).
+    fn run_line(&self, input: &str) -> Result<String, String> {
+        match self {
+            FormatterMode::Base64Encode => Ok(b64_encode(input.as_bytes())),
+            FormatterMode::Base64Decode => b64_decode(input.trim())
+                .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+                .map_err(|_| format!("[Invalid Base64: {input}]")),
+            FormatterMode::SnakeCase => Ok(to_snake_case(input)),
+            FormatterMode::PascalCase => Ok(to_pascal_case(input)),
         }
     }
 
     fn run(&self, input: &str) -> Result<String, String> {
-        match self {
-            FormatterMode::Base64Encode => Ok(b64_encode(input.as_bytes())),
-            FormatterMode::Base64Decode => b64_decode(input.trim()).map(|bytes| String::from_utf8_lossy(&bytes).to_string()),
-            FormatterMode::SnakeCase => Ok(to_snake_case(input)),
-            FormatterMode::PascalCase => Ok(to_pascal_case(input)),
+        let lines: Vec<Result<String, String>> = input
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| self.run_line(line))
+            .collect();
+        if lines.is_empty() {
+            return Err(String::new());
         }
+        let mut out = Vec::with_capacity(lines.len());
+        for line in lines {
+            out.push(line?);
+        }
+        Ok(out.join("\n"))
     }
 }
 
@@ -43,6 +63,9 @@ pub struct FormattersDrawer {
     input: Entity<InputState>,
     output: String,
     history: Vec<String>,
+    /// A finished convert asks the next render pass to clear the input
+    /// (set_value needs a Window, which command paths don't carry).
+    pending_clear: bool,
 }
 
 impl FormattersDrawer {
@@ -55,7 +78,7 @@ impl FormattersDrawer {
             }
         })
         .detach();
-        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new() }
+        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new(), pending_clear: false }
     }
 
     fn run(&mut self, text: String) {
@@ -65,8 +88,13 @@ impl FormattersDrawer {
         match self.mode.run(&text) {
             Ok(result) => {
                 self.output = result.clone();
-                self.history.insert(0, result);
-                self.history.truncate(8);
+                // newest-first, batch order preserved, cap 100 (.NET parity);
+                // the input clears after a convert like the .NET drawer
+                for line in result.lines().rev() {
+                    self.history.insert(0, line.to_string());
+                }
+                self.history.truncate(100);
+                self.pending_clear = true;
             }
             Err(err) => self.output = err,
         }
@@ -75,6 +103,10 @@ impl FormattersDrawer {
 
 impl Render for FormattersDrawer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        if self.pending_clear {
+            self.pending_clear = false;
+            self.input.update(cx, |state, cx| state.set_value(String::new(), window, cx));
+        }
         let mut modes = div().flex().flex_row().gap_1().flex_wrap();
         for mode in [
             FormatterMode::Base64Encode,
@@ -106,25 +138,53 @@ impl Render for FormattersDrawer {
             );
         }
 
-        let mut history = div().flex().flex_col();
+        let mut history = div().id("fmt-history-list").flex().flex_col().max_h(px(240.)).overflow_y_scroll();
         for (index, item) in self.history.iter().enumerate() {
             history = history.child(
                 div()
                     .id(("fmt-history", index as u64))
-                    .cursor_pointer()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
                     .rounded_md()
                     .px_1p5()
-                    .text_size(px(theme::FONT_SMALL - 1.))
-                    .font_family(gpui::SharedString::from(theme::code_font()))
-                    .text_color(theme::TEXT_FAINT)
+                    .py_0p5()
                     .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let item = item.clone();
-                        cx.listener(move |this, _, window, cx| {
-                            this.input.update(cx, |state, cx| state.set_value(item.as_str(), window, cx));
-                        })
-                    })
-                    .child(truncate_middle(item, 48)),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .font_family(gpui::SharedString::from(theme::code_font()))
+                            .text_color(theme::TEXT_FAINT)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .child(truncate_middle(item, 48)),
+                    )
+                    .child(
+                        div()
+                            .id(("fmt-copy", index as u64))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .px_1()
+                            .text_size(px(theme::FONT_SMALL - 2.))
+                            .text_color(theme::TEXT_MUTED)
+                            .hover(|s| s.text_color(theme::ACCENT))
+                            .on_click({
+                                let item = item.clone();
+                                let store = self.store.clone();
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(item.clone()));
+                                    store.update(cx, |s, cx| {
+                                        s.notice =
+                                            Some(("Copied to clipboard".into(), std::time::Instant::now()));
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                            .child("copy"),
+                    ),
             );
         }
 
@@ -143,9 +203,36 @@ impl Render for FormattersDrawer {
             .occlude()
             .child(
                 div()
-                    .text_size(px(theme::FONT_TITLE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Formatters"),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_TITLE))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Formatters"),
+                    )
+                    .child(div().flex_1())
+                    .when(!self.history.is_empty(), |row| {
+                        row.child(
+                            div()
+                                .id("fmt-clear-history")
+                                .cursor_pointer()
+                                .rounded_md()
+                                .size(px(20.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(theme::FONT_SMALL))
+                                .text_color(theme::TEXT_MUTED)
+                                .hover(|s| s.bg(theme::HOVER))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.history.clear();
+                                    cx.notify();
+                                }))
+                                .child("✕"),
+                        )
+                    }),
             )
             .child(modes)
             .child(Input::new(&self.input).small())

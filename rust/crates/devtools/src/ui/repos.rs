@@ -3,7 +3,7 @@
 //! time, so filter/sort/status changes land with the next frame — no mirrored
 //! row list to keep in sync.
 
-use crate::store::Store;
+use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
@@ -95,17 +95,40 @@ impl ReposPage {
         cx.notify();
     }
 
-    /// Sends the Clone dialog's clone.
+    /// Sends the Clone dialog's clone (with the .NET inline validation).
     pub fn commit_clone(&mut self, cx: &mut Context<Self>) {
         let Some(Dialog::Clone(dialog)) = &mut self.dialog else { return };
-        let url = dialog.url.read(cx).value().to_string();
-        if url.trim().is_empty() {
+        let mut validation_error: Option<String> = None;
+        {
+            let url = dialog.url.read(cx).value().to_string();
+            let name = dialog.derived_name(cx);
+            let destination = dialog.destination.clone();
+            if url.trim().is_empty() || (!url.contains('/') && !url.contains(':')) {
+                validation_error = Some("Enter a repository URL".into());
+            } else if name.is_empty()
+                || name == "."
+                || name == ".."
+                || name.contains('/')
+                || name.contains('\\')
+            {
+                validation_error = Some("Enter a usable repository name".into());
+            } else if destination.trim().is_empty() || !std::path::Path::new(&destination).is_dir() {
+                validation_error = Some("Destination folder does not exist".into());
+            } else if std::path::Path::new(&destination).join(&name).exists() {
+                validation_error = Some("Target folder already exists".into());
+            }
+        }
+        if let Some(error) = validation_error {
+            dialog.busy = false;
+            dialog.error = Some(error);
+            cx.notify();
             return;
         }
-        dialog.busy = true;
-        dialog.error = None;
+        let url = dialog.url.read(cx).value().to_string();
         let name = dialog.derived_name(cx);
         let destination = dialog.destination.clone();
+        dialog.busy = true;
+        dialog.error = None;
         let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::Clone {
             url: url.trim().to_string(),
             parent_dir: destination,
@@ -159,7 +182,7 @@ impl Render for ReposPage {
                     .min_h_0()
                     .px_3()
                     .pb_2()
-                    .child(DataTable::new(&self.table).with_size(Size::XSmall).stripe(false).bordered(false)),
+                    .child(DataTable::new(&self.table).with_size(Size::Size(px(52.))).stripe(false).bordered(false)),
             );
         if let Some(dialog) = &mut self.dialog {
             page = page.child(dialog.render(window, cx));
@@ -177,15 +200,17 @@ impl ReposPage {
                 .as_ref()
                 .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(4))
                 .map(|(text, _)| text.clone());
-            (store.all_tags(), store.tag_filter.clone(), store.scanning, store.summary_busy, notice)
+            (store.all_tags(), store.tag_filters.clone(), store.scanning, store.summary_busy, notice)
         };
 
-        // header count chips: repos, total changes, PRs, issues
+        // header count chips: repos always; changes when non-zero; PRs and
+        // issues together when the GitHub column is on and either is open
         let store = self.store.read(cx);
         let total_repos = store.repos.len();
         let total_changes: u32 = store.repos.iter().map(|r| r.git_modified_count).sum();
         let total_prs: u32 = store.repos.iter().map(|r| r.github_pr_count).sum();
         let total_issues: u32 = store.repos.iter().map(|r| r.github_issue_count).sum();
+        let github_on = store.settings().repos.enable_git_hub;
         drop(store);
 
         let count_chip = |count: u32, color: gpui::Rgba, icon_path: Option<&'static str>| {
@@ -204,10 +229,10 @@ impl ReposPage {
                 .child(format!("{count}"))
         };
 
-        // filter toggles: circle indicator + text (the .NET shape)
+        // filter checkboxes: OR semantics across every checked tag
         let mut filters = div().flex().flex_row().items_center().gap_3();
         for tag in &tags {
-            let active = active_tag.as_deref() == Some(tag.as_str());
+            let active = active_tag.iter().any(|t| t.eq_ignore_ascii_case(tag));
             filters = filters.child(
                 div()
                     .id(gpui::ElementId::NamedInteger("filter".into(), index_of_tag(&tags, tag) as u64))
@@ -225,13 +250,23 @@ impl ReposPage {
                     })
                     .child(
                         div()
-                            .rounded_full()
+                            .rounded_xs()
                             .size(px(13.))
                             .border_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_color(theme::TEXT_FAINT)
+                            .when(active, |d| d.bg(theme::ACCENT).border_color(theme::ACCENT))
                             .when(active, |d| {
-                                d.bg(theme::ACCENT).border_color(theme::ACCENT)
-                            })
-                            .when(!active, |d| d.border_color(theme::TEXT_FAINT)),
+                                d.child(
+                                    div()
+                                        .text_size(px(9.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(theme::ON_ACCENT)
+                                        .child("✓"),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -262,9 +297,11 @@ impl ReposPage {
                     .child("Repositories"),
             )
             .child(count_chip(total_repos as u32, theme::TEXT_MUTED, None))
-            .child(count_chip(total_changes, theme::AMBER_BRIGHT, None))
-            .child(count_chip(total_prs, theme::PURPLE_BRIGHT, Some("icons/icon-git-pull-request.svg")))
-            .child(count_chip(total_issues, theme::SUCCESS_BRIGHT, Some("icons/icon-issue.svg")))
+            .when(total_changes > 0, |d| d.child(count_chip(total_changes, theme::AMBER_BRIGHT, None)))
+            .when(github_on && (total_prs > 0 || total_issues > 0), |d| {
+                d.child(count_chip(total_prs, theme::PURPLE_BRIGHT, Some("icons/icon-git-pull-request.svg")))
+                    .child(count_chip(total_issues, theme::SUCCESS_BRIGHT, Some("icons/icon-issue.svg")))
+            })
             .child(div().w(px(8.)))
             .child(filters)
             .child(div().flex_1())
@@ -580,15 +617,15 @@ impl TableDelegate for ReposDelegate {
             ColKind::Star => {
                 Column::new("star", "").width(px(36.)).resizable(false).text_center()
             }
-            ColKind::Name => Column::new("name", "Repository").width(px(200.)).sortable(),
+            ColKind::Name => Column::new("name", "Repository").width(px(280.)).sortable(),
             ColKind::Shortcuts => {
-                Column::new("shortcuts", "").width(px(170.)).resizable(false)
+                Column::new("shortcuts", "").width(px(175.)).resizable(false)
             }
-            ColKind::Branch => Column::new("branch", "Branch").width(px(120.)).resizable(false),
+            ColKind::Branch => Column::new("branch", "Branch").width(px(240.)).resizable(false),
             ColKind::Changes => Column::new("changes", "Changes").width(px(170.)).resizable(false).sortable(),
-            ColKind::Github => Column::new("github", "GitHub").width(px(90.)).sortable(),
+            ColKind::Github => Column::new("github", "GitHub").width(px(140.)).sortable(),
             ColKind::Azure => {
-                Column::new("azure", "Azure DevOps").width(px(110.)).text_center().resizable(false)
+                Column::new("azure", "Azure DevOps").width(px(200.)).text_center().resizable(false)
             }
             ColKind::Activity => Column::new("activity", "Last activity").width(px(90.)).resizable(false).sortable(),
         }
@@ -637,11 +674,12 @@ impl TableDelegate for ReposDelegate {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .size(px(22.))
+                    .size(px(26.))
                     .on_click({
                         let store = self.store.clone();
                         let folder = folder.clone();
                         move |_, _, cx| {
+                            cx.stop_propagation();
                             store.update(cx, |s, cx| s.toggle_favorite(&folder, cx));
                         }
                     })
@@ -653,7 +691,6 @@ impl TableDelegate for ReposDelegate {
                     .into_any_element()
             }
             ColKind::Name => div()
-                .id(("repo-name", row_ix))
                 .flex()
                 .flex_row()
                 .items_center()
@@ -665,7 +702,7 @@ impl TableDelegate for ReposDelegate {
                 ))
                 .child(
                     div()
-                        .text_size(px(theme::FONT_BODY))
+                        .text_size(px(theme::FONT_BODY + 1.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::TEXT)
                         .overflow_hidden()
@@ -675,10 +712,42 @@ impl TableDelegate for ReposDelegate {
                 )
                 .into_any_element(),
             ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix, &self.store, cx),
-            ColKind::Branch => branch_pill(repo.git_branch_name.as_deref()),
-            ColKind::Changes => changes_cell(&repo),
-            ColKind::Github => github_cell(&repo),
-            ColKind::Azure => azure_cell(&repo, &self.store, cx),
+            // branch pill and changes cell open the bar's Changes tab; the
+            // GitHub/Azure cells route to their own tabs (.NET chip routing)
+            ColKind::Branch => tab_cell(
+                ("open-changes", row_ix as u64),
+                &folder,
+                BottomBarTab::Changes,
+                &self.store,
+                branch_pill(repo.git_branch_name.as_deref()),
+            ),
+            ColKind::Changes => tab_cell(
+                ("open-changes", row_ix as u64),
+                &folder,
+                BottomBarTab::Changes,
+                &self.store,
+                changes_cell(&repo),
+            ),
+            ColKind::Github => {
+                let tab = if repo.github_pr_count > 0 {
+                    BottomBarTab::PullRequests
+                } else {
+                    BottomBarTab::Issues
+                };
+                let has_content = repo.github_pr_count > 0 || repo.github_issue_count > 0;
+                if has_content {
+                    tab_cell(("open-gh", row_ix as u64), &folder, tab, &self.store, github_cell(&repo))
+                } else {
+                    github_cell(&repo)
+                }
+            }
+            ColKind::Azure => tab_cell(
+                ("open-azure", row_ix as u64),
+                &folder,
+                BottomBarTab::Azure,
+                &self.store,
+                azure_cell(&repo, &self.store, cx),
+            ),
             ColKind::Activity => div()
                 .flex()
                 .justify_end()
@@ -707,7 +776,7 @@ impl TableDelegate for ReposDelegate {
                 .repo_scan_folders
                 .as_ref()
                 .is_some_and(|f| !f.is_empty());
-            (store.scanning, !store.search.trim().is_empty() || store.tag_filter.is_some(), has_folders)
+            (store.scanning, !store.search.trim().is_empty() || !store.tag_filters.is_empty(), has_folders)
         };
         let text = if scanning {
             "Scanning folders…"
@@ -731,8 +800,30 @@ impl TableDelegate for ReposDelegate {
     }
 }
 
-fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {
-    let Some(branch) = branch.filter(|b| !b.is_empty()) else {
+/// Wraps a table cell so clicking it opens the bottom bar on one specific
+/// tab (the .NET chip routing) without re-firing the row toggle.
+fn tab_cell(
+    id: (&'static str, u64),
+    folder: &str,
+    tab: BottomBarTab,
+    store: &Entity<Store>,
+    cell: gpui::AnyElement,
+) -> gpui::AnyElement {
+    let folder = folder.to_string();
+    let store = store.clone();
+    div()
+        .id(gpui::ElementId::NamedInteger(id.0.into(), id.1))
+        .cursor_pointer()
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            let folder = folder.clone();
+            store.update(cx, |s, cx| s.open_repo_tab(&folder, tab, cx));
+        })
+        .child(cell)
+        .into_any_element()
+}
+
+fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) = branch.filter(|b| !b.is_empty()) else {
         return div().text_color(theme::TEXT_FAINT).child("—").into_any_element();
     };
     let color = if branch == "main" {
@@ -924,6 +1015,7 @@ fn shortcuts_cell(
     let mut row = div().flex().flex_row().items_center().gap_1p5();
 
     let button = |id: String, icon_path: &'static str, tint_color: gpui::Rgba, launch: Box<dyn Fn() -> Result<(), String>>| {
+        let store = store.clone();
         div()
             .id(SharedString::from(id))
             .cursor_pointer()
@@ -931,20 +1023,25 @@ fn shortcuts_cell(
             .border_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::CARD)
-            .size(px(26.))
+            .size(px(36.))
             .flex()
             .items_center()
             .justify_center()
             .hover(|s| s.border_color(theme::TEXT_FAINT))
-            .on_click(move |_, _, _| {
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
                 if let Err(err) = launch() {
-                    tracing::warn!("launch failed: {err}");
+                    store.update(cx, |s, cx| {
+                        s.notice = Some((err, std::time::Instant::now()));
+                        cx.notify();
+                    });
                 }
             })
             .child(icon(icon_path, px(theme::ICON_SMALL), tint_color))
     };
 
-    // notes: selects the repo and flags the floating notes window open
+    // notes: selects the repo and flags the floating notes window open —
+    // always opens/switches, never toggles the bar closed
     row = row.child({
         let store = store.clone();
         let folder = folder.clone();
@@ -955,20 +1052,54 @@ fn shortcuts_cell(
             .border_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::CARD)
-            .size(px(26.))
+            .size(px(36.))
             .flex()
             .items_center()
             .justify_center()
             .hover(|s| s.border_color(theme::TEXT_FAINT))
             .on_click(move |_, _, cx| {
+                cx.stop_propagation();
                 let folder = folder.clone();
                 store.update(cx, |s, cx| {
-                    s.select_repo(Some(folder), cx);
+                    s.ensure_repo_selected(&folder, cx);
                     s.notes_requested = true;
                 });
             })
             .child(icon("icons/file-text.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED))
     });
+
+    // OpenCode quick-launch: one opencode instance in the repo with the
+    // default model; without a configured default there is nothing to launch
+    if settings.opencode.enable_opencode {
+        let model = settings.opencode.default_model.trim().to_string();
+        let has_model = !model.is_empty();
+        let launch: Box<dyn Fn() -> Result<(), String>> = if has_model {
+            Box::new({
+                let folder = folder.clone();
+                let term = settings.repos.terminal_executable.clone();
+                let exe = if settings.repos.opencode_executable.trim().is_empty() {
+                    "opencode".to_string()
+                } else {
+                    settings.repos.opencode_executable.trim().to_string()
+                };
+                move || {
+                    terminal::launch_argv_in_terminal(
+                        &folder,
+                        &[exe.clone(), "--model".into(), model.clone()],
+                        &term,
+                    )
+                }
+            })
+        } else {
+            Box::new(|| Err("No default OpenCode model — set it in Settings".into()))
+        };
+        row = row.child(button(
+            format!("open-opencode-{row_ix}"),
+            "icons/icon-opencode.svg",
+            theme::TEXT_MUTED,
+            launch,
+        ));
+    }
 
     if settings.repos.enable_zcode {
         row = row.child(button(

@@ -84,6 +84,10 @@ pub enum GitAction {
     Pull,
     Push,
     Publish { branch: String },
+    /// Pull then push; a failed pull skips the push (the .NET rail's Sync).
+    Sync,
+    /// `git revert --no-edit` on one commit (the drill-down's Revert).
+    Revert(String),
 }
 
 impl GitAction {
@@ -103,6 +107,17 @@ impl GitAction {
             GitAction::Pull => "pull",
             GitAction::Push => "push",
             GitAction::Publish { .. } => "publish",
+            GitAction::Sync => "sync",
+            GitAction::Revert(_) => "revert",
+        }
+    }
+
+    /// The action's target (branch name) for toast texts.
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            GitAction::Checkout(target) | GitAction::Revert(target) => Some(target.clone()),
+            GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => Some(name.clone()),
+            _ => None,
         }
     }
 }
@@ -125,6 +140,8 @@ pub enum UiEvent {
         error: Option<String>,
         /// A commit's short hash on success.
         commit_hash: Option<String>,
+        /// The action's branch/commit target, for toast texts.
+        detail: Option<String>,
     },
     ChangePatchLoaded { folder: String, path: String, staged: bool, patch: String },
     HistoryLoaded {
@@ -363,7 +380,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                 let subjects = devtools_core::git::read::recent_commits(&folder)
                                     .unwrap_or_default()
                                     .iter()
-                                    .take(8)
+                                    .take(5)
                                     .map(|c| c.subject.clone())
                                     .collect::<Vec<_>>();
                                 let context = if subjects.is_empty() {
@@ -509,6 +526,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     label: action.label(),
                     error: if ok { None } else { error },
                     commit_hash,
+                    detail: action.detail(),
                 });
                 // every mutation re-checks the repo it touched: the fresh
                 // status and the rebuilt changes snapshot land together
@@ -543,19 +561,27 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
 async fn run_git_action(folder: &Path, action: &GitAction) -> (bool, Option<String>, Option<String>) {
     use devtools_core::git::cli;
     match action {
-        GitAction::StageAll => (cli::stage_all(folder).await.ok, None, None),
-        GitAction::UnstageAll => (cli::unstage_all(folder).await.ok, None, None),
-        GitAction::Stage(path) => (cli::stage(folder, path).await.ok, None, None),
-        GitAction::Unstage(path) => (cli::unstage(folder, path).await.ok, None, None),
-        GitAction::DiscardStaged(paths) => (cli::discard_paths(folder, paths, true).await, None, None),
-        GitAction::DiscardUnstaged(paths) => (cli::discard_paths(folder, paths, false).await, None, None),
+        GitAction::StageAll => cli::stage_all(folder).await.into_outcome(),
+        GitAction::UnstageAll => cli::unstage_all(folder).await.into_outcome(),
+        GitAction::Stage(path) => cli::stage(folder, path).await.into_outcome(),
+        GitAction::Unstage(path) => cli::unstage(folder, path).await.into_outcome(),
+        GitAction::DiscardStaged(paths) => (
+            cli::discard_paths(folder, paths, true).await,
+            None,
+            None,
+        ),
+        GitAction::DiscardUnstaged(paths) => (
+            cli::discard_paths(folder, paths, false).await,
+            None,
+            None,
+        ),
         GitAction::DiscardFile { path, is_staged } => {
             (cli::discard_file(folder, path, *is_staged).await, None, None)
         }
         GitAction::Commit(message) => {
             match cli::commit(folder, message).await {
                 Some(hash) => (true, None, Some(hash)),
-                None => (false, Some("commit failed".into()), None),
+                None => (false, Some("nothing staged, or git rejected it".into()), None),
             }
         }
         GitAction::Checkout(branch) => {
@@ -582,6 +608,33 @@ async fn run_git_action(folder: &Path, action: &GitAction) -> (bool, Option<Stri
             let result = cli::publish_branch(folder, branch).await;
             (result.success, result.error, None)
         }
+        GitAction::Sync => {
+            // pull then push; a failed pull skips the push, first error wins
+            let pulled = cli::pull(folder).await;
+            if !pulled.ok {
+                (false, pulled.error, None)
+            } else {
+                let pushed = cli::push(folder).await;
+                (pushed.ok, pushed.error, None)
+            }
+        }
+        GitAction::Revert(hash) => {
+            let outcome = cli::revert_commit(folder, hash).await;
+            (outcome.ok, outcome.error, None)
+        }
+    }
+}
+
+trait OutcomeExt {
+    fn into_outcome(self) -> (bool, Option<String>, Option<String>);
+}
+impl OutcomeExt for devtools_core::git::cli::GitOutcome {
+    fn into_outcome(self) -> (bool, Option<String>, Option<String>) {
+        (
+            self.ok,
+            self.error.or_else(|| (!self.ok).then(|| "git rejected it".into())),
+            None,
+        )
     }
 }
 

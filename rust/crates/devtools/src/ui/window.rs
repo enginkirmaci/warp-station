@@ -74,6 +74,13 @@ impl Render for MainWindow {
             .bg(theme::BACKGROUND)
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
+            // Ctrl+K focuses the global-search field (the titlebar's hint)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "k" && event.keystroke.modifiers.control {
+                    this.global_search.update(cx, |state, cx| state.focus(window, cx));
+                    cx.stop_propagation();
+                }
+            }))
             // mounts the window's selection machinery: without this layer the
             // kit's global mouse handlers never register and selectable
             // TextViews (README, notes preview) ignore drags entirely
@@ -125,7 +132,26 @@ impl MainWindow {
         }
         let hits = self.store.read(cx).global_search.clone();
         if hits.is_empty() {
-            return None;
+            // the .NET popup shows a "No matches." footer while focused
+            return Some(
+                div()
+                    .id("search-popup")
+                    .absolute()
+                    .top(px(40.))
+                    .left(px(150.))
+                    .w(px(420.))
+                    .occlude()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .bg(theme::POPUP)
+                    .shadow_lg()
+                    .p_2()
+                    .text_size(px(theme::FONT_SMALL))
+                    .text_color(theme::TEXT_FAINT)
+                    .child("No matches.")
+                    .into_any_element(),
+            );
         }
         let mut rows = div().flex().flex_col().gap_0p5();
         for (index, hit) in hits.iter().take(12).enumerate() {
@@ -204,10 +230,18 @@ impl MainWindow {
         match hit {
             crate::store::GlobalSearchHit::Repo { folder, .. } => {
                 self.page = Page::Repos;
-                self.store.update(cx, |s, cx| s.select_repo(Some(folder.clone()), cx));
+                // open on Overview without the row-press toggle semantics
+                let folder = folder.clone();
+                self.store.update(cx, |s, cx| s.open_repo_tab(&folder, crate::store::BottomBarTab::Overview, cx));
             }
             crate::store::GlobalSearchHit::Note { path, .. } => {
-                self.store.update(cx, |s, _| s.pending_note_open = Some(path.clone()));
+                self.store.update(cx, |s, cx| {
+                    s.pending_note_open = Some(path.clone());
+                    // the notes page drains this on its next render; the
+                    // notify is what makes an already-open notes window
+                    // re-render (its store observer fires on it)
+                    cx.notify();
+                });
                 self.open_notes_window(window, cx);
             }
         }

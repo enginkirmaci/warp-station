@@ -25,9 +25,15 @@ pub struct ChangesView {
     new_branch_open: bool,
     new_branch_name: Entity<InputState>,
     commit_message: Entity<TextareaState>,
+    /// Set when the user pressed "Generate & Commit" with an empty box: the
+    /// wand's draft lands here first, then commits automatically.
+    auto_commit_after_draft: bool,
     history_open: bool,
     /// Hash of the drilled-in commit (None = the list view).
     drilled_commit: Option<String>,
+    /// Armed destructive drill-down action ("checkout"/"revert") — the second
+    /// click confirms, matching the .NET two-click arm.
+    detail_armed: Option<&'static str>,
     detail_patches: std::collections::HashMap<String, String>,
     expanded_details: std::collections::HashSet<String>,
 }
@@ -53,8 +59,10 @@ impl ChangesView {
             new_branch_open: false,
             new_branch_name,
             commit_message,
+            auto_commit_after_draft: false,
             history_open: false,
             drilled_commit: None,
+            detail_armed: None,
             detail_patches: std::collections::HashMap::new(),
             expanded_details: std::collections::HashSet::new(),
         }
@@ -134,8 +142,17 @@ impl Render for ChangesView {
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
             self.patches.insert((path, staged), patch);
         }
+        let mut auto_commit_text: Option<String> = None;
         if let Some(draft) = self.store.update(cx, |store, _| store.commit_message_draft.take()) {
+            let draft = draft.trim().to_string();
             self.commit_message.update(cx, |state, cx| state.set_value(draft.as_str(), window, cx));
+            if self.auto_commit_after_draft && !draft.is_empty() {
+                self.auto_commit_after_draft = false;
+                auto_commit_text = Some(draft);
+            }
+        }
+        if let Some(message) = auto_commit_text {
+            self.store.update(cx, |store, cx| store.run_git(GitAction::Commit(message), cx));
         }
         if let Some((key, patch)) = self.store.update(cx, |store, _| store.commit_file_patch.take()) {
             self.detail_patches.insert(key, patch);
@@ -196,26 +213,38 @@ impl ChangesView {
             return list.into_any_element();
         }
 
-        if !staged.is_empty() {
-            list = list.child(section_header(
-                "Staged",
-                staged.len(),
-                Some(("stage-all-clear", "Unstage all", GitAction::UnstageAll)),
-                self.store.clone(),
-            ));
-            for file in &staged {
-                list = list.child(self.render_row(file, true, window, cx));
-            }
-        }
+        // .NET order: unstaged first, then staged; headers render only when
+        // their side has rows, each carrying Discard-all (+ stage/unstage all)
         if !unstaged.is_empty() {
             list = list.child(section_header(
-                "Unstaged",
+                "Unstaged Changes",
                 unstaged.len(),
-                Some(("stage-all", "Stage all", GitAction::StageAll)),
+                vec![
+                    ("discard-all-u", "Discard", GitAction::DiscardUnstaged(
+                        unstaged.iter().map(|f| f.path.clone()).collect(),
+                    )),
+                    ("stage-all", "Stage all", GitAction::StageAll),
+                ],
                 self.store.clone(),
             ));
             for file in &unstaged {
                 list = list.child(self.render_row(file, false, window, cx));
+            }
+        }
+        if !staged.is_empty() {
+            list = list.child(section_header(
+                "Staged Changes",
+                staged.len(),
+                vec![
+                    ("discard-all-s", "Discard", GitAction::DiscardStaged(
+                        staged.iter().map(|f| f.path.clone()).collect(),
+                    )),
+                    ("stage-all-clear", "Unstage all", GitAction::UnstageAll),
+                ],
+                self.store.clone(),
+            ));
+            for file in &staged {
+                list = list.child(self.render_row(file, true, window, cx));
             }
         }
         list.into_any_element()
@@ -366,6 +395,7 @@ impl ChangesView {
         let mut list = div()
             .id("history-list")
             .flex_1()
+            .min_w_0()
             .h_full()
             .overflow_y_scroll()
             .flex()
@@ -400,6 +430,10 @@ impl ChangesView {
                 .as_ref()
                 .map(|set| set.contains(&commit.hash))
                 .unwrap_or(false);
+            let author_line = commit
+                .author
+                .clone()
+                .unwrap_or_else(|| "Unknown".into());
             list = list.child(
                 div()
                     .id(SharedString::from(format!("commit-{}", commit.short_hash())))
@@ -433,25 +467,59 @@ impl ChangesView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(theme::FONT_SMALL))
-                            .text_color(theme::TEXT_DIM)
-                            .child(commit.subject.clone()),
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(theme::FONT_SMALL))
+                                    .text_color(theme::TEXT_DIM)
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .child(commit.subject.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child(format!(
+                                        "{author_line} • {}",
+                                        devtools_core::rel_time::format(commit.date)
+                                    )),
+                            ),
                     )
                     .when(unpushed_mark, |row| {
                         row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
                     })
                     .child(
+                        // hash chip: clicking copies the full SHA (the .NET
+                        // row-link behavior) without drilling in
                         div()
+                            .id(SharedString::from(format!("copy-sha-{}", commit.short_hash())))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .px_1()
                             .text_size(px(theme::FONT_SMALL - 1.))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_FAINT)
+                            .hover(|s| s.text_color(theme::ACCENT))
+                            .on_click({
+                                let store = self.store.clone();
+                                let full = commit.hash.clone();
+                                let short = commit.short_hash().to_string();
+                                move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full.clone()));
+                                    store.update(cx, |s, cx| {
+                                        s.notice = Some((
+                                            format!("Copied {short} to clipboard"),
+                                            std::time::Instant::now(),
+                                        ));
+                                        cx.notify();
+                                    });
+                                }
+                            })
                             .child(commit.short_hash().to_string()),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::FONT_SMALL - 1.))
-                            .text_color(theme::TEXT_FAINT)
-                            .child(devtools_core::rel_time::format(commit.date)),
                     ),
             );
         }
@@ -481,12 +549,108 @@ impl ChangesView {
         let mut list = div()
             .id("commit-detail")
             .flex_1()
+            .min_w_0()
             .h_full()
             .overflow_y_scroll()
             .flex()
             .flex_col()
             .px_2()
             .gap_2();
+
+        // author + time from the loaded history rows (the detail model
+        // doesn't carry them)
+        let history_meta = self
+            .store
+            .read(cx)
+            .history
+            .iter()
+            .find(|c| c.hash == details.hash || c.hash.starts_with(&details.hash[..details.hash.len().min(7)]))
+            .map(|c| {
+                (
+                    c.author.clone().unwrap_or_else(|| "Unknown".into()),
+                    devtools_core::rel_time::format(c.date),
+                )
+            });
+
+        // two-click armed destructive actions (.NET behavior)
+        let armed = self.detail_armed;
+        let action_button = |id: &'static str, label: &'static str, danger: bool, armed_now: bool| {
+            let text = if armed_now { "Confirm" } else { label };
+            div()
+                .id(id)
+                .cursor_pointer()
+                .rounded_md()
+                .border_1()
+                .border_color(if armed_now { theme::DANGER } else { theme::HAIRLINE })
+                .px_2()
+                .py_0p5()
+                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_color(if armed_now { theme::DANGER } else { theme::TEXT_DIM })
+                .hover(|s| s.bg(theme::HOVER))
+                .child(text.to_string())
+        };
+
+        let mut actions_row = div().flex().flex_row().gap_1();
+        actions_row = actions_row.child({
+            let store = self.store.clone();
+            let full_hash = details.hash.clone();
+            let this = cx.entity();
+            action_button("detail-checkout", "Checkout", false, armed == Some("checkout"))
+                .on_click(move |_, _, cx| {
+                    if armed == Some("checkout") {
+                        this.update(cx, |this, _| this.detail_armed = None);
+                        store.update(cx, |s, cx| s.run_git(GitAction::Checkout(full_hash.clone()), cx));
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.detail_armed = Some("checkout");
+                            cx.notify();
+                        });
+                    }
+                })
+        });
+        actions_row = actions_row.child({
+            let store = self.store.clone();
+            let full_hash = details.hash.clone();
+            let this = cx.entity();
+            action_button("detail-revert", "Revert", true, armed == Some("revert"))
+                .on_click(move |_, _, cx| {
+                    if armed == Some("revert") {
+                        this.update(cx, |this, _| this.detail_armed = None);
+                        store.update(cx, |s, cx| s.run_git(GitAction::Revert(full_hash.clone()), cx));
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.detail_armed = Some("revert");
+                            cx.notify();
+                        });
+                    }
+                })
+        });
+        actions_row = actions_row.child({
+            let store = self.store.clone();
+            let full_hash = details.hash.clone();
+            div()
+                .id("detail-copy-sha")
+                .cursor_pointer()
+                .rounded_md()
+                .border_1()
+                .border_color(theme::HAIRLINE)
+                .px_2()
+                .py_0p5()
+                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_color(theme::TEXT_DIM)
+                .hover(|s| s.bg(theme::HOVER))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full_hash.clone()));
+                    store.update(cx, |s, cx| {
+                        s.notice = Some((
+                            format!("Copied {} to clipboard", &full_hash[..7.min(full_hash.len())]),
+                            std::time::Instant::now(),
+                        ));
+                        cx.notify();
+                    });
+                })
+                .child("Copy SHA")
+        });
 
         list = list.child(
             div()
@@ -505,9 +669,17 @@ impl ChangesView {
                         .hover(|s| s.bg(theme::HOVER))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.drilled_commit = None;
+                            this.detail_armed = None;
                             cx.notify();
                         }))
                         .child("← History"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .font_family(gpui::SharedString::from(theme::code_font()))
+                        .text_color(theme::TEXT_FAINT)
+                        .child(details.hash[..7.min(details.hash.len())].to_string()),
                 )
                 .child(
                     div()
@@ -515,8 +687,12 @@ impl ChangesView {
                         .min_w_0()
                         .text_size(px(theme::FONT_BODY))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(details.files.len().to_string() + " files changed"),
-                ),
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(format!("{} files changed", details.files.len())),
+                )
+                .child(actions_row),
         );
 
         list = list.child(
@@ -607,17 +783,42 @@ impl ChangesView {
         list = list.child(files);
 
         if let Some(body) = &details.body {
+            let mut card = div()
+                .id("detail-body")
+                .rounded_md()
+                .bg(theme::CARD)
+                .border_1()
+                .border_color(theme::BORDER_LIGHT)
+                .p_2()
+                .text_size(px(theme::FONT_SMALL))
+                .text_color(theme::TEXT_DIM)
+                .child(body.clone());
+            if let Some((author, when)) = history_meta {
+                card = card.child(
+                    div()
+                        .mt_1()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1p5()
+                        .text_size(px(theme::FONT_SMALL - 2.))
+                        .text_color(theme::TEXT_FAINT)
+                        .child(div().child(author))
+                        .child(div().child(when)),
+                );
+            }
+            list = list.child(card);
+        } else if let Some((author, when)) = history_meta {
             list = list.child(
                 div()
-                    .id("detail-body")
-                    .rounded_md()
-                    .bg(theme::CARD)
-                    .border_1()
-                    .border_color(theme::BORDER_LIGHT)
-                    .p_2()
-                    .text_size(px(theme::FONT_SMALL))
-                    .text_color(theme::TEXT_DIM)
-                    .child(body.clone()),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .text_size(px(theme::FONT_SMALL - 2.))
+                    .text_color(theme::TEXT_FAINT)
+                    .child(div().child(author))
+                    .child(div().child(when)),
             );
         }
         list.into_any_element()
@@ -673,7 +874,7 @@ impl ChangesView {
                 .child(icon("icons/icon-chevron-down.svg", px(theme::ICON_SMALL - 2.), theme::TEXT_FAINT)),
         );
 
-        // git rail: fetch/pull/push + publish
+        // git rail: fetch/pull/push/publish + sync (pull then push)
         let mut buttons = div().flex().flex_row().gap_1();
         for (label, action, enabled) in [
             ("Fetch", Some(GitAction::Fetch), true),
@@ -684,6 +885,7 @@ impl ChangesView {
                 branch.clone().map(|b| GitAction::Publish { branch: b }),
                 has_remote && !published,
             ),
+            ("Sync", Some(GitAction::Sync), has_remote),
         ] {
             let Some(action) = action else { continue };
             buttons = buttons.child(rail_button(
@@ -736,14 +938,32 @@ impl ChangesView {
                 ),
         );
 
-        // commit message + commit
+        // commit message + commit. "Generate & Commit" (the .NET behavior):
+        // an empty box generates the message with the wand first, then
+        // commits; Ctrl+Enter commits from the keyboard.
+        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
+        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
+        let message_empty = self.commit_message.read(cx).value().trim().is_empty();
+        let generate_and_commit = message_empty && opencode_on;
         rail = rail.child(
             div()
                 .flex_1()
                 .min_h_0()
+                .on_key_down({
+                    let store = self.store.clone();
+                    let message = self.commit_message.clone();
+                    move |event, _, cx| {
+                        if event.keystroke.key == "enter"
+                            && event.keystroke.modifiers.control
+                            && !message.read(cx).value().trim().is_empty()
+                        {
+                            let text = message.read(cx).value().to_string();
+                            store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
+                        }
+                    }
+                })
                 .child(Textarea::new(&self.commit_message).bordered(true)),
         );
-        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
         rail = rail.child(
             div()
                 .flex()
@@ -771,17 +991,29 @@ impl ChangesView {
                         .child(if wand_active { "✦ working…" } else { "✦ wand" })
                 })
                 .child(div().flex_1())
-                .child(rail_button("Commit", !busy, {
+                .child({
                     let store = self.store.clone();
                     let message = self.commit_message.clone();
-                    move |cx| {
+                    let this = cx.entity();
+                    let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
+                    rail_button(label, !busy, move |cx| {
                         let text = message.read(cx).value().to_string();
                         if text.trim().is_empty() {
+                            // empty box: generate first; the drained draft
+                            // lands in the textarea and then commits itself
+                            let wand_busy = store.read(cx).wand_busy.is_some();
+                            this.update(cx, |this, cx| {
+                                this.auto_commit_after_draft = true;
+                                cx.notify();
+                            });
+                            if !wand_busy {
+                                store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                            }
                             return;
                         }
                         store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
-                    }
-                })),
+                    })
+                }),
         );
 
         if self.branch_menu_open {
@@ -960,7 +1192,7 @@ fn action_clone(action: &GitAction) -> GitAction {
 fn section_header(
     label: &str,
     count: usize,
-    action: Option<(&'static str, &'static str, GitAction)>,
+    actions: Vec<(&'static str, &'static str, GitAction)>,
     store: Entity<Store>,
 ) -> impl IntoElement + use<> {
     let mut header = div()
@@ -978,7 +1210,8 @@ fn section_header(
                 .child(format!("{label} ({count})")),
         )
         .child(div().flex_1());
-    if let Some((id, action_label, action)) = action {
+    for (id, action_label, action) in actions {
+        let store = store.clone();
         header = header.child(
             div()
                 .id(id)

@@ -123,13 +123,19 @@ pub fn delete(repo_notes_root: &Path, target: &Path) -> anyhow::Result<()> {
 }
 
 pub fn search(repo_notes_root: &Path, term: &str) -> Vec<NotesSearchHit> {
+    search_capped(repo_notes_root, term, SEARCH_FILE_CAP)
+}
+
+/// The notes-page search scans up to [`SEARCH_FILE_CAP`] files; the global
+/// search passes a smaller cap (40 files per repo, like the .NET popup).
+pub fn search_capped(repo_notes_root: &Path, term: &str, file_cap: usize) -> Vec<NotesSearchHit> {
     if !repo_notes_root.is_dir() || term.trim().is_empty() {
         return Vec::new();
     }
     let term = term.trim();
     let mut hits = Vec::new();
     for path in enumerate_note_files(repo_notes_root) {
-        if hits.len() >= SEARCH_FILE_CAP {
+        if hits.len() >= file_cap {
             break;
         }
         let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -267,6 +273,7 @@ pub fn markdown_apply(format: &str, text: &str, start: usize, length: usize) -> 
         "h3" => toggle_line_prefix(text, start, length, "### "),
         "bullet" => toggle_line_prefix(text, start, length, "- "),
         "task" => toggle_line_prefix(text, start, length, "- [ ] "),
+        "numbered" => toggle_numbered(text, start, length),
         "quote" => toggle_line_prefix(text, start, length, "> "),
         "hr" => insert_rule(text, start),
         _ => MarkdownEditResult { text: text.to_string(), start, length },
@@ -444,7 +451,103 @@ fn strip_competing(line: &str) -> String {
         .trim_start_matches("- ")
         .trim_start_matches("* ")
         .trim_start_matches("> ");
+    // also strip an existing "N. " marker so renumbering never stacks
+    let rest = match rest.split_once(". ") {
+        Some((head, tail)) if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) => tail,
+        _ => rest,
+    };
     format!("{indent}{rest}")
+}
+
+/// The numbered-list toggle: strips "N. " markers when every affected line
+/// already carries one; otherwise renumbers the selection 1., 2., 3., …
+fn toggle_numbered(text: &str, start: usize, length: usize) -> MarkdownEditResult {
+    let chars: Vec<char> = text.chars().collect();
+    let selection_end = (start + length).min(chars.len());
+    let line_start = chars[..start].iter().rposition(|&c| c == '\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = chars[selection_end..]
+        .iter()
+        .position(|&c| c == '\n')
+        .map(|i| selection_end + i)
+        .unwrap_or(chars.len());
+
+    let numbered_prefix = |line: &str| -> Option<(String, String)> {
+        let trimmed = line.trim_start_matches(' ');
+        let (head, tail) = trimmed.split_once(". ")?;
+        head.chars()
+            .all(|c| c.is_ascii_digit())
+            .then(|| (head.to_string(), tail.to_string()))
+    };
+
+    let mut affected: Vec<String> = Vec::new();
+    let mut current = line_start;
+    while current <= line_end {
+        let end = chars[current..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map(|i| current + i)
+            .unwrap_or(line_end)
+            .min(line_end);
+        affected.push(chars[current..end].iter().collect());
+        if end >= line_end {
+            break;
+        }
+        current = end + 1;
+    }
+
+    let numbers: Vec<Option<u32>> = affected
+        .iter()
+        .map(|line| {
+            numbered_prefix(line)
+                .and_then(|(head, _)| head.parse::<u32>().ok())
+        })
+        .collect();
+    let all_numbered = affected
+        .iter()
+        .zip(&numbers)
+        .all(|(line, n)| line.trim().is_empty() || n.is_some());
+    let numbered: Vec<u32> = numbers.iter().filter_map(|n| *n).collect();
+    // already a clean 1..n list → the click toggles it off; stale or duplicate
+    // markers → renumber instead
+    let sequential = numbered == (1..=numbered.len() as u32).collect::<Vec<u32>>();
+
+    let mut out = String::new();
+    out.extend(chars[..line_start].iter());
+    let mut new_start = None;
+    let mut consumed = 0usize;
+    let mut number = 0usize;
+    for (ix, line) in affected.iter().enumerate() {
+        let replaced = if line.trim().is_empty() {
+            line.clone()
+        } else if all_numbered && sequential {
+            match numbered_prefix(line) {
+                Some((_, tail)) => {
+                    let indent_len = line.len() - line.trim_start_matches(' ').len();
+                    format!("{}{}", &line[..indent_len], tail)
+                }
+                None => line.clone(),
+            }
+        } else {
+            number += 1;
+            format!("{number}. {}", strip_competing(line))
+        };
+        if ix == 0 {
+            new_start = Some(line_start + consumed + replaced.chars().count());
+        }
+        consumed += replaced.chars().count();
+        out.push_str(&replaced);
+        if ix + 1 < affected.len() {
+            out.push('\n');
+            consumed += 1;
+        }
+    }
+    let new_len = consumed.saturating_sub(new_start.unwrap_or(line_start).saturating_sub(line_start));
+    out.extend(chars[line_end..].iter());
+    MarkdownEditResult {
+        text: out,
+        start: new_start.unwrap_or(line_start),
+        length: new_len,
+    }
 }
 
 /// Enter inside a list item continues the list (empty item ends it).
@@ -537,6 +640,28 @@ mod tests {
     fn bullet_replaces_heading_prefix() {
         let result = markdown_apply("bullet", "## title", 0, 8);
         assert_eq!(result.text, "- title");
+    }
+
+    #[test]
+    fn numbered_renumbers_then_toggles_off() {
+        let on = markdown_apply("numbered", "alpha\nbeta\ngamma", 0, 16);
+        assert_eq!(on.text, "1. alpha\n2. beta\n3. gamma");
+
+        // re-applying over the numbered block strips the markers
+        let off = markdown_apply("numbered", &on.text, on.start, on.length);
+        assert_eq!(off.text, "alpha\nbeta\ngamma");
+    }
+
+    #[test]
+    fn numbered_skips_blank_lines_when_renumbering() {
+        let on = markdown_apply("numbered", "alpha\n\nbeta", 0, 11);
+        assert_eq!(on.text, "1. alpha\n\n2. beta");
+    }
+
+    #[test]
+    fn numbered_replaces_stale_markers_not_stacks() {
+        let on = markdown_apply("numbered", "1. alpha\n1. beta", 0, 15);
+        assert_eq!(on.text, "1. alpha\n2. beta");
     }
 
     #[test]
