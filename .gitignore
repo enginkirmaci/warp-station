@@ -4,8 +4,7 @@
 
 # Packaging artifacts
 packaging/linux/portable/
-packaging/windows/portable/
-packaging/windows/installer/
+packaging/windows/out/
 # appimagetool cached by packaging/linux/build-appimage.sh
 build/
 

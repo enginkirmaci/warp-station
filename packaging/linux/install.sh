@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 #
-# install.sh — user-level Linux install of the Rust DevTools binary.
-# Installs the binary into ~/.local/bin, the icon set into
-# ~/.local/share/icons/hicolor and the desktop entry into
-# ~/.local/share/applications.
+# install.sh — user-level Linux install of the DevTools binary: the binary
+# into ~/.local/bin, the hicolor icon set and the desktop entry into
+# ~/.local/share.
 #
 # Usage: packaging/linux/install.sh install <path-to-devtools-binary>
 
@@ -23,20 +22,23 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
+mkdir -p "$HOME/.local/bin"
 install -m 0755 "$BINARY" "$HOME/.local/bin/devtools"
 
-for size in 16 32 48 64 128 256; do
-	dir="$HOME/.local/share/icons/hicolor/${size}x${size}/apps"
+icon_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+for f in "$SCRIPT_DIR"/icons/devtools-*.png; do
+	size="$(basename "$f" .png)"; size="${size#devtools-}"
+	dir="$icon_root/${size}x${size}/apps"
 	mkdir -p "$dir"
-	install -m 0644 "$SCRIPT_DIR/devtools-${size}.png" "$dir/devtools.png"
+	install -m 0644 "$f" "$dir/devtools.png"
 done
 
-# Exec must resolve without a shell PATH for some launchers
+app_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$app_dir"
 sed "s|^Exec=.*|Exec=$HOME/.local/bin/devtools|" \
-	"$SCRIPT_DIR/devtools.desktop" > "$HOME/.local/share/applications/devtools.desktop"
+	"$SCRIPT_DIR/devtools.desktop" > "$app_dir/devtools.desktop"
 
-update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$app_dir" || true
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$icon_root" || true
 
 echo "installed: ~/.local/bin/devtools (launch with 'devtools' or from the app launcher)"

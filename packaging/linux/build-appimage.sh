@@ -42,13 +42,13 @@ printf '%s\n' "$PAYLOAD_ID" > "$STAGE/usr/share/devtools-build-id.txt"
 for size in 16 32 48 64 128 256; do
 	dir="$STAGE/usr/share/icons/hicolor/${size}x${size}/apps"
 	mkdir -p "$dir"
-	install -m 0644 "$SCRIPT_DIR/devtools-${size}.png" "$dir/devtools.png"
+	install -m 0644 "$SCRIPT_DIR/icons/devtools-${size}.png" "$dir/devtools.png"
 done
 
 sed "s|^Exec=.*|Exec=devtools|" "$SCRIPT_DIR/devtools.desktop" > "$STAGE/devtools.desktop"
 # appimagetool resolves Icon= from the AppDir root
-install -m 0644 "$SCRIPT_DIR/devtools-256.png" "$STAGE/devtools.png"
-install -m 0644 "$SCRIPT_DIR/devtools-256.png" "$STAGE/.DirIcon"
+install -m 0644 "$SCRIPT_DIR/icons/devtools-256.png" "$STAGE/devtools.png"
+install -m 0644 "$SCRIPT_DIR/icons/devtools-256.png" "$STAGE/.DirIcon"
 
 cat > "$STAGE/AppRun" <<'EOF'
 #!/usr/bin/env bash

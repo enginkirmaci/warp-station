@@ -1,34 +1,40 @@
-; Inno Setup script for the Rust DevTools app (per-user install).
-; Build after build-portable.ps1: ISCC.exe packaging\windows\devtools.iss
+; Inno Setup 6 script — per-user installer for DevTools.
+; build.ps1 -Installer invokes this with /DMyAppVersion=<cargo version>;
+; the fallback below keeps plain `ISCC devtools.iss` working too.
 
-#define AppName "DevTools"
-#define AppVersion GetVersionNumbersString("..\..\target\release\devtools.exe")
-#define AppPublisher "Engin Kirmaci"
+#ifndef MyAppVersion
+#define MyAppVersion "0.0.0-dev"
+#endif
+
+#define MyAppName "DevTools"
+#define MyAppExeName "devtools.exe"
 
 [Setup]
 AppId={{8E4C2A70-9B31-4E2B-9C7A-RUSTDEVTOOLS01}
-AppName={#AppName}
-AppVersion={#AppVersion}
-AppPublisher={#AppPublisher}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher=Engin Kirmaci
 DefaultDirName={localappdata}\Programs\DevTools
-DefaultGroupName={#AppName}
+DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
-OutputBaseFilename=DevTools-{#AppVersion}-setup
-OutputDir=portable
+ArchitecturesInstallIn64BitMode=x64compatible
+OutputDir=out
+OutputBaseFilename=DevTools-{#MyAppVersion}-setup-x64
+SetupIconFile=devtools.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
-ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=..\..\crates\devtools\packaging\windows\devtools.ico
-
-[Files]
-Source: "..\..\target\release\devtools.exe"; DestDir: "{app}"; Flags: ignoreversion
-
-[Icons]
-Name: "{group}\DevTools"; Filename: "{app}\devtools.exe"
-Name: "{autodesktop}\DevTools"; Filename: "{app}\devtools.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
 
+[Files]
+Source: "..\..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
 [Run]
-Filename: "{app}\devtools.exe"; Description: "Launch DevTools"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch DevTools"; \
+    Flags: nowait postinstall skipifsilent

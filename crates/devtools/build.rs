@@ -5,7 +5,7 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         let mut res = winresource::WindowsResource::new();
-        res.set_icon("packaging/windows/devtools.ico");
+        res.set_icon("../../packaging/windows/devtools.ico");
         if let Err(err) = res.compile() {
             panic!("could not embed Windows resources: {err}");
         }
