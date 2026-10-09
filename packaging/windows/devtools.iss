@@ -1,8 +1,8 @@
 ; Inno Setup script for the Rust DevTools app (per-user install).
-; Build after build-portable.ps1: ISCC.exe rust\packaging\windows\devtools.iss
+; Build after build-portable.ps1: ISCC.exe packaging\windows\devtools.iss
 
 #define AppName "DevTools"
-#define AppVersion GetVersionNumbersString("..\..\rust\target\release\devtools.exe")
+#define AppVersion GetVersionNumbersString("..\..\target\release\devtools.exe")
 #define AppPublisher "Engin Kirmaci"
 
 [Setup]
@@ -18,10 +18,10 @@ OutputDir=portable
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=..\..\rust\crates\devtools\packaging\windows\devtools.ico
+SetupIconFile=..\..\crates\devtools\packaging\windows\devtools.ico
 
 [Files]
-Source: "..\..\rust\target\release\devtools.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\devtools.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\DevTools"; Filename: "{app}\devtools.exe"

@@ -1,6 +1,6 @@
 # build-portable.ps1 — release build + portable zip of the Rust DevTools app.
-# Usage: powershell -File rust\packaging\windows\build-portable.ps1 [-Version 1.2.3]
-# Output: rust\packaging\windows\portable\DevTools-<version>-win-x64.zip
+# Usage: powershell -File packaging\windows\build-portable.ps1 [-Version 1.2.3]
+# Output: packaging\windows\portable\DevTools-<version>-win-x64.zip
 
 param(
     [string]$Version = "0.0.0-dev"
@@ -11,10 +11,10 @@ $repoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
 Set-Location $repoRoot
 
 Write-Host "==> cargo build --release" -ForegroundColor Cyan
-cargo build --release --manifest-path rust\Cargo.toml -p devtools
+cargo build --release --manifest-path Cargo.toml -p devtools
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
-$bin = "rust\target\release\devtools.exe"
+$bin = "target\release\devtools.exe"
 if (-not (Test-Path $bin)) { throw "binary missing: $bin" }
 
 $outDir = "$PSScriptRoot\portable"

@@ -3,17 +3,17 @@
 # build-appimage.sh — self-contained Linux AppImage of the Rust DevTools app.
 #
 # Usage:
-#   rust/packaging/linux/build-appimage.sh              # version 0.0.0-dev
-#   rust/packaging/linux/build-appimage.sh 1.2.3
+#   packaging/linux/build-appimage.sh              # version 0.0.0-dev
+#   packaging/linux/build-appimage.sh 1.2.3
 #
-# Output: rust/packaging/linux/portable/DevTools-<version>-x86_64.AppImage
+# Output: packaging/linux/portable/DevTools-<version>-x86_64.AppImage
 # Launching needs FUSE2; without it run with --appimage-extract-and-run.
 # Set APPIMAGETOOL=/path/to/appimagetool to override the tool lookup.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 VERSION="0.0.0-dev"
@@ -28,8 +28,8 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 echo "==> cargo build --release"
-cargo build --release --manifest-path rust/Cargo.toml -p devtools
-BIN="rust/target/release/devtools"
+cargo build --release --manifest-path Cargo.toml -p devtools
+BIN="target/release/devtools"
 [[ -x "$BIN" ]] || { echo "binary missing: $BIN" >&2; exit 1; }
 
 # payload marker for the stale-payload trap: strings-verifiable build identity

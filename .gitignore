@@ -2,6 +2,8 @@
 target/
 
 # Packaging artifacts
-rust/packaging/linux/portable/
-rust/packaging/windows/portable/
-rust/packaging/windows/installer/
+packaging/linux/portable/
+packaging/windows/portable/
+packaging/windows/installer/
+# appimagetool cached by packaging/linux/build-appimage.sh
+build/
