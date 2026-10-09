@@ -1,5 +1,6 @@
-# Rust
-target/
+# Rust build artifacts
+/target/
+**/*.rs.bk
 
 # Packaging artifacts
 packaging/linux/portable/
@@ -7,3 +8,6 @@ packaging/windows/portable/
 packaging/windows/installer/
 # appimagetool cached by packaging/linux/build-appimage.sh
 build/
+
+# ZCode workspace
+.zcode/
