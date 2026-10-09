@@ -685,7 +685,7 @@ impl Store {
     }
 
     /// Row press: selects the repo and opens the bar on Overview; pressing
-    /// the already-highlighted row closes the bar (the .NET toggle rule).
+    /// the already-highlighted row closes the bar.
     /// Chip presses route through [open_repo_tab] instead.
     pub fn select_repo(&mut self, folder: Option<String>, cx: &mut Context<Self>) {
         if self.selected_repo.as_deref() == folder.as_deref() {
@@ -816,7 +816,7 @@ impl Store {
     }
 
     /// The bar rail's refresh: re-probe the repo, reload its changes and an
-    /// open history view (the .NET RefreshPanelAsync fan-out).
+    /// open history view.
     pub fn refresh_panel(&mut self, cx: &mut Context<Self>) {
         let Some(folder) = self.selected_repo.clone() else { return };
         let path = std::path::PathBuf::from(&folder);
@@ -898,8 +898,8 @@ pub enum GlobalSearchHit {
 
 impl Store {
     /// One global search: repo name/path matches plus capped note-content
-    /// hits across every tracked repo's notes root (.NET caps: 6 repos,
-    /// 12 notes, 40 files scanned per repo).
+    /// hits across every tracked repo's notes root (6 repos, 12 notes,
+    /// 40 files scanned per repo).
     pub fn run_global_search(&mut self, term: &str, cx: &mut Context<Self>) {
         let term = term.trim();
         if term.is_empty() {

@@ -12,7 +12,7 @@ use std::time::Duration;
 /// Forces ask-permission on every tool so the popup gates edits/bash/webfetch.
 pub const ASK_CONFIG: &str = r#"{"$schema":"https://opencode.ai/config.json","permission":{"edit":"ask","bash":"ask","webfetch":"ask"}}"#;
 
-/// Hard cap for one wand run (the C# service's bound).
+/// Hard cap for one wand run.
 pub const RUN_CAP: Duration = Duration::from_secs(150);
 
 /// Server startup health deadline.
@@ -424,7 +424,7 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
 // ---- the daily-summary repositories block --------------------------------------
 
 /// The summary prompt's repository activity block (12 repos, 20 commits, 80
-/// files, 4000 chars per repo — the C# caps).
+/// files, 4000 chars per repo).
 pub fn format_repositories_block(
     activities: &[(String, crate::model::GitDayActivity)],
 ) -> String {

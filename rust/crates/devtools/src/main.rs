@@ -1,4 +1,4 @@
-//! DevTools — the Rust/GPUI port of the Avalonia repository workbench.
+//! DevTools — the GPUI repository workbench.
 // no console window behind the packaged Windows exe; debug builds keep it for logs
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 

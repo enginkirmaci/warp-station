@@ -2,7 +2,7 @@
 name = "devtools"
 version.workspace = true
 edition.workspace = true
-description = "DevTools — repository workbench, the Rust/GPUI port of the Avalonia app"
+description = "DevTools — repository workbench"
 
 [lib]
 name = "devtools"

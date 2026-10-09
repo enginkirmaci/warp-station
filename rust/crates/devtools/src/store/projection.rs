@@ -55,8 +55,7 @@ fn changes_weight(repo: &RepoEntry) -> u32 {
     repo.git_modified_count * 10 + repo.git_to_push_count * 5 + repo.git_to_pull_count
 }
 
-/// Every distinct tag across the list; favorites and platform always lead
-/// (the .NET toolbar shows both unconditionally).
+/// Every distinct tag across the list; favorites and platform always lead.
 pub fn all_tags(repos: &[RepoEntry]) -> Vec<String> {
     let mut tags: Vec<String> = vec![FAVORITES_TAG.to_string(), devtools_core::scan::PLATFORM_TAG.to_string()];
     for repo in repos {

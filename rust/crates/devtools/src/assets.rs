@@ -1,4 +1,4 @@
-//! Embedded asset source: the ported C# icon set ships inside the binary, with
+//! Embedded asset source: the icon set ships inside the binary, with
 //! gpui-kit's bundled Lucide icon set as the fallback so kit components
 //! (Input decorations, popovers, …) can resolve their IconName assets.
 

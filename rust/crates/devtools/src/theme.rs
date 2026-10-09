@@ -95,7 +95,7 @@ pub fn apply_kit_theme(cx: &mut App) {
         t.font_family = gpui::SharedString::from(ui_font());
         t.mono_font_family = gpui::SharedString::from(code_font());
 
-        // the repos table blends into the page like the .NET row list: no
+        // the repos table blends into the page: no
         // near-black canvas, no zebra, no visible grid (the color fields
         // reconcile into the tokens)
         t.table = BACKGROUND.into();

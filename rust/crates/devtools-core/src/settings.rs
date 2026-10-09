@@ -1,7 +1,7 @@
-//! The settings.json port: schema byte-compatible with the C# app (PascalCase
-//! keys, same defaults, enum-as-number sort mode) plus the single-owner
-//! service with the legacy-key migration and the atomic write. Both builds
-//! coexist on one file.
+//! The settings store: schema byte-compatible with the settings.json already
+//! on disk (PascalCase keys, same defaults, enum-as-number sort mode) plus
+//! the single-owner service with the legacy-key migration and the atomic
+//! write.
 
 use crate::jsonio;
 use crate::paths::AppPaths;
@@ -125,7 +125,7 @@ pub enum RepoSortMode {
     Issues = 4,
 }
 
-// the C# file stores the enum as its number
+// the settings file stores the enum as its number
 impl Serialize for RepoSortMode {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u8(*self as u8)
@@ -175,7 +175,7 @@ impl Default for ClipboardPasswordSettings {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct SnapItSettings {
-    /// Kept for file compatibility with the C# build (SnapIt stays C#-side).
+    /// Round-trip only: written by the Windows SnapIt companion, never read here.
     pub auto_start: bool,
 }
 
@@ -237,7 +237,7 @@ impl SettingsService {
 
     /// Apply `mutate` to a clone of the current settings and persist the whole
     /// graph as one transition, so concurrent section updates stack instead of
-    /// racing (the same contract as the C# UpdateAsync).
+    /// racing.
     pub fn update(&self, mutate: impl FnOnce(&mut AppSettings)) -> anyhow::Result<AppSettings> {
         let (updated, path) = {
             let mut guard = self.state.lock().unwrap();

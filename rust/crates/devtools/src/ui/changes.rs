@@ -32,7 +32,7 @@ pub struct ChangesView {
     /// Hash of the drilled-in commit (None = the list view).
     drilled_commit: Option<String>,
     /// Armed destructive drill-down action ("checkout"/"revert") — the second
-    /// click confirms, matching the .NET two-click arm.
+    /// click confirms the arm.
     detail_armed: Option<&'static str>,
     detail_patches: std::collections::HashMap<String, String>,
     expanded_details: std::collections::HashSet<String>,
@@ -213,7 +213,7 @@ impl ChangesView {
             return list.into_any_element();
         }
 
-        // .NET order: unstaged first, then staged; headers render only when
+        // order: unstaged first, then staged; headers render only when
         // their side has rows, each carrying Discard-all (+ stage/unstage all)
         if !unstaged.is_empty() {
             list = list.child(section_header(
@@ -492,8 +492,8 @@ impl ChangesView {
                         row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
                     })
                     .child(
-                        // hash chip: clicking copies the full SHA (the .NET
-                        // row-link behavior) without drilling in
+                        // hash chip: clicking copies the full SHA without
+                        // drilling in
                         div()
                             .id(SharedString::from(format!("copy-sha-{}", commit.short_hash())))
                             .cursor_pointer()
@@ -572,7 +572,7 @@ impl ChangesView {
                 )
             });
 
-        // two-click armed destructive actions (.NET behavior)
+        // two-click armed destructive actions
         let armed = self.detail_armed;
         let action_button = |id: &'static str, label: &'static str, danger: bool, armed_now: bool| {
             let text = if armed_now { "Confirm" } else { label };
@@ -938,7 +938,7 @@ impl ChangesView {
                 ),
         );
 
-        // commit message + commit. "Generate & Commit" (the .NET behavior):
+        // commit message + commit. "Generate & Commit":
         // an empty box generates the message with the wand first, then
         // commits; Ctrl+Enter commits from the keyboard.
         let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);

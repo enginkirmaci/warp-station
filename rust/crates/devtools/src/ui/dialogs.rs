@@ -168,7 +168,7 @@ impl AddRepoDialog {
                         cx.notify();
                     }))
                     .child(
-                        // checkbox square mirroring the .NET checklist
+                        // checkbox square
                         div()
                             .rounded_xs()
                             .size(px(13.))
@@ -230,7 +230,7 @@ impl AddRepoDialog {
                         .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
                             if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
                                 // three-state header checkbox touches only the
-                                // selectable rows (.NET "Select all available")
+                                // selectable rows
                                 let target = !all_checked;
                                 for (_, checked, tracked) in dialog.found.iter_mut() {
                                     if !*tracked {
@@ -308,7 +308,7 @@ impl CloneDialog {
             }
         })
         .detach();
-        // the .NET default destination: the PARENT of the first existing scan
+        // default destination: the PARENT of the first existing scan
         // root — roots are repo folders themselves, and cloning into one would
         // nest a repo inside another repo's working tree
         let destination = store

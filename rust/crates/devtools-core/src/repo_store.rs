@@ -1,7 +1,7 @@
-//! The tracked-repo store: file-backed repo list (repos.cache.json — same
-//! PascalCase shape the C# app wrote, extra fields tolerated on read, fewer
-//! written back since the C# reader defaults missing runtime fields) plus the
-//! tag-merge rules that carry user tags across rescans.
+//! The tracked-repo store: file-backed repo list (repos.cache.json —
+//! PascalCase layout read with `default`, so unknown fields are ignored on
+//! read and missing keys fall back to defaults, keeping older cache files
+//! loadable) plus the tag-merge rules that carry user tags across rescans.
 
 use crate::jsonio;
 use crate::paths::AppPaths;
@@ -11,9 +11,9 @@ use std::path::PathBuf;
 
 pub const FAVORITES_TAG: &str = "favorites";
 
-/// What the cache file serializes per repo. The C# file carries dozens of
-/// runtime/computed fields; unknown fields are ignored on read and not
-/// rewritten — the C# reader treats missing keys as defaults.
+/// What the cache file serializes per repo. On-disk files from older builds
+/// carry dozens of runtime/computed fields; unknown fields are ignored on
+/// read and not rewritten, and missing keys deserialize as defaults.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct CachedRepo {

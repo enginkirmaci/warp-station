@@ -27,8 +27,8 @@ impl FormatterMode {
         }
     }
 
-    /// Runs one line (the .NET drawer converts each non-empty line
-    /// separately; invalid Base64 names the line).
+    /// Runs one line (each non-empty line converts separately; invalid
+    /// Base64 names the line).
     fn run_line(&self, input: &str) -> Result<String, String> {
         match self {
             FormatterMode::Base64Encode => Ok(b64_encode(input.as_bytes())),
@@ -88,8 +88,8 @@ impl FormattersDrawer {
         match self.mode.run(&text) {
             Ok(result) => {
                 self.output = result.clone();
-                // newest-first, batch order preserved, cap 100 (.NET parity);
-                // the input clears after a convert like the .NET drawer
+                // newest-first, batch order preserved, cap 100; the input
+                // clears after a convert
                 for line in result.lines().rev() {
                     self.history.insert(0, line.to_string());
                 }

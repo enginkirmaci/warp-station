@@ -2,7 +2,7 @@
 name = "devtools-core"
 version.workspace = true
 edition.workspace = true
-description = "Headless services port of Tools.Library — no gpui dependencies"
+description = "Headless DevTools services — no gpui dependencies"
 
 [dependencies]
 anyhow = "1"

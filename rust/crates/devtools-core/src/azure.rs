@@ -153,7 +153,7 @@ pub fn parse_url(url: &str, custom_base: Option<&str>) -> Option<AzureRemote> {
 
     // Custom server: {scheme}://{host}[/app-path]/{collection}/{project}/_git/{repo}
     // (the app-path arrives via the segments themselves, never from the
-    // configured base — that is how the C# parser built it too)
+    // configured base)
     if custom_host(custom_base).is_some_and(|h| h == host) {
         return from_git_segments(&format!("{scheme}://{authority}"), &segments);
     }

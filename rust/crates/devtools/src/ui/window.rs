@@ -132,7 +132,7 @@ impl MainWindow {
         }
         let hits = self.store.read(cx).global_search.clone();
         if hits.is_empty() {
-            // the .NET popup shows a "No matches." footer while focused
+            // the popup shows a "No matches." footer while focused
             return Some(
                 div()
                     .id("search-popup")

@@ -193,7 +193,7 @@ impl Render for OverviewView {
                 )
             });
 
-        // 60/40 like the C# overview: README column + details sidebar
+        // 60/40: README column + details sidebar
         div()
             .size_full()
             .flex()
@@ -223,7 +223,7 @@ fn render_sidebar(
     cx: &Context<OverviewView>,
 ) -> gpui::AnyElement {
     let settings = store.read(cx).settings();
-    // the .NET overview's three stat tiles: each opens its tab
+    // three stat tiles: each opens its tab
     let tile = |id: &'static str, label: &'static str, count: u32, color: gpui::Rgba, tab: BottomBarTab| {
         let store = store.clone();
         div()
@@ -363,7 +363,7 @@ fn read_readme(folder: &str) -> Option<String> {
     None
 }
 
-/// gh returns ISO timestamps; the .NET details card shows "27 Nov 2023".
+/// gh returns ISO timestamps; the details card shows "27 Nov 2023".
 fn format_created(iso: &str) -> String {
     chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
         .map(|d| d.format("%-d %b %Y").to_string())

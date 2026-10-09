@@ -1,5 +1,6 @@
-//! Global per-user locations. Everything lives under ~/.devtools — the same
-//! root the C# app used, so both builds coexist on one data set.
+//! Global per-user locations. Everything lives under ~/.devtools — one data
+//! set shared across app versions; never relocate the root or change the
+//! on-disk formats.
 
 use std::path::PathBuf;
 

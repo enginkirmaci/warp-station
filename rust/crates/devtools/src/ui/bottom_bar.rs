@@ -1,6 +1,6 @@
 //! The bottom bar: the selected repo's workspace — a tab strip (Overview /
 //! Changes / Pull Requests / Issues / Pipelines) above the active panel, with
-//! the .NET header shape: star, name, branch pill (click copies), tags row,
+//! the header shape: star, name, branch pill (click copies), tags row,
 //! refresh + kebab + close on the right. The bar itself is store-driven; only
 //! ephemeral panel state (kebab menu open, add-tag field) lives here.
 
@@ -60,7 +60,7 @@ impl Render for BottomBar {
             .and_then(|d| d.url.clone());
         drop(store_snapshot);
 
-        // ---- tabs (badges + settings gates, like the .NET tab strip) ----
+        // ---- tabs (badges + settings gates) ----
         let mut tabs = div().flex().flex_row().gap_1();
         let modified = entry.git_modified_count;
         for (tab, badge) in [
@@ -111,7 +111,7 @@ impl Render for BottomBar {
                 })
                 .child(tab.label());
             // Pipelines has no single badge (it is a section list); the rest
-            // badge their count like the .NET strip
+            // badge their count
             if badge > 0 && tab != BottomBarTab::Azure {
                 chip = chip.child(
                     div()
@@ -215,7 +215,7 @@ impl Render for BottomBar {
             .py_1p5()
             .relative()
             .child(
-                // favorite star, mirroring the .NET bar header
+                // favorite star
                 div()
                     .id("bar-star")
                     .cursor_pointer()

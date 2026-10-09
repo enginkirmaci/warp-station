@@ -2,7 +2,7 @@
 //! configured root (default ~/.devtools/notes), markdown files only. Tree
 //! loading, CRUD with sanitized names, capped content search — plus the pure
 //! markdown editing operations the Notes editor's toolbar drives (wrap/toggle
-//! semantics matching the C# helper).
+//! semantics).
 
 use crate::paths::AppPaths;
 use std::path::{Path, PathBuf};
@@ -127,7 +127,7 @@ pub fn search(repo_notes_root: &Path, term: &str) -> Vec<NotesSearchHit> {
 }
 
 /// The notes-page search scans up to [`SEARCH_FILE_CAP`] files; the global
-/// search passes a smaller cap (40 files per repo, like the .NET popup).
+/// search passes a smaller cap (40 files per repo).
 pub fn search_capped(repo_notes_root: &Path, term: &str, file_cap: usize) -> Vec<NotesSearchHit> {
     if !repo_notes_root.is_dir() || term.trim().is_empty() {
         return Vec::new();
@@ -692,8 +692,7 @@ mod tests {
         assert!(tree[0].is_folder && tree[0].name == "sub");
         assert_eq!(tree[1].name, "alpha.md");
 
-        // hidden FILES match by name like the C# service (only dot-DIRECTORIES
-        // are skipped)
+        // hidden FILES match by name (only dot-DIRECTORIES are skipped)
         let hits = search(&root, "needle");
         assert_eq!(hits.len(), 2);
         assert!(hits.iter().any(|h| h.excerpt.contains("needle")));

@@ -1,5 +1,5 @@
-//! One-shot CLI runner for every spawned child (git, gh, dotnet nuget,
-//! opencode): spawn with drained pipes, bound the run with a timeout, kill the
+//! One-shot CLI runner for every spawned child (git, gh, opencode): spawn
+//! with drained pipes, bound the run with a timeout, kill the
 //! child's whole process tree when the bound expires, and optionally cap the
 //! stdout read (the read task kills the tree once the head is captured, so a
 //! chatty child never materializes megabytes). Spawn failures propagate as

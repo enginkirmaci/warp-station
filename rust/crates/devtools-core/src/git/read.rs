@@ -1,8 +1,7 @@
 //! The in-process git read layer behind the status service: status probes,
 //! change snapshots, branches, diffs, history — one repository handle per
 //! operation, no shared state, no index locks, so reads never interfere with
-//! the user's own git operations. Every failure maps to the same None/empty
-//! results the C# layer returned.
+//! the user's own git operations. Every failure maps to None/empty results.
 
 use crate::model::*;
 use chrono::{DateTime, Local, TimeZone as _};
@@ -533,7 +532,7 @@ fn find_commit<'r>(repo: &'r Repository, hash: &str) -> Option<git2::Commit<'r>>
             return Some(commit);
         }
     }
-    // abbreviated hash: resolve by unique prefix, like LibGit2Sharp's Lookup
+    // abbreviated hash: resolve by unique prefix
     let (min_len, len) = (4, hash.len());
     if len < min_len || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;

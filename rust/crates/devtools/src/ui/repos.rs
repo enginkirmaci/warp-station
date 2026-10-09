@@ -95,7 +95,7 @@ impl ReposPage {
         cx.notify();
     }
 
-    /// Sends the Clone dialog's clone (with the .NET inline validation).
+    /// Sends the Clone dialog's clone (with inline validation).
     pub fn commit_clone(&mut self, cx: &mut Context<Self>) {
         let Some(Dialog::Clone(dialog)) = &mut self.dialog else { return };
         let mut validation_error: Option<String> = None;
@@ -317,7 +317,7 @@ impl ReposPage {
             })
             .child(summary_button(&self.store, summary_busy, cx))
             .child(
-                // the .NET sort select: bordered box with up/down chevrons
+                // sort select: bordered box with up/down chevrons
                 div()
                     .id("sort-button")
                     .cursor_pointer()
@@ -587,7 +587,7 @@ impl ReposDelegate {
 }
 
 impl TableDelegate for ReposDelegate {
-    /// The .NET list has no column headers — the toolbar carries sort/filter —
+    /// The list has no column headers — the toolbar carries sort/filter —
     /// so the header row collapses to zero height (refine_style applies these
     /// after the kit's own h_flex/background styling).
     fn render_header(
@@ -713,7 +713,7 @@ impl TableDelegate for ReposDelegate {
                 .into_any_element(),
             ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix, &self.store, cx),
             // branch pill and changes cell open the bar's Changes tab; the
-            // GitHub/Azure cells route to their own tabs (.NET chip routing)
+            // GitHub/Azure cells route to their own tabs
             ColKind::Branch => tab_cell(
                 ("open-changes", row_ix as u64),
                 &folder,
@@ -801,7 +801,7 @@ impl TableDelegate for ReposDelegate {
 }
 
 /// Wraps a table cell so clicking it opens the bottom bar on one specific
-/// tab (the .NET chip routing) without re-firing the row toggle.
+/// tab without re-firing the row toggle.
 fn tab_cell(
     id: (&'static str, u64),
     folder: &str,
@@ -854,7 +854,7 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .into_any_element()
 }
 
-/// The .NET changes cell: `[amber modified] Changes (push↑, pull↓)` plus a
+/// The changes cell: `[amber modified] Changes (push↑, pull↓)` plus a
 /// gray ✓ when the branch is synced — rendered in every state, never
 /// "clean".
 fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
@@ -893,7 +893,7 @@ fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
     row.into_any_element()
 }
 
-/// The .NET GitHub chips: purple ↑N (pull requests) and green ◉N (issues),
+/// The GitHub chips: purple ↑N (pull requests) and green ◉N (issues),
 /// or the gray all-clear ✓ once the pass loaded a GitHub repo with none.
 fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
     let mut row = div()
@@ -999,7 +999,7 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
     row.into_any_element()
 }
 
-/// Per-row buttons in the .NET shape: bordered squares, launch order
+/// Per-row buttons: bordered squares, launch order
 /// [zcode][vscode][folder][terminal], preceded by a notes button. Purely
 /// visibility switches from settings — a configured-but-missing executable
 /// reports at launch time.

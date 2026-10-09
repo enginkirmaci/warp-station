@@ -84,7 +84,7 @@ pub enum GitAction {
     Pull,
     Push,
     Publish { branch: String },
-    /// Pull then push; a failed pull skips the push (the .NET rail's Sync).
+    /// Pull then push; a failed pull skips the push.
     Sync,
     /// `git revert --no-edit` on one commit (the drill-down's Revert).
     Revert(String),
@@ -638,9 +638,9 @@ impl OutcomeExt for devtools_core::git::cli::GitOutcome {
     }
 }
 
-/// One throttled status pass: git2 probes under a 4-way semaphore (parity with
-/// the C# service's MaxParallelism), every failure settling as a zeroed
-/// snapshot for its folder. Collected, then returned for one burst apply.
+/// One throttled status pass: git2 probes under a 4-way semaphore, every
+/// failure settling as a zeroed snapshot for its folder. Collected, then
+/// returned for one burst apply.
 async fn probe_pass(folders: Vec<PathBuf>) -> Vec<StatusProbe> {
     use std::sync::{Arc, Mutex};
     let collected = Arc::new(Mutex::new(Vec::with_capacity(folders.len())));

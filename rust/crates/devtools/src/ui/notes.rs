@@ -36,7 +36,7 @@ pub struct NotesPage {
     editor: Entity<TextareaState>,
     /// Delete arming: (path, expire-instant) — a second click within 3s fires.
     armed_delete: Option<(PathBuf, std::time::Instant)>,
-    /// The "+ note" create form (name + optional folder), like the .NET flyout.
+    /// The "+ note" create form (name + optional folder).
     create_open: bool,
     create_name: Entity<InputState>,
     create_folder: Entity<InputState>,
@@ -78,7 +78,7 @@ impl NotesPage {
         let settings = store.settings();
         let root = notes_core::resolve_store_root(&settings.general.notes_store_path);
         // repo-scoped when a repo is selected, whole-store otherwise (the
-        // .NET title-bar notes view roots at the store, one folder per repo)
+        // title-bar notes view roots at the store, one folder per repo)
         match store.selected_entry() {
             Some(repo) => Some(notes_core::repo_notes_root(&root, &repo.name)),
             None => Some(root),
@@ -296,7 +296,7 @@ impl Render for NotesPage {
 }
 
 impl NotesPage {
-    /// The .NET status strip: "N words · N chars · N lines" and "Ln x, Col y".
+    /// The status strip: "N words · N chars · N lines" and "Ln x, Col y".
     fn render_status_bar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let text = if self.open_note.is_some() { self.editor.read(cx).value().to_string() } else { String::new() };
         let words = text.split_whitespace().count();
