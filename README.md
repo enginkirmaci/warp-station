@@ -10,13 +10,16 @@ cargo test           # unit + live git parity + headless UI probes
 ```
 
 User data lives in `~/.devtools` (settings, repos cache, notes, opencode
-prompts). Linux install / AppImage:
+prompts). The opencode AI wands need `opencode` on PATH and the OpenCode
+section enabled in Settings.
 
-```sh
-packaging/linux/install.sh install target/release/devtools
-packaging/linux/build-appimage.sh          # → packaging/linux/portable/DevTools-<v>-x86_64.AppImage
-```
+## Package
 
-Windows: `packaging/windows/build.ps1` (add `-Installer` to also compile the
-Inno Setup installer, script `devtools.iss`). The opencode AI wands need
-`opencode` on PATH and the OpenCode section enabled in Settings.
+- Linux: `packaging/linux/install.sh` installs the desktop entry + hicolor
+  icons so the launcher shows the app; `Exec` points at
+  `target/debug/devtools`.
+- Windows (build on a Windows box — GPUI has no Linux→Windows cross build):
+  `packaging/windows/build.ps1` produces a portable zip under
+  `packaging/windows/out`; `-Installer` also compiles the Inno Setup
+  setup.exe. The app icon is embedded into the exe by `build.rs` from
+  `packaging/windows/devtools.ico`.
