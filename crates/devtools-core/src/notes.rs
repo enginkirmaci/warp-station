@@ -75,8 +75,8 @@ fn load_directory(directory: &Path) -> Vec<NotesTreeItem> {
             _ => {}
         }
     }
-    folders.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    notes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    folders.sort_by_key(|a| a.name.to_lowercase());
+    notes.sort_by_key(|a| a.name.to_lowercase());
     folders.into_iter().chain(notes).collect()
 }
 
@@ -412,7 +412,6 @@ fn toggle_line_prefix(text: &str, start: usize, length: usize, prefix: &str) -> 
     let mut out = String::new();
     out.extend(chars[..line_start].iter());
     let mut new_start = None;
-    let mut new_len = 0usize;
     let mut consumed = 0usize;
     for (line_ix, (line_begin, line)) in lines.iter().enumerate() {
         let _ = line_begin;
@@ -431,7 +430,7 @@ fn toggle_line_prefix(text: &str, start: usize, length: usize, prefix: &str) -> 
         consumed += replaced.chars().count();
         out.push_str(&replaced);
     }
-    new_len = consumed.saturating_sub(new_start.unwrap_or(line_start));
+    let new_len = consumed.saturating_sub(new_start.unwrap_or(line_start));
     out.extend(chars[line_end..].iter());
     MarkdownEditResult {
         text: out,

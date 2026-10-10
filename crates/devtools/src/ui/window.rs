@@ -94,8 +94,8 @@ impl Render for MainWindow {
         if let Some(popup) = self.render_search_popup(cx) {
             root = root.child(popup);
         }
-        if self.formatters_open {
-            if let Some(drawer) = &self.formatters {
+        if self.formatters_open
+            && let Some(drawer) = &self.formatters {
                 let scrim_store = self.store.clone();
                 root = root.child(
                     div()
@@ -118,7 +118,6 @@ impl Render for MainWindow {
                         ),
                 );
             }
-        }
         root
     }
 }
@@ -502,7 +501,7 @@ impl MainWindow {
                         this.open_notes_window(window, cx);
                     }))
                     .child(icon(
-                        "icons/icon-agent-sparkle.svg",
+                        "icons/icon-note.svg",
                         px(theme::ICON_MEDIUM),
                         if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))

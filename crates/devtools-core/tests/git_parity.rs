@@ -114,11 +114,10 @@ fn branches_and_remotes_match_cli() {
 #[test]
 fn staged_patch_looks_like_a_diff() {
     let Some(root) = require() else { return };
-    if let Some(patch) = read::staged_patch(&root) {
-        if !patch.is_empty() {
+    if let Some(patch) = read::staged_patch(&root)
+        && !patch.is_empty() {
             assert!(patch.contains("diff --git "), "patch head: {}", &patch[..patch.len().min(80)]);
         }
-    }
 }
 
 #[test]

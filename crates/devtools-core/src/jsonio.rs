@@ -19,11 +19,10 @@ pub fn write_json_atomically<T: serde::Serialize>(path: &Path, value: &T) -> any
 /// atomic on the same volume).
 pub fn write_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
     use anyhow::Context;
-    if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() {
+    if let Some(dir) = path.parent()
+        && !dir.as_os_str().is_empty() {
             std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
         }
-    }
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())

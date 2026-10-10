@@ -46,7 +46,7 @@ impl BottomBar {
 }
 
 impl Render for BottomBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let Some(entry) = self.store.read(cx).selected_entry().cloned() else {
             return div().into_any_element();
         };
@@ -58,7 +58,6 @@ impl Render for BottomBar {
             .github_details
             .as_ref()
             .and_then(|d| d.url.clone());
-        drop(store_snapshot);
 
         // ---- tabs (badges + settings gates) ----
         let mut tabs = div().flex().flex_row().gap_1();
@@ -68,15 +67,15 @@ impl Render for BottomBar {
             (BottomBarTab::Changes, modified),
             (
                 BottomBarTab::PullRequests,
-                settings.repos.enable_git_hub.then_some(entry.github_pr_count).unwrap_or(0),
+                if settings.repos.enable_git_hub { entry.github_pr_count } else { 0 },
             ),
             (
                 BottomBarTab::Issues,
-                settings.repos.enable_git_hub.then_some(entry.github_issue_count).unwrap_or(0),
+                if settings.repos.enable_git_hub { entry.github_issue_count } else { 0 },
             ),
             (
                 BottomBarTab::Azure,
-                settings.repos.enable_azure_dev_ops.then_some(1u32).unwrap_or(0),
+                if settings.repos.enable_azure_dev_ops { 1u32 } else { 0 },
             ),
         ] {
             if tab == BottomBarTab::PullRequests && !settings.repos.enable_git_hub {
@@ -300,7 +299,7 @@ impl Render for BottomBar {
                             store.update(cx, |s, cx| s.refresh_panel(cx));
                         }
                     })
-                    .child(icon("icons/rotate-cw.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED)),
+                    .child(icon("icons/icon-refresh.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED)),
             )
             // kebab menu
             .child(
@@ -357,7 +356,7 @@ impl Render for BottomBar {
             .bg(theme::STRONG_BACKGROUND)
             .child(header)
             .child(tags_row)
-            .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab, cx)))
+            .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab)))
             .into_any_element()
     }
 }
@@ -405,14 +404,12 @@ impl BottomBar {
         };
         if let Some(url) = github_url.clone() {
             let url_open = url.clone();
-            let store_open = store.clone();
             let url_copy = url.clone();
             let store_copy = store.clone();
             menu = menu
-                .child(make_item("Open in GitHub", Box::new(move |cx: &mut App| {
+                .child(make_item("Open in GitHub", Box::new(move |_cx: &mut App| {
                     let url = url_open.clone();
                     let _ = devtools_core::terminal::open_folder(&url);
-                    let _ = &store_open;
                 })))
                 .child(make_item("Copy GitHub URL", Box::new(move |cx: &mut App| {
                     Self::copy_text(url_copy.clone(), cx);
@@ -444,7 +441,7 @@ impl BottomBar {
         menu.into_any_element()
     }
 
-    fn render_panel(&mut self, tab: BottomBarTab, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_panel(&mut self, tab: BottomBarTab) -> gpui::AnyElement {
         match tab {
             BottomBarTab::Changes => self.changes_view.clone().into_any_element(),
             BottomBarTab::Overview => self.overview_view.clone().into_any_element(),

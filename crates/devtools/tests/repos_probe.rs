@@ -46,7 +46,7 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
 #[gpui::test]
 fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+    cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
     let store_handle = store.clone();
@@ -77,7 +77,7 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
 #[gpui::test]
 fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+    cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
     let store_handle = store.clone();

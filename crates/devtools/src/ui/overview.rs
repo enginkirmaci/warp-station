@@ -26,8 +26,8 @@ impl OverviewView {
                 // details probe rides along with the pane's first open
                 if let Some(folder) = selected {
                     let settings = store.read(cx).settings();
-                    if settings.repos.enable_git_hub {
-                        if let Some(gh) = devtools_core::exe::locate(&settings.repos.git_hub_executable) {
+                    if settings.repos.enable_git_hub
+                        && let Some(gh) = devtools_core::exe::locate(&settings.repos.git_hub_executable) {
                             let _ = store
                                 .read(cx)
                                 .net
@@ -36,7 +36,6 @@ impl OverviewView {
                                     gh_exe: gh.to_string_lossy().to_string(),
                                 });
                         }
-                    }
                 }
                 cx.notify();
             }

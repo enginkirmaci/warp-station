@@ -2,7 +2,7 @@
 // no console window behind the packaged Windows exe; debug builds keep it for logs
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
-use devtools::{assets, logging, net, store::Store, theme, ui::window::MainWindow};
+use devtools::{assets, logging, store::Store, theme, ui::window::MainWindow};
 use gpui::prelude::*;
 use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use gpui_platform::application;

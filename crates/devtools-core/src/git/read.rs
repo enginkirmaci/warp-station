@@ -131,22 +131,19 @@ pub fn change_snapshot(folder: &Path) -> Option<GitChangeSnapshot> {
         // numstat.
         let index = repo.index().ok()?;
         let mut diff_opts = diff_options(repo);
-        if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts)) {
-            if find_renames(&mut diff).is_ok() {
+        if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))
+            && find_renames(&mut diff).is_ok() {
                 snapshot.worktree_counts = numstat_counts(&diff);
             }
-        }
 
         let head_tree = head_tree(repo);
         let index = repo.index().ok()?;
         let mut diff_opts = diff_options(repo);
         if let Ok(mut diff) =
             repo.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut diff_opts))
-        {
-            if find_renames(&mut diff).is_ok() {
+            && find_renames(&mut diff).is_ok() {
                 snapshot.cached_counts = numstat_counts(&diff);
             }
-        }
         Some(snapshot)
     })
     .flatten()
@@ -211,11 +208,9 @@ pub fn commit_details(folder: &Path, hash: &str) -> Option<GitCommitDetails> {
             let mut opts = diff_options(repo);
             if let Ok(mut diff) =
                 repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
-            {
-                if find_renames(&mut diff).is_ok() {
+                && find_renames(&mut diff).is_ok() {
                     files = files_from_diff(&diff);
                 }
-            }
         }
         Some(GitCommitDetails {
             hash: hash.to_string(),
@@ -396,14 +391,12 @@ pub fn recent_commits(folder: &Path) -> Option<Vec<GitCommitInfo>> {
 pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActivity> {
     with_repo(folder, |repo| {
         let mut commits = Vec::new();
-        let mut examined = 0usize;
         let mut walker = repo.revwalk().ok()?;
         walker.push_head().ok()?;
-        for oid in &mut walker {
+        for (examined, oid) in (&mut walker).enumerate() {
             if examined >= MAX_DAY_SCAN_COMMITS {
                 break;
             }
-            examined += 1;
             let Ok(commit) = repo.find_commit(oid.ok()?) else { continue };
             if to_local(commit.time()).date_naive() != day {
                 continue;
@@ -415,14 +408,12 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
                 let mut opts = diff_options(repo);
                 if let Ok(mut diff) =
                     repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
-                {
-                    if find_renames(&mut diff).is_ok() {
+                    && find_renames(&mut diff).is_ok() {
                         files = files_from_diff(&diff)
                             .into_iter()
                             .take(MAX_DAY_COMMIT_FILE_ENTRIES)
                             .collect();
                     }
-                }
             }
             commits.push(GitDayCommit {
                 hash: commit.id().to_string(),
@@ -444,21 +435,18 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
         if !snapshot.status_files.is_empty() {
             let index = repo.index().ok()?;
             let mut diff_opts = diff_options(repo);
-            if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts)) {
-                if find_renames(&mut diff).is_ok() {
+            if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))
+                && find_renames(&mut diff).is_ok() {
                     snapshot.worktree_counts = numstat_counts(&diff);
                 }
-            }
             let head_tree = head_tree(repo);
             if let Ok(index) = repo.index() {
                 let mut diff_opts = diff_options(repo);
                 if let Ok(mut diff) =
                     repo.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut diff_opts))
-                {
-                    if find_renames(&mut diff).is_ok() {
+                    && find_renames(&mut diff).is_ok() {
                         snapshot.cached_counts = numstat_counts(&diff);
                     }
-                }
             }
         }
 
@@ -527,11 +515,10 @@ fn with_repo<T>(folder: &Path, action: impl FnOnce(&Repository) -> Option<T>) ->
 }
 
 fn find_commit<'r>(repo: &'r Repository, hash: &str) -> Option<git2::Commit<'r>> {
-    if let Ok(oid) = git2::Oid::from_str(hash) {
-        if let Ok(commit) = repo.find_commit(oid) {
+    if let Ok(oid) = git2::Oid::from_str(hash)
+        && let Ok(commit) = repo.find_commit(oid) {
             return Some(commit);
         }
-    }
     // abbreviated hash: resolve by unique prefix
     let (min_len, len) = (4, hash.len());
     if len < min_len || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -739,11 +726,10 @@ fn numstat_counts(diff: &git2::Diff<'_>) -> HashMap<String, (Option<u32>, Option
 fn patch_text(diff: &git2::Diff<'_>) -> String {
     let mut text = String::new();
     for idx in 0..diff.deltas().len() {
-        if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx) {
-            if let Ok(buf) = patch.to_buf() {
+        if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx)
+            && let Ok(buf) = patch.to_buf() {
                 text.push_str(buf.as_str().unwrap_or_default());
             }
-        }
     }
     text
 }
@@ -751,11 +737,10 @@ fn patch_text(diff: &git2::Diff<'_>) -> String {
 fn patch_for_path(diff: &mut git2::Diff<'_>, path: &str) -> Option<String> {
     for (idx, delta) in diff.deltas().enumerate() {
         if delta_path(&delta) == path {
-            if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx) {
-                if let Ok(buf) = patch.to_buf() {
+            if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx)
+                && let Ok(buf) = patch.to_buf() {
                     return Some(buf.as_str().unwrap_or_default().to_string());
                 }
-            }
             return Some(String::new());
         }
     }
@@ -835,13 +820,15 @@ mod merge_tests {
 
     #[test]
     fn merged_files_layer_cached_over_worktree() {
-        let mut snap = GitChangeSnapshot::default();
-        snap.status_files = vec![GitChangedFile {
-            path: "a.txt".into(),
-            status_code: "MM".into(),
-            additions: None,
-            deletions: None,
-        }];
+        let mut snap = GitChangeSnapshot {
+            status_files: vec![GitChangedFile {
+                path: "a.txt".into(),
+                status_code: "MM".into(),
+                additions: None,
+                deletions: None,
+            }],
+            ..Default::default()
+        };
         snap.worktree_counts.insert("a.txt".into(), (Some(1), Some(2)));
         snap.cached_counts.insert("a.txt".into(), (Some(10), Some(20)));
         let merged = snap.merged_files();
@@ -851,19 +838,21 @@ mod merge_tests {
 
     #[test]
     fn change_groups_apply_their_own_sides() {
-        let mut snap = GitChangeSnapshot::default();
-        snap.staged_files = vec![GitChangedFile {
-            path: "b.txt".into(),
-            status_code: "A".into(),
-            additions: None,
-            deletions: None,
-        }];
-        snap.unstaged_files = vec![GitChangedFile {
-            path: "c.txt".into(),
-            status_code: "M".into(),
-            additions: None,
-            deletions: None,
-        }];
+        let mut snap = GitChangeSnapshot {
+            staged_files: vec![GitChangedFile {
+                path: "b.txt".into(),
+                status_code: "A".into(),
+                additions: None,
+                deletions: None,
+            }],
+            unstaged_files: vec![GitChangedFile {
+                path: "c.txt".into(),
+                status_code: "M".into(),
+                additions: None,
+                deletions: None,
+            }],
+            ..Default::default()
+        };
         snap.cached_counts.insert("b.txt".into(), (Some(3), None));
         snap.worktree_counts.insert("c.txt".into(), (None, Some(4)));
         let (staged, unstaged) = snap.change_groups();

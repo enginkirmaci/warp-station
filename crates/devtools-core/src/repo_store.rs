@@ -16,6 +16,7 @@ pub const FAVORITES_TAG: &str = "favorites";
 /// read and not rewritten, and missing keys deserialize as defaults.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
 pub struct CachedRepo {
     pub name: String,
     pub folder_path: String,
@@ -28,18 +29,6 @@ pub struct CachedRepo {
     pub git_last_fetch_at: Option<String>,
 }
 
-impl Default for CachedRepo {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            folder_path: String::new(),
-            solution_path: None,
-            tags: Vec::new(),
-            git_last_commit_at: None,
-            git_last_fetch_at: None,
-        }
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
@@ -216,11 +205,10 @@ pub fn apply_status_probe(entry: &mut RepoEntry, probe: &StatusProbe) {
     entry.git_last_commit_at = probe.last_commit_at;
     entry.git_has_remote = probe.has_remote;
     entry.git_branch_published = probe.branch_on_remote;
-    if let Some(fetch_at) = probe.last_fetch_at {
-        if entry.git_last_fetch_at.is_none_or(|existing| fetch_at > existing) {
+    if let Some(fetch_at) = probe.last_fetch_at
+        && entry.git_last_fetch_at.is_none_or(|existing| fetch_at > existing) {
             entry.git_last_fetch_at = Some(fetch_at);
         }
-    }
     entry.git_status_loaded = true;
 }
 

@@ -242,11 +242,10 @@ impl Render for NotesPage {
             self.open_note(note_path, window, cx);
             let root = self.notes_root(cx);
             while let Some(parent) = path.parent() {
-                if let Some(root) = &root {
-                    if parent.starts_with(root) {
+                if let Some(root) = &root
+                    && parent.starts_with(root) {
                         self.expanded.insert(parent.to_path_buf());
                     }
-                }
                 if parent.parent().is_none() {
                     break;
                 }

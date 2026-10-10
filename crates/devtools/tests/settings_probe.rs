@@ -9,7 +9,7 @@ use gpui::TestAppContext;
 #[gpui_kit::gpui::test]
 fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+    cx.update(devtools::theme::apply_kit_theme);
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
@@ -18,5 +18,5 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.update(|_, cx| devtools_core::settings::SettingsService::open().get().repos.max_scan_depth) >= 1);
+    assert!(cx.update(|_, _| devtools_core::settings::SettingsService::open().get().repos.max_scan_depth) >= 1);
 }

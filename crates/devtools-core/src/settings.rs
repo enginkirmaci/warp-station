@@ -146,6 +146,7 @@ impl<'de> Deserialize<'de> for RepoSortMode {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
 pub struct OpenCodeSettings {
     #[serde(rename = "EnableOpenCode")]
     pub enable_opencode: bool,
@@ -153,37 +154,24 @@ pub struct OpenCodeSettings {
     pub commit_model: Option<String>,
 }
 
-impl Default for OpenCodeSettings {
-    fn default() -> Self {
-        Self { enable_opencode: false, default_model: String::new(), commit_model: None }
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
 pub struct ClipboardPasswordSettings {
     pub encrypted_password: Option<String>,
     pub enable_clipboard_password: bool,
 }
 
-impl Default for ClipboardPasswordSettings {
-    fn default() -> Self {
-        Self { encrypted_password: None, enable_clipboard_password: false }
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
 pub struct SnapItSettings {
     /// Round-trip only: written by the Windows SnapIt companion, never read here.
     pub auto_start: bool,
 }
 
-impl Default for SnapItSettings {
-    fn default() -> Self {
-        Self { auto_start: false }
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]

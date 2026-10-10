@@ -1,8 +1,18 @@
 {
+    // lldb (CodeLLDB) wedges at the NVIDIA Vulkan ICD dlopen under its solib
+    // handler — debugging goes through gdb (webfreak.debug) instead.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Rust: devtools (debug)",
+            "name": "Rust: devtools (gdb)",
+            "type": "gdb",
+            "request": "launch",
+            "target": "${workspaceFolder}/target/debug/devtools",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "cargo build (devtools)"
+        },
+        {
+            "name": "Rust: devtools (lldb — hangs on NVIDIA)",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/devtools",

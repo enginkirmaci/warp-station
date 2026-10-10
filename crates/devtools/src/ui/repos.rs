@@ -11,7 +11,7 @@ use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::component::table::{Column, DataTable, TableDelegate, TableEvent, TableState};
 
@@ -142,8 +142,8 @@ impl Render for ReposPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         // drain dialog-bound results the moment we are about to draw
         let drained_deep_scan = self.store.update(cx, |store, _| store.deep_scan_result.take());
-        if let Some(found) = drained_deep_scan {
-            if let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
+        if let Some(found) = drained_deep_scan
+            && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
                 dialog.scanning = false;
                 dialog.found = found
                     .into_iter()
@@ -158,7 +158,6 @@ impl Render for ReposPage {
                     })
                     .collect();
             }
-        }
         let drained_clone = self.store.update(cx, |store, _| store.clone_result.take());
         if let Some((parent_dir, name, result)) = drained_clone {
             if result.success {
@@ -211,7 +210,6 @@ impl ReposPage {
         let total_prs: u32 = store.repos.iter().map(|r| r.github_pr_count).sum();
         let total_issues: u32 = store.repos.iter().map(|r| r.github_issue_count).sum();
         let github_on = store.settings().repos.enable_git_hub;
-        drop(store);
 
         let count_chip = |count: u32, color: gpui::Rgba, icon_path: Option<&'static str>| {
             div()
@@ -315,7 +313,7 @@ impl ReposPage {
                         .child(notice),
                 )
             })
-            .child(summary_button(&self.store, summary_busy, cx))
+            .child(summary_button(&self.store, summary_busy))
             .child(
                 // sort select: bordered box with up/down chevrons
                 div()
@@ -379,7 +377,7 @@ impl ReposPage {
                         store_handle_refresh.update(cx, |s, cx| s.refresh(cx));
                     })
                     .child(icon(
-                        "icons/rotate-cw.svg",
+                        "icons/icon-refresh.svg",
                         px(theme::ICON_SMALL),
                         if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
                     )),
@@ -551,17 +549,10 @@ fn column_kind(col_ix: usize, settings: &AppSettings) -> ColKind {
                 }
                 ix += 1;
             }
-            if settings.repos.enable_azure_dev_ops {
-                if col_ix == ix {
-                    return ColKind::Azure;
-                }
-                ix += 1;
+            if settings.repos.enable_azure_dev_ops && col_ix == ix {
+                return ColKind::Azure;
             }
-            if col_ix == ix {
-                ColKind::Activity
-            } else {
-                ColKind::Activity
-            }
+            ColKind::Activity
         }
     }
 }
@@ -690,28 +681,51 @@ impl TableDelegate for ReposDelegate {
                     ))
                     .into_any_element()
             }
-            ColKind::Name => div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(icon(
-                    "icons/file-text.svg",
-                    px(theme::ICON_SMALL),
-                    theme::TEXT_MUTED,
-                ))
-                .child(
-                    div()
-                        .text_size(px(theme::FONT_BODY + 1.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::TEXT)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(repo.name.clone()),
-                )
-                .into_any_element(),
-            ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix, &self.store, cx),
+            ColKind::Name => {
+                let store = self.store.clone();
+                let folder = folder.clone();
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        // notes: selects the repo and flags the floating notes
+                        // window open — always opens/switches, never toggles
+                        div()
+                            .id(("open-notes", row_ix))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .p_1()
+                            .flex()
+                            .items_center()
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                store.update(cx, |s, cx| {
+                                    s.ensure_repo_selected(&folder, cx);
+                                    s.notes_requested = true;
+                                });
+                            })
+                            .child(icon(
+                                "icons/icon-note.svg",
+                                px(theme::ICON_SMALL),
+                                theme::TEXT_MUTED,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::FONT_BODY + 1.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(repo.name.clone()),
+                    )
+                    .into_any_element()
+            }
+            ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix, &self.store),
             // branch pill and changes cell open the bar's Changes tab; the
             // GitHub/Azure cells route to their own tabs
             ColKind::Branch => tab_cell(
@@ -849,7 +863,7 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .text_size(px(theme::FONT_SMALL - 1.))
         .font_family(gpui::SharedString::from(theme::code_font()))
         .text_color(color)
-        .child(icon("icons/git-branch.svg", px(theme::ICON_SMALL - 3.), color))
+        .child(icon("icons/icon-source-branch.svg", px(theme::ICON_SMALL - 3.), color))
         .child(branch.to_string())
         .into_any_element()
 }
@@ -964,7 +978,7 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
         .gap_1()
         .text_size(px(theme::FONT_SMALL));
     // the newest run's state is the repo's pipeline state
-    if snapshot.pipelines.first().is_some() {
+    if !snapshot.pipelines.is_empty() {
         let (glyph, color) = if snapshot.pipeline_running() {
             ("◐", theme::BLUE_BRIGHT)
         } else if snapshot.pipeline_failed() {
@@ -1000,15 +1014,13 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
 }
 
 /// Per-row buttons: bordered squares, launch order
-/// [zcode][vscode][folder][terminal], preceded by a notes button. Purely
-/// visibility switches from settings — a configured-but-missing executable
-/// reports at launch time.
+/// [zcode][vscode][folder][terminal]. Purely visibility switches from
+/// settings — a configured-but-missing executable reports at launch time.
 fn shortcuts_cell(
     repo: &RepoEntry,
     settings: &AppSettings,
     row_ix: usize,
     store: &Entity<Store>,
-    cx: &App,
 ) -> gpui::AnyElement {
     use devtools_core::terminal;
     let folder = repo.folder_path.to_string_lossy().to_string();
@@ -1039,34 +1051,6 @@ fn shortcuts_cell(
             })
             .child(icon(icon_path, px(theme::ICON_SMALL), tint_color))
     };
-
-    // notes: selects the repo and flags the floating notes window open —
-    // always opens/switches, never toggles the bar closed
-    row = row.child({
-        let store = store.clone();
-        let folder = folder.clone();
-        div()
-            .id(SharedString::from(format!("open-notes-{row_ix}")))
-            .cursor_pointer()
-            .rounded_md()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::CARD)
-            .size(px(36.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .hover(|s| s.border_color(theme::TEXT_FAINT))
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                let folder = folder.clone();
-                store.update(cx, |s, cx| {
-                    s.ensure_repo_selected(&folder, cx);
-                    s.notes_requested = true;
-                });
-            })
-            .child(icon("icons/file-text.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED))
-    });
 
     // OpenCode quick-launch: one opencode instance in the repo with the
     // default model; without a configured default there is nothing to launch
@@ -1104,7 +1088,7 @@ fn shortcuts_cell(
     if settings.repos.enable_zcode {
         row = row.child(button(
             format!("open-zcode-{row_ix}"),
-            "icons/icon-agent-sparkle.svg",
+            "icons/icon-zcode.svg",
             theme::TEXT_MUTED,
             Box::new({
                 let folder = folder.clone();
@@ -1117,7 +1101,7 @@ fn shortcuts_cell(
     if settings.repos.enable_vscode {
         row = row.child(button(
             format!("open-vscode-{row_ix}"),
-            "icons/icon-code.svg",
+            "icons/icon-vscode.svg",
             theme::BLUE_BRIGHT,
             Box::new({
                 let folder = folder.clone();
@@ -1148,11 +1132,10 @@ fn shortcuts_cell(
             }),
         ));
     }
-    let _ = cx;
     row.into_any_element()
 }
 
-fn summary_button(store: &Entity<Store>, busy: bool, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
+fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
     let handle = store.clone();
     div()
         .id("summary-button")

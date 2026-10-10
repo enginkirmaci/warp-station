@@ -8,10 +8,10 @@ use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
-use devtools_core::model::{GitChangedFile, GitChangeSnapshot};
+use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::Sizable as _;
 
 pub struct ChangesView {
@@ -73,13 +73,12 @@ impl ChangesView {
         let needs_load = self.store.read(cx).history.is_empty();
         self.history_open = true;
         self.drilled_commit = None;
-        if needs_load {
-            if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+        if needs_load
+            && let Some(folder) = self.store.read(cx).selected_repo.clone() {
                 let _ = self.store.read(cx).net.send_blocking(NetCommand::LoadHistory {
                     folder: std::path::PathBuf::from(folder),
                 });
             }
-        }
         cx.notify();
     }
 
@@ -102,15 +101,14 @@ impl ChangesView {
             self.expanded_details.remove(&key);
         } else {
             self.expanded_details.insert(key.clone());
-            if !self.detail_patches.contains_key(&key) {
-                if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+            if !self.detail_patches.contains_key(&key)
+                && let Some(folder) = self.store.read(cx).selected_repo.clone() {
                     let _ = self.store.read(cx).net.send_blocking(NetCommand::GetCommitFilePatch {
                         folder: std::path::PathBuf::from(folder),
                         hash: hash.to_string(),
                         path: path.to_string(),
                     });
                 }
-            }
         }
         cx.notify();
     }
@@ -162,7 +160,6 @@ impl Render for ChangesView {
         let snapshot = store.changes.clone().unwrap_or_default();
         let (staged, unstaged) = snapshot.change_groups();
         let busy = store.git_busy;
-        drop(store);
 
         let left = if self.history_open {
             self.render_history(window, cx)
@@ -372,7 +369,6 @@ impl ChangesView {
         let unpushed = store.unpushed.clone();
         let history = store.history.clone();
         let details = store.commit_details.clone();
-        drop(store);
 
         if let Some(hash) = self.drilled_commit.clone() {
             return self.render_commit_detail(hash, details, window, cx);
@@ -574,7 +570,7 @@ impl ChangesView {
 
         // two-click armed destructive actions
         let armed = self.detail_armed;
-        let action_button = |id: &'static str, label: &'static str, danger: bool, armed_now: bool| {
+        let action_button = |id: &'static str, label: &'static str, armed_now: bool| {
             let text = if armed_now { "Confirm" } else { label };
             div()
                 .id(id)
@@ -595,7 +591,7 @@ impl ChangesView {
             let store = self.store.clone();
             let full_hash = details.hash.clone();
             let this = cx.entity();
-            action_button("detail-checkout", "Checkout", false, armed == Some("checkout"))
+            action_button("detail-checkout", "Checkout", armed == Some("checkout"))
                 .on_click(move |_, _, cx| {
                     if armed == Some("checkout") {
                         this.update(cx, |this, _| this.detail_armed = None);
@@ -612,7 +608,7 @@ impl ChangesView {
             let store = self.store.clone();
             let full_hash = details.hash.clone();
             let this = cx.entity();
-            action_button("detail-revert", "Revert", true, armed == Some("revert"))
+            action_button("detail-revert", "Revert", armed == Some("revert"))
                 .on_click(move |_, _, cx| {
                     if armed == Some("revert") {
                         this.update(cx, |this, _| this.detail_armed = None);
@@ -835,7 +831,6 @@ impl ChangesView {
             .and_then(|e| e.git_last_fetch_at)
             .map(devtools_core::rel_time::format)
             .unwrap_or_else(|| "never fetched".into());
-        drop(store);
 
         let mut rail = div()
             .w(px(300.))

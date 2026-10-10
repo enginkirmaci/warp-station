@@ -257,11 +257,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let activities = tokio::task::spawn_blocking(move || {
                         let mut collected: Vec<(String, devtools_core::model::GitDayActivity)> = Vec::new();
                         for (name, folder) in &folders {
-                            if let Some(activity) = devtools_core::git::read::day_activity(folder, day) {
-                                if !activity.is_empty() {
+                            if let Some(activity) = devtools_core::git::read::day_activity(folder, day)
+                                && !activity.is_empty() {
                                     collected.push((name.clone(), activity));
                                 }
-                            }
                         }
                         collected.sort_by(|a, b| a.0.cmp(&b.0));
                         collected

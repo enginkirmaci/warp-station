@@ -160,11 +160,10 @@ impl AddRepoDialog {
                     .when(*tracked, |d| d.opacity(0.5))
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
-                        if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
-                            if !dialog.found[index].2 {
+                        if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog
+                            && !dialog.found[index].2 {
                                 dialog.found[index].1 = !dialog.found[index].1;
                             }
-                        }
                         cx.notify();
                     }))
                     .child(
@@ -329,7 +328,7 @@ impl CloneDialog {
     }
 
     pub fn derived_name(&self, cx: &Context<ReposPage>) -> String {
-        derive_repo_name(&self.url.read(cx).value().to_string())
+        derive_repo_name(self.url.read(cx).value().as_ref())
     }
 
     fn render(&mut self, _window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {

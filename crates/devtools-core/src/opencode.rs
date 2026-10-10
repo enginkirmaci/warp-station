@@ -226,11 +226,10 @@ async fn wand_session(
                 "message.part.updated" => {
                     // the part carries the full text-so-far each time
                     let part = evt.get("part").cloned().unwrap_or(Value::Null);
-                    if part.get("type").and_then(Value::as_str) == Some("text") {
-                        if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    if part.get("type").and_then(Value::as_str) == Some("text")
+                        && let Some(text) = part.get("text").and_then(Value::as_str) {
                             assistant_text = text.to_string();
                         }
-                    }
                 }
                 "permission.updated" => {
                     let status = evt.pointer("/permission/status").and_then(Value::as_str);
@@ -249,11 +248,10 @@ async fn wand_session(
                         let _ = events.send_blocking(WandEvent::Ask { id, title });
                     }
                 }
-                "session.idle" => {
-                    if !assistant_text.is_empty() {
+                "session.idle"
+                    if !assistant_text.is_empty() => {
                         return Ok(assistant_text);
                     }
-                }
                 _ => {}
             }
         }
@@ -392,10 +390,10 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         let mut names: Vec<(String, bool)> = entries
             .flatten()
-            .filter_map(|e| {
+            .map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
                 let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                Some((name, is_dir))
+                (name, is_dir)
             })
             .filter(|(name, _)| {
                 !name.starts_with('.')

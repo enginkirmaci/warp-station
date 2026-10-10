@@ -15,6 +15,7 @@ use tokio::process::Command;
 /// Node processes.
 pub const ELECTRON_RUN_AS_NODE: &str = "ELECTRON_RUN_AS_NODE";
 
+#[derive(Default)]
 pub struct ProcessRunOptions<'a> {
     pub file_name: &'a str,
     pub args: &'a [String],
@@ -33,20 +34,6 @@ pub struct ProcessRunOptions<'a> {
     pub environment: Vec<(String, String)>,
 }
 
-impl<'a> Default for ProcessRunOptions<'a> {
-    fn default() -> Self {
-        Self {
-            file_name: "",
-            args: &[],
-            working_dir: None,
-            timeout: None,
-            close_stdin: false,
-            strip_electron_variable: false,
-            max_output_bytes: None,
-            environment: Vec::new(),
-        }
-    }
-}
 
 pub struct ProcessRunResult {
     /// The child's exit code; `None` when it never completed (spawn failure or

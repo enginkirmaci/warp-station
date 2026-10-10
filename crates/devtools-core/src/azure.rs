@@ -45,14 +45,13 @@ pub fn read_remote_url(folder: &Path, name: Option<&str>) -> Option<String> {
         if !in_section {
             continue;
         }
-        if let Some((key, value)) = line.split_once('=') {
-            if key.trim().eq_ignore_ascii_case("url") {
+        if let Some((key, value)) = line.split_once('=')
+            && key.trim().eq_ignore_ascii_case("url") {
                 let value = value.trim();
                 if !value.is_empty() {
                     return Some(value.to_string());
                 }
             }
-        }
     }
     None
 }
@@ -141,15 +140,14 @@ pub fn parse_url(url: &str, custom_base: Option<&str>) -> Option<AzureRemote> {
     }
 
     // Legacy: https://{org}.visualstudio.com/{project}/_git/{repo}
-    if let Some(org) = host.strip_suffix(".visualstudio.com") {
-        if segments.len() >= 3 && segments[1].eq_ignore_ascii_case("_git") {
+    if let Some(org) = host.strip_suffix(".visualstudio.com")
+        && segments.len() >= 3 && segments[1].eq_ignore_ascii_case("_git") {
             return Some(AzureRemote {
                 base_url: format!("https://dev.azure.com/{}", escape(org)),
                 project: escape(&segments[0]),
                 repository: escape(&strip_dot_git(&segments[2])),
             });
         }
-    }
 
     // Custom server: {scheme}://{host}[/app-path]/{collection}/{project}/_git/{repo}
     // (the app-path arrives via the segments themselves, never from the
@@ -266,11 +264,10 @@ pub fn resolve_pat(configured: &str) -> Option<String> {
         return Some(configured.trim().to_string());
     }
     for name in ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_EXT_PAT"] {
-        if let Ok(value) = std::env::var(name) {
-            if !value.trim().is_empty() {
+        if let Ok(value) = std::env::var(name)
+            && !value.trim().is_empty() {
                 return Some(value.trim().to_string());
             }
-        }
     }
     None
 }

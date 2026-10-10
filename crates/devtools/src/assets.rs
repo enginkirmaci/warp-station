@@ -13,6 +13,12 @@ pub struct EmbedAssets {
     kit: gpui_kit::assets::Assets,
 }
 
+impl Default for EmbedAssets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmbedAssets {
     pub fn new() -> Self {
         Self { kit: gpui_kit::assets::Assets }

@@ -10,7 +10,7 @@ use gpui::TestAppContext;
 #[gpui_kit::gpui::test]
 fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+    cx.update(devtools::theme::apply_kit_theme);
 
     let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -69,7 +69,7 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
 #[gpui_kit::gpui::test]
 fn history_and_drill_down_draw(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    cx.update(|cx| devtools::theme::apply_kit_theme(cx));
+    cx.update(devtools::theme::apply_kit_theme);
 
     let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

@@ -33,11 +33,10 @@ pub fn locate(name: &str) -> Option<PathBuf> {
             let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
             USER_DIRS
                 .iter()
-                .find_map(|dir| resolve_on_path(&PathBuf::from(&home).join(dir).join(name).to_string_lossy().as_ref()))
+                .find_map(|dir| resolve_on_path(PathBuf::from(&home).join(dir).join(name).to_string_lossy().as_ref()))
         })
-        .map(|p| {
+        .inspect(|p| {
             tracing::debug!("resolved {name} -> {}", p.display());
-            p
         });
     if resolved.is_none() {
         tracing::debug!("'{name}' not found on PATH or in the user install dirs");
@@ -52,11 +51,10 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
     let path_env = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_env) {
         let full = dir.join(name);
-        if let Ok(metadata) = std::fs::metadata(&full) {
-            if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+        if let Ok(metadata) = std::fs::metadata(&full)
+            && metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
                 return Some(full);
             }
-        }
     }
     None
 }

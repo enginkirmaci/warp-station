@@ -142,8 +142,8 @@ impl Store {
 
         // E2E hook: DEVTOOLS_SELECT=<index-or-name-substring> opens the bottom
         // bar on launch so automation can verify the workspace surfaces
-        if let Ok(pattern) = std::env::var("DEVTOOLS_SELECT") {
-            if let Some(entry) = store
+        if let Ok(pattern) = std::env::var("DEVTOOLS_SELECT")
+            && let Some(entry) = store
                 .repos
                 .iter()
                 .find(|r| r.name.eq_ignore_ascii_case(&pattern))
@@ -154,7 +154,6 @@ impl Store {
                     folder: entry.folder_path.clone(),
                 });
             }
-        }
         store
     }
 
@@ -597,7 +596,7 @@ impl Store {
                 merged.push(existing.clone());
             }
         }
-        merged.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        merged.sort_by_key(|a| a.name.to_lowercase());
         let new_folders: Vec<std::path::PathBuf> = merged
             .iter()
             .filter(|m| !previous.iter().any(|p| p.folder_path == m.folder_path))

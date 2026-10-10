@@ -8,7 +8,7 @@ use crate::store::Store;
 use crate::theme;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::switch::Switch;
 
@@ -275,7 +275,7 @@ impl Render for SettingsPage {
                         cx.notify();
                     })))
             }))
-            .child(self.card("Repository scanning", cx, |this, cx, card| {
+            .child(self.card("Repository scanning", cx, |this, _cx, card| {
                 card.child(label("Scan folders (one per line)"))
                     .child(Textarea::new(&this.scan_folders).bordered(true).small())
                     .child(label("Excluded folders (one per line)"))
