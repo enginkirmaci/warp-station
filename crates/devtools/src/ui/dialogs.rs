@@ -6,6 +6,7 @@
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::icon;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -76,7 +77,7 @@ fn card(title: &str) -> gpui::Div {
         .gap_3()
         .child(
             div()
-                .text_size(px(theme::FONT_TITLE))
+                .text_size(px(theme::font_title()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.to_string()),
         )
@@ -89,7 +90,7 @@ fn plain_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .text_color(theme::TEXT_DIM)
         .border_1()
         .border_color(theme::HAIRLINE)
@@ -105,7 +106,7 @@ fn accent_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, 
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)
@@ -155,7 +156,7 @@ impl AddRepoDialog {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .when(*checked && !*tracked, |d| d.bg(theme::tint(theme::ACCENT)))
                     .when(*tracked, |d| d.opacity(0.5))
                     .hover(|s| s.bg(theme::HOVER))
@@ -177,13 +178,11 @@ impl AddRepoDialog {
                             .justify_center()
                             .border_color(theme::TEXT_FAINT)
                             .when(*checked && !*tracked, |d| {
-                                d.bg(theme::ACCENT).border_color(theme::ACCENT).child(
-                                    div()
-                                        .text_size(px(9.))
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(theme::ON_ACCENT)
-                                        .child("✓"),
-                                )
+                                d.bg(theme::ACCENT).border_color(theme::ACCENT).child(icon(
+                                    "icons/icon-check.svg",
+                                    px(9.),
+                                    theme::ON_ACCENT,
+                                ))
                             }),
                     )
                     .child(label),
@@ -208,7 +207,7 @@ impl AddRepoDialog {
             )
             .child(
                 div()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .child(hint),
             )
@@ -223,7 +222,7 @@ impl AddRepoDialog {
                         .gap_2()
                         .px_2()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::TEXT_MUTED)
                         .hover(|s| s.bg(theme::HOVER))
                         .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
@@ -249,13 +248,11 @@ impl AddRepoDialog {
                                 .justify_center()
                                 .border_color(theme::TEXT_FAINT)
                                 .when(all_checked, |d| {
-                                    d.bg(theme::ACCENT).border_color(theme::ACCENT).child(
-                                        div()
-                                            .text_size(px(9.))
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(theme::ON_ACCENT)
-                                            .child("✓"),
-                                    )
+                                    d.bg(theme::ACCENT).border_color(theme::ACCENT).child(icon(
+                                        "icons/icon-check.svg",
+                                        px(9.),
+                                        theme::ON_ACCENT,
+                                    ))
                                 }),
                         )
                         .child(format!("Select all available ({selectable})")),
@@ -344,14 +341,14 @@ impl CloneDialog {
             .child(Input::new(&self.url).small())
             .child(
                 div()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .child(format!("Clones into {dest_display}/{name}")),
             )
             .when_some(error, |card, error| {
                 card.child(
                     div()
-                        .text_size(px(theme::FONT_SMALL))
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::DANGER)
                         .child(error),
                 )

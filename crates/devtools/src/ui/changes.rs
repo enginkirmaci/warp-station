@@ -203,7 +203,7 @@ impl ChangesView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(theme::FONT_BODY))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_FAINT)
                     .child(if loaded { "No changes — working tree clean" } else { "Loading…" }),
             );
@@ -278,7 +278,7 @@ impl ChangesView {
                             .rounded_sm()
                             .bg(theme::tint(status_color))
                             .text_color(status_color)
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_size(px(theme::font_small() - 1.))
                             .px_1()
                             .w(px(18.))
                             .flex()
@@ -289,7 +289,7 @@ impl ChangesView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_DIM)
                             .child(file.path.clone()),
@@ -302,7 +302,7 @@ impl ChangesView {
                                     .flex()
                                     .flex_row()
                                     .gap_1()
-                                    .text_size(px(theme::FONT_SMALL - 1.))
+                                    .text_size(px(theme::font_small() - 1.))
                                     .child(div().text_color(theme::SUCCESS_BRIGHT).child(format!("+{additions}")))
                                     .when_some(deletions, |row, d| {
                                         row.child(div().text_color(theme::DANGER).child(format!("−{d}")))
@@ -333,7 +333,7 @@ impl ChangesView {
                                     });
                                 }
                             })
-                            .child(icon("icons/icon-discard.svg", px(theme::ICON_SMALL - 1.), theme::TEXT_MUTED)),
+                            .child(icon("icons/icon-discard.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
                     ),
             );
 
@@ -356,7 +356,7 @@ impl ChangesView {
                     .p_2()
                     .max_h(px(220.))
                     .overflow_y_scroll()
-                    .child(crate::ui::diff::render_diff(patch, theme::FONT_SMALL - 2.0, window)),
+                    .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
             );
         }
         row.into_any_element()
@@ -382,7 +382,7 @@ impl ChangesView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(theme::FONT_BODY))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_FAINT)
                 .child("Loading history…")
                 .into_any_element();
@@ -416,7 +416,7 @@ impl ChangesView {
                     div()
                         .py_1()
                         .px_1()
-                        .text_size(px(theme::FONT_SMALL))
+                        .text_size(px(theme::font_small()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::TEXT_MUTED)
                         .child(label),
@@ -455,7 +455,7 @@ impl ChangesView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(9.))
+                            .text_size(px(theme::font_small() - 3.))
                             .text_color(theme::TEXT_MUTED)
                             .child(commit.initials()),
                     )
@@ -467,7 +467,7 @@ impl ChangesView {
                             .flex_col()
                             .child(
                                 div()
-                                    .text_size(px(theme::FONT_SMALL))
+                                    .text_size(px(theme::font_small()))
                                     .text_color(theme::TEXT_DIM)
                                     .overflow_hidden()
                                     .whitespace_nowrap()
@@ -476,7 +476,7 @@ impl ChangesView {
                             )
                             .child(
                                 div()
-                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_size(px(theme::font_small() - 2.))
                                     .text_color(theme::TEXT_FAINT)
                                     .child(format!(
                                         "{author_line} • {}",
@@ -485,7 +485,7 @@ impl ChangesView {
                             ),
                     )
                     .when(unpushed_mark, |row| {
-                        row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
+                        row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
                     })
                     .child(
                         // hash chip: clicking copies the full SHA without
@@ -495,7 +495,7 @@ impl ChangesView {
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_size(px(theme::font_small() - 1.))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_FAINT)
                             .hover(|s| s.text_color(theme::ACCENT))
@@ -536,7 +536,7 @@ impl ChangesView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(theme::FONT_BODY))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_FAINT)
                 .child("Loading commit…")
                 .into_any_element();
@@ -580,7 +580,7 @@ impl ChangesView {
                 .border_color(if armed_now { theme::DANGER } else { theme::HAIRLINE })
                 .px_2()
                 .py_0p5()
-                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_size(px(theme::font_small() - 1.))
                 .text_color(if armed_now { theme::DANGER } else { theme::TEXT_DIM })
                 .hover(|s| s.bg(theme::HOVER))
                 .child(text.to_string())
@@ -632,7 +632,7 @@ impl ChangesView {
                 .border_color(theme::HAIRLINE)
                 .px_2()
                 .py_0p5()
-                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_size(px(theme::font_small() - 1.))
                 .text_color(theme::TEXT_DIM)
                 .hover(|s| s.bg(theme::HOVER))
                 .on_click(move |_, _, cx| {
@@ -660,7 +660,10 @@ impl ChangesView {
                         .cursor_pointer()
                         .rounded_md()
                         .px_1p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::ACCENT)
                         .hover(|s| s.bg(theme::HOVER))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -668,11 +671,12 @@ impl ChangesView {
                             this.detail_armed = None;
                             cx.notify();
                         }))
-                        .child("← History"),
+                        .child(icon("icons/icon-arrow-left.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                        .child("History"),
                 )
                 .child(
                     div()
-                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_size(px(theme::font_small() - 1.))
                         .font_family(gpui::SharedString::from(theme::code_font()))
                         .text_color(theme::TEXT_FAINT)
                         .child(details.hash[..7.min(details.hash.len())].to_string()),
@@ -681,7 +685,7 @@ impl ChangesView {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(theme::FONT_BODY))
+                        .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .overflow_hidden()
                         .whitespace_nowrap()
@@ -701,7 +705,7 @@ impl ChangesView {
                     // "N files" summary row mirrors the files' totals
                     div()
                         .px_1()
-                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_MUTED)
                         .child(format!(
                             "+{} −{}",
@@ -740,16 +744,16 @@ impl ChangesView {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .font_family(gpui::SharedString::from(theme::code_font()))
                                 .text_color(theme::TEXT_DIM)
                                 .child(file.path.clone()),
                         )
                         .when_some(file.additions, |row, a| {
-                            row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::SUCCESS_BRIGHT).child(format!("+{a}")))
+                            row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::SUCCESS_BRIGHT).child(format!("+{a}")))
                         })
                         .when_some(file.deletions, |row, d| {
-                            row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::DANGER).child(format!("−{d}")))
+                            row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::DANGER).child(format!("−{d}")))
                         }),
                 );
             if expanded {
@@ -771,7 +775,7 @@ impl ChangesView {
                         .p_2()
                         .max_h(px(220.))
                         .overflow_y_scroll()
-                        .child(crate::ui::diff::render_diff(patch, theme::FONT_SMALL - 2.0, window)),
+                        .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
                 );
             }
             files = files.child(row);
@@ -786,7 +790,7 @@ impl ChangesView {
                 .border_1()
                 .border_color(theme::BORDER_LIGHT)
                 .p_2()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_DIM)
                 .child(body.clone());
             if let Some((author, when)) = history_meta {
@@ -797,7 +801,7 @@ impl ChangesView {
                         .flex_row()
                         .items_center()
                         .gap_1p5()
-                        .text_size(px(theme::FONT_SMALL - 2.))
+                        .text_size(px(theme::font_small() - 2.))
                         .text_color(theme::TEXT_FAINT)
                         .child(div().child(author))
                         .child(div().child(when)),
@@ -811,7 +815,7 @@ impl ChangesView {
                     .flex_row()
                     .items_center()
                     .gap_1p5()
-                    .text_size(px(theme::FONT_SMALL - 2.))
+                    .text_size(px(theme::font_small() - 2.))
                     .text_color(theme::TEXT_FAINT)
                     .child(div().child(author))
                     .child(div().child(when)),
@@ -864,37 +868,127 @@ impl ChangesView {
                     this.new_branch_open = false;
                     cx.notify();
                 }))
-                .child(icon("icons/icon-code-block.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED))
-                .child(div().flex_1().text_size(px(theme::FONT_SMALL)).child(branch.clone().unwrap_or_else(|| "—".into())))
-                .child(icon("icons/icon-chevron-down.svg", px(theme::ICON_SMALL - 2.), theme::TEXT_FAINT)),
+                .child(icon("icons/icon-source-branch.svg", px(theme::icon_small()), theme::TEXT_MUTED))
+                .child(div().flex_1().text_size(px(theme::font_small())).child(branch.clone().unwrap_or_else(|| "—".into())))
+                .child(icon("icons/icon-chevron-down.svg", px(theme::icon_small() - 2.), theme::TEXT_FAINT)),
         );
 
-        // git rail: fetch/pull/push/publish + sync (pull then push)
-        let mut buttons = div().flex().flex_row().gap_1();
-        for (label, action, enabled) in [
-            ("Fetch", Some(GitAction::Fetch), true),
-            ("Pull", Some(GitAction::Pull), has_remote),
-            ("Push", Some(GitAction::Push), has_remote && published),
-            (
-                "Publish",
-                branch.clone().map(|b| GitAction::Publish { branch: b }),
-                has_remote && !published,
-            ),
-            ("Sync", Some(GitAction::Sync), has_remote),
-        ] {
-            let Some(action) = action else { continue };
-            buttons = buttons.child(rail_button(
-                label,
-                enabled && !busy,
-                {
-                    let store = self.store.clone();
-                    move |cx| {
-                        store.update(cx, |s, cx| s.run_git(action_clone(&action), cx));
-                    }
-                },
-            ));
+        // git rail: the .NET vertical icon list — Fetch/Pull/Push above a
+        // divider, then Sync/History
+        type RailAction = Box<dyn Fn(&mut gpui::App) + 'static>;
+        let action_row = |icon_path: &str,
+                          label: &'static str,
+                          enabled: bool,
+                          active: bool,
+                          click: Option<RailAction>| {
+            let mut row = div()
+                .id(SharedString::from(format!("rail-{label}")))
+                .cursor_pointer()
+                .rounded_md()
+                .px_2()
+                .py_1()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(theme::font_small()));
+            if enabled {
+                if let Some(click) = click {
+                    row = row
+                        .when(active, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
+                        .when(!active, |d| d.text_color(theme::TEXT_DIM))
+                        .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            click(cx);
+                        });
+                } else {
+                    row = row.text_color(theme::TEXT_DIM);
+                }
+            } else {
+                row = row.text_color(theme::TEXT_FAINT);
+            }
+            let icon_color = if active {
+                theme::ACCENT
+            } else if enabled {
+                theme::TEXT_DIM
+            } else {
+                theme::TEXT_FAINT
+            };
+            row.child(icon(icon_path, px(theme::icon_small()), icon_color))
+                .child(label)
+                .into_any_element()
+        };
+        macro_rules! rail_action {
+            ($list:ident, $icon:expr, $label:expr, $enabled:expr, $action:expr) => {{
+                let store = self.store.clone();
+                $list = $list.child(action_row(
+                    $icon,
+                    $label,
+                    $enabled,
+                    false,
+                    Some(Box::new(move |cx| {
+                        store.update(cx, |s, cx| s.run_git($action.clone(), cx));
+                    })),
+                ));
+            }};
         }
-        rail = rail.child(buttons);
+        let mut action_list = div().flex().flex_col().gap_0p5();
+        rail_action!(action_list, "icons/icon-cloud-download.svg", "Fetch", !busy, GitAction::Fetch);
+        rail_action!(action_list, "icons/icon-arrow-down.svg", "Pull", has_remote && !busy, GitAction::Pull);
+        rail_action!(
+            action_list,
+            "icons/icon-arrow-up.svg",
+            "Push",
+            has_remote && published && !busy,
+            GitAction::Push
+        );
+        if let Some(b) = branch.clone() {
+            rail_action!(
+                action_list,
+                "icons/icon-arrow-up.svg",
+                "Publish",
+                has_remote && !published && !busy,
+                GitAction::Publish { branch: b.clone() }
+            );
+        }
+        action_list = action_list.child(div().h(px(1.)).my_1().bg(theme::HAIRLINE));
+        rail_action!(action_list, "icons/icon-refresh.svg", "Sync", has_remote && !busy, GitAction::Sync);
+        let history_toggle = cx.listener(|this, _, _, cx| {
+            if this.history_open {
+                this.history_open = false;
+                this.drilled_commit = None;
+            } else {
+                this.open_history(cx);
+            }
+            cx.notify();
+        });
+        action_list = action_list.child(
+            div()
+                .id("rail-History")
+                .cursor_pointer()
+                .rounded_md()
+                .px_2()
+                .py_1()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(px(theme::font_small()))
+                .when(self.history_open, |d| {
+                    d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
+                })
+                .when(!self.history_open, |d| d.text_color(theme::TEXT_DIM))
+                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                .on_click(history_toggle)
+                .child(icon(
+                    "icons/icon-clock.svg",
+                    px(theme::icon_small()),
+                    if self.history_open { theme::ACCENT } else { theme::TEXT_DIM },
+                ))
+                .child("History"),
+        );
+        rail = rail.child(action_list);
         rail = rail.child(
             div()
                 .flex()
@@ -903,33 +997,9 @@ impl ChangesView {
                 .gap_2()
                 .child(
                     div()
-                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_FAINT)
                         .child(format!("Last fetched {last_fetch}")),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .id("history-button")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .px_1p5()
-                        .text_size(px(theme::FONT_SMALL - 1.))
-                        .when(self.history_open, |d| {
-                            d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
-                        })
-                        .when(!self.history_open, |d| d.text_color(theme::TEXT_MUTED))
-                        .hover(|s| s.bg(theme::HOVER))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if this.history_open {
-                                this.history_open = false;
-                                this.drilled_commit = None;
-                                cx.notify();
-                            } else {
-                                this.open_history(cx);
-                            }
-                        }))
-                        .child("History"),
                 ),
         );
 
@@ -944,6 +1014,7 @@ impl ChangesView {
             div()
                 .flex_1()
                 .min_h_0()
+                .relative()
                 .on_key_down({
                     let store = self.store.clone();
                     let message = self.commit_message.clone();
@@ -957,33 +1028,42 @@ impl ChangesView {
                         }
                     }
                 })
-                .child(Textarea::new(&self.commit_message).bordered(true)),
+                .child(Textarea::new(&self.commit_message).bordered(true))
+                // .NET's corner wand: overlay inside the message box
+                .child({
+                    let store = self.store.clone();
+                    div()
+                        .id("wand-corner")
+                        .absolute()
+                        .bottom_1()
+                        .right_2()
+                        .cursor_pointer()
+                        .rounded_md()
+                        .p_1()
+                        .flex()
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(move |_, _, cx| {
+                            store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                        })
+                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
+                }),
         );
         rail = rail.child(
             div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .child({
-                    let store = self.store.clone();
-                    div()
-                        .id("wand-button")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .px_2()
-                        .py_1()
-                        .text_size(px(theme::FONT_SMALL))
-                        .when(wand_active, |d| {
-                            d.text_color(theme::ACCENT).border_1().border_color(theme::tint(theme::ACCENT))
-                        })
-                        .when(!wand_active, |d| {
-                            d.text_color(theme::TEXT_MUTED).border_1().border_color(theme::HAIRLINE)
-                        })
-                        .hover(|s| s.opacity(0.85))
-                        .on_click(move |_, _, cx| {
-                            store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
-                        })
-                        .child(if wand_active { "✦ working…" } else { "✦ wand" })
+                .when(wand_active, |row| {
+                    row.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_size(px(theme::font_small()))
+                            .text_color(theme::ACCENT)
+                            .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                            .child("working…"),
+                    )
                 })
                 .child(div().flex_1())
                 .child({
@@ -991,7 +1071,11 @@ impl ChangesView {
                     let message = self.commit_message.clone();
                     let this = cx.entity();
                     let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
-                    rail_button(label, !busy, move |cx| {
+                    rail_button(
+                        label,
+                        Some(if generate_and_commit { "icons/icon-wand.svg" } else { "icons/icon-check.svg" }),
+                        !busy,
+                        move |cx| {
                         let text = message.read(cx).value().to_string();
                         if text.trim().is_empty() {
                             // empty box: generate first; the drained draft
@@ -1056,7 +1140,7 @@ impl ChangesView {
                                 .rounded_md()
                                 .px_2()
                                 .py_1()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_DIM)
                                 .border_1()
                                 .border_color(theme::HAIRLINE)
@@ -1076,7 +1160,7 @@ impl ChangesView {
                                 .rounded_md()
                                 .px_2()
                                 .py_1()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .bg(theme::ACCENT)
                                 .text_color(theme::ON_ACCENT)
@@ -1117,7 +1201,7 @@ impl ChangesView {
                     .rounded_md()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .when(is_current, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
                     .when(!is_current, |d| {
                         d.text_color(if branch_ref.kind == devtools_core::model::GitBranchKind::Remote {
@@ -1167,7 +1251,7 @@ impl ChangesView {
                     .rounded_md()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::ACCENT)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1178,10 +1262,6 @@ impl ChangesView {
             )
             .into_any_element()
     }
-}
-
-fn action_clone(action: &GitAction) -> GitAction {
-    action.clone()
 }
 
 fn section_header(
@@ -1199,7 +1279,7 @@ fn section_header(
         .px_1()
         .child(
             div()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::TEXT_MUTED)
                 .child(format!("{label} ({count})")),
@@ -1213,7 +1293,7 @@ fn section_header(
                 .cursor_pointer()
                 .rounded_md()
                 .px_1p5()
-                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_size(px(theme::font_small() - 1.))
                 .text_color(theme::ACCENT)
                 .hover(|s| s.bg(theme::tint(theme::ACCENT)))
                 .on_click(move |_, _, cx| {
@@ -1252,7 +1332,7 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .text_color(theme::ACCENT)
         .hover(|s| s.bg(theme::tint(theme::ACCENT)))
         .on_click(move |_, _, cx| {
@@ -1263,16 +1343,20 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
 
 fn rail_button(
     label: &str,
+    icon_path: Option<&'static str>,
     enabled: bool,
     on_click: impl Fn(&mut gpui::App) + 'static,
 ) -> gpui::AnyElement {
-    div()
+    let mut button = div()
         .id(SharedString::from(format!("rail-{label}")))
         .cursor_pointer()
         .rounded_md()
         .px_2()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(theme::font_small()))
         .text_color(if enabled { theme::TEXT_DIM } else { theme::TEXT_FAINT })
         .border_1()
         .border_color(theme::HAIRLINE)
@@ -1282,7 +1366,13 @@ fn rail_button(
             if enabled {
                 on_click(cx);
             }
-        })
-        .child(label.to_string())
-        .into_any_element()
+        });
+    if let Some(icon_path) = icon_path {
+        button = button.child(icon(
+            icon_path,
+            px(theme::icon_small() - 1.),
+            if enabled { theme::TEXT_DIM } else { theme::TEXT_FAINT },
+        ));
+    }
+    button.child(label.to_string()).into_any_element()
 }

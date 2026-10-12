@@ -181,7 +181,7 @@ impl Render for ReposPage {
                     .min_h_0()
                     .px_3()
                     .pb_2()
-                    .child(DataTable::new(&self.table).with_size(Size::Size(px(52.))).stripe(false).bordered(false)),
+                    .child(DataTable::new(&self.table).with_size(Size::Size(px(64.))).stripe(false).bordered(false)),
             );
         if let Some(dialog) = &mut self.dialog {
             page = page.child(dialog.render(window, cx));
@@ -216,14 +216,14 @@ impl ReposPage {
                 .rounded_md()
                 .px_1p5()
                 .py_0p5()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_1()
                 .bg(theme::tint(color))
                 .text_color(color)
-                .children(icon_path.map(|path| icon(path, px(theme::ICON_SMALL - 2.), color)))
+                .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 2.), color)))
                 .child(format!("{count}"))
         };
 
@@ -257,18 +257,12 @@ impl ReposPage {
                             .border_color(theme::TEXT_FAINT)
                             .when(active, |d| d.bg(theme::ACCENT).border_color(theme::ACCENT))
                             .when(active, |d| {
-                                d.child(
-                                    div()
-                                        .text_size(px(9.))
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(theme::ON_ACCENT)
-                                        .child("✓"),
-                                )
+                                d.child(icon("icons/icon-check.svg", px(9.), theme::ON_ACCENT))
                             }),
                     )
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .when(active, |d| d.text_color(theme::TEXT).font_weight(FontWeight::SEMIBOLD))
                             .when(!active, |d| d.text_color(theme::TEXT_MUTED))
                             .child(tag.clone()),
@@ -286,15 +280,20 @@ impl ReposPage {
             .px_3()
             .py_2()
             .relative()
-            .child(icon("icons/icon-logo-mark.svg", px(theme::ICON_MEDIUM), theme::TEXT_MUTED))
+            .child(icon("icons/icon-logo-mark.svg", px(theme::icon_medium()), theme::TEXT_MUTED))
             .child(
                 div()
-                    .text_size(px(theme::FONT_TITLE + 2.))
+                    .text_size(px(theme::font_title() + 2.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme::TEXT)
                     .child("Repositories"),
             )
-            .child(count_chip(total_repos as u32, theme::TEXT_MUTED, None))
+            .child(
+                div()
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!("{}", total_repos)),
+            )
             .when(total_changes > 0, |d| d.child(count_chip(total_changes, theme::AMBER_BRIGHT, None)))
             .when(github_on && (total_prs > 0 || total_issues > 0), |d| {
                 d.child(count_chip(total_prs, theme::PURPLE_BRIGHT, Some("icons/icon-git-pull-request.svg")))
@@ -307,7 +306,7 @@ impl ReposPage {
                 row.child(
                     div()
                         .max_w(px(320.))
-                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_MUTED)
                         .overflow_hidden()
                         .child(notice),
@@ -335,14 +334,14 @@ impl ReposPage {
                     }))
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_DIM)
                             .child({
                 let store = self.store.read(cx);
-                format!("Sort: {}", sort_label(store.sort_mode))
+                sort_label(store.sort_mode).to_string()
             }),
                     )
-                    .child(div().text_size(px(theme::FONT_SMALL - 2.)).text_color(theme::TEXT_FAINT).child("⇅")),
+                    .child(div().text_size(px(theme::font_small() - 2.)).text_color(theme::TEXT_FAINT).child("⇅")),
             )
             .child(
                 div()
@@ -351,7 +350,7 @@ impl ReposPage {
                     .rounded_md()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
@@ -378,7 +377,7 @@ impl ReposPage {
                     })
                     .child(icon(
                         "icons/icon-refresh.svg",
-                        px(theme::ICON_SMALL),
+                        px(theme::icon_small()),
                         if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
                     )),
             )
@@ -400,10 +399,10 @@ impl ReposPage {
                         this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, cx)));
                         cx.notify();
                     }))
-                    .child(div().text_color(theme::ACCENT).text_size(px(theme::FONT_SMALL)).child("+"))
+                    .child(div().text_color(theme::ACCENT).text_size(px(theme::font_small())).child("+"))
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::ACCENT)
                             .child("Add Repository"),
                     ),
@@ -427,10 +426,10 @@ impl ReposPage {
                         this.dialog = Some(Dialog::Clone(CloneDialog::new(&store, window, cx)));
                         cx.notify();
                     }))
-                    .child(icon("icons/icon-cloud-download.svg", px(theme::ICON_SMALL), theme::TEXT_DIM))
+                    .child(icon("icons/icon-cloud-download.svg", px(theme::icon_small()), theme::TEXT_DIM))
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_DIM)
                             .child("Clone from URL"),
                     ),
@@ -484,7 +483,7 @@ impl ReposPage {
                     .rounded_md()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .when(selected, |d| {
                         d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
                     })
@@ -676,7 +675,7 @@ impl TableDelegate for ReposDelegate {
                     })
                     .child(icon(
                         "icons/icon-star.svg",
-                        px(theme::ICON_SMALL),
+                        px(theme::icon_small()),
                         if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
                     ))
                     .into_any_element()
@@ -709,13 +708,13 @@ impl TableDelegate for ReposDelegate {
                             })
                             .child(icon(
                                 "icons/icon-note.svg",
-                                px(theme::ICON_SMALL),
+                                px(theme::icon_small()),
                                 theme::TEXT_MUTED,
                             )),
                     )
                     .child(
                         div()
-                            .text_size(px(theme::FONT_BODY + 1.))
+                            .text_size(px(theme::font_body() + 1.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
                             .overflow_hidden()
@@ -766,7 +765,7 @@ impl TableDelegate for ReposDelegate {
                 .flex()
                 .justify_end()
                 .pr_1()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_MUTED)
                 .child(
                     repo.git_last_commit_at
@@ -807,7 +806,7 @@ impl TableDelegate for ReposDelegate {
             .items_center()
             .justify_center()
             .py_8()
-            .text_size(px(theme::FONT_BODY))
+            .text_size(px(theme::font_body()))
             .text_color(theme::TEXT_MUTED)
             .child(text)
             .into_any_element()
@@ -860,17 +859,17 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .flex_row()
         .items_center()
         .gap_1()
-        .text_size(px(theme::FONT_SMALL - 1.))
+        .text_size(px(theme::font_small() - 1.))
         .font_family(gpui::SharedString::from(theme::code_font()))
         .text_color(color)
-        .child(icon("icons/icon-source-branch.svg", px(theme::ICON_SMALL - 3.), color))
+        .child(icon("icons/icon-source-branch.svg", px(theme::icon_small() - 3.), color))
         .child(branch.to_string())
         .into_any_element()
 }
 
-/// The changes cell: `[amber modified] Changes (push↑, pull↓)` plus a
-/// gray ✓ when the branch is synced — rendered in every state, never
-/// "clean".
+/// The changes cell: `[amber modified] Changes (push, pull)` with the .NET
+/// arrow glyphs, plus a gray check when the branch is synced — rendered in
+/// every state, never "clean".
 fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
     let synced = repo.git_to_push_count == 0 && repo.git_to_pull_count == 0;
     let mut row = div()
@@ -878,14 +877,14 @@ fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
         .flex_row()
         .items_center()
         .gap_1p5()
-        .text_size(px(theme::FONT_SMALL));
+        .text_size(px(theme::font_small()));
     row = row.child(
         div()
             .rounded_md()
             .bg(theme::tint(theme::AMBER_BRIGHT))
             .px_1p5()
             .py_0p5()
-            .text_size(px(theme::FONT_SMALL - 1.))
+            .text_size(px(theme::font_small() - 1.))
             .text_color(theme::AMBER_BRIGHT)
             .child(format!("{}", repo.git_modified_count)),
     );
@@ -896,26 +895,30 @@ fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
                 .flex()
                 .flex_row()
                 .items_center()
+                .gap_0p5()
                 .text_color(theme::TEXT_MUTED)
                 .child("(")
-                .child(div().text_color(theme::SUCCESS_BRIGHT).child(format!("{}↑", repo.git_to_push_count)))
-                .child(div().child(", "))
-                .child(div().text_color(theme::BLUE_BRIGHT).child(format!("{}↓", repo.git_to_pull_count)))
+                .child(icon("icons/icon-arrow-up.svg", px(theme::icon_small() - 4.), theme::SUCCESS_BRIGHT))
+                .child(div().text_color(theme::SUCCESS_BRIGHT).child(format!("{}", repo.git_to_push_count)))
+                .child(div().child(","))
+                .child(icon("icons/icon-arrow-down.svg", px(theme::icon_small() - 4.), theme::BLUE_BRIGHT))
+                .child(div().text_color(theme::BLUE_BRIGHT).child(format!("{}", repo.git_to_pull_count)))
                 .child(")"),
         );
     let _ = synced;
     row.into_any_element()
 }
 
-/// The GitHub chips: purple ↑N (pull requests) and green ◉N (issues),
-/// or the gray all-clear ✓ once the pass loaded a GitHub repo with none.
+/// The GitHub chips: purple (pull requests) and green (issues) counts under
+/// the .NET row glyphs, or the gray check once the pass loaded a GitHub repo
+/// with none.
 fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
     let mut row = div()
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
-        .text_size(px(theme::FONT_SMALL));
+        .text_size(px(theme::font_small()));
     if repo.github_pr_count > 0 {
         row = row.child(
             div()
@@ -928,7 +931,7 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
                 .items_center()
                 .gap_0p5()
                 .text_color(theme::PURPLE_BRIGHT)
-                .child(icon("icons/icon-git-pull-request.svg", px(theme::ICON_SMALL - 3.), theme::PURPLE_BRIGHT))
+                .child(icon("icons/icon-git-pull-request.svg", px(theme::icon_small() - 3.), theme::PURPLE_BRIGHT))
                 .child(format!("{}", repo.github_pr_count)),
         );
     }
@@ -944,12 +947,12 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
                 .items_center()
                 .gap_0p5()
                 .text_color(theme::SUCCESS_BRIGHT)
-                .child(icon("icons/icon-issue.svg", px(theme::ICON_SMALL - 3.), theme::SUCCESS_BRIGHT))
+                .child(icon("icons/icon-issue.svg", px(theme::icon_small() - 3.), theme::SUCCESS_BRIGHT))
                 .child(format!("{}", repo.github_issue_count)),
         );
     }
     if repo.github_pr_count == 0 && repo.github_issue_count == 0 {
-        row = row.child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_MUTED).child("✓"));
+        row = row.child(icon("icons/icon-check.svg", px(theme::icon_small() - 3.), theme::TEXT_MUTED));
     }
     row.into_any_element()
 }
@@ -958,14 +961,14 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
     let folder = repo.folder_path.to_string_lossy().to_string();
     let Some(snapshot) = store.read(cx).azure_by_folder.get(&folder) else {
         return div()
-            .text_size(px(theme::FONT_SMALL))
+            .text_size(px(theme::font_small()))
             .text_color(theme::TEXT_FAINT)
             .child("·")
             .into_any_element();
     };
     if snapshot.pipelines.is_empty() && snapshot.pulls.is_empty() && snapshot.work_items.is_empty() {
         return div()
-            .text_size(px(theme::FONT_SMALL))
+            .text_size(px(theme::font_small()))
             .text_color(theme::TEXT_FAINT)
             .child("·")
             .into_any_element();
@@ -976,19 +979,20 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
         .items_center()
         .justify_center()
         .gap_1()
-        .text_size(px(theme::FONT_SMALL));
-    // the newest run's state is the repo's pipeline state
+        .text_size(px(theme::font_small()));
+    // the newest run's state is the repo's pipeline state (.NET cell glyphs:
+    // check = ok, close = failed, play = running)
     if !snapshot.pipelines.is_empty() {
         let (glyph, color) = if snapshot.pipeline_running() {
-            ("◐", theme::BLUE_BRIGHT)
+            ("icons/icon-play.svg", theme::BLUE_BRIGHT)
         } else if snapshot.pipeline_failed() {
-            ("✗", theme::DANGER)
+            ("icons/icon-close.svg", theme::DANGER)
         } else if snapshot.pipeline_ok() {
-            ("✓", theme::SUCCESS_BRIGHT)
+            ("icons/icon-check.svg", theme::SUCCESS_BRIGHT)
         } else {
-            ("·", theme::TEXT_MUTED)
+            ("icons/icon-clock.svg", theme::TEXT_MUTED)
         };
-        row = row.child(div().text_color(color).child(glyph));
+        row = row.child(icon(glyph, px(theme::icon_small() - 3.), color));
     }
     if !snapshot.pulls.is_empty() {
         row = row.child(
@@ -1049,7 +1053,7 @@ fn shortcuts_cell(
                     });
                 }
             })
-            .child(icon(icon_path, px(theme::ICON_SMALL), tint_color))
+            .child(icon(icon_path, px(theme::icon_small()), tint_color))
     };
 
     // OpenCode quick-launch: one opencode instance in the repo with the
@@ -1083,6 +1087,15 @@ fn shortcuts_cell(
             theme::TEXT_MUTED,
             launch,
         ));
+        // .NET separates the opencode group from the launch buttons
+        row = row.child(
+            div()
+                .mx_1()
+                .self_center()
+                .h(px(20.))
+                .w(px(1.))
+                .bg(theme::HAIRLINE),
+        );
     }
 
     if settings.repos.enable_zcode {
@@ -1143,7 +1156,10 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         .rounded_md()
         .px_2()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(theme::font_small()))
         .when(busy, |d| d.text_color(theme::ACCENT))
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
         .bg(theme::CHIP)
@@ -1154,6 +1170,11 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
                 store.update(cx, |s, cx| s.run_summary(cx));
             }
         })
-        .child(if busy { "✦ summarizing…" } else { "✦ Summary" })
+        .child(icon(
+            "icons/icon-agent-sparkle.svg",
+            px(theme::icon_small() - 1.),
+            if busy { theme::ACCENT } else { theme::TEXT_DIM },
+        ))
+        .child(if busy { "summarizing…" } else { "Summary" })
         .into_any_element()
 }

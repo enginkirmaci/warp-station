@@ -94,6 +94,11 @@ pub fn apply_kit_theme(cx: &mut App) {
 
         t.font_family = gpui::SharedString::from(ui_font());
         t.mono_font_family = gpui::SharedString::from(code_font());
+        // the rem base: kit components size text/padding in rem, and every
+        // window re-applies it on render (Root plugin prepare) — so this one
+        // field scales Input/Textarea/Switch with the text-size variant
+        t.font_size = gpui::px(16. * font_factor());
+        t.mono_font_size = gpui::px(13. * font_factor());
 
         // the repos table blends into the page: no
         // near-black canvas, no zebra, no visible grid (the color fields
@@ -163,14 +168,153 @@ pub const DIFF_ADD_BG: Hsla = hsla(0.30, 0.55, 0.5, 0.15);
 pub const DIFF_DEL_BG: Hsla = hsla(0.01, 0.85, 0.6, 0.15);
 pub const DIFF_HUNK_BG: Hsla = hsla(0.0, 0.0, 0.6, 0.10);
 
-// ---- type sizes --------------------------------------------------------------
+// ---- font scale ------------------------------------------------------------
 
-pub const FONT_SMALL: f32 = 12.0;
-pub const FONT_BODY: f32 = 13.0;
-pub const FONT_TITLE: f32 = 15.0;
-pub const ICON_SMALL: f32 = 13.0;
-pub const ICON_MEDIUM: f32 = 15.0;
-pub const ICON_LARGE: f32 = 17.0;
+/// The settings FontScale values ("compact" | "normal" | "large").
+pub const FONT_COMPACT: &str = "compact";
+pub const FONT_NORMAL: &str = "normal";
+pub const FONT_LARGE: &str = "large";
+
+pub fn normalize_font_scale(scale: Option<&str>) -> &'static str {
+    match scale {
+        Some(s) if s == FONT_COMPACT => FONT_COMPACT,
+        Some(s) if s == FONT_LARGE => FONT_LARGE,
+        _ => FONT_NORMAL,
+    }
+}
+
+fn factor_bits(scale: Option<&str>) -> u32 {
+    f32::to_bits(match normalize_font_scale(scale) {
+        FONT_COMPACT => 0.85,
+        FONT_LARGE => 1.15,
+        _ => 1.0,
+    })
+}
+
+static USER_FACTOR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0); // 0 = factor 1.0, set from settings at startup
+static SYSTEM_FACTOR: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0); // 0 = factor 1.0, gsettings text-scaling
+
+fn font_factor() -> f32 {
+    let bits = |v: u32| if v == 0 { 1.0 } else { f32::from_bits(v) };
+    bits(USER_FACTOR.load(std::sync::atomic::Ordering::Relaxed))
+        * bits(SYSTEM_FACTOR.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Applies the settings text-size variant; call before [`apply_kit_theme`] so
+/// the first frame is already sized, and again on save.
+pub fn set_font_scale(scale: Option<&str>) {
+    USER_FACTOR.store(factor_bits(scale), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Token getters; the bases are the sizes the const era pinned. The kit rem
+/// base (apply_kit_theme) rides the same factor.
+fn scaled(v: f32) -> f32 {
+    (v * font_factor() * 100.0).round() / 100.0
+}
+
+pub fn font_small() -> f32 {
+    scaled(12.0)
+}
+
+pub fn font_body() -> f32 {
+    scaled(13.0)
+}
+
+pub fn font_title() -> f32 {
+    scaled(15.0)
+}
+
+pub fn icon_small() -> f32 {
+    scaled(13.0)
+}
+
+pub fn icon_medium() -> f32 {
+    scaled(15.0)
+}
+
+pub fn icon_large() -> f32 {
+    scaled(17.0)
+}
 
 pub const CODE_FONT: &str = "DejaVu Sans Mono";
 pub const FONT_UI: &str = "Inter";
+
+static SYSTEM_FACTOR_TX: std::sync::OnceLock<async_channel::Sender<f32>> = std::sync::OnceLock::new();
+
+/// Follows the desktop text scaling GTK apps honor — gsettings
+/// org.gnome.desktop.interface text-scaling-factor. The initial value applies
+/// synchronously; the monitor feeds changes that re-run the kit theme (which
+/// refreshes every window). Without gsettings the factor stays 1.0.
+pub fn init_system_font_scale(cx: &mut App) {
+    if let Some(factor) = read_system_factor() {
+        set_system_factor(factor, cx);
+    } else {
+        tracing::debug!("system text scaling unreadable; keeping factor 1.0");
+    }
+    let (tx, rx) = async_channel::bounded::<f32>(16);
+    if SYSTEM_FACTOR_TX.set(tx).is_err() {
+        return;
+    }
+    match std::process::Command::new("gsettings")
+        .args(["monitor", "org.gnome.desktop.interface"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            std::thread::Builder::new()
+                .name("gsettings".into())
+                .spawn(move || {
+                    use std::io::BufRead;
+                    let Some(stdout) = child.stdout.take() else { return };
+                    for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                        if let Some(factor) = parse_system_factor(&line)
+                            && let Some(tx) = SYSTEM_FACTOR_TX.get()
+                        {
+                            let _ = tx.send_blocking(factor);
+                        }
+                    }
+                    let _ = child.wait();
+                })
+                .ok();
+        }
+        Err(_) => {
+            tracing::debug!("gsettings monitor unavailable; system text scale frozen at startup value");
+        }
+    }
+    cx.spawn(async move |cx| {
+        while let Ok(factor) = rx.recv().await {
+            cx.update(|cx| set_system_factor(factor, cx));
+        }
+    })
+    .detach();
+}
+
+fn set_system_factor(factor: f32, cx: &mut App) {
+    let bits = f32::to_bits(factor);
+    if SYSTEM_FACTOR.swap(bits, std::sync::atomic::Ordering::Relaxed) != bits {
+        apply_kit_theme(cx);
+    }
+}
+
+fn read_system_factor() -> Option<f32> {
+    let output = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])
+        .output()
+        .ok()?;
+    parse_system_factor(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Accepts bare "1.1667" (gsettings get) and "key: 1.1667" (monitor) lines.
+fn parse_system_factor(text: &str) -> Option<f32> {
+    let key = "text-scaling-factor";
+    let text = match text.find(key) {
+        Some(idx) => &text[idx + key.len()..],
+        None => text,
+    };
+    let text = text.trim_start_matches([':', ' ', '\t']).trim_end();
+    text.parse::<f32>().ok().filter(|v| *v > 0.0)
+}
+

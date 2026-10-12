@@ -19,6 +19,7 @@ pub struct SettingsPage {
     show_tooltips: bool,
     start_minimized: bool,
     start_at_boot: bool,
+    text_size: &'static str,
     // Scanning
     scan_folders: Entity<TextareaState>,
     excluded_folders: Entity<TextareaState>,
@@ -77,6 +78,7 @@ impl SettingsPage {
             show_tooltips: general.show_tooltips,
             start_minimized: general.start_minimized,
             start_at_boot: general.start_at_boot,
+            text_size: theme::normalize_font_scale(general.font_scale.as_deref()),
             scan_folders: area(window, cx, &line_list(&repos.repo_scan_folders)),
             excluded_folders: area(window, cx, &line_list(&repos.excluded_folders)),
             git_folder_pattern: field(window, cx, &repos.git_folder_pattern),
@@ -169,6 +171,7 @@ impl SettingsPage {
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
+        let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
 
         self.store.update(cx, |store, cx| {
             store.update_settings(|s| {
@@ -176,6 +179,7 @@ impl SettingsPage {
                 s.general.show_tooltips = flags.0;
                 s.general.start_minimized = flags.1;
                 s.general.start_at_boot = flags.2;
+                s.general.font_scale = Some(self.text_size.to_string());
                 s.repos.repo_scan_folders = if scan_folders.is_empty() { None } else { Some(scan_folders.clone()) };
                 s.repos.excluded_folders = if excluded.is_empty() { None } else { Some(excluded.clone()) };
                 s.repos.git_folder_pattern = git_pattern;
@@ -202,11 +206,17 @@ impl SettingsPage {
                 s.repos.azure_dev_ops_pat = azure_pat;
                 s.repos.azure_dev_ops_url = azure_url;
             });
-            // a scan-input change live-applies with a rescan; every save
+            // a scan-input change live-applies with a rescan; a text-size
+            // change re-runs the kit theme (which refreshes every window, so
+            // tokens and the kit rem base resize together); every save
             // re-probes activity so column toggles take effect immediately
             if store.settings().repos.repo_scan_folders != old_scan_folders {
                 let settings = store.settings();
                 store.kick_scan(&settings);
+            }
+            if store.settings().general.font_scale != old_font_scale {
+                theme::set_font_scale(store.settings().general.font_scale.as_deref());
+                theme::apply_kit_theme(cx);
             }
             let folders: Vec<std::path::PathBuf> = store.repos.iter().map(|r| r.folder_path.clone()).collect();
             store.kick_github_pass(&folders);
@@ -245,7 +255,7 @@ impl Render for SettingsPage {
                     .items_center()
                     .child(
                         div()
-                            .text_size(px(theme::FONT_TITLE + 2.))
+                            .text_size(px(theme::font_title() + 2.))
                             .font_weight(FontWeight::BOLD)
                             .child("Settings"),
                     )
@@ -253,7 +263,7 @@ impl Render for SettingsPage {
                     .when(just_saved, |row| {
                         row.child(
                             div()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::SUCCESS_BRIGHT)
                                 .child("saved ✓"),
                         )
@@ -262,6 +272,8 @@ impl Render for SettingsPage {
             )
             .child(self.card("General", cx, |this, cx, card| {
                 card.child(field_row("Notes store path", &this.notes_store_path))
+                    .child(text_size_row(this, cx))
+                    .child(label("Applied across the app as soon as it's saved."))
                     .child(switch_row("Show tooltips", this.show_tooltips, cx.listener(|this, _: &bool, _, cx| {
                         this.show_tooltips = !this.show_tooltips;
                         cx.notify();
@@ -377,7 +389,7 @@ impl SettingsPage {
                     .rounded_md()
                     .px_2()
                     .py_0p5()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_DIM)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
@@ -413,7 +425,7 @@ impl SettingsPage {
                             .rounded_md()
                             .px_2()
                             .py_1()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_MUTED)
                             .border_1()
                             .border_color(theme::HAIRLINE)
@@ -425,7 +437,11 @@ impl SettingsPage {
                                 }
                                 cx.notify();
                             }))
-                            .child(if open { "▲" } else { "▼" }),
+                            .child(crate::ui::icon(
+                                if open { "icons/icon-chevron-down.svg" } else { "icons/icon-chevron-right.svg" },
+                                px(theme::icon_small()),
+                                theme::TEXT_MUTED,
+                            )),
                     )
                     .child({
                         let store = self.store.clone();
@@ -435,7 +451,9 @@ impl SettingsPage {
                             .rounded_md()
                             .px_2()
                             .py_1()
-                            .text_size(px(theme::FONT_SMALL))
+                            .flex()
+                            .items_center()
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_MUTED)
                             .border_1()
                             .border_color(theme::HAIRLINE)
@@ -443,7 +461,11 @@ impl SettingsPage {
                             .on_click(move |_, _, cx| {
                                 store.update(cx, |s, cx| s.load_models(cx));
                             })
-                            .child("⟳")
+                            .child(crate::ui::icon(
+                                "icons/icon-refresh.svg",
+                                px(theme::icon_small()),
+                                theme::TEXT_MUTED,
+                            ))
                     }),
             )
             .when(open, |picker| {
@@ -479,7 +501,7 @@ impl SettingsPage {
             .gap_3()
             .child(
                 div()
-                    .text_size(px(theme::FONT_TITLE))
+                    .text_size(px(theme::font_title()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(title.to_string()),
             );
@@ -494,7 +516,7 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .rounded_md()
         .px_4()
         .py_1p5()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)
@@ -506,7 +528,7 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
 
 fn label(text: &str) -> impl IntoElement + use<> {
     div()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .text_color(theme::TEXT_MUTED)
         .child(text.to_string())
 }
@@ -533,4 +555,30 @@ fn switch_row(
         .child(Switch::new(SharedString::from(format!("switch-{label_text}"))).checked(checked).on_click(on_click))
         .child(label(label_text))
         .into_any_element()
+}
+
+fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
+    let options = [(theme::FONT_COMPACT, "Small"), (theme::FONT_NORMAL, "Normal"), (theme::FONT_LARGE, "Large")];
+    let mut row = div().flex().flex_row().items_center().gap_2().child(label("Text size"));
+    for (key, name) in options {
+        let selected = this.text_size == key;
+        row = row.child(
+            div()
+                .id(SharedString::from(format!("text-size-{key}")))
+                .cursor_pointer()
+                .rounded_md()
+                .px_3()
+                .py_1()
+                .text_size(px(theme::font_small()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
+                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.text_size = key;
+                    cx.notify();
+                }))
+                .child(name),
+        );
+    }
+    row.into_any_element()
 }

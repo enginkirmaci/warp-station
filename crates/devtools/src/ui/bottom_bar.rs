@@ -14,7 +14,7 @@ use crate::ui::pr_issues::ItemListView;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
 use gpui::prelude::*;
-use gpui::{div, px, App, ClipboardItem, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{canvas, div, px, App, ClipboardItem, Context, Entity, FontWeight, MouseButton, SharedString, Window};
 
 type MenuAction = Box<dyn Fn(&mut App)>;
 
@@ -27,6 +27,8 @@ pub struct BottomBar {
     azure_view: Entity<AzureView>,
     kebab_open: bool,
     add_tag: Entity<InputState>,
+    /// live splitter drag: (cursor y at grab, bar height at grab)
+    splitter_drag: std::rc::Rc<std::cell::Cell<Option<(gpui::Pixels, f32)>>>,
 }
 
 impl BottomBar {
@@ -37,7 +39,79 @@ impl BottomBar {
         let issue_view = cx.new(|_| ItemListView { store: store.clone(), pull_requests: false });
         let azure_view = cx.new(|_| AzureView { store: store.clone() });
         let add_tag = cx.new(|cx| InputState::new(window, cx).placeholder("New tag name"));
-        Self { store, changes_view, overview_view, pr_view, issue_view, azure_view, kebab_open: false, add_tag }
+        Self {
+            store,
+            changes_view,
+            overview_view,
+            pr_view,
+            issue_view,
+            azure_view,
+            kebab_open: false,
+            add_tag,
+            splitter_drag: std::rc::Rc::new(std::cell::Cell::new(None)),
+        }
+    }
+
+    /// The bar's top-edge divider: drag to resize the panel (one shared
+    /// height, 260–780 like the .NET bar; whole pixels only).
+    fn render_splitter(&self) -> gpui::AnyElement {
+        let store_handle = self.store.clone();
+        let drag_state = self.splitter_drag.clone();
+        let drag_for_paint = self.splitter_drag.clone();
+        let store_for_paint = self.store.clone();
+        div()
+            .id("bar-splitter")
+            .relative()
+            .w_full()
+            .h(px(6.))
+            .cursor_row_resize()
+            .hover(|s| s.bg(theme::HOVER))
+            .on_mouse_down(MouseButton::Left, move |event: &gpui::MouseDownEvent, _, cx| {
+                let start_height = store_handle.read(cx).bar_height;
+                drag_state.set(Some((event.position.y, start_height)));
+                cx.stop_propagation();
+            })
+            .child(
+                canvas(
+                    // this gpui rev: on_mouse_event must register from the
+                    // paint closure, prepaint panics on it
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        if drag_for_paint.get().is_some() {
+                            let drag = drag_for_paint.clone();
+                            let store = store_for_paint.clone();
+                            window.on_mouse_event(
+                                move |event: &gpui::MouseMoveEvent, phase, _window, cx| {
+                                    if phase != gpui::DispatchPhase::Bubble {
+                                        return;
+                                    }
+                                    let Some((start_y, start_height)) = drag.get() else { return };
+                                    match event.pressed_button {
+                                        Some(MouseButton::Left) => {
+                                            // top edge follows the cursor: up = taller
+                                            let delta = (event.position.y - start_y).as_f32();
+                                            let value = (start_height - delta).round().clamp(260., 780.);
+                                            store.update(cx, |s, cx| {
+                                                if (s.bar_height - value).abs() >= 0.5 {
+                                                    s.bar_height = value;
+                                                    cx.notify();
+                                                }
+                                            });
+                                        }
+                                        _ => {
+                                            drag.set(None);
+                                            cx.stop_propagation();
+                                        }
+                                    }
+                                },
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .into_any_element()
     }
 
     fn copy_text(text: String, cx: &mut App) {
@@ -52,6 +126,7 @@ impl Render for BottomBar {
         };
         let store_snapshot = self.store.read(cx);
         let selected_tab = store_snapshot.selected_tab;
+        let bar_height = store_snapshot.bar_height;
         let settings = store_snapshot.settings();
         let folder = entry.folder_path.to_string_lossy().to_string();
         let github_url = store_snapshot
@@ -59,24 +134,16 @@ impl Render for BottomBar {
             .as_ref()
             .and_then(|d| d.url.clone());
 
-        // ---- tabs (badges + settings gates) ----
-        let mut tabs = div().flex().flex_row().gap_1();
+        // ---- tabs (settings gates; counts live in the overview stat tiles) ----
+        let mut tabs = div().flex().flex_row().gap_3();
         let modified = entry.git_modified_count;
-        for (tab, badge) in [
-            (BottomBarTab::Overview, 0u32),
-            (BottomBarTab::Changes, modified),
-            (
-                BottomBarTab::PullRequests,
-                if settings.repos.enable_git_hub { entry.github_pr_count } else { 0 },
-            ),
-            (
-                BottomBarTab::Issues,
-                if settings.repos.enable_git_hub { entry.github_issue_count } else { 0 },
-            ),
-            (
-                BottomBarTab::Azure,
-                if settings.repos.enable_azure_dev_ops { 1u32 } else { 0 },
-            ),
+        let _ = modified;
+        for tab in [
+            BottomBarTab::Overview,
+            BottomBarTab::Changes,
+            BottomBarTab::PullRequests,
+            BottomBarTab::Issues,
+            BottomBarTab::Azure,
         ] {
             if tab == BottomBarTab::PullRequests && !settings.repos.enable_git_hub {
                 continue;
@@ -88,40 +155,33 @@ impl Render for BottomBar {
                 continue;
             }
             let active = tab == selected_tab;
-            let mut chip = div()
+            // .NET bar tabs: plain text with an accent underline on the active
+            // one — no count badges
+            let chip = div()
                 .id(SharedString::from(format!("tab-{}", tab.label())))
                 .cursor_pointer()
-                .rounded_md()
-                .px_2p5()
-                .py_1()
-                .text_size(px(theme::FONT_SMALL))
-                .when(active, |d| {
-                    d.bg(theme::tint(theme::ACCENT))
-                        .text_color(theme::ACCENT)
-                        .font_weight(FontWeight::SEMIBOLD)
-                })
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .text_size(px(theme::font_small()))
+                .when(active, |d| d.text_color(theme::TEXT).font_weight(FontWeight::MEDIUM))
                 .when(!active, |d| d.text_color(theme::TEXT_MUTED))
-                .hover(|s| s.opacity(0.85))
+                .hover(|s| s.text_color(theme::TEXT))
                 .on_click({
                     let store = self.store.clone();
                     move |_, _, cx| {
                         store.update(cx, |s, cx| s.set_tab(tab, cx));
                     }
                 })
-                .child(tab.label());
-            // Pipelines has no single badge (it is a section list); the rest
-            // badge their count
-            if badge > 0 && tab != BottomBarTab::Azure {
-                chip = chip.child(
+                .child(tab.label())
+                .child(
                     div()
-                        .ml_1()
-                        .px_1()
+                        .w_full()
+                        .h(px(2.))
                         .rounded_full()
-                        .bg(theme::tint(theme::ACCENT))
-                        .text_size(px(theme::FONT_SMALL - 2.))
-                        .child(format!("{badge}")),
+                        .when(active, |d| d.bg(theme::ACCENT)),
                 );
-            }
             tabs = tabs.child(chip);
         }
 
@@ -142,7 +202,7 @@ impl Render for BottomBar {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_DIM)
                     .hover(|s| s.text_color(theme::DANGER))
                     .on_click({
@@ -166,7 +226,7 @@ impl Render for BottomBar {
             .child(
                 div()
                     .w(px(120.))
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .child(Input::new(&tag_input).small()),
             )
             .child(
@@ -176,7 +236,7 @@ impl Render for BottomBar {
                     .rounded_md()
                     .px_1p5()
                     .py_0p5()
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::ACCENT)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
@@ -223,7 +283,7 @@ impl Render for BottomBar {
                     .justify_center()
                     .child(icon(
                         "icons/icon-star.svg",
-                        px(theme::ICON_SMALL),
+                        px(theme::icon_small()),
                         if entry.is_favorite() { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
                     ))
                     .on_click({
@@ -236,7 +296,7 @@ impl Render for BottomBar {
             )
             .child(
                 div()
-                    .text_size(px(theme::FONT_BODY))
+                    .text_size(px(theme::font_body()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(entry.name.clone()),
             )
@@ -249,7 +309,7 @@ impl Render for BottomBar {
                         .bg(theme::CHIP)
                         .px_1p5()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL - 1.))
+                        .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_MUTED)
                         .hover(|s| s.text_color(theme::TEXT))
                         .on_click({
@@ -273,7 +333,7 @@ impl Render for BottomBar {
             .when_some(self.store.read(cx).last_git_error.clone(), |row, error| {
                 row.child(
                     div()
-                        .text_size(px(theme::FONT_SMALL))
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::DANGER)
                         .max_w(px(320.))
                         .overflow_hidden()
@@ -299,7 +359,7 @@ impl Render for BottomBar {
                             store.update(cx, |s, cx| s.refresh_panel(cx));
                         }
                     })
-                    .child(icon("icons/icon-refresh.svg", px(theme::ICON_SMALL), theme::TEXT_MUTED)),
+                    .child(icon("icons/icon-refresh.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
             )
             // kebab menu
             .child(
@@ -338,7 +398,7 @@ impl Render for BottomBar {
                     })
                     .child(icon(
                         "icons/icon-window-close.svg",
-                        px(theme::ICON_SMALL),
+                        px(theme::icon_small()),
                         theme::TEXT_MUTED,
                     )),
             );
@@ -348,12 +408,13 @@ impl Render for BottomBar {
         }
 
         div()
-            .h(px(440.))
+            .h(px(bar_height))
             .flex()
             .flex_col()
             .border_t_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::STRONG_BACKGROUND)
+            .child(self.render_splitter())
             .child(header)
             .child(tags_row)
             .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab)))
@@ -388,7 +449,7 @@ impl BottomBar {
                 .cursor_pointer()
                 .px_3()
                 .py_1p5()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_DIM)
                 .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
                 .on_click(move |_, _, cx| {

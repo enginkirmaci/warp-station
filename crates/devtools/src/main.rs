@@ -19,7 +19,9 @@ fn main() {
 
             let (_net_handle, net_sender, event_rx) = devtools::net::spawn_net_thread();
             let store = cx.new(|cx| Store::new(cx, net_sender));
+            theme::set_font_scale(store.read(cx).settings().general.font_scale.as_deref());
             theme::apply_kit_theme(cx);
+            theme::init_system_font_scale(cx);
 
             // net events → store. Polled with a timer fallback: this gpui rev
             // does not service cross-thread channel wakeups on foreground tasks,

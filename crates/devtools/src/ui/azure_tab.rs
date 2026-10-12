@@ -36,14 +36,15 @@ impl Render for AzureView {
         if !snapshot.pipelines.is_empty() {
             list = list.child(section("Pipelines"));
             for run in &snapshot.pipelines {
+                // .NET pipeline glyphs: play = running, close = failed, check = ok
                 let (glyph, color, label) = if run.is_running() {
-                    ("◐", theme::BLUE_BRIGHT, "running")
+                    ("icons/icon-play.svg", theme::BLUE_BRIGHT, "running")
                 } else if run.is_failed() {
-                    ("✗", theme::DANGER, "failed")
+                    ("icons/icon-close.svg", theme::DANGER, "failed")
                 } else if run.is_succeeded() {
-                    ("✓", theme::SUCCESS_BRIGHT, "succeeded")
+                    ("icons/icon-check.svg", theme::SUCCESS_BRIGHT, "succeeded")
                 } else {
-                    ("·", theme::TEXT_MUTED, "queued")
+                    ("icons/icon-clock.svg", theme::TEXT_MUTED, "queued")
                 };
                 let url = run.url.clone().unwrap_or_default();
                 list = list.child(
@@ -63,7 +64,7 @@ impl Render for AzureView {
                                 let _ = devtools_core::terminal::open_folder(&url);
                             }
                         })
-                        .child(div().text_size(px(theme::FONT_BODY)).text_color(color).child(glyph))
+                        .child(crate::ui::icon(glyph, px(theme::icon_small()), color))
                         .child(
                             div()
                                 .flex_1()
@@ -72,13 +73,13 @@ impl Render for AzureView {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .text_size(px(theme::FONT_SMALL))
+                                        .text_size(px(theme::font_small()))
                                         .text_color(theme::TEXT_DIM)
                                         .child(run.build_number.clone()),
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(theme::FONT_SMALL - 1.))
+                                        .text_size(px(theme::font_small() - 1.))
                                         .text_color(theme::TEXT_FAINT)
                                         .child(run.definition_name.clone().unwrap_or_default()),
                                 ),
@@ -89,14 +90,14 @@ impl Render for AzureView {
                                     .rounded_md()
                                     .bg(theme::tint(theme::PURPLE_BRIGHT))
                                     .px_1p5()
-                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_size(px(theme::font_small() - 2.))
                                     .text_color(theme::PURPLE_BRIGHT)
                                     .child(branch),
                             )
                         })
                         .child(
                             div()
-                                .text_size(px(theme::FONT_SMALL - 1.))
+                                .text_size(px(theme::font_small() - 1.))
                                 .text_color(color)
                                 .child(label),
                         ),
@@ -128,7 +129,7 @@ fn section(label: &str) -> impl IntoElement + use<> {
     div()
         .px_1()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::TEXT_MUTED)
         .child(label.to_string())
@@ -137,9 +138,14 @@ fn section(label: &str) -> impl IntoElement + use<> {
 fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
     let item = item.clone();
     let url = item.url.clone();
-    let kind_owned = kind.to_string();
+    // .NET row glyphs: purple PR, green work item
+    let (kind_icon, kind_color) = if kind == "PR" {
+        ("icons/icon-git-pull-request.svg", theme::PURPLE_BRIGHT)
+    } else {
+        ("icons/icon-issue.svg", theme::SUCCESS_BRIGHT)
+    };
     div()
-        .id(SharedString::from(format!("azure-{kind_owned}-{}", item.number)))
+        .id(SharedString::from(format!("azure-{kind}-{}", item.number)))
         .cursor_pointer()
         .flex()
         .flex_row()
@@ -154,34 +160,26 @@ fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
                 let _ = devtools_core::terminal::open_folder(&url);
             }
         })
-        .child(
-            div()
-                .rounded_sm()
-                .bg(theme::tint(theme::BLUE_BRIGHT))
-                .text_color(theme::BLUE_BRIGHT)
-                .text_size(px(theme::FONT_SMALL - 1.))
-                .px_1()
-                .child(format!("{kind_owned} #{}", item.number)),
-        )
+        .child(crate::ui::icon(kind_icon, px(theme::icon_small()), kind_color))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_DIM)
-                .child(item.title.clone()),
+                .child(format!("#{} {}", item.number, item.title.clone())),
         )
         .when_some(item.state.clone(), |row, state| {
             row.child(
                 div()
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_FAINT)
                     .child(state),
             )
         })
         .child(
             div()
-                .text_size(px(theme::FONT_SMALL - 1.))
+                .text_size(px(theme::font_small() - 1.))
                 .text_color(theme::TEXT_FAINT)
                 .child(item.author.clone().unwrap_or_default()),
         )
@@ -193,7 +191,7 @@ fn empty_state(text: String) -> gpui::AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(theme::FONT_BODY))
+        .text_size(px(theme::font_body()))
         .text_color(theme::TEXT_FAINT)
         .child(text)
         .into_any_element()

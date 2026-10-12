@@ -122,7 +122,7 @@ impl Render for FormattersDrawer {
                     .rounded_md()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .when(active, |d| {
                         d.bg(theme::tint(theme::ACCENT))
                             .text_color(theme::ACCENT)
@@ -155,7 +155,7 @@ impl Render for FormattersDrawer {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_size(px(theme::font_small() - 1.))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_FAINT)
                             .overflow_hidden()
@@ -168,7 +168,7 @@ impl Render for FormattersDrawer {
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
-                            .text_size(px(theme::FONT_SMALL - 2.))
+                            .text_size(px(theme::font_small() - 2.))
                             .text_color(theme::TEXT_MUTED)
                             .hover(|s| s.text_color(theme::ACCENT))
                             .on_click({
@@ -208,7 +208,7 @@ impl Render for FormattersDrawer {
                     .items_center()
                     .child(
                         div()
-                            .text_size(px(theme::FONT_TITLE))
+                            .text_size(px(theme::font_title()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Formatters"),
                     )
@@ -223,7 +223,7 @@ impl Render for FormattersDrawer {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_MUTED)
                                 .hover(|s| s.bg(theme::HOVER))
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -250,14 +250,14 @@ impl Render for FormattersDrawer {
                     .min_h(px(72.))
                     .max_h(px(180.))
                     .overflow_y_scroll()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .font_family(gpui::SharedString::from(theme::code_font()))
                     .text_color(theme::TEXT_DIM)
                     .when(self.output.is_empty(), |d| d.text_color(theme::TEXT_FAINT))
                     .child(if self.output.is_empty() { "—".to_string() } else { self.output.clone() }),
             )
             .when(!self.history.is_empty(), |drawer| {
-                drawer.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::TEXT_FAINT).child("Recent")).child(history)
+                drawer.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::TEXT_FAINT).child("Recent")).child(history)
             })
     }
 }
@@ -269,7 +269,7 @@ fn run_button(cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)

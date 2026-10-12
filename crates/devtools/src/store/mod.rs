@@ -74,6 +74,8 @@ pub struct Store {
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
     save_generation: u64,
+    /// Bottom-panel height in logical px, shared by every tab (drag the top edge).
+    pub bar_height: f32,
 }
 
 impl Store {
@@ -93,6 +95,7 @@ impl Store {
             sort_mode: app_settings.repos.sort_mode,
             projected: Vec::new(),
             selected_repo: None,
+            bar_height: 440.0,
             scanning: false,
             deep_scan_result: None,
             clone_result: None,

@@ -59,38 +59,31 @@ impl ItemListView {
                     .rounded_md()
                     .bg(theme::tint(theme::BLUE_BRIGHT))
                     .px_1p5()
-                    .text_size(px(theme::FONT_SMALL - 2.))
+                    .text_size(px(theme::font_small() - 2.))
                     .text_color(theme::BLUE_BRIGHT)
                     .child(label.clone()),
             );
         }
 
         let mut title_row = div().flex().flex_row().items_center().gap_2().min_w_0();
+        // .NET row glyph: purple PR, green issue — number joins the title
         title_row = title_row
-            .child(
-                div()
-                    .rounded_sm()
-                    .bg(theme::tint(if item.is_pull_request {
-                        theme::PURPLE_BRIGHT
-                    } else {
-                        theme::BLUE_BRIGHT
-                    }))
-                    .text_color(if item.is_pull_request {
-                        theme::PURPLE_BRIGHT
-                    } else {
-                        theme::BLUE_BRIGHT
-                    })
-                    .text_size(px(theme::FONT_SMALL - 1.))
-                    .px_1()
-                    .child(format!("{kind} #{}", item.number)),
-            )
+            .child(crate::ui::icon(
+                if item.is_pull_request {
+                    "icons/icon-git-pull-request.svg"
+                } else {
+                    "icons/icon-issue.svg"
+                },
+                px(theme::icon_small()),
+                if item.is_pull_request { theme::PURPLE_BRIGHT } else { theme::SUCCESS_BRIGHT },
+            ))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_DIM)
-                    .child(item.title.clone()),
+                    .child(format!("#{} {}", item.number, item.title.clone())),
             );
         if item.is_draft {
             title_row = title_row.child(
@@ -98,7 +91,7 @@ impl ItemListView {
                     .rounded_md()
                     .bg(theme::CHIP)
                     .px_1p5()
-                    .text_size(px(theme::FONT_SMALL - 2.))
+                    .text_size(px(theme::font_small() - 2.))
                     .text_color(theme::TEXT_MUTED)
                     .child("draft"),
             );
@@ -114,7 +107,7 @@ impl ItemListView {
                     .rounded_md()
                     .bg(theme::tint(color))
                     .px_1p5()
-                    .text_size(px(theme::FONT_SMALL - 2.))
+                    .text_size(px(theme::font_small() - 2.))
                     .text_color(color)
                     .child(label),
             );
@@ -144,7 +137,7 @@ impl ItemListView {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_size(px(theme::font_small() - 1.))
                             .text_color(theme::TEXT_FAINT)
                             .child(item.author.clone().unwrap_or_else(|| "—".into())),
                     )
@@ -152,10 +145,18 @@ impl ItemListView {
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_size(px(theme::font_small() - 1.))
                             .text_color(theme::TEXT_FAINT)
                             .font_weight(FontWeight::BOLD)
-                            .child("open ↗"),
+                            .child(crate::ui::icon(
+                                "icons/icon-open-in-new.svg",
+                                px(theme::icon_small() - 2.),
+                                theme::TEXT_FAINT,
+                            ))
+                            .child("open"),
                     ),
             )
     }
@@ -167,7 +168,7 @@ fn empty_state(text: String) -> gpui::AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(theme::FONT_BODY))
+        .text_size(px(theme::font_body()))
         .text_color(theme::TEXT_FAINT)
         .child(text)
         .into_any_element()

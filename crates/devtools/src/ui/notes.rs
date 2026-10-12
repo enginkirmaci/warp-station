@@ -320,7 +320,7 @@ impl NotesPage {
             .py_1()
             .border_t_1()
             .border_color(theme::HAIRLINE)
-            .text_size(px(theme::FONT_SMALL - 1.))
+            .text_size(px(theme::font_small() - 1.))
             .text_color(theme::TEXT_FAINT)
             .child(format!("{words} words · {chars} chars · {lines} lines"))
             .child(div().flex_1())
@@ -370,10 +370,10 @@ impl NotesPage {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_DIM).child(hit.title.clone()))
+                                .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_DIM).child(hit.title.clone()))
                                 .child(
                                     div()
-                                        .text_size(px(theme::FONT_SMALL - 2.))
+                                        .text_size(px(theme::font_small() - 2.))
                                         .text_color(theme::TEXT_FAINT)
                                         .child(hit.excerpt.clone()),
                                 ),
@@ -414,7 +414,7 @@ impl NotesPage {
                 .rounded_md()
                 .px_1p5()
                 .py_0p5()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
                 .when(!selected, |d| d.text_color(theme::TEXT_DIM))
                 .hover(|s| s.bg(theme::HOVER))
@@ -440,13 +440,13 @@ impl NotesPage {
                     .items_center()
                     .gap_1()
                     .when(item.is_folder, |row| {
-                        row.child(div().text_size(px(theme::FONT_SMALL - 2.)).text_color(theme::TEXT_FAINT)
+                        row.child(div().text_size(px(theme::font_small() - 2.)).text_color(theme::TEXT_FAINT)
                             .child(if expanded { "▾" } else { "▸" }))
                     })
                     .child(if item.is_folder {
-                        icon("icons/icon-folder.svg", px(theme::ICON_SMALL - 2.), theme::TEXT_MUTED)
+                        icon("icons/icon-folder.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)
                     } else {
-                        icon("icons/icon-code-block.svg", px(theme::ICON_SMALL - 2.), theme::TEXT_MUTED)
+                        icon("icons/icon-code-block.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)
                     })
                     .child(item.name.clone()));
             list = list.child(row);
@@ -481,7 +481,7 @@ impl NotesPage {
                     .rounded_md()
                     .px_2()
                     .py_0p5()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .when(active, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
                     .when(!active, |d| d.text_color(theme::TEXT_MUTED))
                     .hover(|s| s.opacity(0.85))
@@ -508,7 +508,7 @@ impl NotesPage {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_MUTED)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
@@ -533,8 +533,8 @@ impl NotesPage {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_MUTED).child(note_title.clone()))
-                    .when(dirty, |row| row.child(div().text_size(px(theme::FONT_SMALL - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
+                    .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(note_title.clone()))
+                    .when(dirty, |row| row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
                     .child(div().flex_1())
                     .child(modes)
                     .when(has_repo || !self.tree.is_empty(), |row| {
@@ -545,7 +545,7 @@ impl NotesPage {
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::ACCENT)
                                 .hover(|s| s.bg(theme::tint(theme::ACCENT)))
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -561,7 +561,7 @@ impl NotesPage {
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_DIM)
                                 .border_1()
                                 .border_color(theme::HAIRLINE)
@@ -576,7 +576,7 @@ impl NotesPage {
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .when(armed, |d| d.text_color(theme::DANGER).border_1().border_color(theme::tint(theme::DANGER)))
                                 .when(!armed, |d| d.text_color(theme::TEXT_FAINT).border_1().border_color(theme::HAIRLINE))
                                 .hover(|s| s.opacity(0.85))
@@ -603,7 +603,7 @@ impl NotesPage {
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .bg(theme::ACCENT)
                                 .text_color(theme::ON_ACCENT)
@@ -624,7 +624,7 @@ impl NotesPage {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(theme::FONT_BODY))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_FAINT)
                 .child("Pick a note from the tree, or create one")
                 .into_any_element();

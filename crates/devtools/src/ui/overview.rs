@@ -6,6 +6,7 @@
 use crate::net::WandKind;
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
+use crate::ui::icon;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, Window};
 use gpui_kit::base::text::TextView;
@@ -65,7 +66,7 @@ impl Render for OverviewView {
             .py_1()
             .child(
                 div()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .child(if has_draft { "README draft (unsaved)" } else { "README" }),
             )
@@ -79,7 +80,10 @@ impl Render for OverviewView {
                         .rounded_md()
                         .px_2()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::TEXT_DIM)
                         .border_1()
                         .border_color(theme::HAIRLINE)
@@ -90,6 +94,7 @@ impl Render for OverviewView {
                                 cx.notify();
                             });
                         }))
+                        .child(icon("icons/icon-undo.svg", px(theme::icon_small() - 1.), theme::TEXT_DIM))
                         .child("Discard"),
                 )
                 .child(
@@ -99,7 +104,10 @@ impl Render for OverviewView {
                         .rounded_md()
                         .px_2()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_small()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .bg(theme::ACCENT)
                         .text_color(theme::ON_ACCENT)
@@ -128,6 +136,7 @@ impl Render for OverviewView {
                             }
                             cx.notify();
                         }))
+                        .child(icon("icons/icon-save.svg", px(theme::icon_small() - 1.), theme::ON_ACCENT))
                         .child("Save"),
                 )
             })
@@ -140,7 +149,10 @@ impl Render for OverviewView {
                         .rounded_md()
                         .px_2()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::TEXT_MUTED)
                         .border_1()
                         .border_color(theme::HAIRLINE)
@@ -148,7 +160,8 @@ impl Render for OverviewView {
                         .on_click(move |_, _, cx| {
                             store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
                         })
-                        .child("✦ generate")
+                        .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED))
+                        .child("generate")
                 })
             })
             .when(wand_active, |row| {
@@ -157,11 +170,15 @@ impl Render for OverviewView {
                         .rounded_md()
                         .px_2()
                         .py_0p5()
-                        .text_size(px(theme::FONT_SMALL))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_small()))
                         .text_color(theme::ACCENT)
                         .border_1()
                         .border_color(theme::tint(theme::ACCENT))
-                        .child("✦ generating…"),
+                        .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                        .child("generating…"),
                 )
             });
 
@@ -185,7 +202,7 @@ impl Render for OverviewView {
                         .h_full()
                         .child(
                             div()
-                                .text_size(px(theme::FONT_BODY))
+                                .text_size(px(theme::font_body()))
                                 .text_color(theme::TEXT_FAINT)
                                 .child("No README"),
                         ),
@@ -249,14 +266,14 @@ fn render_sidebar(
                     .flex_row()
                     .items_center()
                     .gap_1()
-                    .text_size(px(theme::FONT_TITLE))
+                    .text_size(px(theme::font_title()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color)
                     .child(format!("{count}")),
             )
             .child(
                 div()
-                    .text_size(px(theme::FONT_SMALL - 1.))
+                    .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_MUTED)
                     .child(label),
             )
@@ -295,7 +312,7 @@ fn render_sidebar(
         )
         .child(
             div()
-                .text_size(px(theme::FONT_TITLE))
+                .text_size(px(theme::font_title()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Repository Details"),
         )
@@ -330,7 +347,7 @@ fn render_sidebar(
                     .gap_1()
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL))
+                            .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_MUTED)
                             .child("Topics"),
                     )
@@ -341,7 +358,7 @@ fn render_sidebar(
                                     .rounded_md()
                                     .bg(theme::tint(theme::BLUE_BRIGHT))
                                     .px_1p5()
-                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_size(px(theme::font_small() - 2.))
                                     .text_color(theme::BLUE_BRIGHT)
                                     .child(topic.clone())
                             }),
@@ -374,10 +391,10 @@ fn detail_row(label: &str, value: String) -> impl IntoElement + use<> {
         .flex()
         .flex_col()
         .gap_0p5()
-        .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_MUTED).child(label.to_string()))
+        .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(label.to_string()))
         .child(
             div()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_DIM)
                 .child(value),
         )
@@ -394,10 +411,10 @@ fn link_row(label: &str, url: String) -> impl IntoElement + use<> {
         .on_click(move |_, _, _| {
             let _ = devtools_core::terminal::open_folder(&open_url);
         })
-        .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_MUTED).child(label.to_string()))
+        .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(label.to_string()))
         .child(
             div()
-                .text_size(px(theme::FONT_SMALL))
+                .text_size(px(theme::font_small()))
                 .text_color(theme::ACCENT)
                 .child(url),
         )

@@ -180,6 +180,8 @@ pub struct GeneralSettings {
     pub start_at_boot: bool,
     pub notes_store_path: String,
     pub show_tooltips: bool,
+    /// "compact" | "normal" | "large" text-size variant; None = normal.
+    pub font_scale: Option<String>,
 }
 
 impl Default for GeneralSettings {
@@ -189,6 +191,7 @@ impl Default for GeneralSettings {
             start_at_boot: false,
             notes_store_path: String::new(),
             show_tooltips: true,
+            font_scale: None,
         }
     }
 }

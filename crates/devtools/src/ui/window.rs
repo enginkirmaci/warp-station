@@ -146,7 +146,7 @@ impl MainWindow {
                     .bg(theme::POPUP)
                     .shadow_lg()
                     .p_2()
-                    .text_size(px(theme::FONT_SMALL))
+                    .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_FAINT)
                     .child("No matches.")
                     .into_any_element(),
@@ -180,7 +180,7 @@ impl MainWindow {
                     }))
                     .child(
                         div()
-                            .text_size(px(theme::FONT_SMALL - 1.))
+                            .text_size(px(theme::font_small() - 1.))
                             .text_color(kind_color)
                             .child(match hit {
                                 crate::store::GlobalSearchHit::Repo { .. } => "repo",
@@ -191,10 +191,10 @@ impl MainWindow {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(px(theme::FONT_SMALL)).text_color(theme::TEXT_DIM).child(title))
+                            .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_DIM).child(title))
                             .child(
                                 div()
-                                    .text_size(px(theme::FONT_SMALL - 2.))
+                                    .text_size(px(theme::font_small() - 2.))
                                     .text_color(theme::TEXT_FAINT)
                                     .child(detail),
                             ),
@@ -320,13 +320,13 @@ impl MainWindow {
                         .on_click(|_, _, _| {})
                         .child(
                             div()
-                                .text_size(px(theme::FONT_TITLE))
+                                .text_size(px(theme::font_title()))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("OpenCode needs permission"),
                         )
                         .child(
                             div()
-                                .text_size(px(theme::FONT_SMALL))
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_DIM)
                                 .child(title.clone()),
                         )
@@ -344,7 +344,7 @@ impl MainWindow {
                         )
                         .child(
                             div()
-                                .text_size(px(theme::FONT_SMALL - 1.))
+                                .text_size(px(theme::font_small() - 1.))
                                 .text_color(theme::TEXT_FAINT)
                                 .child(format!("auto-reject in {secs}s")),
                         ),
@@ -365,7 +365,7 @@ fn ask_button(
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::FONT_SMALL))
+        .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::tint(color))
         .text_color(color)
@@ -390,7 +390,7 @@ fn window_button(
         .justify_center()
         .hover(move |s| s.bg(hover_bg))
         .on_click(on_click)
-        .child(icon(icon_path, px(theme::ICON_MEDIUM), theme::TEXT_MUTED))
+        .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
 impl MainWindow {
@@ -410,20 +410,41 @@ impl MainWindow {
                     .items_center()
                     .justify_center()
                     .size(px(30.))
-                    .child(icon("icons/icon-logo-mark.svg", px(theme::ICON_LARGE), theme::TEXT)),
+                    .child(icon("icons/icon-logo-mark.svg", px(theme::icon_large()), theme::TEXT)),
             )
             .child(
                 div()
-                    .text_size(px(theme::FONT_TITLE))
+                    .text_size(px(theme::font_title()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Dev Tools"),
             )
+            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
+            .child({
+                div()
+                    .id("notes-toggle")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .size(px(26.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_notes_window(window, cx);
+                    }))
+                    .child(icon(
+                        "icons/icon-note.svg",
+                        px(theme::icon_medium()),
+                        if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
+                    ))
+            })
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .justify_center()
-                    .child(div().w(px(320.)).child(Input::new(&self.global_search).small())),
+                    .child(div().w(px(480.)).child(Input::new(&self.global_search).small())),
             )
             .child(
                 div()
@@ -459,8 +480,8 @@ impl MainWindow {
                         cx.notify();
                     }))
                     .child(icon(
-                        "icons/icon-grid.svg",
-                        px(theme::ICON_MEDIUM),
+                        "icons/icon-tools.svg",
+                        px(theme::icon_medium()),
                         if self.formatters_open { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))
             })
@@ -482,28 +503,8 @@ impl MainWindow {
                     }))
                     .child(icon(
                         "icons/icon-cog.svg",
-                        px(theme::ICON_MEDIUM),
+                        px(theme::icon_medium()),
                         if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
-                    ))
-            })
-            .child({
-                div()
-                    .id("notes-toggle")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_notes_window(window, cx);
-                    }))
-                    .child(icon(
-                        "icons/icon-note.svg",
-                        px(theme::ICON_MEDIUM),
-                        if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))
             })
             .child(window_button(
