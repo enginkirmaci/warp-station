@@ -53,6 +53,8 @@ pub struct SettingsPage {
     azure_pat: Entity<InputState>,
     azure_url: Entity<InputState>,
     saved_note: Option<std::time::Instant>,
+    /// set by the header back button; MainWindow drains it and swaps pages
+    pub back_requested: bool,
 }
 
 impl SettingsPage {
@@ -107,6 +109,7 @@ impl SettingsPage {
             azure_pat: field(window, cx, &repos.azure_dev_ops_pat),
             azure_url: field(window, cx, &repos.azure_dev_ops_url),
             saved_note: None,
+            back_requested: false,
         };
         store.update(cx, |s, cx| s.load_models(cx));
         page
@@ -246,113 +249,178 @@ impl Render for SettingsPage {
             .flex_col()
             .items_center()
             .p_4()
-            .gap_3()
             .child(
                 div()
-                    .w(px(720.))
+                    .w_full()
+                    .max_w(px(1240.))
                     .flex()
-                    .flex_row()
-                    .items_center()
+                    .flex_col()
+                    .gap_3()
+                    // identity bar: back link, title, folder jump, Save
                     .child(
                         div()
-                            .text_size(px(theme::font_title() + 2.))
-                            .font_weight(FontWeight::BOLD)
-                            .child("Settings"),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(icon_button(
+                                "settings-back",
+                                "icons/icon-arrow-left.svg",
+                                theme::TEXT,
+                                cx.listener(|this, _, _, cx| {
+                                    this.back_requested = true;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_title() + 2.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("Settings"),
+                            )
+                            .child(div().flex_1())
+                            .when(just_saved, |row| {
+                                row.child(
+                                    div()
+                                        .text_size(px(theme::font_small()))
+                                        .text_color(theme::SUCCESS_BRIGHT)
+                                        .child("saved ✓"),
+                                )
+                            })
+                            .child(icon_button(
+                                "settings-open-folder",
+                                "icons/icon-folder.svg",
+                                theme::TEXT_MUTED,
+                                |_, _, _| {
+                                    let folder = devtools_core::paths::AppPaths::user_data_root();
+                                    let _ = std::fs::create_dir_all(&folder);
+                                    let _ = devtools_core::terminal::open_folder(&folder.to_string_lossy());
+                                },
+                            ))
+                            .child(save_button(cx)),
                     )
-                    .child(div().flex_1())
-                    .when(just_saved, |row| {
-                        row.child(
-                            div()
-                                .text_size(px(theme::font_small()))
-                                .text_color(theme::SUCCESS_BRIGHT)
-                                .child("saved ✓"),
-                        )
-                    })
-                    .child(save_button(cx)),
+                    // two balanced columns of cards
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_start()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(self.card("General", cx, |this, cx, card| {
+                                        card.child(switch_row("Start at boot", this.start_at_boot, cx.listener(|this, _: &bool, _, cx| {
+                                            this.start_at_boot = !this.start_at_boot;
+                                            cx.notify();
+                                        })))
+                                        .child(switch_row("Start minimized", this.start_minimized, cx.listener(|this, _, _, cx| {
+                                            this.start_minimized = !this.start_minimized;
+                                            cx.notify();
+                                        })))
+                                        .child(switch_row("Show tooltips", this.show_tooltips, cx.listener(|this, _: &bool, _, cx| {
+                                            this.show_tooltips = !this.show_tooltips;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("Notes store path", &this.notes_store_path))
+                                        .child(text_size_row(this, cx))
+                                        .child(label("Applied across the app as soon as it's saved."))
+                                    }))
+                                    .child(self.card("Repository scanning", cx, |this, _cx, card| {
+                                        card.child(label("Scan folders (one per line)"))
+                                            .child(Textarea::new(&this.scan_folders).bordered(true).small().h(px(240.)))
+                                            .child(label("Excluded folders (one per line)"))
+                                            .child(Textarea::new(&this.excluded_folders).bordered(true).small().h(px(100.)))
+                                            .child(two_col(
+                                                field_row("Git folder pattern", &this.git_folder_pattern),
+                                                field_row("Solution file pattern", &this.solution_file_pattern),
+                                            ))
+                                            .child(two_col(
+                                                field_row("Platform folder name", &this.platform_folder_name),
+                                                field_row("Max scan depth", &this.max_scan_depth),
+                                            ))
+                                    }))
+                                    .child(self.card("Git", cx, |this, _cx, card| {
+                                        card.child(field_row("Branch name prefix", &this.branch_name_prefix))
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(self.card("External tools", cx, |this, cx, card| {
+                                        card.child(two_col(
+                                            switch_row("Enable Visual Studio (Windows)", this.enable_visual_studio, cx.listener(|this, _, _, cx| {
+                                                this.enable_visual_studio = !this.enable_visual_studio;
+                                                cx.notify();
+                                            })),
+                                            switch_row("Enable VS Code", this.enable_vscode, cx.listener(|this, _, _, cx| {
+                                                this.enable_vscode = !this.enable_vscode;
+                                                cx.notify();
+                                            })),
+                                        ))
+                                        .child(two_col(
+                                            switch_row("Enable Terminal", this.enable_terminal, cx.listener(|this, _, _, cx| {
+                                                this.enable_terminal = !this.enable_terminal;
+                                                cx.notify();
+                                            })),
+                                            switch_row("Enable ZCode", this.enable_zcode, cx.listener(|this, _, _, cx| {
+                                                this.enable_zcode = !this.enable_zcode;
+                                                cx.notify();
+                                            })),
+                                        ))
+                                        .child(two_col(
+                                            field_row("VS Code executable", &this.vscode_executable),
+                                            field_row("VS Code profile", &this.vscode_profile),
+                                        ))
+                                        .child(two_col(
+                                            field_row("Terminal executable", &this.terminal_executable),
+                                            field_row("IDE executable", &this.ide_executable),
+                                        ))
+                                        .child(two_col(
+                                            field_row("OpenCode executable", &this.opencode_executable),
+                                            field_row("ZCode executable", &this.zcode_executable),
+                                        ))
+                                    }))
+                                    .child(self.card("OpenCode", cx, |this, cx, card| {
+                                        card.child(switch_row("Enable OpenCode", this.enable_opencode, cx.listener(|this, _, _, cx| {
+                                            this.enable_opencode = !this.enable_opencode;
+                                            cx.notify();
+                                        })))
+                                        .child(label("Default model"))
+                                        .child({
+                                            let field = this.default_model.clone();
+                                            this.model_picker(&field, PickerSlot::Default, cx)
+                                        })
+                                        .child(label("Commit model (wand)"))
+                                        .child({
+                                            let field = this.commit_model.clone();
+                                            this.model_picker(&field, PickerSlot::Commit, cx)
+                                        })
+                                    }))
+                                    .child(self.card("Columns", cx, |this, cx, card| {
+                                        card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {
+                                            this.enable_github = !this.enable_github;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("GitHub CLI executable", &this.github_executable))
+                                        .child(switch_row("Azure DevOps column", this.enable_azure, cx.listener(|this, _, _, cx| {
+                                            this.enable_azure = !this.enable_azure;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("Azure DevOps PAT", &this.azure_pat))
+                                        .child(field_row("Azure DevOps server URL", &this.azure_url))
+                                    })),
+                            ),
+                    ),
             )
-            .child(self.card("General", cx, |this, cx, card| {
-                card.child(field_row("Notes store path", &this.notes_store_path))
-                    .child(text_size_row(this, cx))
-                    .child(label("Applied across the app as soon as it's saved."))
-                    .child(switch_row("Show tooltips", this.show_tooltips, cx.listener(|this, _: &bool, _, cx| {
-                        this.show_tooltips = !this.show_tooltips;
-                        cx.notify();
-                    })))
-                    .child(switch_row("Start minimized", this.start_minimized, cx.listener(|this, _, _, cx| {
-                        this.start_minimized = !this.start_minimized;
-                        cx.notify();
-                    })))
-                    .child(switch_row("Start at boot", this.start_at_boot, cx.listener(|this, _, _, cx| {
-                        this.start_at_boot = !this.start_at_boot;
-                        cx.notify();
-                    })))
-            }))
-            .child(self.card("Repository scanning", cx, |this, _cx, card| {
-                card.child(label("Scan folders (one per line)"))
-                    .child(Textarea::new(&this.scan_folders).bordered(true).small())
-                    .child(label("Excluded folders (one per line)"))
-                    .child(Textarea::new(&this.excluded_folders).bordered(true).small())
-                    .child(field_row("Git folder pattern", &this.git_folder_pattern))
-                    .child(field_row("Solution file pattern", &this.solution_file_pattern))
-                    .child(field_row("Platform folder name", &this.platform_folder_name))
-                    .child(field_row("Max scan depth", &this.max_scan_depth))
-            }))
-            .child(self.card("Git", cx, |this, _cx, card| {
-                card.child(field_row("Branch name prefix", &this.branch_name_prefix))
-            }))
-            .child(self.card("External tools", cx, |this, cx, card| {
-                card.child(field_row("VS Code executable", &this.vscode_executable))
-                    .child(field_row("VS Code profile", &this.vscode_profile))
-                    .child(field_row("Terminal executable", &this.terminal_executable))
-                    .child(field_row("IDE executable", &this.ide_executable))
-                    .child(field_row("OpenCode executable", &this.opencode_executable))
-                    .child(field_row("ZCode executable", &this.zcode_executable))
-                    .child(switch_row("Terminal button", this.enable_terminal, cx.listener(|this, _, _, cx| {
-                        this.enable_terminal = !this.enable_terminal;
-                        cx.notify();
-                    })))
-                    .child(switch_row("VS Code button", this.enable_vscode, cx.listener(|this, _, _, cx| {
-                        this.enable_vscode = !this.enable_vscode;
-                        cx.notify();
-                    })))
-                    .child(switch_row("Visual Studio button (Windows)", this.enable_visual_studio, cx.listener(|this, _, _, cx| {
-                        this.enable_visual_studio = !this.enable_visual_studio;
-                        cx.notify();
-                    })))
-                    .child(switch_row("ZCode button", this.enable_zcode, cx.listener(|this, _, _, cx| {
-                        this.enable_zcode = !this.enable_zcode;
-                        cx.notify();
-                    })))
-            }))
-            .child(self.card("OpenCode", cx, |this, cx, card| {
-                card.child(switch_row("Enable OpenCode", this.enable_opencode, cx.listener(|this, _, _, cx| {
-                    this.enable_opencode = !this.enable_opencode;
-                    cx.notify();
-                })))
-                .child(label("Default model"))
-                .child({
-                    let field = this.default_model.clone();
-                    this.model_picker(&field, PickerSlot::Default, cx)
-                })
-                .child(label("Commit model (wand)"))
-                .child({
-                    let field = this.commit_model.clone();
-                    this.model_picker(&field, PickerSlot::Commit, cx)
-                })
-            }))
-            .child(self.card("Columns", cx, |this, cx, card| {
-                card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {
-                    this.enable_github = !this.enable_github;
-                    cx.notify();
-                })))
-                .child(field_row("GitHub CLI executable", &this.github_executable))
-                .child(switch_row("Azure DevOps column", this.enable_azure, cx.listener(|this, _, _, cx| {
-                    this.enable_azure = !this.enable_azure;
-                    cx.notify();
-                })))
-                .child(field_row("Azure DevOps PAT", &this.azure_pat))
-                .child(field_row("Azure DevOps server URL", &this.azure_url))
-            }))
     }
 }
 
@@ -490,7 +558,7 @@ impl SettingsPage {
         build: impl FnOnce(&mut Self, &mut Context<Self>, gpui::Div) -> gpui::Div,
     ) -> gpui::AnyElement {
         let shell = div()
-            .w(px(720.))
+            .w_full()
             .rounded_xl()
             .border_1()
             .border_color(theme::HAIRLINE)
@@ -514,13 +582,14 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .id("settings-save")
         .cursor_pointer()
         .rounded_md()
+        .border_1()
+        .border_color(theme::ACCENT)
         .px_4()
         .py_1p5()
         .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
-        .bg(theme::ACCENT)
-        .text_color(theme::ON_ACCENT)
-        .hover(|s| s.opacity(0.9))
+        .text_color(theme::ACCENT)
+        .hover(|s| s.bg(theme::tint(theme::ACCENT)))
         .on_click(cx.listener(|this, _, _, cx| this.save(cx)))
         .child("Save")
         .into_any_element()
@@ -531,6 +600,34 @@ fn label(text: &str) -> impl IntoElement + use<> {
         .text_size(px(theme::font_small()))
         .text_color(theme::TEXT_MUTED)
         .child(text.to_string())
+}
+
+/// Two fields (or switches) sharing one row, each half of the card width.
+fn two_col(a: impl IntoElement, b: impl IntoElement) -> gpui::AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .gap_3()
+        .child(div().flex_1().min_w(px(0.)).child(a))
+        .child(div().flex_1().min_w(px(0.)).child(b))
+        .into_any_element()
+}
+
+fn icon_button(
+    id: &'static str,
+    icon_path: &'static str,
+    color: impl Into<gpui::Hsla>,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .rounded_md()
+        .p_1()
+        .hover(|s| s.bg(theme::HOVER))
+        .on_click(on_click)
+        .child(crate::ui::icon(icon_path, px(theme::icon_medium()), color))
+        .into_any_element()
 }
 
 fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement + use<> {

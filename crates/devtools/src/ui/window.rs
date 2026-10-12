@@ -67,6 +67,10 @@ impl Render for MainWindow {
             self.store.update(cx, |s, _| s.notes_requested = false);
             self.open_notes_window(window, cx);
         }
+        if self.settings_page.read(cx).back_requested {
+            self.settings_page.update(cx, |page, _| page.back_requested = false);
+            self.page = Page::Repos;
+        }
         let mut root = div()
             .size_full()
             .flex()
