@@ -76,6 +76,8 @@ pub struct Store {
     save_generation: u64,
     /// Bottom-panel height in logical px, shared by every tab (drag the top edge).
     pub bar_height: f32,
+    /// Latest NuGet watch service snapshot (watching, count, activity log).
+    pub nuget: devtools_core::nuget::NugetSnapshot,
 }
 
 impl Store {
@@ -126,6 +128,7 @@ impl Store {
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
+            nuget: Default::default(),
         };
         store.reproject();
 
@@ -172,6 +175,38 @@ impl Store {
         if let Err(err) = self.settings.update(mutate) {
             tracing::warn!("could not save settings: {err}");
         }
+    }
+
+    // ---- NuGet Local watch controls (config captured at press time) ----
+
+    pub fn start_nuget(&mut self) {
+        let section = self.settings().nuget_local;
+        let _ = self.net.send_blocking(NetCommand::NugetStart {
+            config: devtools_core::nuget::NugetConfig {
+                enable: section.enable_nuget,
+                watch_folder: section.watch_folder,
+                filter: section.nuget_package_filter,
+                copy_delay: std::time::Duration::from_millis(u64::from(section.file_copy_delay_ms)),
+                count_window: std::time::Duration::from_secs(u64::from(section.count_reset_interval_seconds)),
+            },
+        });
+    }
+
+    pub fn stop_nuget(&mut self) {
+        let _ = self.net.send_blocking(NetCommand::NugetStop);
+    }
+
+    pub fn register_nuget_source(&mut self) {
+        let _ = self.net.send_blocking(NetCommand::NugetRegister);
+    }
+
+    /// Persists the watch folder and applies it to a running watch.
+    pub fn set_nuget_folder(&mut self, folder: String) {
+        let trimmed = folder.trim().to_string();
+        self.update_settings(|s| {
+            s.nuget_local.watch_folder = (!trimmed.is_empty()).then(|| trimmed.clone());
+        });
+        let _ = self.net.send_blocking(NetCommand::NugetSetFolder { folder: trimmed });
     }
 
     pub fn kick_scan(&mut self, settings: &AppSettings) {
@@ -279,6 +314,10 @@ impl Store {
             }
             UiEvent::ModelsLoaded { models } => {
                 self.models = models;
+                cx.notify();
+            }
+            UiEvent::Nuget(snapshot) => {
+                self.nuget = snapshot;
                 cx.notify();
             }
             UiEvent::SummaryDone { result, .. } => {

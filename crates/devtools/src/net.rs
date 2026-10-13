@@ -57,6 +57,12 @@ pub enum NetCommand {
         opencode_exe: String,
         summaries_dir: PathBuf,
     },
+    /// NuGet Local watch controls; the config is captured from settings at
+    /// press time (the service holds no settings handle).
+    NugetStart { config: devtools_core::nuget::NugetConfig },
+    NugetStop,
+    NugetSetFolder { folder: String },
+    NugetRegister,
 }
 
 /// Which generator a wand run is.
@@ -160,6 +166,8 @@ pub enum UiEvent {
     ModelsLoaded { models: Vec<String> },
     /// The summary wand finished (Ok = the written file path).
     SummaryDone { wand_id: String, result: Result<String, String> },
+    /// A NuGet watch service state change (full snapshot).
+    Nuget(devtools_core::nuget::NugetSnapshot),
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -183,6 +191,19 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
     // live wand runs: id → the run's control channel (permission replies)
     let wands: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<devtools_core::opencode::WandControl>>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+
+    // the NuGet watch service outlives the drawer; its snapshots forward as
+    // UiEvents on the same bridge
+    let (nuget_events, nuget_receiver) = async_channel::unbounded::<devtools_core::nuget::NugetSnapshot>();
+    let nuget = std::sync::Arc::new(devtools_core::nuget::NugetService::new(nuget_events));
+    {
+        let evt_tx = evt_tx.clone();
+        tokio::spawn(async move {
+            while let Ok(snapshot) = nuget_receiver.recv().await {
+                let _ = evt_tx.send_blocking(UiEvent::Nuget(snapshot));
+            }
+        });
+    }
 
     while let Ok(cmd) = cmd_rx.recv().await {
         match cmd {
@@ -315,6 +336,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let models = devtools_core::opencode::list_models(&opencode_exe, &default_model).await;
                 let _ = evt_tx.send_blocking(UiEvent::ModelsLoaded { models });
             }
+            NetCommand::NugetStart { config } => nuget.start(config),
+            NetCommand::NugetStop => nuget.stop(),
+            NetCommand::NugetSetFolder { folder } => nuget.set_folder(folder),
+            NetCommand::NugetRegister => nuget.register_source(),
             NetCommand::WandRespond { wand_id, ask_id, response } => {
                 let wands = wands.clone();
                 tokio::spawn(async move {

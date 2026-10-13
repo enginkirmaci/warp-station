@@ -4,8 +4,10 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::bottom_bar::BottomBar;
+use crate::ui::clipboard_password::{copy_stored_password, ClipboardPasswordDrawer};
 use crate::ui::icon;
 use crate::ui::notes::NotesPage;
+use crate::ui::nuget::NugetDrawer;
 use gpui::prelude::*;
 use gpui::{div, px, size, App, Bounds, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -18,6 +20,14 @@ enum Page {
     Settings,
 }
 
+/// Which tool drawer docks to the right edge.
+#[derive(Clone, Copy, PartialEq)]
+enum DrawerKind {
+    Formatters,
+    Nuget,
+    ClipboardPassword,
+}
+
 pub struct MainWindow {
     pub store: Entity<Store>,
     page: Page,
@@ -26,8 +36,11 @@ pub struct MainWindow {
     bottom_bar: Entity<BottomBar>,
     global_search: Entity<InputState>,
     notes_window: Option<gpui::AnyWindowHandle>,
-    formatters_open: bool,
+    /// The open tool drawer, if any (one at a time; entities are lazy).
+    active_drawer: Option<DrawerKind>,
     formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
+    nuget_drawer: Option<Entity<NugetDrawer>>,
+    clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
     tools_menu_open: bool,
 }
 
@@ -56,8 +69,17 @@ impl MainWindow {
             bottom_bar,
             global_search,
             notes_window: None,
-            formatters_open: false,
+            // E2E hook: DEVTOOLS_TOOLS_OPEN=formatters|nuget|clipboard docks
+            // that drawer on launch
+            active_drawer: match std::env::var("DEVTOOLS_TOOLS_OPEN").as_deref() {
+                Ok("formatters") => Some(DrawerKind::Formatters),
+                Ok("nuget") => Some(DrawerKind::Nuget),
+                Ok("clipboard") => Some(DrawerKind::ClipboardPassword),
+                _ => None,
+            },
             formatters: None,
+            nuget_drawer: None,
+            clipboard_drawer: None,
             // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
             tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
         }
@@ -81,9 +103,20 @@ impl Render for MainWindow {
             .bg(theme::BACKGROUND)
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
-            // Ctrl+K focuses the global-search field (the titlebar's hint)
+            // Ctrl+K focuses the global-search field; Ctrl+Shift+V copies the
+            // stored Clipboard Password (the titlebar's hotkeys)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if event.keystroke.key == "k" && event.keystroke.modifiers.control {
+                let modifiers = event.keystroke.modifiers;
+                if modifiers.control && modifiers.shift && event.keystroke.key == "v" {
+                    let message = copy_stored_password(&this.store, cx);
+                    this.store.update(cx, |s, cx| {
+                        s.notice = Some((message.to_string(), std::time::Instant::now()));
+                        cx.notify();
+                    });
+                    cx.stop_propagation();
+                    return;
+                }
+                if event.keystroke.key == "k" && modifiers.control {
                     this.global_search.update(cx, |state, cx| state.focus(window, cx));
                     cx.stop_propagation();
                 }
@@ -101,30 +134,9 @@ impl Render for MainWindow {
         if let Some(popup) = self.render_search_popup(cx) {
             root = root.child(popup);
         }
-        if self.formatters_open
-            && let Some(drawer) = &self.formatters {
-                let scrim_store = self.store.clone();
-                root = root.child(
-                    div()
-                        .id("formatters-scrim")
-                        .absolute()
-                        .inset_0()
-                        .occlude()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.formatters_open = false;
-                            cx.notify();
-                            let _ = scrim_store;
-                        }))
-                        .child(
-                            div()
-                                .absolute()
-                                .top(px(38.))
-                                .right_0()
-                                .bottom_0()
-                                .child(drawer.clone()),
-                        ),
-                );
-            }
+        if let Some(drawer) = self.render_drawer_overlay(window, cx) {
+            root = root.child(drawer);
+        }
         if let Some(menu) = self.render_tools_menu(cx) {
             root = root.child(menu);
         }
@@ -134,22 +146,21 @@ impl Render for MainWindow {
 
 impl MainWindow {
     /// The tools dropdown under the titlebar tools button: one entry per
-    /// tool surface (Formatters drawer, Notes window). Dismissed by the
-    /// full-window scrim or by picking an item.
+    /// tool surface (NuGet Package Manager, Formatters, Clipboard Password,
+    /// Notes — the first and third gated by their settings flags). Dismissed
+    /// by the full-window scrim or by picking an item.
     fn render_tools_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         if !self.tools_menu_open {
             return None;
         }
-        let open_formatters = cx.listener(|this, _, window, cx| {
-            this.tools_menu_open = false;
-            this.formatters_open = true;
-            if this.formatters.is_none() {
-                this.formatters = Some(cx.new(|cx| {
-                    crate::ui::formatters::FormattersDrawer::new(this.store.clone(), window, cx)
-                }));
-            }
-            cx.notify();
-        });
+        let settings = self.store.read(cx).settings();
+        let open_drawer = |kind: DrawerKind| {
+            cx.listener(move |this, _, _, cx| {
+                this.tools_menu_open = false;
+                this.active_drawer = Some(kind);
+                cx.notify();
+            })
+        };
         let open_notes = cx.listener(|this, _, window, cx| {
             this.tools_menu_open = false;
             this.open_notes_window(window, cx);
@@ -178,6 +189,53 @@ impl MainWindow {
                         .child(label),
                 )
         };
+        let mut menu = div()
+            .id("tools-menu")
+            .absolute()
+            .top(px(42.))
+            // right edge of the menu = right edge of the tools button: 8px
+            // titlebar padding + three 26px window buttons + settings (+ SnapIt
+            // on Windows), 4px gaps
+            .right(px(if cfg!(windows) { 158. } else { 128. }))
+            .w(px(200.))
+            .occlude()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::POPUP)
+            .shadow_lg()
+            .p_1()
+            .flex()
+            .flex_col()
+            .gap_0p5();
+        if settings.nuget_local.enable_nuget {
+            menu = menu.child(row(
+                "tools-menu-nuget",
+                "icons/icon-package.svg",
+                "NuGet Package Manager",
+                Box::new(open_drawer(DrawerKind::Nuget)),
+            ));
+        }
+        menu = menu.child(row(
+            "tools-menu-formatters",
+            "icons/icon-text-format.svg",
+            "Formatters",
+            Box::new(open_drawer(DrawerKind::Formatters)),
+        ));
+        if settings.clipboard_password.enable_clipboard_password {
+            menu = menu.child(row(
+                "tools-menu-clipboard",
+                "icons/icon-lock.svg",
+                "Clipboard Password",
+                Box::new(open_drawer(DrawerKind::ClipboardPassword)),
+            ));
+        }
+        menu = menu.child(row(
+            "tools-menu-notes",
+            "icons/icon-note.svg",
+            "Notes",
+            Box::new(open_notes),
+        ));
         Some(
             div()
                 .absolute()
@@ -193,38 +251,60 @@ impl MainWindow {
                             cx.notify();
                         })),
                 )
+                .child(menu)
+                .into_any_element(),
+        )
+    }
+
+    /// The docked tool drawer overlay: a full-window scrim plus the right-edge
+    /// panel; the drawer entity is created on first open.
+    fn render_drawer_overlay(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let kind = self.active_drawer?;
+        let drawer = match kind {
+            DrawerKind::Formatters => self
+                .formatters
+                .get_or_insert_with(|| {
+                    cx.new(|cx| crate::ui::formatters::FormattersDrawer::new(self.store.clone(), window, cx))
+                })
+                .clone()
+                .into_any_element(),
+            DrawerKind::Nuget => self
+                .nuget_drawer
+                .get_or_insert_with(|| cx.new(|cx| NugetDrawer::new(self.store.clone(), window, cx)))
+                .clone()
+                .into_any_element(),
+            DrawerKind::ClipboardPassword => self
+                .clipboard_drawer
+                .get_or_insert_with(|| cx.new(|cx| ClipboardPasswordDrawer::new(self.store.clone(), window, cx)))
+                .clone()
+                .into_any_element(),
+        };
+        Some(
+            div()
+                .absolute()
+                .inset_0()
                 .child(
                     div()
-                        .id("tools-menu")
+                        .id("drawer-scrim")
                         .absolute()
-                        .top(px(42.))
-                        // right edge of the menu = right edge of the tools
-                        // button: 8px titlebar padding + three 26px window
-                        // buttons + settings (+ SnapIt on Windows), 4px gaps
-                        .right(px(if cfg!(windows) { 158. } else { 128. }))
-                        .w(px(200.))
+                        .inset_0()
                         .occlude()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme::HAIRLINE)
-                        .bg(theme::POPUP)
-                        .shadow_lg()
-                        .p_1()
-                        .flex()
-                        .flex_col()
-                        .gap_0p5()
-                        .child(row(
-                            "tools-menu-formatters",
-                            "icons/icon-text-format.svg",
-                            "Formatters",
-                            Box::new(open_formatters),
-                        ))
-                        .child(row(
-                            "tools-menu-notes",
-                            "icons/icon-note.svg",
-                            "Notes",
-                            Box::new(open_notes),
-                        )),
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.active_drawer = None;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(38.))
+                        .right_0()
+                        .bottom_0()
+                        .child(drawer),
                 )
                 .into_any_element(),
         )
