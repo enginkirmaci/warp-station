@@ -21,12 +21,22 @@ pub fn open_folder(folder: &str) -> Result<(), String> {
         .map_err(|err| format!("{command}: {err}"))
 }
 
-/// Opens a solution file with its shell association (Windows) or the
-/// configured IDE (everywhere else).
+/// Opens a solution file: a configured IDE wins, else the shell association
+/// (Windows) or the .NET-IDE fallback.
 pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String> {
+    let configured = ide_executable.trim();
+    if !configured.is_empty() {
+        let Some(path) = exe::locate(configured) else {
+            return Err(format!("'{configured}' not found on PATH or in the user install folders"));
+        };
+        return std::process::Command::new(&path)
+            .arg(solution)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("{}: {err}", path.display()));
+    }
     #[cfg(windows)]
     {
-        let _ = ide_executable;
         return std::process::Command::new("cmd")
             .args(["/C", "start", "", solution])
             .spawn()
@@ -35,7 +45,7 @@ pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String>
     }
     #[cfg(not(windows))]
     {
-        let exe_name = if ide_executable.trim().is_empty() { "rider" } else { ide_executable };
+        let exe_name = "rider";
         let Some(path) = exe::locate(exe_name) else {
             return Err(format!("'{exe_name}' not found on PATH or in the user install folders"));
         };

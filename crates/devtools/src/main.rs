@@ -23,6 +23,14 @@ fn main() {
             theme::apply_kit_theme(cx);
             theme::init_system_font_scale(cx);
 
+            // the companion watches this process (--parent) and exits when DevTools dies
+            #[cfg(windows)]
+            if store.read(cx).settings().snap_it.auto_start {
+                if let Err(err) = devtools_core::snapit::start() {
+                    tracing::warn!("SnapIt auto-start failed: {err}");
+                }
+            }
+
             // net events → store. Polled with a timer fallback: this gpui rev
             // does not service cross-thread channel wakeups on foreground tasks,
             // so a plain recv().await would sleep forever (async_channel recv is

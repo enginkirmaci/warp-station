@@ -1,0 +1,17 @@
+namespace Tools.SnapIt.Graphics;
+
+public class Size
+{
+    public static readonly Size Empty = new(0, 0);
+    public float Width { get; set; }
+    public float Height { get; set; }
+
+    public Size()
+    { }
+
+    public Size(float width, float height)
+    {
+        Width = width;
+        Height = height;
+    }
+}

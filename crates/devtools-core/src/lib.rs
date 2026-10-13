@@ -17,5 +17,6 @@ pub mod refresh;
 pub mod rel_time;
 pub mod repo_store;
 pub mod scan;
+pub mod snapit;
 pub mod terminal;
 pub mod settings;

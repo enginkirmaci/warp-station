@@ -15,6 +15,11 @@ use tokio::process::Command;
 /// Node processes.
 pub const ELECTRON_RUN_AS_NODE: &str = "ELECTRON_RUN_AS_NODE";
 
+/// Every GUI-spawned CLI on Windows needs this, or the child pops a fresh
+/// console window (the release exe is GUI-subsystem and has none to inherit).
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Default)]
 pub struct ProcessRunOptions<'a> {
     pub file_name: &'a str,
@@ -72,6 +77,8 @@ pub async fn run(options: ProcessRunOptions<'_>) -> anyhow::Result<ProcessRunRes
     // signal; Windows tree-kill goes through taskkill /T.
     #[cfg(unix)]
     command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = command.spawn()?;
 
@@ -167,11 +174,14 @@ pub fn kill_tree(pid: Option<u32>) {
     }
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
+        let mut command = std::process::Command::new("taskkill");
+        command
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let _ = command.status();
     }
 }
 

@@ -28,6 +28,7 @@ pub struct MainWindow {
     notes_window: Option<gpui::AnyWindowHandle>,
     formatters_open: bool,
     formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
+    tools_menu_open: bool,
 }
 
 impl MainWindow {
@@ -57,6 +58,8 @@ impl MainWindow {
             notes_window: None,
             formatters_open: false,
             formatters: None,
+            // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
+            tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
         }
     }
 }
@@ -122,14 +125,113 @@ impl Render for MainWindow {
                         ),
                 );
             }
+        if let Some(menu) = self.render_tools_menu(cx) {
+            root = root.child(menu);
+        }
         root
     }
 }
 
 impl MainWindow {
+    /// The tools dropdown under the titlebar tools button: one entry per
+    /// tool surface (Formatters drawer, Notes window). Dismissed by the
+    /// full-window scrim or by picking an item.
+    fn render_tools_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.tools_menu_open {
+            return None;
+        }
+        let open_formatters = cx.listener(|this, _, window, cx| {
+            this.tools_menu_open = false;
+            this.formatters_open = true;
+            if this.formatters.is_none() {
+                this.formatters = Some(cx.new(|cx| {
+                    crate::ui::formatters::FormattersDrawer::new(this.store.clone(), window, cx)
+                }));
+            }
+            cx.notify();
+        });
+        let open_notes = cx.listener(|this, _, window, cx| {
+            this.tools_menu_open = false;
+            this.open_notes_window(window, cx);
+        });
+        type ClickHandler = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+        let row = |id: &'static str,
+                   icon_path: &'static str,
+                   label: &'static str,
+                   on_click: ClickHandler| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .rounded_md()
+                .px_2()
+                .py_1p5()
+                .flex()
+                .items_center()
+                .gap_2()
+                .hover(|s| s.bg(theme::HOVER))
+                .on_click(on_click)
+                .child(icon(icon_path, px(theme::icon_small()), theme::TEXT_MUTED))
+                .child(
+                    div()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::TEXT)
+                        .child(label),
+                )
+        };
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(
+                    div()
+                        .id("tools-menu-scrim")
+                        .absolute()
+                        .inset_0()
+                        .occlude()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.tools_menu_open = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .id("tools-menu")
+                        .absolute()
+                        .top(px(42.))
+                        // right edge of the menu = right edge of the tools
+                        // button: 8px titlebar padding + three 26px window
+                        // buttons + settings (+ SnapIt on Windows), 4px gaps
+                        .right(px(if cfg!(windows) { 158. } else { 128. }))
+                        .w(px(200.))
+                        .occlude()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme::HAIRLINE)
+                        .bg(theme::POPUP)
+                        .shadow_lg()
+                        .p_1()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(row(
+                            "tools-menu-formatters",
+                            "icons/icon-text-format.svg",
+                            "Formatters",
+                            Box::new(open_formatters),
+                        ))
+                        .child(row(
+                            "tools-menu-notes",
+                            "icons/icon-note.svg",
+                            "Notes",
+                            Box::new(open_notes),
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The global-search results popup under the titlebar field.
-    fn render_search_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let term = self.global_search.read(cx).value().to_string();
+    fn render_search_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {        let term = self.global_search.read(cx).value().to_string();
         if term.trim().is_empty() {
             return None;
         }
@@ -378,7 +480,7 @@ fn ask_button(
         .into_any_element()
 }
 
-fn window_button(
+pub(crate) fn window_button(
     id: &'static str,
     icon_path: &'static str,
     hover_bg: gpui::Hsla,
@@ -472,22 +574,51 @@ impl MainWindow {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .when(self.formatters_open, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
                     .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.formatters_open = !this.formatters_open;
-                        if this.formatters_open && this.formatters.is_none() {
-                            this.formatters = Some(cx.new(|cx| {
-                                crate::ui::formatters::FormattersDrawer::new(this.store.clone(), window, cx)
-                            }));
-                        }
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.tools_menu_open = !this.tools_menu_open;
                         cx.notify();
                     }))
                     .child(icon(
                         "icons/icon-tools.svg",
                         px(theme::icon_medium()),
-                        if self.formatters_open { theme::ACCENT } else { theme::TEXT_MUTED },
+                        if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))
+            })
+            .when(cfg!(windows), |d| {
+                let running = devtools_core::snapit::is_running();
+                d.child({
+                    div()
+                        .id("snapit-toggle")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .size(px(26.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(running, |d| d.bg(theme::tint(theme::ACCENT)))
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let result = if devtools_core::snapit::is_running() {
+                                devtools_core::snapit::stop()
+                            } else {
+                                devtools_core::snapit::start()
+                            };
+                            if let Err(err) = result {
+                                this.store.update(cx, |s, cx| {
+                                    s.notice = Some((err, std::time::Instant::now()));
+                                    cx.notify();
+                                });
+                            }
+                            cx.notify();
+                        }))
+                        .child(icon(
+                            "icons/icon-grid.svg",
+                            px(theme::icon_medium()),
+                            if running { theme::ACCENT } else { theme::TEXT_MUTED },
+                        ))
+                })
             })
             .child({
                 let on_settings = self.page == Page::Settings;

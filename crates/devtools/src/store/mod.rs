@@ -157,6 +157,10 @@ impl Store {
                     folder: entry.folder_path.clone(),
                 });
             }
+        // E2E hook: DEVTOOLS_NOTES=1 opens the floating notes window on launch
+        if std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1") {
+            store.notes_requested = true;
+        }
         store
     }
 

@@ -609,7 +609,9 @@ impl TableDelegate for ReposDelegate {
             }
             ColKind::Name => Column::new("name", "Repository").width(px(280.)).sortable(),
             ColKind::Shortcuts => {
-                Column::new("shortcuts", "").width(px(175.)).resizable(false)
+                // full set: opencode + divider + zcode + solution + vscode +
+                // folder + terminal = 6 buttons, one divider, six gaps
+                Column::new("shortcuts", "").width(px(270.)).resizable(false)
             }
             ColKind::Branch => Column::new("branch", "Branch").width(px(240.)).resizable(false),
             ColKind::Changes => Column::new("changes", "Changes").width(px(170.)).resizable(false).sortable(),
@@ -1018,7 +1020,7 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
 }
 
 /// Per-row buttons: bordered squares, launch order
-/// [zcode][vscode][folder][terminal]. Purely visibility switches from
+/// [zcode][solution][vscode][folder][terminal]. Purely visibility switches from
 /// settings — a configured-but-missing executable reports at launch time.
 fn shortcuts_cell(
     repo: &RepoEntry,
@@ -1110,6 +1112,23 @@ fn shortcuts_cell(
                 move || terminal::launch_in_terminal(&folder, &zcode, &term)
             }),
         ));
+    }
+    // Open-solution slot: Visual Studio exists only on Windows, so the whole
+    // slot — button or empty reservation — drops on other platforms; the
+    // reservation keeps repos without a solution aligned with the rest.
+    if cfg!(windows) && settings.repos.enable_visual_studio {
+        match repo.solution_path.clone() {
+            Some(solution) => {
+                let ide = settings.repos.ide_executable.clone();
+                row = row.child(button(
+                    format!("open-solution-{row_ix}"),
+                    "icons/icon-sln-box.svg",
+                    theme::PURPLE_BRIGHT,
+                    Box::new(move || terminal::open_solution(&solution, &ide)),
+                ));
+            }
+            None => row = row.child(div().size(px(36.))),
+        }
     }
     if settings.repos.enable_vscode {
         row = row.child(button(

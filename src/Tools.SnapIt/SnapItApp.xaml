@@ -1,0 +1,7 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Tools.SnapIt.SnapItApp">
+	<Application.Styles>
+		<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapIt.Controls.UI.xaml" />
+	</Application.Styles>
+</Application>

@@ -168,7 +168,7 @@ pub struct ClipboardPasswordSettings {
 #[serde(rename_all = "PascalCase", default)]
 #[derive(Default)]
 pub struct SnapItSettings {
-    /// Round-trip only: written by the Windows SnapIt companion, never read here.
+    /// Spawns the Windows SnapIt companion (Tools.SnapIt.exe) at app launch.
     pub auto_start: bool,
 }
 

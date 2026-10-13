@@ -40,6 +40,7 @@ pub struct SettingsPage {
     enable_vscode: bool,
     enable_visual_studio: bool,
     enable_zcode: bool,
+    snap_it_auto_start: bool,
     // OpenCode
     enable_opencode: bool,
     default_model: Entity<InputState>,
@@ -98,6 +99,7 @@ impl SettingsPage {
             enable_vscode: repos.enable_vscode,
             enable_visual_studio: repos.enable_visual_studio,
             enable_zcode: repos.enable_zcode,
+            snap_it_auto_start: settings.snap_it.auto_start,
             enable_opencode: settings.opencode.enable_opencode,
             default_model: field(window, cx, &settings.opencode.default_model),
             commit_model: field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default()),
@@ -171,6 +173,7 @@ impl SettingsPage {
             self.enable_github,
             self.enable_azure,
         );
+        let snap_it_auto_start = self.snap_it_auto_start;
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
@@ -208,6 +211,7 @@ impl SettingsPage {
                 s.repos.enable_azure_dev_ops = flags.9;
                 s.repos.azure_dev_ops_pat = azure_pat;
                 s.repos.azure_dev_ops_url = azure_url;
+                s.snap_it.auto_start = snap_it_auto_start;
             });
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
@@ -388,6 +392,15 @@ impl Render for SettingsPage {
                                             field_row("OpenCode executable", &this.opencode_executable),
                                             field_row("ZCode executable", &this.zcode_executable),
                                         ))
+                                        .when(cfg!(windows), |card| {
+                                            card.child(two_col(
+                                                switch_row("Start SnapIt automatically (Windows)", this.snap_it_auto_start, cx.listener(|this, _, _, cx| {
+                                                    this.snap_it_auto_start = !this.snap_it_auto_start;
+                                                    cx.notify();
+                                                })),
+                                                snapit_run_control(cx),
+                                            ))
+                                        })
                                     }))
                                     .child(self.card("OpenCode", cx, |this, cx, card| {
                                         card.child(switch_row("Enable OpenCode", this.enable_opencode, cx.listener(|this, _, _, cx| {
@@ -637,6 +650,38 @@ fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement +
         .gap_1()
         .child(label(label_text))
         .child(Input::new(field).small())
+}
+
+fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
+    let running = devtools_core::snapit::is_running();
+    div()
+        .id("snapit-run-control")
+        .cursor_pointer()
+        .self_center()
+        .rounded_md()
+        .border_1()
+        .border_color(theme::HAIRLINE)
+        .px_3()
+        .py_1p5()
+        .text_size(px(theme::font_small()))
+        .text_color(if running { theme::DANGER } else { theme::SUCCESS_BRIGHT })
+        .hover(|s| s.bg(theme::HOVER))
+        .on_click(cx.listener(|this, _, _, cx| {
+            let result = if devtools_core::snapit::is_running() {
+                devtools_core::snapit::stop()
+            } else {
+                devtools_core::snapit::start()
+            };
+            if let Err(err) = result {
+                this.store.update(cx, |s, cx| {
+                    s.notice = Some((err, std::time::Instant::now()));
+                    cx.notify();
+                });
+            }
+            cx.notify();
+        }))
+        .child(if running { "Stop SnapIt" } else { "Start SnapIt" })
+        .into_any_element()
 }
 
 fn switch_row(

@@ -29,16 +29,17 @@ pub fn reconcile(enable: bool) {
             Ok(path) => path.to_string_lossy().to_string(),
             Err(_) => return,
         };
+        use std::os::windows::process::CommandExt;
         use std::process::Command;
-        let result = if enable {
-            Command::new("reg")
-                .args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", &exe, "/f"])
-                .output()
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut command = Command::new("reg");
+        if enable {
+            command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", &exe, "/f"]);
         } else {
-            Command::new("reg")
-                .args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/f"])
-                .output()
-        };
+            command.args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/f"]);
+        }
+        command.creation_flags(CREATE_NO_WINDOW);
+        let result = command.output();
         if let Ok(output) = result {
             if !output.status.success() && enable {
                 tracing::warn!("autostart registration failed: {}", String::from_utf8_lossy(&output.stderr));

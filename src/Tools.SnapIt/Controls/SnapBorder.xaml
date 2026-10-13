@@ -1,0 +1,17 @@
+<UserControl
+	x:Class="Tools.SnapIt.Controls.SnapBorder"
+	xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Focusable="False">
+	<Grid>
+		<Border
+			x:Name="Border"
+			HorizontalAlignment="Center"
+			VerticalAlignment="Center" />
+		<Border
+			x:Name="ReferenceBorder"
+			HorizontalAlignment="Left"
+			VerticalAlignment="Top" />
+		<Grid x:Name="Main" />
+	</Grid>
+</UserControl>

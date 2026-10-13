@@ -3,6 +3,7 @@
 #   .\build.ps1             -> release build + portable zip in out\
 #   .\build.ps1 -Installer  -> also compile the Inno Setup installer (ISCC.exe on PATH)
 # Run from a Windows machine — GPUI has no Linux->Windows cross build.
+# Requires the .NET 10 SDK on PATH (builds the SnapIt companion).
 param(
     [switch]$Installer
 )
@@ -36,6 +37,18 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item $exe "$stage\devtools.exe"
 "rust-devtools $version $(Get-Date -AsUTC -Format 'yyyy-MM-ddTHH:mm:ssZ')" |
     Out-File "$stage\build-id.txt" -Encoding ascii
+
+# SnapIt companion: framework-dependent single-file publish next to devtools.exe
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    throw "dotnet not found on PATH — the SnapIt companion needs the .NET 10 SDK"
+}
+$publish = Join-Path $outDir 'snapit-publish'
+if (Test-Path $publish) { Remove-Item -Recurse -Force $publish }
+dotnet publish (Join-Path $repo 'src\Tools.SnapIt\Tools.SnapIt.csproj') `
+    -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -o $publish
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish (SnapIt companion) failed with exit code $LASTEXITCODE" }
+Copy-Item (Join-Path $publish '*') $stage -Exclude *.pdb
+
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Write-Host "portable: $zip"
 

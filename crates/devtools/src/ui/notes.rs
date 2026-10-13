@@ -8,7 +8,7 @@ use crate::theme;
 use crate::ui::icon;
 use devtools_core::notes as notes_core;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{div, px, Context, Entity, FontWeight, MouseButton, SharedString, Window, WindowControlArea};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::base::text::TextView;
@@ -275,26 +275,101 @@ impl Render for NotesPage {
         div()
             .size_full()
             .flex()
-            .flex_row()
+            .flex_col()
             .min_h_0()
-            .child(self.render_tree(cx))
+            .bg(theme::BACKGROUND)
+            .child(self.render_titlebar(window, cx))
             .child(
                 div()
-                    .id("notes-editor-column")
                     .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .flex_col()
                     .min_h_0()
-                    .child(self.render_toolbar(note_title, dirty, armed, has_repo, window, cx))
-                    .child(self.render_editor(preview_text))
-                    .child(self.render_status_bar(cx)),
+                    .flex()
+                    .flex_row()
+                    .child(self.render_tree(cx))
+                    .child(
+                        div()
+                            .id("notes-editor-column")
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .min_h_0()
+                            .child(self.render_toolbar(note_title, dirty, armed, has_repo, window, cx))
+                            .child(self.render_editor(preview_text))
+                            .child(self.render_status_bar(cx)),
+                    ),
             )
     }
 }
 
 impl NotesPage {
+    /// The floating window paints its own title bar: the window is created
+    /// with appears_transparent, so without this strip there is no title,
+    /// drag region, or window controls.
+    fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
+            .h(px(38.))
+            .flex()
+            .items_center()
+            .px_2()
+            .gap_1()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                gpui_kit::base::GlobalState::suppress_text_selection(cx);
+            })
+            .child(icon(
+                "icons/icon-note.svg",
+                px(theme::icon_medium()),
+                theme::TEXT_MUTED,
+            ))
+            .child(
+                div()
+                    .text_size(px(theme::font_title()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Notes"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .h_full()
+                    // Windows drags via the hit-test path (this hitbox answers
+                    // HTCAPTION); start_window_move is a no-op there. Linux
+                    // keeps the explicit move call.
+                    .window_control_area(WindowControlArea::Drag)
+                    .on_mouse_down(MouseButton::Left, |_, window, _| {
+                        window.start_window_move();
+                    }),
+            )
+            .child(crate::ui::window::window_button(
+                "notes-minimize",
+                "icons/icon-window-minimize.svg",
+                theme::HOVER,
+                |_, window, _| window.minimize_window(),
+            ))
+            .child(crate::ui::window::window_button(
+                "notes-zoom",
+                if window.is_maximized() {
+                    "icons/icon-window-restore.svg"
+                } else {
+                    "icons/icon-window-maximize.svg"
+                },
+                theme::HOVER,
+                cx.listener(|_, _, window, cx| {
+                    window.zoom_window();
+                    // the compositor toggles asynchronously — nudge a
+                    // re-render so the maximize/restore glyph keeps up
+                    cx.notify();
+                }),
+            ))
+            .child(crate::ui::window::window_button(
+                "notes-close",
+                "icons/icon-window-close.svg",
+                theme::tint(theme::DANGER),
+                |_, window, _| window.remove_window(),
+            ))
+            .into_any_element()
+    }
+
     /// The status strip: "N words · N chars · N lines" and "Ln x, Col y".
     fn render_status_bar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let text = if self.open_note.is_some() { self.editor.read(cx).value().to_string() } else { String::new() };
