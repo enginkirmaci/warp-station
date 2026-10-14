@@ -1,4 +1,4 @@
-; Inno Setup 6 script — per-user installer for DevTools.
+; Inno Setup 6 script - per-user installer for DevTools.
 ; build.ps1 -Installer invokes this with /DMyAppVersion=<cargo version>;
 ; the fallback below keeps plain `ISCC devtools.iss` working too.
 

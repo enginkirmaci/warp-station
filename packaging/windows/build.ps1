@@ -2,7 +2,7 @@
 # Builds DevTools for Windows and packages the release exe.
 #   .\build.ps1             -> release build + portable zip in out\
 #   .\build.ps1 -Installer  -> also compile the Inno Setup installer (ISCC.exe on PATH)
-# Run from a Windows machine — GPUI has no Linux->Windows cross build.
+# Run from a Windows machine - GPUI has no Linux->Windows cross build.
 # Requires the .NET 10 SDK on PATH (builds the SnapIt companion).
 param(
     [switch]$Installer
@@ -40,7 +40,7 @@ Copy-Item $exe "$stage\devtools.exe"
 
 # SnapIt companion: framework-dependent single-file publish next to devtools.exe
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    throw "dotnet not found on PATH — the SnapIt companion needs the .NET 10 SDK"
+    throw "dotnet not found on PATH - the SnapIt companion needs the .NET 10 SDK"
 }
 $publish = Join-Path $outDir 'snapit-publish'
 if (Test-Path $publish) { Remove-Item -Recurse -Force $publish }
