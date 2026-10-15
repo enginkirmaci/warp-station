@@ -6,8 +6,9 @@
 src/Tools.SnapIt/bin/
 src/Tools.SnapIt/obj/
 
-# Packaging artifacts
-packaging/windows/out/
-
 # ZCode workspace
 .zcode/
+
+# Packaging artifacts 
+packaging/windows/out/snapit-publish/
+packaging/windows/out/DevTools/
