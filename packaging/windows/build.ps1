@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $here   = $PSScriptRoot
-$repo   = Split-Path -Parent $here
+$repo   = Split-Path -Parent (Split-Path -Parent $here)   # script lives in packaging\windows
 $outDir = Join-Path $here 'out'
 
 Push-Location $repo
@@ -35,7 +35,8 @@ $stage = Join-Path $outDir 'DevTools'
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item $exe "$stage\devtools.exe"
-"rust-devtools $version $(Get-Date -AsUTC -Format 'yyyy-MM-ddTHH:mm:ssZ')" |
+# Get-Date -AsUTC is PS7-only; this must run on Windows PowerShell 5.1
+"rust-devtools $version $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" |
     Out-File "$stage\build-id.txt" -Encoding ascii
 
 # SnapIt companion: framework-dependent single-file publish next to devtools.exe
