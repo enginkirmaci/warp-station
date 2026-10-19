@@ -674,7 +674,7 @@ impl Store {
         let folder_str = folder.to_string_lossy().to_string();
         self.update_settings(|s| {
             if let Some(roots) = &mut s.repos.repo_scan_folders {
-                if !roots.iter().any(|f| f == &folder_str) {
+                if !roots.iter().any(|f| devtools_core::paths::same_folder_text(f, &folder_str)) {
                     roots.push(folder_str.clone());
                     roots.sort();
                 }
@@ -886,7 +886,7 @@ impl Store {
             .unwrap_or_else(|| folder.clone());
         self.update_settings(|s| {
             if let Some(roots) = &mut s.repos.repo_scan_folders {
-                roots.retain(|f| f != &folder);
+                roots.retain(|f| !devtools_core::paths::same_folder_text(f, &folder));
             }
         });
         self.notice = Some((

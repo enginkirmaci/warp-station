@@ -86,8 +86,7 @@ pub fn read_note(path: &Path) -> anyhow::Result<String> {
 
 /// BOM-less UTF-8 — a BOM shows up as stray bytes in git diffs.
 pub fn write_note(path: &Path, content: &str) -> anyhow::Result<()> {
-    std::fs::write(path, content.as_bytes())?;
-    Ok(())
+    crate::jsonio::write_atomically(path, content)
 }
 
 pub fn create_note(repo_notes_root: &Path, parent: &Path, name: &str) -> anyhow::Result<PathBuf> {
@@ -183,13 +182,39 @@ pub fn sanitize_entry_name(name: &str, enforce_markdown_extension: bool) -> Opti
     Some(cleaned)
 }
 
+/// canonicalize() fails for the not-yet-created parent chains create_note /
+/// create_folder validate, and on Windows it returns `\\?\`-prefixed verbatim
+/// paths — normalize both sides to plain paths and compare components
+/// (case-insensitively on Windows) so mixed forms still pass containment.
 fn ensure_under_root(root: &Path, target: &Path) -> anyhow::Result<()> {
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let canonical_target = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
-    if canonical_target.starts_with(&canonical_root) {
+    let root = plain_path(root.canonicalize().unwrap_or_else(|_| root.to_path_buf()));
+    let target = plain_path(target.canonicalize().unwrap_or_else(|_| target.to_path_buf()));
+    let contained = if cfg!(windows) {
+        let fold = |p: &Path| -> Vec<String> {
+            p.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                .collect()
+        };
+        fold(&target).starts_with(&fold(&root))
+    } else {
+        target.starts_with(&root)
+    };
+    if contained {
         Ok(())
     } else {
         Err(anyhow::anyhow!("the path escapes the notes store"))
+    }
+}
+
+fn plain_path(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    let plain = text
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| text.strip_prefix(r"\\?\").map(str::to_string));
+    match plain {
+        Some(plain) => PathBuf::from(plain),
+        None => path,
     }
 }
 
@@ -698,6 +723,33 @@ mod tests {
 
         let note = create_note(&root, &root, "New/Note").unwrap();
         assert!(note.to_string_lossy().ends_with("New-Note.md"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn plain_path_strips_windows_verbatim_prefixes() {
+        assert_eq!(
+            plain_path(PathBuf::from(r"\\?\C:\Users\e\notes")),
+            PathBuf::from(r"C:\Users\e\notes")
+        );
+        assert_eq!(
+            plain_path(PathBuf::from(r"\\?\UNC\server\share\notes")),
+            PathBuf::from(r"\\server\share\notes")
+        );
+        assert_eq!(plain_path(PathBuf::from("/home/e/notes")), PathBuf::from("/home/e/notes"));
+    }
+
+    #[test]
+    fn create_note_accepts_verbatim_root_with_new_parent() {
+        // root canonicalized (verbatim on Windows), parent not yet on disk
+        let tmp = std::env::temp_dir().join(format!("dt-notes-verbatim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("Repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let canonical_root = root.canonicalize().unwrap();
+        let parent = root.join("New Folder");
+        create_note(&canonical_root, &parent, "note").unwrap();
+        assert!(parent.join("note.md").is_file());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

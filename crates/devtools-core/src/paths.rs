@@ -27,14 +27,27 @@ impl AppPaths {
     }
 }
 
-fn home() -> PathBuf {
-    // $HOME on unix; Windows only defines USERPROFILE
-    std::env::var_os("HOME")
-        .filter(|h| !h.is_empty())
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .filter(|h| !h.is_empty())
+/// $HOME on unix; USERPROFILE first on Windows — a POSIX-style $HOME leaked
+/// from a Git Bash parent shell is not a valid Win32 path.
+pub(crate) fn home() -> PathBuf {
+    let keys: [&str; 2] = if cfg!(windows) { ["USERPROFILE", "HOME"] } else { ["HOME", "USERPROFILE"] };
+    keys.iter()
+        .find_map(|key| std::env::var_os(key).filter(|value| !value.is_empty()))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Folder-text identity: case-insensitive on Windows (the filesystem is),
+/// exact on case-sensitive platforms.
+pub fn same_folder_text(a: &str, b: &str) -> bool {
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
 }
 
 #[cfg(test)]

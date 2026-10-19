@@ -32,7 +32,14 @@ pub fn write_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
         uuid_suffix()
     ));
     std::fs::write(&tmp, contents).with_context(|| format!("write {}", tmp.display()))?;
-    std::fs::rename(&tmp, path).with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    if let Err(err) = std::fs::rename(&tmp, path) {
+        // a destination held open without FILE_SHARE_DELETE (an editor) —
+        // drop it and retry once; never leave the temp file behind
+        if std::fs::remove_file(path).is_err() || std::fs::rename(&tmp, path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(err).with_context(|| format!("rename {} -> {}", tmp.display(), path.display()));
+        }
+    }
     Ok(())
 }
 

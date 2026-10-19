@@ -6,6 +6,51 @@
 use crate::exe;
 use std::path::Path;
 
+/// Suppresses the console window a console-subsystem helper would flash when
+/// spawned by the GUI-subsystem exe (cmd /C start, .cmd/.bat shims). Never
+/// applied to the terminal launch itself — a console terminal (powershell)
+/// IS the window the user asked for.
+fn hide_console(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
+
+/// PowerShell single-quoted literal ('' escapes an embedded quote).
+fn ps_single_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+/// Joins argv into a PowerShell command line; anything outside plain
+/// path-ish tokens travels as a quoted literal so spaces and quotes survive.
+fn ps_command_line(argv: &[String]) -> String {
+    argv.iter()
+        .map(|arg| {
+            if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "._-./:\\".contains(c)) {
+                arg.clone()
+            } else {
+                ps_single_quote(arg)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn powershell_argv(dir: &str, cmd: &[String]) -> Vec<String> {
+    vec![
+        "-NoExit".to_string(),
+        "-Command".to_string(),
+        format!("Set-Location -LiteralPath {}; {}", ps_single_quote(dir), ps_command_line(cmd)),
+    ]
+}
+
 /// Opens a folder (or any path) with the desktop file manager.
 pub fn open_folder(folder: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -37,8 +82,10 @@ pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String>
     }
     #[cfg(windows)]
     {
-        return std::process::Command::new("cmd")
-            .args(["/C", "start", "", solution])
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", solution]);
+        hide_console(&mut command);
+        return command
             .spawn()
             .map(|_| ())
             .map_err(|err| format!("shell association: {err}"));
@@ -67,10 +114,24 @@ pub fn open_in_vscode(folder: &str, vscode_executable: &str, profile: &str) -> R
         command.args(["--profile", profile.trim()]);
     }
     command.arg(folder);
+    let lower = path.to_string_lossy().to_lowercase();
+    if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+        hide_console(&mut command);
+    }
     command
         .spawn()
         .map(|_| ())
         .map_err(|err| format!("{}: {err}", path.display()))
+}
+
+/// The configured terminal's base name, for shape lookup: split on either
+/// separator, .exe stripped, lowercased on Windows where configs arrive as
+/// full paths in any casing (WT.EXE, C:\...\WindowsTerminal.exe).
+fn terminal_base(configured: &str) -> String {
+    let base = configured.trim().rsplit(['/', '\\']).next().unwrap_or_default();
+    #[cfg(windows)]
+    let base = base.to_lowercase();
+    base.trim_end_matches(".exe").to_string()
 }
 
 /// Opens a plain shell at the folder using the configured terminal (or the
@@ -78,16 +139,12 @@ pub fn open_in_vscode(folder: &str, vscode_executable: &str, profile: &str) -> R
 pub fn open_terminal(folder: &str, terminal_executable: &str) -> Result<(), String> {
     let configured = terminal_executable.trim();
     if !configured.is_empty() {
-        let base = configured
-            .rsplit('/')
-            .next()
-            .unwrap_or(configured)
-            .trim_end_matches(".exe");
-        let candidates = [configured.to_string(), base.to_string()];
+        let base = terminal_base(configured);
+        let candidates = [configured.to_string(), base.clone()];
         for name in candidates {
             if let Some(path) = exe::locate(&name) {
                 let mut command = std::process::Command::new(&path);
-                apply_open_dir(&mut command, base, folder);
+                apply_open_dir(&mut command, &base, folder);
                 if Path::new(folder).exists() {
                     command.current_dir(folder);
                 }
@@ -109,6 +166,13 @@ pub fn open_terminal(folder: &str, terminal_executable: &str) -> Result<(), Stri
     Err("No terminal emulator found (tried the configured one plus the common ones)".into())
 }
 
+#[cfg(windows)]
+fn probed_terminals() -> &'static [&'static str] {
+    // wt first: the settings default and the stock Windows terminal
+    &["wt", "alacritty", "wezterm", "pwsh", "powershell"]
+}
+
+#[cfg(not(windows))]
 fn probed_terminals() -> &'static [&'static str] {
     &["alacritty", "ghostty", "foot", "kitty", "wezterm", "gnome-terminal", "konsole", "xterm"]
 }
@@ -126,6 +190,17 @@ pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executabl
     }
     type ArgsFn = fn(&str, &[String]) -> Vec<String>;
     let table: &[(&str, ArgsFn)] = &[
+        // wt resolves .cmd/.bat shims only through cmd (PATHEXT), so the
+        // command runs under `cmd /k` — a direct commandline after `--` fails
+        // with 0x80070002 for npm-style CLIs like opencode
+        ("wt", |dir, cmd| {
+            vec!["-d".to_string(), dir.to_string(), "--".to_string(), "cmd".to_string(), "/k".to_string()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
+        }),
+        ("pwsh", powershell_argv),
+        ("powershell", powershell_argv),
         ("alacritty", |dir, cmd| {
             vec!["--working-directory".into(), dir.into(), "-e".into()]
                 .into_iter()
@@ -173,13 +248,7 @@ pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executabl
         }),
     ];
     // the configured terminal wins when it names a known shape
-    let configured_base = terminal_executable
-        .trim()
-        .rsplit('/')
-        .next()
-        .unwrap_or("")
-        .trim_end_matches(".exe")
-        .to_string();
+    let configured_base = terminal_base(terminal_executable);
     let mut ordered: Vec<(&str, ArgsFn)> = Vec::new();
     for entry in table {
         if !configured_base.is_empty() && *entry.0 == configured_base {
@@ -209,6 +278,13 @@ pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executabl
 
 fn apply_open_dir(command: &mut std::process::Command, terminal: &str, folder: &str) {
     match terminal {
+        "wt" => {
+            command.args(["-d", folder]);
+        }
+        "pwsh" | "powershell" => {
+            command.args(["-NoExit", "-Command"]);
+            command.arg(format!("Set-Location -LiteralPath {}", ps_single_quote(folder)));
+        }
         "alacritty" => {
             command.args(["--working-directory", folder]);
         }
@@ -228,5 +304,51 @@ fn apply_open_dir(command: &mut std::process::Command, terminal: &str, folder: &
             command.args(["--workdir", folder]);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ps_quote_doubles_embedded_quotes() {
+        assert_eq!(ps_single_quote("C:\\My Repos"), "'C:\\My Repos'");
+        assert_eq!(ps_single_quote("it's"), "'it''s'");
+    }
+
+    #[test]
+    fn ps_command_line_quotes_only_loose_tokens() {
+        assert_eq!(
+            ps_command_line(&["opencode".into(), "--model".into(), "my model".into()]),
+            "opencode --model 'my model'"
+        );
+        assert_eq!(
+            ps_command_line(&["C:\\tools\\my cli.exe".into()]),
+            "'C:\\tools\\my cli.exe'"
+        );
+    }
+
+    #[test]
+    fn powershell_argv_sets_location_then_runs() {
+        let argv = powershell_argv("C:\\repo", &["opencode".to_string()]);
+        assert_eq!(argv[0], "-NoExit");
+        assert_eq!(argv[1], "-Command");
+        assert_eq!(argv[2], "Set-Location -LiteralPath 'C:\\repo'; opencode");
+    }
+
+    #[test]
+    fn terminal_base_splits_any_separator() {
+        assert_eq!(terminal_base("/usr/bin/alacritty"), "alacritty");
+        assert_eq!(terminal_base("wezterm.exe"), "wezterm");
+        assert_eq!(terminal_base("wt.exe.exe"), "wt");
+        assert_eq!(terminal_base("  ghostty  "), "ghostty");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_base_lowercases_windows_configs() {
+        assert_eq!(terminal_base(r"C:\Tools\WT.EXE"), "wt");
+        assert_eq!(terminal_base(r"..\Pwsh.Exe"), "pwsh");
     }
 }

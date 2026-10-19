@@ -6,8 +6,33 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// User-level install dirs probed after PATH (the GUI-minimal-PATH lookup).
-const USER_DIRS: &[&str] = &[".local/bin", ".opencode/bin", ".cargo/bin", "bin", ".deno/bin", ".nvm/versions/node/current/bin"];
+/// User-level install dirs probed after PATH (the GUI-minimal-PATH lookup):
+/// the home-layout dirs, plus on Windows the per-user install roots — npm -g
+/// puts opencode.cmd in %APPDATA%\npm, never on the GUI's PATH.
+fn user_install_dirs() -> Vec<PathBuf> {
+    let home = crate::paths::home();
+    #[cfg(windows)]
+    let extra: Vec<PathBuf> = {
+        let appdata = std::env::var_os("APPDATA").unwrap_or_default();
+        let local = std::env::var_os("LOCALAPPDATA").unwrap_or_default();
+        vec![
+            PathBuf::from(appdata).join("npm"),
+            PathBuf::from(local).join(r"Microsoft\WindowsApps"),
+            PathBuf::from(local).join("Programs"),
+            home.join("scoop").join("shims"),
+        ]
+    };
+    #[cfg(not(windows))]
+    let extra: Vec<PathBuf> = Vec::new();
+    extra
+        .into_iter()
+        .chain(
+            [".local/bin", ".opencode/bin", ".cargo/bin", "bin", ".deno/bin", ".nvm/versions/node/current/bin"]
+                .iter()
+                .map(|dir| home.join(dir)),
+        )
+        .collect()
+}
 
 static CACHE: Mutex<Option<HashMap<String, Option<PathBuf>>>> = Mutex::new(None);
 
@@ -30,10 +55,9 @@ pub fn locate(name: &str) -> Option<PathBuf> {
     }
     let resolved = resolve_on_path(name)
         .or_else(|| {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-            USER_DIRS
-                .iter()
-                .find_map(|dir| resolve_on_path(PathBuf::from(&home).join(dir).join(name).to_string_lossy().as_ref()))
+            user_install_dirs()
+                .into_iter()
+                .find_map(|dir| resolve_on_path(dir.join(name).to_string_lossy().as_ref()))
         })
         .inspect(|p| {
             tracing::debug!("resolved {name} -> {}", p.display());

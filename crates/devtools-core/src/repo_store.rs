@@ -131,7 +131,7 @@ pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoE
     for repo in scanned {
         let prev = previous
             .iter()
-            .find(|p| p.folder_path == repo.folder_path);
+            .find(|p| crate::paths::same_folder_text(&p.folder_path.to_string_lossy(), &repo.folder_path.to_string_lossy()));
         let mut entry = RepoEntry {
             name: repo.name.clone(),
             folder_path: repo.folder_path.clone(),
@@ -174,7 +174,11 @@ pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoE
     }
     let removed: Vec<String> = previous
         .iter()
-        .filter(|p| !scanned.iter().any(|s| s.folder_path == p.folder_path))
+        .filter(|p| {
+            !scanned
+                .iter()
+                .any(|s| crate::paths::same_folder_text(&s.folder_path.to_string_lossy(), &p.folder_path.to_string_lossy()))
+        })
         .map(|p| p.name.clone())
         .collect();
     (merged, removed)

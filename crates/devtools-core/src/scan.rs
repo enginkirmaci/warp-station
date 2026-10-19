@@ -69,7 +69,7 @@ pub fn scan(settings: &ReposSettings, max_depth: Option<i32>) -> RepoScanResult 
     }
 
     repos.sort_by(|a, b| a.name.cmp(&b.name));
-    repos.dedup_by(|a, b| a.folder_path == b.folder_path);
+    repos.dedup_by(|a, b| crate::paths::same_folder_text(&a.folder_path.to_string_lossy(), &b.folder_path.to_string_lossy()));
     RepoScanResult { repos }
 }
 

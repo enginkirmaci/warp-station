@@ -57,6 +57,9 @@ async fn run_git(
         working_dir: Some(working_dir),
         timeout: Some(timeout),
         max_output_bytes,
+        // a credential prompt has no console to appear in — fail fast instead
+        // of blocking to the timeout
+        environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
         ..Default::default()
     })
     .await?;
@@ -133,16 +136,32 @@ pub async fn clone(url: &str, parent_directory: &Path, repo_name: &str) -> GitSy
         args: &args,
         working_dir: Some(parent_directory),
         timeout: Some(CLONE_TIMEOUT),
+        environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
         ..Default::default()
     })
     .await;
     match result {
         Ok(r) if r.succeeded() => GitSyncResult::ok(),
         Ok(_) => {
-            let _ = std::fs::remove_dir_all(parent_directory.join(repo_name));
+            remove_partial_clone(parent_directory.join(repo_name)).await;
             GitSyncResult::err(None)
         }
         Err(err) => GitSyncResult::err(Some(err.to_string())),
+    }
+}
+
+/// On Windows, handles on the killed clone's files (AV, indexer) can outlive
+/// the taskkill; retry so a clone retry doesn't die on "folder already
+/// exists".
+async fn remove_partial_clone(path: std::path::PathBuf) {
+    if !path.exists() {
+        return;
+    }
+    for _ in 0..3 {
+        if std::fs::remove_dir_all(&path).is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 

@@ -16,7 +16,7 @@ pub fn reconcile(enable: bool) {
             let _ = std::fs::write(
                 &entry,
                 format!(
-                    "[Desktop Entry]\\nType=Application\\nName=DevTools\\nExec={exe}\\nTerminal=false\\nX-GNOME-Autostart-enabled=true\\n"
+                    "[Desktop Entry]\nType=Application\nName=DevTools\nExec={exe}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
                 ),
             );
         } else if entry.exists() {
@@ -34,7 +34,10 @@ pub fn reconcile(enable: bool) {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut command = Command::new("reg");
         if enable {
-            command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", &exe, "/f"]);
+            // the Run value carries embedded quotes: at logon an unquoted
+            // path with spaces parses as program-plus-arguments
+            let quoted = format!("\"{exe}\"");
+            command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", quoted.as_str(), "/f"]);
         } else {
             command.args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/f"]);
         }

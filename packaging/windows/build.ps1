@@ -48,7 +48,7 @@ if (Test-Path $publish) { Remove-Item -Recurse -Force $publish }
 dotnet publish (Join-Path $repo 'src\Tools.SnapIt\Tools.SnapIt.csproj') `
     -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true -o $publish
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish (SnapIt companion) failed with exit code $LASTEXITCODE" }
-Copy-Item (Join-Path $publish '*') $stage -Exclude *.pdb
+Copy-Item (Join-Path $publish '*') $stage -Exclude *.pdb -Recurse
 
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Write-Host "portable: $zip"

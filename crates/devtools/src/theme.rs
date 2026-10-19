@@ -257,6 +257,19 @@ pub fn init_system_font_scale(cx: &mut App) {
     if SYSTEM_FACTOR_TX.set(tx).is_err() {
         return;
     }
+    spawn_factor_monitor();
+    cx.spawn(async move |cx| {
+        while let Ok(factor) = rx.recv().await {
+            cx.update(|cx| set_system_factor(factor, cx));
+        }
+    })
+    .detach();
+}
+
+/// gsettings exists only on Linux desktops; elsewhere the factor stays at
+/// whatever the font-scale setting applies.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_factor_monitor() {
     match std::process::Command::new("gsettings")
         .args(["monitor", "org.gnome.desktop.interface"])
         .stdout(std::process::Stdio::piped())
@@ -284,13 +297,10 @@ pub fn init_system_font_scale(cx: &mut App) {
             tracing::debug!("gsettings monitor unavailable; system text scale frozen at startup value");
         }
     }
-    cx.spawn(async move |cx| {
-        while let Ok(factor) = rx.recv().await {
-            cx.update(|cx| set_system_factor(factor, cx));
-        }
-    })
-    .detach();
 }
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn spawn_factor_monitor() {}
 
 fn set_system_factor(factor: f32, cx: &mut App) {
     let bits = f32::to_bits(factor);
@@ -299,6 +309,7 @@ fn set_system_factor(factor: f32, cx: &mut App) {
     }
 }
 
+#[cfg(all(unix, not(target_os = "macos")))]
 fn read_system_factor() -> Option<f32> {
     let output = std::process::Command::new("gsettings")
         .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])
@@ -307,7 +318,13 @@ fn read_system_factor() -> Option<f32> {
     parse_system_factor(&String::from_utf8_lossy(&output.stdout))
 }
 
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn read_system_factor() -> Option<f32> {
+    None
+}
+
 /// Accepts bare "1.1667" (gsettings get) and "key: 1.1667" (monitor) lines.
+#[cfg(all(unix, not(target_os = "macos")))]
 fn parse_system_factor(text: &str) -> Option<f32> {
     let key = "text-scaling-factor";
     let text = match text.find(key) {
