@@ -734,4 +734,33 @@ mod tests {
         let summary = daily_summary_prompt("Oct 8", "- **repo**: things");
         assert!(summary.contains("Day: Oct 8"));
     }
+
+    /// End-to-end proof for the serve handshake: spawns a real `opencode
+    /// serve`, sends one commit-message prompt, expects the answer back well
+    /// under the cap. `cargo test -p devtools-core --lib wand_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "live run: spawns opencode serve and spends one model call"]
+    async fn wand_live_commit_message() {
+        // the repo root, two levels up from this crate
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("repo root")
+            .to_path_buf();
+        let prompt = commit_message_prompt(
+            "crates/devtools-core/src/opencode.rs",
+            "@@ -1 +1 @@\n+pub const RUN_CAP: Duration = Duration::from_secs(150);",
+            "",
+        );
+        let (events, _events_rx) = async_channel::unbounded::<WandEvent>();
+        let (_control_tx, control) = async_channel::unbounded::<WandControl>();
+        let started = std::time::Instant::now();
+        match run_prompt("opencode", &folder, None, &prompt, events, control).await {
+            Ok(text) => {
+                println!("wand answered in {:?}:\n{text}", started.elapsed());
+                assert!(!text.trim().is_empty());
+            }
+            Err(err) => panic!("wand run failed after {:?}: {err:#}", started.elapsed()),
+        }
+    }
 }
