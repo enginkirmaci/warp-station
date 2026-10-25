@@ -170,7 +170,7 @@ mod tests {
         let result = scan(&settings(vec![tmp.join("repo-a").to_string_lossy().to_string()]), None);
         assert_eq!(result.repos.len(), 1);
         assert_eq!(result.repos[0].name, "repo-a");
-        assert_eq!(result.repos[0].solution_path.as_deref(), tmp.join("repo-a/a.slnx").to_str());
+        assert_eq!(result.repos[0].solution_path.as_deref(), tmp.join("repo-a").join("a.slnx").to_str());
         assert!(result.repos[0].tags.is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
     }

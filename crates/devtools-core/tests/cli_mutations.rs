@@ -32,6 +32,13 @@ fn scratch_repo(tag: &str) -> Option<std::path::PathBuf> {
         .current_dir(&dir)
         .output()
         .ok()?;
+    // pin line endings so byte-exact assertions hold regardless of the
+    // machine's global core.autocrlf (true on stock Git for Windows)
+    Command::new("git")
+        .args(["config", "core.autocrlf", "false"])
+        .current_dir(&dir)
+        .output()
+        .ok()?;
     std::fs::write(dir.join("base.txt"), "base\n").ok()?;
     Command::new("git")
         .args(["add", "."])

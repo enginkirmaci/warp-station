@@ -497,7 +497,10 @@ mod tests {
 
     #[test]
     fn copy_folder_sits_next_to_the_watch_folder() {
-        assert_eq!(compute_copy_folder("/src/packages"), Some("/src/packages/nugets".into()));
+        assert_eq!(
+            compute_copy_folder("/src/packages").as_deref(),
+            Some(Path::new("/src/packages").join("nugets").to_str().unwrap())
+        );
         assert_eq!(compute_copy_folder("  "), None);
     }
 

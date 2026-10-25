@@ -3,7 +3,7 @@
 //! the user-level install dirs. Results memoized per session.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// User-level install dirs probed after PATH (the GUI-minimal-PATH lookup):
@@ -17,8 +17,8 @@ fn user_install_dirs() -> Vec<PathBuf> {
         let local = std::env::var_os("LOCALAPPDATA").unwrap_or_default();
         vec![
             PathBuf::from(appdata).join("npm"),
-            PathBuf::from(local).join(r"Microsoft\WindowsApps"),
-            PathBuf::from(local).join("Programs"),
+            PathBuf::from(&local).join(r"Microsoft\WindowsApps"),
+            PathBuf::from(&local).join("Programs"),
             home.join("scoop").join("shims"),
         ]
     };
@@ -84,12 +84,19 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// Windows has no exec bit; executables are found by their PATHEXT suffix.
+/// A bare extensionless match is rejected: npm-style dirs hold POSIX shim
+/// scripts next to the real `.cmd`/`.exe`, and spawning those fails with
+/// "is not a valid Win32 application" (os error 193).
 #[cfg(windows)]
 fn resolve_on_path(name: &str) -> Option<PathBuf> {
     let path_env = std::env::var_os("PATH")?;
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+    let bare_ok = Path::new(name).extension().is_some();
     for dir in std::env::split_paths(&path_env) {
-        let mut candidates = vec![dir.join(name)];
+        let mut candidates = Vec::new();
+        if bare_ok {
+            candidates.push(dir.join(name));
+        }
         candidates.extend(exts.split(';').map(|ext| dir.join(format!("{name}{ext}"))));
         for candidate in candidates {
             if candidate.is_file() {
