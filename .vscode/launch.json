@@ -1,21 +1,25 @@
 {
-    // lldb (CodeLLDB) wedges at the NVIDIA Vulkan ICD dlopen under its solib
-    // handler — debugging goes through gdb (webfreak.debug) instead.
+    // CodeLLDB (vadimcn.vscode-lldb) wedges at the NVIDIA Vulkan ICD dlopen
+    // under its solib handler, and gdb (webfreak.debug) is not installed on
+    // this machine — cppvsdbg (ms-vscode.cpptools) is the working option.
+    // The cargo target dir lives on C: (see ~/.cargo/config.toml) because Z:
+    // is an SMB share; do not point these at ${workspaceFolder}/target.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Rust: devtools (gdb)",
-            "type": "gdb",
+            "name": "Rust: devtools (cppvsdbg)",
+            "type": "cppvsdbg",
             "request": "launch",
-            "target": "${workspaceFolder}/target/debug/devtools",
+            "program": "${userHome}/.cargo-targets/devtools/debug/devtools.exe",
             "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
             "preLaunchTask": "cargo build (devtools)"
         },
         {
-            "name": "Rust: devtools (lldb — hangs on NVIDIA)",
+            "name": "Rust: devtools (lldb — wedges on NVIDIA)",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/devtools",
+            "program": "${userHome}/.cargo-targets/devtools/debug/devtools.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "cargo build (devtools)"

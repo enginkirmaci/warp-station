@@ -253,7 +253,7 @@ fn render_sidebar(
             .rounded_md()
             .border_1()
             .border_color(theme::HAIRLINE)
-            .bg(theme::CARD)
+            .bg(theme::STRONG_BACKGROUND)
             .p_2()
             .hover(|s| s.border_color(theme::TEXT_FAINT))
             .on_click(move |_, _, cx| {

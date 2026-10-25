@@ -19,11 +19,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
     $meta = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
     $version = ($meta.packages | Where-Object { $_.name -eq 'devtools' }).version
+    # cargo may place artifacts off-repo (e.g. CARGO_TARGET_DIR on a fast
+    # local drive while the repo lives on a network share)
+    $targetDir = $meta.target_directory
 } finally {
     Pop-Location
 }
 
-$exe = Join-Path $repo 'target\release\devtools.exe'
+$exe = Join-Path $targetDir 'release\devtools.exe'
 if (-not (Test-Path $exe)) { throw "release exe not found: $exe" }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
@@ -56,6 +59,6 @@ Write-Host "portable: $zip"
 if ($Installer) {
     $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if (-not $iscc) { throw "Inno Setup compiler not found on PATH (install Inno Setup 6)" }
-    & $iscc "/DMyAppVersion=$version" (Join-Path $here 'devtools.iss')
+    & $iscc "/DMyAppVersion=$version" "/DMyTargetDir=$targetDir" (Join-Path $here 'devtools.iss')
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 }

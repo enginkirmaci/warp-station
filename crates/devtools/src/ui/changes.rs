@@ -1,8 +1,10 @@
-//! The Changes tab: the selected repo's commit workspace — merged
-//! staged/unstaged list with per-row actions and expandable patches on the
-//! left, branch selector + commit box + git rail on the right. The heavy data
-//! lives on the store; this view owns only ephemeral state (expanded rows,
-//! fetched patches, dropdown state, the commit draft).
+//! The Changes tab: the selected repo's commit workspace, mirroring the .NET
+//! original — three raised cards on the bar's dark surface: the merged
+//! staged/unstaged file list with per-row actions and expandable patches on
+//! the left, the commit-message card in the middle, and the branch selector +
+//! git rail (Fetch/Pull/Push/Sync/History) on the right. The heavy data lives
+//! on the store; this view owns only ephemeral state (expanded rows, fetched
+//! patches, dropdown state, the commit draft).
 
 use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
@@ -48,7 +50,9 @@ impl ChangesView {
                 .placeholder("branch name")
                 .default_value(initial)
         });
-        let commit_message = cx.new(|cx| TextareaState::new(window, cx).placeholder("Commit message"));
+        let commit_message = cx.new(|cx| {
+            TextareaState::new(window, cx).placeholder("Commit message (empty = auto-generate)")
+        });
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
@@ -161,18 +165,32 @@ impl Render for ChangesView {
         let (staged, unstaged) = snapshot.change_groups();
         let busy = store.git_busy;
 
-        let left = if self.history_open {
-            self.render_history(window, cx)
-        } else {
-            self.render_file_list(staged, unstaged, window, cx)
-        };
+        // the .NET Changes tab: three raised cards — file list, commit box,
+        // git rail — on the bar's dark surface
+        let left = div()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .h_full()
+            .rounded_lg()
+            .bg(theme::STRONG_BACKGROUND)
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .child(if self.history_open {
+                self.render_history(window, cx)
+            } else {
+                self.render_file_list(staged, unstaged, window, cx)
+            });
         div()
             .size_full()
             .flex()
             .flex_row()
+            .gap_2()
+            .p_2()
             .min_h_0()
-            .relative()
             .child(left)
+            .child(self.render_commit_card(busy, window, cx))
             .child(self.render_rail(busy, window, cx))
     }
 }
@@ -193,7 +211,8 @@ impl ChangesView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px_2();
+            .px_2()
+            .py_1();
 
         if staged.is_empty() && unstaged.is_empty() {
             let loaded = self.store.read(cx).changes_loaded_for.is_some();
@@ -216,11 +235,12 @@ impl ChangesView {
             list = list.child(section_header(
                 "Unstaged Changes",
                 unstaged.len(),
+                false,
                 vec![
                     ("discard-all-u", "Discard", GitAction::DiscardUnstaged(
                         unstaged.iter().map(|f| f.path.clone()).collect(),
                     )),
-                    ("stage-all", "Stage all", GitAction::StageAll),
+                    ("stage-all", "Stage All", GitAction::StageAll),
                 ],
                 self.store.clone(),
             ));
@@ -232,11 +252,12 @@ impl ChangesView {
             list = list.child(section_header(
                 "Staged Changes",
                 staged.len(),
+                true,
                 vec![
                     ("discard-all-s", "Discard", GitAction::DiscardStaged(
                         staged.iter().map(|f| f.path.clone()).collect(),
                     )),
-                    ("stage-all-clear", "Unstage all", GitAction::UnstageAll),
+                    ("stage-all-clear", "Unstage All", GitAction::UnstageAll),
                 ],
                 self.store.clone(),
             ));
@@ -256,6 +277,7 @@ impl ChangesView {
         let mut row = div()
             .id(row_id)
             .cursor_pointer()
+            .group("file-row")
             .flex()
             .flex_col()
             .rounded_md()
@@ -274,13 +296,29 @@ impl ChangesView {
                     .gap_2()
                     .py_1()
                     .child(
+                        // expander chevron: right when folded, down when open
                         div()
-                            .rounded_sm()
+                            .w(px(12.))
+                            .flex()
+                            .justify_center()
+                            .child(icon(
+                                if expanded {
+                                    "icons/icon-chevron-down.svg"
+                                } else {
+                                    "icons/icon-chevron-right.svg"
+                                },
+                                px(theme::icon_small() - 2.),
+                                theme::TEXT_FAINT,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .rounded_md()
                             .bg(theme::tint(status_color))
                             .text_color(status_color)
                             .text_size(px(theme::font_small() - 1.))
                             .px_1()
-                            .w(px(18.))
+                            .w(px(20.))
                             .flex()
                             .justify_center()
                             .child(file.display_status_code().to_string()),
@@ -294,6 +332,41 @@ impl ChangesView {
                             .text_color(theme::TEXT_DIM)
                             .child(file.path.clone()),
                     )
+                    // hover-revealed stage toggle + discard, like the .NET rows
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_0p5()
+                            .opacity(0.)
+                            .group_hover("file-row", |s| s.opacity(1.))
+                            .child(row_action_button(file, staged, self.store.clone()))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("discard-{staged}-{}", file.path)))
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .size(px(20.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .hover(|s| s.bg(theme::tint(theme::DANGER)))
+                                    .on_click({
+                                        let store = self.store.clone();
+                                        let path = file.path.clone();
+                                        move |_, _, cx| {
+                                            cx.stop_propagation();
+                                            store.update(cx, |s, cx| {
+                                                s.run_git(
+                                                    GitAction::DiscardFile { path: path.clone(), is_staged: staged },
+                                                    cx,
+                                                )
+                                            });
+                                        }
+                                    })
+                                    .child(icon("icons/icon-discard.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
+                            ),
+                    )
                     .when_some(
                         file.additions.map(|a| (a, file.deletions)),
                         |row, (additions, deletions)| {
@@ -302,38 +375,12 @@ impl ChangesView {
                                     .flex()
                                     .flex_row()
                                     .gap_1()
-                                    .text_size(px(theme::font_small() - 1.))
-                                    .child(div().text_color(theme::SUCCESS_BRIGHT).child(format!("+{additions}")))
+                                    .child(count_pill(format!("+{additions}"), theme::SUCCESS_BRIGHT))
                                     .when_some(deletions, |row, d| {
-                                        row.child(div().text_color(theme::DANGER).child(format!("−{d}")))
+                                        row.child(count_pill(format!("−{d}"), theme::DANGER))
                                     }),
                             )
                         },
-                    )
-                    .child(row_action_button(file, staged, self.store.clone()))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("discard-{staged}-{}", file.path)))
-                            .cursor_pointer()
-                            .rounded_md()
-                            .size(px(20.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .hover(|s| s.bg(theme::tint(theme::DANGER)))
-                            .on_click({
-                                let store = self.store.clone();
-                                let path = file.path.clone();
-                                move |_, _, cx| {
-                                    store.update(cx, |s, cx| {
-                                        s.run_git(
-                                            GitAction::DiscardFile { path: path.clone(), is_staged: staged },
-                                            cx,
-                                        )
-                                    });
-                                }
-                            })
-                            .child(icon("icons/icon-discard.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
                     ),
             );
 
@@ -824,27 +871,156 @@ impl ChangesView {
         list.into_any_element()
     }
 
+    /// The middle card: "Commit message" title, the message textarea with
+    /// the wand in its corner, and the outlined commit button. An empty box
+    /// turns the button into "Generate & Commit": the wand drafts the
+    /// message first, then the commit fires itself.
+    fn render_commit_card(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
+        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
+        let message_empty = self.commit_message.read(cx).value().trim().is_empty();
+        let generate_and_commit = message_empty && opencode_on;
+
+        let mut card = div()
+            .w(px(320.))
+            .h_full()
+            .min_h_0()
+            .rounded_lg()
+            .bg(theme::STRONG_BACKGROUND)
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(px(theme::font_small()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::TEXT)
+                    .child("Commit message"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .relative()
+                    .on_key_down({
+                        let store = self.store.clone();
+                        let message = self.commit_message.clone();
+                        move |event, _, cx| {
+                            if event.keystroke.key == "enter"
+                                && event.keystroke.modifiers.control
+                                && !message.read(cx).value().trim().is_empty()
+                            {
+                                let text = message.read(cx).value().to_string();
+                                store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
+                            }
+                        }
+                    })
+                    .child(Textarea::new(&self.commit_message).bordered(true).h_full())
+                    // .NET's corner wand: overlay inside the message box
+                    .child({
+                        let store = self.store.clone();
+                        div()
+                            .id("wand-corner")
+                            .absolute()
+                            .bottom_1()
+                            .right_2()
+                            .cursor_pointer()
+                            .rounded_md()
+                            .p_1()
+                            .flex()
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(move |_, _, cx| {
+                                store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                            })
+                            .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
+                    }),
+            );
+
+        let mut button_row = div().flex().flex_row().items_center().gap_2();
+        button_row = button_row.child({
+            let store = self.store.clone();
+            let message = self.commit_message.clone();
+            let this = cx.entity();
+            let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
+            div()
+                .id("commit-button")
+                .cursor_pointer()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::ACCENT)
+                .px_3()
+                .py_1p5()
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .when(busy, |b| b.opacity(0.5))
+                .when(!busy, |b| b.hover(|s| s.bg(theme::tint(theme::ACCENT))))
+                .on_click(move |_, _, cx| {
+                    if busy {
+                        return;
+                    }
+                    let text = message.read(cx).value().to_string();
+                    if text.trim().is_empty() {
+                        // empty box: generate first; the drained draft
+                        // lands in the textarea and then commits itself
+                        let wand_busy = store.read(cx).wand_busy.is_some();
+                        this.update(cx, |this, cx| {
+                            this.auto_commit_after_draft = true;
+                            cx.notify();
+                        });
+                        if !wand_busy {
+                            store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                        }
+                        return;
+                    }
+                    store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
+                })
+                .child(icon(
+                    if generate_and_commit { "icons/icon-wand.svg" } else { "icons/icon-check.svg" },
+                    px(theme::icon_small()),
+                    theme::ACCENT,
+                ))
+                .child(
+                    div()
+                        .text_size(px(theme::font_small()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::ACCENT)
+                        .child(label),
+                )
+        });
+        if wand_active {
+            button_row = button_row.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::ACCENT)
+                    .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                    .child("working…"),
+            );
+        }
+        card = card.child(button_row);
+        card.into_any_element()
+    }
+
     fn render_rail(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let store = self.store.read(cx);
         let entry = store.selected_entry().cloned();
         let branch = entry.as_ref().and_then(|e| e.git_branch_name.clone());
         let has_remote = entry.as_ref().map(|e| e.git_has_remote).unwrap_or(false);
         let published = entry.as_ref().map(|e| e.git_branch_published).unwrap_or(false);
-        let last_fetch = entry
-            .as_ref()
-            .and_then(|e| e.git_last_fetch_at)
-            .map(devtools_core::rel_time::format)
-            .unwrap_or_else(|| "never fetched".into());
 
         let mut rail = div()
-            .w(px(300.))
+            .w(px(280.))
             .h_full()
+            .min_h_0()
+            .rounded_lg()
+            .bg(theme::STRONG_BACKGROUND)
+            .p_2()
             .flex()
             .flex_col()
-            .gap_2()
-            .p_2()
-            .border_l_1()
-            .border_color(theme::HAIRLINE)
             .relative();
 
         // branch selector button
@@ -852,11 +1028,12 @@ impl ChangesView {
             div()
                 .id("branch-button")
                 .cursor_pointer()
-                .rounded_md()
+                .rounded_lg()
                 .border_1()
                 .border_color(theme::HAIRLINE)
                 .bg(theme::INPUT)
-                .px_2()
+                .pl_2()
+                .pr_1()
                 .py_1()
                 .flex()
                 .flex_row()
@@ -869,9 +1046,23 @@ impl ChangesView {
                     cx.notify();
                 }))
                 .child(icon("icons/icon-source-branch.svg", px(theme::icon_small()), theme::TEXT_MUTED))
-                .child(div().flex_1().text_size(px(theme::font_small())).child(branch.clone().unwrap_or_else(|| "—".into())))
-                .child(icon("icons/icon-chevron-down.svg", px(theme::icon_small() - 2.), theme::TEXT_FAINT)),
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(theme::font_body()))
+                        .text_color(theme::TEXT_DIM)
+                        .child(branch.clone().unwrap_or_else(|| "—".into())),
+                )
+                .child(
+                    div()
+                        .rounded_md()
+                        .bg(theme::CARD)
+                        .p_1()
+                        .flex()
+                        .child(icon("icons/icon-chevron-down.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)),
+                ),
         );
+        rail = rail.child(divider());
 
         // git rail: the .NET vertical icon list — Fetch/Pull/Push above a
         // divider, then Sync/History
@@ -886,12 +1077,12 @@ impl ChangesView {
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
-                .py_1()
+                .py_1p5()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_2()
-                .text_size(px(theme::font_small()));
+                .gap_2p5()
+                .text_size(px(theme::font_body()));
             if enabled {
                 if let Some(click) = click {
                     row = row
@@ -952,7 +1143,7 @@ impl ChangesView {
                 GitAction::Publish { branch: b.clone() }
             );
         }
-        action_list = action_list.child(div().h(px(1.)).my_1().bg(theme::HAIRLINE));
+        action_list = action_list.child(divider());
         rail_action!(action_list, "icons/icon-refresh.svg", "Sync", has_remote && !busy, GitAction::Sync);
         let history_toggle = cx.listener(|this, _, _, cx| {
             if this.history_open {
@@ -969,12 +1160,12 @@ impl ChangesView {
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
-                .py_1()
+                .py_1p5()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_2()
-                .text_size(px(theme::font_small()))
+                .gap_2p5()
+                .text_size(px(theme::font_body()))
                 .when(self.history_open, |d| {
                     d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
                 })
@@ -989,111 +1180,6 @@ impl ChangesView {
                 .child("History"),
         );
         rail = rail.child(action_list);
-        rail = rail.child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .text_size(px(theme::font_small() - 1.))
-                        .text_color(theme::TEXT_FAINT)
-                        .child(format!("Last fetched {last_fetch}")),
-                ),
-        );
-
-        // commit message + commit. "Generate & Commit":
-        // an empty box generates the message with the wand first, then
-        // commits; Ctrl+Enter commits from the keyboard.
-        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
-        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
-        let message_empty = self.commit_message.read(cx).value().trim().is_empty();
-        let generate_and_commit = message_empty && opencode_on;
-        rail = rail.child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .relative()
-                .on_key_down({
-                    let store = self.store.clone();
-                    let message = self.commit_message.clone();
-                    move |event, _, cx| {
-                        if event.keystroke.key == "enter"
-                            && event.keystroke.modifiers.control
-                            && !message.read(cx).value().trim().is_empty()
-                        {
-                            let text = message.read(cx).value().to_string();
-                            store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
-                        }
-                    }
-                })
-                .child(Textarea::new(&self.commit_message).bordered(true))
-                // .NET's corner wand: overlay inside the message box
-                .child({
-                    let store = self.store.clone();
-                    div()
-                        .id("wand-corner")
-                        .absolute()
-                        .bottom_1()
-                        .right_2()
-                        .cursor_pointer()
-                        .rounded_md()
-                        .p_1()
-                        .flex()
-                        .hover(|s| s.bg(theme::HOVER))
-                        .on_click(move |_, _, cx| {
-                            store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
-                        })
-                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
-                }),
-        );
-        rail = rail.child(
-            div()
-                .flex()
-                .flex_row()
-                .gap_2()
-                .when(wand_active, |row| {
-                    row.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::ACCENT)
-                            .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
-                            .child("working…"),
-                    )
-                })
-                .child(div().flex_1())
-                .child({
-                    let store = self.store.clone();
-                    let message = self.commit_message.clone();
-                    let this = cx.entity();
-                    let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
-                    rail_button(
-                        label,
-                        Some(if generate_and_commit { "icons/icon-wand.svg" } else { "icons/icon-check.svg" }),
-                        !busy,
-                        move |cx| {
-                        let text = message.read(cx).value().to_string();
-                        if text.trim().is_empty() {
-                            // empty box: generate first; the drained draft
-                            // lands in the textarea and then commits itself
-                            let wand_busy = store.read(cx).wand_busy.is_some();
-                            this.update(cx, |this, cx| {
-                                this.auto_commit_after_draft = true;
-                                cx.notify();
-                            });
-                            if !wand_busy {
-                                store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
-                            }
-                            return;
-                        }
-                        store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
-                    })
-                }),
-        );
 
         if self.branch_menu_open {
             rail = rail.child(self.render_branch_menu(cx));
@@ -1267,6 +1353,7 @@ impl ChangesView {
 fn section_header(
     label: &str,
     count: usize,
+    with_check: bool,
     actions: Vec<(&'static str, &'static str, GitAction)>,
     store: Entity<Store>,
 ) -> impl IntoElement + use<> {
@@ -1274,15 +1361,28 @@ fn section_header(
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
-        .py_1()
+        .gap_1p5()
+        .py_1p5()
         .px_1()
+        .when(with_check, |h| {
+            h.child(icon(
+                "icons/icon-check.svg",
+                px(theme::icon_small() - 1.),
+                theme::SUCCESS_DEEP,
+            ))
+        })
+        .child(
+            div()
+                .text_size(px(theme::font_body()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT)
+                .child(label.to_string()),
+        )
         .child(
             div()
                 .text_size(px(theme::font_small()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::TEXT_MUTED)
-                .child(format!("{label} ({count})")),
+                .text_color(theme::TEXT_FAINT)
+                .child(format!("({count})")),
         )
         .child(div().flex_1());
     for (id, action_label, action) in actions {
@@ -1293,9 +1393,10 @@ fn section_header(
                 .cursor_pointer()
                 .rounded_md()
                 .px_1p5()
-                .text_size(px(theme::font_small() - 1.))
-                .text_color(theme::ACCENT)
-                .hover(|s| s.bg(theme::tint(theme::ACCENT)))
+                .py_0p5()
+                .text_size(px(theme::font_small()))
+                .text_color(theme::TEXT_MUTED)
+                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
                 .on_click(move |_, _, cx| {
                     store.update(cx, |s, cx| s.run_git(action.clone(), cx));
                 })
@@ -1336,43 +1437,25 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
         .text_color(theme::ACCENT)
         .hover(|s| s.bg(theme::tint(theme::ACCENT)))
         .on_click(move |_, _, cx| {
+            cx.stop_propagation();
             store.update(cx, |s, cx| s.run_git(action.clone(), cx));
         })
         .child(glyph)
 }
 
-fn rail_button(
-    label: &str,
-    icon_path: Option<&'static str>,
-    enabled: bool,
-    on_click: impl Fn(&mut gpui::App) + 'static,
-) -> gpui::AnyElement {
-    let mut button = div()
-        .id(SharedString::from(format!("rail-{label}")))
-        .cursor_pointer()
-        .rounded_md()
-        .px_2()
-        .py_1()
-        .flex()
-        .items_center()
-        .gap_1()
-        .text_size(px(theme::font_small()))
-        .text_color(if enabled { theme::TEXT_DIM } else { theme::TEXT_FAINT })
-        .border_1()
-        .border_color(theme::HAIRLINE)
-        .when(enabled, |d| d.hover(|s| s.bg(theme::HOVER)))
-        .when(!enabled, |d| d.opacity(0.5))
-        .on_click(move |_, _, cx| {
-            if enabled {
-                on_click(cx);
-            }
-        });
-    if let Some(icon_path) = icon_path {
-        button = button.child(icon(
-            icon_path,
-            px(theme::icon_small() - 1.),
-            if enabled { theme::TEXT_DIM } else { theme::TEXT_FAINT },
-        ));
-    }
-    button.child(label.to_string()).into_any_element()
+/// The rounded +N/−N diff pill: bright count on its tinted ground.
+fn count_pill(text: String, color: gpui::Rgba) -> impl IntoElement + use<> {
+    div()
+        .rounded_full()
+        .bg(theme::tint(color))
+        .px_1p5()
+        .text_size(px(theme::font_small() - 1.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color)
+        .child(text)
+}
+
+/// The hairline separator between rail sections.
+fn divider() -> impl IntoElement + use<> {
+    div().h(px(1.)).my_1p5().bg(theme::HAIRLINE)
 }

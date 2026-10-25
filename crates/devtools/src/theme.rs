@@ -149,6 +149,7 @@ pub const ON_ACCENT: Rgba = c(0xFFFFFFFF);
 pub const DANGER: Rgba = c(0xF5222DFF); // ChipPalette red
 pub const WARN: Rgba = c(0xFA8C16FF); // amber
 pub const SUCCESS_BRIGHT: Rgba = c(0x4EC94EFF); // ChipPalette bright green
+pub const SUCCESS_DEEP: Rgba = c(0x2E7D32FF); // .NET staged-check green
 pub const AMBER_BRIGHT: Rgba = c(0xFFAB40FF);
 pub const PURPLE_BRIGHT: Rgba = c(0xA78BFAFF);
 pub const BLUE_BRIGHT: Rgba = c(0x6E9BF7FF);

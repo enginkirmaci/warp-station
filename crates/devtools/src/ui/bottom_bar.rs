@@ -27,6 +27,8 @@ pub struct BottomBar {
     azure_view: Entity<AzureView>,
     kebab_open: bool,
     add_tag: Entity<InputState>,
+    /// The "+ Add tag" chip swaps for the inline input once pressed.
+    add_tag_open: bool,
     /// live splitter drag: (cursor y at grab, bar height at grab)
     splitter_drag: std::rc::Rc<std::cell::Cell<Option<(gpui::Pixels, f32)>>>,
 }
@@ -48,6 +50,7 @@ impl BottomBar {
             azure_view,
             kebab_open: false,
             add_tag,
+            add_tag_open: false,
             splitter_drag: std::rc::Rc::new(std::cell::Cell::new(None)),
         }
     }
@@ -134,10 +137,9 @@ impl Render for BottomBar {
             .as_ref()
             .and_then(|d| d.url.clone());
 
-        // ---- tabs (settings gates; counts live in the overview stat tiles) ----
-        let mut tabs = div().flex().flex_row().gap_3();
+        // ---- tabs (settings gates; the Changes tab carries the modified count) ----
+        let mut tabs = div().flex().flex_row().items_end().gap_5();
         let modified = entry.git_modified_count;
-        let _ = modified;
         for tab in [
             BottomBarTab::Overview,
             BottomBarTab::Changes,
@@ -156,7 +158,7 @@ impl Render for BottomBar {
             }
             let active = tab == selected_tab;
             // .NET bar tabs: plain text with an accent underline on the active
-            // one — no count badges
+            // one; Changes shows the modified-file count beside its label
             let chip = div()
                 .id(SharedString::from(format!("tab-{}", tab.label())))
                 .cursor_pointer()
@@ -174,7 +176,25 @@ impl Render for BottomBar {
                         store.update(cx, |s, cx| s.set_tab(tab, cx));
                     }
                 })
-                .child(tab.label())
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1p5()
+                        .child(tab.label())
+                        .when(
+                            tab == BottomBarTab::Changes && modified > 0,
+                            |row| {
+                                row.child(
+                                    div()
+                                        .text_size(px(theme::font_small()))
+                                        .text_color(theme::TEXT_FAINT)
+                                        .child(format!("{modified}")),
+                                )
+                            },
+                        ),
+                )
                 .child(
                     div()
                         .w_full()
@@ -185,26 +205,62 @@ impl Render for BottomBar {
             tabs = tabs.child(chip);
         }
 
-        // ---- tag chips row (removable) + Add tag ----
-        let mut tag_chips = div().flex().flex_row().items_center().flex_wrap().gap_1();
-        for tag in entry.tags.clone() {
-            if tag.eq_ignore_ascii_case("favorites") {
-                continue;
-            }
+        // ---- tag chips row (removable, each chip tinted in its .NET hue) + Add tag ----
+        // The favorites chip leads at hue 0 (amber) whenever the repo is
+        // starred, so the regular tags keep their .NET hues (green, orange,
+        // ...) even though the favorites tag lives inside entry.tags.
+        let mut tag_chips = div().flex().flex_row().items_center().flex_wrap().gap_2();
+        let mut chip_index = 0usize;
+        if entry.is_favorite() {
+            let color = tag_color(chip_index);
+            chip_index += 1;
+            tag_chips = tag_chips.child(
+                div()
+                    .id("tag-chip-favorites")
+                    .cursor_pointer()
+                    .rounded_lg()
+                    .bg(theme::tint(color))
+                    .px_2()
+                    .py_0p5()
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .text_size(px(theme::font_small()))
+                    .text_color(color)
+                    .hover(|s| s.opacity(0.85))
+                    .on_click({
+                        let store = self.store.clone();
+                        let folder = folder.clone();
+                        move |_, _, cx| {
+                            store.update(cx, |s, cx| s.toggle_favorite(&folder, cx));
+                        }
+                    })
+                    .child("favorites")
+                    .child(div().text_color(theme::TEXT_FAINT).child("×")),
+            );
+        }
+        for tag in entry
+            .tags
+            .clone()
+            .into_iter()
+            .filter(|tag| !tag.eq_ignore_ascii_case("favorites"))
+        {
+            let color = tag_color(chip_index);
+            chip_index += 1;
             tag_chips = tag_chips.child(
                 div()
                     .id(SharedString::from(format!("tag-chip-{tag}")))
                     .cursor_pointer()
-                    .rounded_md()
-                    .bg(theme::CHIP)
-                    .px_1p5()
+                    .rounded_lg()
+                    .bg(theme::tint(color))
+                    .px_2()
                     .py_0p5()
                     .flex()
                     .items_center()
-                    .gap_1()
-                    .text_size(px(theme::font_small() - 1.))
-                    .text_color(theme::TEXT_DIM)
-                    .hover(|s| s.text_color(theme::DANGER))
+                    .gap_1p5()
+                    .text_size(px(theme::font_small()))
+                    .text_color(color)
+                    .hover(|s| s.opacity(0.85))
                     .on_click({
                         let store = self.store.clone();
                         let folder = folder.clone();
@@ -218,41 +274,81 @@ impl Render for BottomBar {
             );
         }
         let tag_input = self.add_tag.clone();
-        let add_tag_row = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_1()
-            .child(
-                div()
-                    .w(px(120.))
-                    .text_size(px(theme::font_small() - 1.))
-                    .child(Input::new(&tag_input).small()),
-            )
-            .child(
-                div()
-                    .id("add-tag")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_1p5()
-                    .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
-                    .text_color(theme::ACCENT)
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let store = self.store.clone();
-                        let add_tag = self.add_tag.clone();
-                        let folder = folder.clone();
-                        move |_, window, cx| {
-                            let tag = add_tag.read(cx).value().to_string();
-                            if tag.trim().is_empty() {
-                                return;
+        let add_tag_row = if self.add_tag_open {
+            div()
+                .id("add-tag-editor")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .w(px(120.))
+                        .text_size(px(theme::font_small() - 1.))
+                        .child(Input::new(&tag_input).small()),
+                )
+                .child(
+                    div()
+                        .id("add-tag")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_1p5()
+                        .py_0p5()
+                        .text_size(px(theme::font_small() - 1.))
+                        .text_color(theme::ACCENT)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click({
+                            let store = self.store.clone();
+                            let add_tag = self.add_tag.clone();
+                            let folder = folder.clone();
+                            move |_, window, cx| {
+                                let tag = add_tag.read(cx).value().to_string();
+                                if tag.trim().is_empty() {
+                                    return;
+                                }
+                                store.update(cx, |s, cx| s.add_repo_tag(&folder, &tag, cx));
+                                add_tag.update(cx, |input, cx| input.set_value(String::new(), window, cx));
                             }
-                            store.update(cx, |s, cx| s.add_repo_tag(&folder, &tag, cx));
-                            add_tag.update(cx, |input, cx| input.set_value(String::new(), window, cx));
-                        }                    })
-                    .child("+ Add tag"),
-            );
+                        })
+                        .child("Add"),
+                )
+                .child(
+                    div()
+                        .id("add-tag-cancel")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_1p5()
+                        .py_0p5()
+                        .text_size(px(theme::font_small() - 1.))
+                        .text_color(theme::TEXT_FAINT)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.add_tag_open = false;
+                            cx.notify();
+                        }))
+                        .child("×"),
+                )
+        } else {
+            div()
+                .id("add-tag-toggle")
+                .cursor_pointer()
+                .rounded_md()
+                .px_1p5()
+                .py_0p5()
+                .flex()
+                .items_center()
+                .gap_1()
+                .text_size(px(theme::font_small()))
+                .text_color(theme::TEXT_DIM)
+                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.add_tag_open = true;
+                    this.add_tag.update(cx, |input, cx| input.focus(window, cx));
+                    cx.notify();
+                }))
+                .child("+")
+                .child("Add tag")
+        };
         let tags_row = div()
             .flex()
             .flex_row()
@@ -328,7 +424,6 @@ impl Render for BottomBar {
                 )
             })
             .child(div().w(px(8.)))
-            .child(tabs)
             .child(div().flex_1())
             .when_some(self.store.read(cx).last_git_error.clone(), |row, error| {
                 row.child(
@@ -413,10 +508,13 @@ impl Render for BottomBar {
             .flex_col()
             .border_t_1()
             .border_color(theme::HAIRLINE)
-            .bg(theme::STRONG_BACKGROUND)
+            // .NET bar: the strip itself is the dark surface and the panels
+            // inside it are the raised cards
+            .bg(theme::CARD)
             .child(self.render_splitter())
             .child(header)
             .child(tags_row)
+            .child(div().flex().flex_row().items_end().px_3().pb_1().child(tabs))
             .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab)))
             .into_any_element()
     }
@@ -511,4 +609,19 @@ impl BottomBar {
             BottomBarTab::Azure => self.azure_view.clone().into_any_element(),
         }
     }
+}
+
+/// The .NET bar paints each tag chip in a hue picked by the tag's position on
+/// the repo — favorites amber, then green, orange, ... cycling (measured off
+/// the original: favorites `#F0A03C`, llm `#3EBE48`, rust `#EB8C2E`).
+fn tag_color(index: usize) -> gpui::Rgba {
+    const PALETTE: [gpui::Rgba; 6] = [
+        theme::AMBER_BRIGHT,
+        theme::SUCCESS_BRIGHT,
+        theme::WARN,
+        theme::BLUE_BRIGHT,
+        theme::PURPLE_BRIGHT,
+        theme::GOLD_BRIGHT,
+    ];
+    PALETTE[index % PALETTE.len()]
 }

@@ -1,9 +1,14 @@
 ; Inno Setup 6 script - per-user installer for DevTools.
-; build.ps1 -Installer invokes this with /DMyAppVersion=<cargo version>;
-; the fallback below keeps plain `ISCC devtools.iss` working too.
+; build.ps1 -Installer invokes this with /DMyAppVersion=<cargo version> and
+; /DMyTargetDir=<cargo target_directory>; the fallbacks below keep plain
+; `ISCC devtools.iss` working too.
 
 #ifndef MyAppVersion
 #define MyAppVersion "0.0.0-dev"
+#endif
+
+#ifndef MyTargetDir
+#define MyTargetDir "..\..\target"
 #endif
 
 #define MyAppName "DevTools"
@@ -29,7 +34,7 @@ SolidCompression=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Files]
-Source: "..\..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyTargetDir}\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; SnapIt companion (Windows-only): exe bundles the managed code, native libs stay
 ; beside it. Seed defaults install only when missing so user edits survive upgrades.
 Source: "out\snapit-publish\Tools.SnapIt.exe"; DestDir: "{app}"; Flags: ignoreversion

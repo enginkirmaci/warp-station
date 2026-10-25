@@ -1,11 +1,13 @@
 //! The opencode wand runner: one-shot `opencode serve` runs for the AI
 //! generators (commit message, README, daily summary). Attach-or-spawn with
 //! the forced ask-permission config, one session per prompt, the answer read
-//! from the /event SSE stream, permission asks forwarded to the caller (the
-//! UI's allow/reject popup), and a hard cap so a stuck run dies.
+//! from the message POST (which blocks until the run finishes) with the
+//! /event SSE stream watched alongside it for permission asks (the UI's
+//! allow/reject popup), and a hard cap so a stuck run dies.
 
 use anyhow::{anyhow, Context as _, Result};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
@@ -156,60 +158,96 @@ async fn wand_session(
         .ok_or_else(|| anyhow!("session id missing"))?
         .to_string();
 
-    // fire-and-forget send; the answer arrives on the event stream
+    // the message POST blocks until the run finishes on this API, so the
+    // event stream must be subscribed before the prompt goes out — otherwise
+    // every progress/completion event fires before the app listens
+    let resp = http.get(format!("{base_url}/event")).send().await?;
+    let resp = error_for_status(resp).await?;
+
+    // fire-and-forget send; the answer comes back either as the POST body or
+    // on the event stream, whichever lands first
     let mut body = json!({
         "parts": [{ "type": "text", "text": prompt }],
     });
     if let Some(model) = model.filter(|m| !m.is_empty()) {
         body["modelID"] = json!(model);
     }
-    let resp = http
-        .post(format!("{base_url}/session/{session_id}/message"))
-        .json(&body)
-        .send()
-        .await?;
-    error_for_status(resp).await?;
-
-    // the SSE stream: assistant text accumulates on message.part.updated,
-    // permission asks pause for a reply, session.idle completes the run
-    let resp = http.get(format!("{base_url}/event")).send().await?;
-    let resp = error_for_status(resp).await?;
+    let post = {
+        let http = http.clone();
+        let url = format!("{base_url}/session/{session_id}/message");
+        async move {
+            let resp = http.post(url).json(&body).send().await?;
+            let resp = error_for_status(resp).await?;
+            Ok::<Value, anyhow::Error>(resp.json().await?)
+        }
+    };
+    let mut post = Some(Box::pin(post));
 
     use futures_util::StreamExt as _;
     let mut stream = resp.bytes_stream();
     let mut buffer: Vec<u8> = Vec::new();
     let mut assistant_text = String::new();
-    let started = std::time::Instant::now();
+    let mut assistant_messages: HashSet<String> = HashSet::new();
+    let cap = tokio::time::sleep(RUN_CAP);
+    tokio::pin!(cap);
 
     loop {
-        if started.elapsed() >= RUN_CAP {
-            return Err(anyhow!("the wand run exceeded its time cap"));
-        }
-        let chunk = tokio::select! {
+        let mut incoming: Option<Vec<u8>> = None;
+        tokio::select! {
             biased;
+            _ = &mut cap => {
+                return Err(anyhow!("the wand run exceeded its time cap"));
+            }
             maybe_control = control.recv() => {
                 match maybe_control {
                     Ok(WandControl::Kill) | Err(_) => return Err(anyhow!("cancelled")),
                     Ok(WandControl::Respond { id, response }) => {
                         let resp = http
                             .post(format!("{base_url}/permission/{id}/reply"))
-                            .json(&json!({ "response": response }))
+                            .json(&json!({ "reply": response }))
                             .send()
                             .await;
                         if let Ok(resp) = resp {
                             let _ = error_for_status(resp).await;
                         }
-                        continue;
+                    }
+                }
+            }
+            answer = post.as_mut().expect("post polled after completion"), if post.is_some() => {
+                post = None;
+                match answer {
+                    Ok(value) => {
+                        if let Some(text) = response_text(&value) {
+                            return Ok(text);
+                        }
+                        // a POST without parts (older API shape): the streamed
+                        // text below still completes the run
+                    }
+                    Err(err) => {
+                        if !assistant_text.is_empty() {
+                            return Ok(std::mem::take(&mut assistant_text));
+                        }
+                        return Err(err);
                     }
                 }
             }
             chunk = stream.next() => match chunk {
-                Some(Ok(bytes)) => bytes,
-                Some(Err(err)) => return Err(err.into()),
-                None => return Err(anyhow!("the event stream ended before an answer")),
+                Some(Ok(bytes)) => incoming = Some(bytes.to_vec()),
+                Some(Err(err)) => {
+                    if assistant_text.is_empty() {
+                        return Err(err.into());
+                    }
+                }
+                None => {
+                    if assistant_text.is_empty() {
+                        return Err(anyhow!("the event stream ended before an answer"));
+                    }
+                }
             },
-        };
-        buffer.extend_from_slice(&chunk);
+        }
+
+        let Some(bytes) = incoming else { continue };
+        buffer.extend_from_slice(&bytes);
 
         while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = buffer.drain(..=pos).collect();
@@ -222,22 +260,71 @@ async fn wand_session(
             }
             let Ok(evt) = serde_json::from_str::<Value>(payload) else { continue };
             let kind = evt.get("type").and_then(Value::as_str).unwrap_or_default();
+            // 1.18 wraps the payload in "properties"; read both that and the
+            // bare top level
+            let prop = |name: &str| {
+                evt.pointer(&format!("/properties/{name}"))
+                    .or_else(|| evt.get(name))
+                    .cloned()
+            };
             match kind {
+                "message.updated" => {
+                    let info = prop("info").unwrap_or(Value::Null);
+                    if info.get("role").and_then(Value::as_str) == Some("assistant")
+                        && let Some(id) = info.get("id").and_then(Value::as_str) {
+                            assistant_messages.insert(id.to_string());
+                        }
+                }
                 "message.part.updated" => {
                     // the part carries the full text-so-far each time
-                    let part = evt.get("part").cloned().unwrap_or(Value::Null);
+                    let part = prop("part").unwrap_or(Value::Null);
                     if part.get("type").and_then(Value::as_str) == Some("text")
-                        && let Some(text) = part.get("text").and_then(Value::as_str) {
+                        && let Some(text) = part.get("text").and_then(Value::as_str)
+                        && let Some(id) = part.get("messageID").and_then(Value::as_str)
+                        && assistant_messages.contains(id) {
                             assistant_text = text.to_string();
                         }
                 }
-                "permission.updated" => {
-                    let status = evt.pointer("/permission/status").and_then(Value::as_str);
-                    if status != Some("pending") {
+                "permission.asked" => {
+                    // { properties: { id, permission: "bash", patterns,
+                    // metadata: { command } } }
+                    let Some(id) = prop("id").and_then(|v| v.as_str().map(str::to_string)) else {
                         continue;
-                    }
-                    let permission = evt.get("permission").cloned().unwrap_or(Value::Null);
-                    let id = permission.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                    };
+                    let tool = prop("permission")
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_else(|| "tool".to_string());
+                    let detail = prop("metadata")
+                        .and_then(|m| m.get("command").and_then(Value::as_str).map(str::to_string))
+                        .or_else(|| {
+                            prop("patterns").and_then(|p| {
+                                p.as_array().map(|list| {
+                                    list.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
+                                })
+                            })
+                        })
+                        .unwrap_or_default();
+                    let title = if detail.is_empty() {
+                        tool.to_string()
+                    } else {
+                        format!("{tool}: {detail}")
+                    };
+                    let _ = events.send_blocking(WandEvent::Ask { id, title });
+                }
+                "permission.updated" => {
+                    // legacy shape: a permission object with id/status/payload
+                    let permission = prop("permission").unwrap_or(Value::Null);
+                    if permission
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .is_some_and(|status| status != "pending") {
+                            continue;
+                        }
+                    let id = permission
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
                     let title = permission
                         .pointer("/payload/title")
                         .or_else(|| permission.get("title"))
@@ -250,12 +337,44 @@ async fn wand_session(
                 }
                 "session.idle"
                     if !assistant_text.is_empty() => {
-                        return Ok(assistant_text);
+                        return Ok(std::mem::take(&mut assistant_text));
                     }
+                "session.idle" => {
+                    return Err(anyhow!("the model returned no text"));
+                }
                 _ => {}
             }
         }
     }
+}
+
+/// The final answer's text: every text part of the message the POST returns
+/// (user-message echoes in array-shaped responses are skipped).
+fn response_text(value: &Value) -> Option<String> {
+    let messages: Vec<&Value> = match value {
+        Value::Array(list) => list.iter().collect(),
+        value => vec![value],
+    };
+    let mut text = String::new();
+    for message in messages {
+        if message.pointer("/info/role").and_then(Value::as_str) == Some("user") {
+            continue;
+        }
+        let Some(parts) = message.get("parts").and_then(Value::as_array) else {
+            continue;
+        };
+        for part in parts {
+            if part.get("type").and_then(Value::as_str) == Some("text")
+                && let Some(part_text) = part.get("text").and_then(Value::as_str) {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(part_text);
+                }
+        }
+    }
+    let text = text.trim().to_string();
+    if text.is_empty() { None } else { Some(text) }
 }
 
 async fn error_for_status(resp: reqwest::Response) -> Result<reqwest::Response> {
