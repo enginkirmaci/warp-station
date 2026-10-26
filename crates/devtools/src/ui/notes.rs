@@ -18,6 +18,8 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, PartialEq)]
 enum NotesMode {
     Edit,
+    /// Editor above, rendered markdown below — both update on every keystroke.
+    Live,
     Split,
     Preview,
 }
@@ -44,7 +46,7 @@ pub struct NotesPage {
 
 impl NotesPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search notes"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search all notes…"));
         let editor = cx.new(|cx| TextareaState::new(window, cx).placeholder("# Title"));
         let create_name = cx.new(|cx| InputState::new(window, cx).placeholder("New note name"));
         let create_folder = cx.new(|cx| InputState::new(window, cx).placeholder("Folder (optional)"));
@@ -54,6 +56,8 @@ impl NotesPage {
             }
         })
         .detach();
+        // Live/Split previews follow the editor on every keystroke
+        cx.observe(&editor, |_, _, cx| cx.notify()).detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
@@ -281,20 +285,29 @@ impl Render for NotesPage {
             .child(self.render_titlebar(window, cx))
             .child(
                 div()
+                    .id("notes-body")
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_row()
+                    .gap_2()
+                    .px_2()
+                    .pb_2()
                     .child(self.render_tree(cx))
                     .child(
                         div()
                             .id("notes-editor-column")
+                            .debug_selector(|| "notes-editor-column".into())
                             .flex_1()
                             .min_w_0()
                             .h_full()
                             .flex()
                             .flex_col()
                             .min_h_0()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::HAIRLINE)
+                            .bg(theme::CARD)
                             .child(self.render_toolbar(note_title, dirty, armed, has_repo, window, cx))
                             .child(self.render_editor(preview_text))
                             .child(self.render_status_bar(cx)),
@@ -328,6 +341,18 @@ impl NotesPage {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Notes"),
             )
+            .when_some(self.store.read(cx).selected_entry().map(|e| e.name.clone()), |row, repo| {
+                row.child(
+                    div()
+                        .rounded_md()
+                        .bg(theme::CHIP)
+                        .px_1p5()
+                        .py_0p5()
+                        .text_size(px(theme::font_small() - 1.))
+                        .text_color(theme::TEXT_MUTED)
+                        .child(repo),
+                )
+            })
             .child(
                 div()
                     .flex_1()
@@ -405,26 +430,126 @@ impl NotesPage {
 
     fn render_tree(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let term = self.search.read(cx).value().to_string();
+        let can_create = self.store.read(cx).selected_entry().is_some() || !self.tree.is_empty();
         let mut tree = div()
-            .id("notes-tree")
-            .w(px(260.))
+            .id("notes-sidebar")
+            .debug_selector(|| "notes-sidebar".into())
+            .w(px(300.))
             .h_full()
-            .border_r_1()
-            .border_color(theme::HAIRLINE)
             .flex()
             .flex_col()
             .min_h_0()
-            .p_2()
             .gap_2()
+            .p_2()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::CARD)
+            // search row: field, "+" new note, collapse-all
             .child(
-                div().on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                    if event.keystroke.key == "escape" {
-                        this.search.update(cx, |field, cx| field.set_value(String::new(), window, cx));
-                        this.search_hits.clear();
-                        cx.notify();
-                    }
-                })).child(Input::new(&self.search).small()),
-            );
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                                if event.keystroke.key == "escape" {
+                                    this.search.update(cx, |field, cx| field.set_value(String::new(), window, cx));
+                                    this.search_hits.clear();
+                                    cx.notify();
+                                }
+                            }))
+                            .child(Input::new(&self.search).small()),
+                    )
+                    .when(can_create, |row| {
+                        row.child(
+                            div()
+                                .id("note-new")
+                                .cursor_pointer()
+                                .rounded_md()
+                                .size(px(22.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .hover(|s| s.bg(theme::HOVER))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.create_open = !this.create_open;
+                                    cx.notify();
+                                }))
+                                .child(icon("icons/icon-plus.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id("notes-collapse-all")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(22.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.expanded.clear();
+                                cx.notify();
+                            }))
+                            .child(icon("icons/icon-list-bullet.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
+                    ),
+            )
+            // inline "new note" form, stacked for the narrow column
+            .when(self.create_open, |card| {
+                card.child(
+                    div()
+                        .id("note-create-form")
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(Input::new(&self.create_name).small())
+                        .child(Input::new(&self.create_folder).small())
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .id("note-create-confirm")
+                                        .cursor_pointer()
+                                        .rounded_md()
+                                        .px_2()
+                                        .py_0p5()
+                                        .text_size(px(theme::font_small()))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .bg(theme::ACCENT)
+                                        .text_color(theme::ON_ACCENT)
+                                        .hover(|s| s.opacity(0.9))
+                                        .on_click(cx.listener(|this, _, window, cx| this.create_note(window, cx)))
+                                        .child("Create"),
+                                )
+                                .child(
+                                    div()
+                                        .id("note-create-cancel")
+                                        .cursor_pointer()
+                                        .rounded_md()
+                                        .px_2()
+                                        .py_0p5()
+                                        .text_size(px(theme::font_small()))
+                                        .text_color(theme::TEXT_FAINT)
+                                        .hover(|s| s.bg(theme::HOVER))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.create_open = false;
+                                            cx.notify();
+                                        }))
+                                        .child("×"),
+                                ),
+                        ),
+                )
+            });
 
         if !term.trim().is_empty() {
             let mut hits = div().id("notes-hits").flex().flex_col().gap_1().overflow_y_scroll();
@@ -483,8 +608,10 @@ impl NotesPage {
                 SharedString::from(format!("note-item-{}-{}", depth, item.name)),
                 index as u64,
             );
+            let selector_name = item.name.clone();
             let row = div()
                 .id(id)
+                .debug_selector(move || format!("note-item-{}", selector_name))
                 .cursor_pointer()
                 .rounded_md()
                 .px_1p5()
@@ -542,9 +669,19 @@ impl NotesPage {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let _ = window;
-        let mut modes = div().flex().flex_row().gap_1();
+        // segmented mode control: Edit / Live / Split / Preview
+        let mut modes = div()
+            .flex()
+            .flex_row()
+            .gap_0p5()
+            .p_0p5()
+            .rounded_md()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::BACKGROUND);
         for (mode, label) in [
             (NotesMode::Edit, "Edit"),
+            (NotesMode::Live, "Live"),
             (NotesMode::Split, "Split"),
             (NotesMode::Preview, "Preview"),
         ] {
@@ -552,12 +689,13 @@ impl NotesPage {
             modes = modes.child(
                 div()
                     .id(SharedString::from(format!("notes-mode-{label}")))
+                    .debug_selector(move || format!("notes-mode-{label}"))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
                     .py_0p5()
                     .text_size(px(theme::font_small()))
-                    .when(active, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
+                    .when(active, |d| d.bg(theme::CHIP).text_color(theme::TEXT).font_weight(FontWeight::SEMIBOLD))
                     .when(!active, |d| d.text_color(theme::TEXT_MUTED))
                     .hover(|s| s.opacity(0.85))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -595,6 +733,7 @@ impl NotesPage {
 
         div()
             .id("notes-toolbar")
+            .debug_selector(|| "notes-toolbar".into())
             .flex()
             .flex_col()
             .gap_1()
@@ -608,28 +747,23 @@ impl NotesPage {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(note_title.clone()))
+                    // filename header (mono, like a document title strip)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .font_family(SharedString::from(theme::code_font()))
+                            .text_size(px(theme::font_small()))
+                            .text_color(theme::TEXT_MUTED)
+                            .child(note_title.clone()),
+                    )
                     .when(dirty, |row| row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
                     .child(div().flex_1())
                     .child(modes)
                     .when(has_repo || !self.tree.is_empty(), |row| {
                         row.child(
-                            div()
-                                .id("note-new")
-                                .cursor_pointer()
-                                .rounded_md()
-                                .px_2()
-                                .py_0p5()
-                                .text_size(px(theme::font_small()))
-                                .text_color(theme::ACCENT)
-                                .hover(|s| s.bg(theme::tint(theme::ACCENT)))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.create_open = !this.create_open;
-                                    cx.notify();
-                                }))
-                                .child("+ note"),
-                        )
-                        .child(
                             div()
                                 .id("note-save")
                                 .cursor_pointer()
@@ -648,46 +782,23 @@ impl NotesPage {
                             div()
                                 .id("note-delete")
                                 .cursor_pointer()
+                                .size(px(24.))
                                 .rounded_md()
-                                .px_2()
-                                .py_0p5()
-                                .text_size(px(theme::font_small()))
-                                .when(armed, |d| d.text_color(theme::DANGER).border_1().border_color(theme::tint(theme::DANGER)))
-                                .when(!armed, |d| d.text_color(theme::TEXT_FAINT).border_1().border_color(theme::HAIRLINE))
-                                .hover(|s| s.opacity(0.85))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .when(armed, |d| d.border_1().border_color(theme::tint(theme::DANGER)))
+                                .when(!armed, |d| d.hover(|s| s.bg(theme::HOVER)))
                                 .on_click(cx.listener(|this, _, _, cx| this.delete_current(cx)))
-                                .child(if armed { "Confirm delete" } else { "Delete" }),
+                                .child(icon(
+                                    "icons/icon-trash.svg",
+                                    px(theme::icon_small() - 1.),
+                                    if armed { theme::DANGER } else { theme::TEXT_FAINT },
+                                )),
                         )
                     }),
             )
             .when(self.mode != NotesMode::Preview, |toolbar| toolbar.child(formats))
-            .when(self.create_open, |toolbar| {
-                toolbar.child(
-                    div()
-                        .id("note-create-form")
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(div().w(px(180.)).child(Input::new(&self.create_name).small()))
-                        .child(div().w(px(180.)).child(Input::new(&self.create_folder).small()))
-                        .child(
-                            div()
-                                .id("note-create-confirm")
-                                .cursor_pointer()
-                                .rounded_md()
-                                .px_2()
-                                .py_0p5()
-                                .text_size(px(theme::font_small()))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .bg(theme::ACCENT)
-                                .text_color(theme::ON_ACCENT)
-                                .hover(|s| s.opacity(0.9))
-                                .on_click(cx.listener(|this, _, window, cx| this.create_note(window, cx)))
-                                .child("Create"),
-                        ),
-                )
-            })
             .into_any_element()
     }
 
@@ -712,19 +823,50 @@ impl NotesPage {
         match self.mode {
             NotesMode::Edit => div()
                 .id("notes-edit")
+                .debug_selector(|| "notes-edit".into())
                 .flex_1()
                 .min_h_0()
                 .p_2()
                 .child(Textarea::new(&self.editor).bordered(false).appearance(false)),
             NotesMode::Preview => div()
                 .id("notes-preview-pane")
+                .debug_selector(|| "notes-preview-pane".into())
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
                 .p_3()
                 .child(preview),
+            NotesMode::Live => div()
+                .id("notes-live")
+                .debug_selector(|| "notes-live".into())
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .id("notes-live-edit")
+                        .debug_selector(|| "notes-live-edit".into())
+                        .flex_1()
+                        .min_h_0()
+                        .p_2()
+                        .child(Textarea::new(&self.editor).bordered(false).appearance(false)),
+                )
+                .child(
+                    div()
+                        .id("notes-live-preview")
+                        .debug_selector(|| "notes-live-preview".into())
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .p_3()
+                        .border_t_1()
+                        .border_color(theme::HAIRLINE)
+                        .child(preview),
+                ),
             NotesMode::Split => div()
                 .id("notes-split")
+                .debug_selector(|| "notes-split".into())
                 .flex_1()
                 .min_h_0()
                 .flex()

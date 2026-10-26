@@ -14,7 +14,7 @@ use crate::ui::pr_issues::ItemListView;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
 use gpui::prelude::*;
-use gpui::{canvas, div, px, App, ClipboardItem, Context, Entity, FontWeight, MouseButton, SharedString, Window};
+use gpui::{canvas, deferred, div, px, App, ClipboardItem, Context, Entity, FontWeight, MouseButton, SharedString, Window};
 
 type MenuAction = Box<dyn Fn(&mut App)>;
 
@@ -369,6 +369,7 @@ impl Render for BottomBar {
             .px_3()
             .py_1p5()
             .relative()
+            .debug_selector(|| "bar-header".into())
             .child(
                 // favorite star
                 div()
@@ -437,17 +438,19 @@ impl Render for BottomBar {
                         .child(error),
                 )
             })
-            // refresh panel
+            // refresh panel — the .NET bar's bordered pill buttons
             .child(
                 div()
                     .id("bar-refresh")
                     .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .size(px(30.))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .hover(|s| s.border_color(theme::TEXT_FAINT))
                     .on_click({
                         let store = self.store.clone();
                         move |_, _, cx| {
@@ -461,12 +464,15 @@ impl Render for BottomBar {
                 div()
                     .id("bar-kebab")
                     .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .size(px(30.))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .debug_selector(|| "bar-kebab".into())
+                    .hover(|s| s.border_color(theme::TEXT_FAINT))
                     .on_click({
                         let this = cx.entity();
                         move |_, _, cx| {
@@ -476,7 +482,7 @@ impl Render for BottomBar {
                             });
                         }
                     })
-                    .child(div().text_color(theme::TEXT_MUTED).child("⋮")),
+                    .child(icon("icons/icon-ellipsis-vertical.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
             )
             .child(
                 div()
@@ -499,7 +505,12 @@ impl Render for BottomBar {
             );
 
         if kebab_open {
-            header = header.child(self.render_kebab_menu(github_url.clone(), folder.clone(), cx));
+            // deferred: the header paints before the tags row, tabs row and
+            // panel — without it those later siblings paint over the open
+            // menu and its lower items vanish behind the Overview tiles
+            header = header.child(deferred(
+                self.render_kebab_menu(github_url.clone(), folder.clone(), cx),
+            ));
         }
 
         div()
@@ -508,6 +519,7 @@ impl Render for BottomBar {
             .flex_col()
             .border_t_1()
             .border_color(theme::HAIRLINE)
+            .debug_selector(|| "bar-root".into())
             // .NET bar: the strip itself is the dark surface and the panels
             // inside it are the raised cards
             .bg(theme::CARD)
@@ -530,6 +542,7 @@ impl BottomBar {
         let store = self.store.clone();
         let this = cx.entity();
         let mut menu = div()
+            .id("kebab-menu")
             .absolute()
             .right(px(12.))
             .top(px(34.))
@@ -539,7 +552,8 @@ impl BottomBar {
             .border_color(theme::HAIRLINE)
             .bg(theme::POPUP)
             .shadow_md()
-            .py_1();
+            .py_1()
+            .debug_selector(|| "kebab-menu".into());
         let make_item = |label: &'static str, action: MenuAction| -> gpui::AnyElement {
             let this = this.clone();
             div()

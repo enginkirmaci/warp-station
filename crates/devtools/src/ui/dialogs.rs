@@ -96,6 +96,7 @@ fn plain_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &
         .border_color(theme::HAIRLINE)
         .hover(|s| s.bg(theme::HOVER))
         .on_click(on_click)
+        .child(label.to_string())
         .into_any_element()
 }
 
@@ -112,6 +113,7 @@ fn accent_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, 
         .text_color(theme::ON_ACCENT)
         .hover(|s| s.opacity(0.9))
         .on_click(on_click)
+        .child(label.to_string())
         .into_any_element()
 }
 

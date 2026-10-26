@@ -90,7 +90,16 @@ pub fn render_diff(text: &str, font_detail: f32, window: &mut Window) -> AnyElem
     }
 
     let styled = StyledText::new(combined).with_default_highlights(&style, highlights);
-    div().w_full().child(styled).into_any_element()
+    // GPUI shapes a StyledText at the *ambient* text style, not the
+    // highlight base style: the code font and the diff size must ride on the
+    // container, otherwise the block ignores font_detail and wrapped
+    // segments render in the UI font.
+    div()
+        .w_full()
+        .font_family(gpui::SharedString::from(theme::code_font()))
+        .text_size(px(font_detail))
+        .child(styled)
+        .into_any_element()
 }
 
 fn hunk_header(line: &str) -> Option<(usize, usize)> {

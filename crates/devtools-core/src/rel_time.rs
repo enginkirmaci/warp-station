@@ -25,6 +25,13 @@ pub fn format(at: DateTime<Local>) -> String {
     }
 }
 
+/// Relative label for an ISO-8601 timestamp (the gh pass's updatedAt shape).
+pub fn format_rfc3339(iso: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(iso)
+        .ok()
+        .map(|at| format(at.with_timezone(&Local)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,5 +51,13 @@ mod tests {
         assert_eq!(format(now - Duration::days(400)), "1y ago");
         // future clamps
         assert_eq!(format(now + Duration::minutes(5)), "just now");
+    }
+
+    #[test]
+    fn rfc3339_labels() {
+        let now = Local::now() - Duration::days(70);
+        let iso = now.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        assert_eq!(format_rfc3339(&iso).as_deref(), Some("2mo ago"));
+        assert_eq!(format_rfc3339("not a date"), None);
     }
 }

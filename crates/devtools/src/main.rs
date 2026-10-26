@@ -84,6 +84,10 @@ fn main() {
             gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // the bar's fixed 300px sidebar + repos list need a floor;
+                    // below this the README column collapses and the Overview
+                    // tiles/heading clip at the window edge
+                    window_min_size: Some(size(px(720.), px(480.))),
                     // empty by default in GPUI — needed so Hyprland/launchers match
                     // StartupWMClass=devtools in the desktop entry
                     app_id: Some("devtools".into()),

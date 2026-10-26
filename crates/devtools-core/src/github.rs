@@ -27,6 +27,8 @@ pub struct GitHubItem {
     pub is_draft: bool,
     pub review_decision: Option<String>,
     pub updated_at: Option<String>,
+    pub head_ref_name: Option<String>,
+    pub base_ref_name: Option<String>,
     pub is_pull_request: bool,
 }
 
@@ -156,6 +158,8 @@ fn parse_items(json: Option<&str>, is_pull_request: bool) -> Vec<GitHubItem> {
                 is_draft: item.get("isDraft").and_then(|d| d.as_bool()).unwrap_or(false),
                 review_decision: item.get("reviewDecision").and_then(|r| r.as_str()).map(str::to_string),
                 updated_at: item.get("updatedAt").and_then(|u| u.as_str()).map(str::to_string),
+                head_ref_name: item.get("headRefName").and_then(|b| b.as_str()).map(str::to_string),
+                base_ref_name: item.get("baseRefName").and_then(|b| b.as_str()).map(str::to_string),
                 is_pull_request,
             })
         })

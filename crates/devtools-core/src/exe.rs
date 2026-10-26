@@ -3,7 +3,7 @@
 //! the user-level install dirs. Results memoized per session.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// User-level install dirs probed after PATH (the GUI-minimal-PATH lookup):

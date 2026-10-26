@@ -159,6 +159,10 @@ impl Store {
                 let _ = store.net.send_blocking(NetCommand::LoadChanges {
                     folder: entry.folder_path.clone(),
                 });
+                // companion hook: DEVTOOLS_TAB=<tab label> picks the open tab
+                if let Ok(tab) = std::env::var("DEVTOOLS_TAB") {
+                    store.selected_tab = BottomBarTab::parse(&tab);
+                }
             }
         // E2E hook: DEVTOOLS_NOTES=1 opens the floating notes window on launch
         if std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1") {
@@ -1020,5 +1024,19 @@ impl BottomBarTab {
             BottomBarTab::Issues => "Issues",
             BottomBarTab::Azure => "Pipelines",
         }
+    }
+
+    /// Case-insensitive label lookup; unknown names fall back to Overview.
+    pub fn parse(text: &str) -> Self {
+        [
+            BottomBarTab::Overview,
+            BottomBarTab::Changes,
+            BottomBarTab::PullRequests,
+            BottomBarTab::Issues,
+            BottomBarTab::Azure,
+        ]
+        .into_iter()
+        .find(|tab| tab.label().eq_ignore_ascii_case(text.trim()))
+        .unwrap_or(BottomBarTab::Overview)
     }
 }

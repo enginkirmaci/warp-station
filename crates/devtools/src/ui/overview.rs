@@ -8,7 +8,7 @@ use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::icon;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, Window};
+use gpui::{div, px, relative, Context, Entity, FontWeight, Window};
 use gpui_kit::base::text::TextView;
 
 pub struct OverviewView {
@@ -68,7 +68,7 @@ impl Render for OverviewView {
                 div()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
-                    .child(if has_draft { "README draft (unsaved)" } else { "README" }),
+                    .child(if has_draft { "README.md (unsaved)" } else { "README.md" }),
             )
             .child(div().flex_1())
             .when(has_draft, |row| {
@@ -147,38 +147,24 @@ impl Render for OverviewView {
                         .id("readme-wand")
                         .cursor_pointer()
                         .rounded_md()
-                        .px_2()
-                        .py_0p5()
+                        .p_1()
                         .flex()
                         .items_center()
-                        .gap_1()
-                        .text_size(px(theme::font_small()))
-                        .text_color(theme::TEXT_MUTED)
-                        .border_1()
-                        .border_color(theme::HAIRLINE)
-                        .hover(|s| s.opacity(0.85))
+                        .hover(|s| s.bg(theme::HOVER))
                         .on_click(move |_, _, cx| {
                             store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
                         })
-                        .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED))
-                        .child("generate")
+                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
                 })
             })
             .when(wand_active, |row| {
                 row.child(
                     div()
                         .rounded_md()
-                        .px_2()
-                        .py_0p5()
+                        .p_1()
                         .flex()
                         .items_center()
-                        .gap_1()
-                        .text_size(px(theme::font_small()))
-                        .text_color(theme::ACCENT)
-                        .border_1()
-                        .border_color(theme::tint(theme::ACCENT))
-                        .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
-                        .child("generating…"),
+                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::ACCENT)),
                 )
             });
 
@@ -215,6 +201,7 @@ impl Render for OverviewView {
             .flex()
             .flex_row()
             .min_h_0()
+            .debug_selector(|| "overview-root".into())
             .child(
                 div()
                     .id("readme-column")
@@ -224,6 +211,7 @@ impl Render for OverviewView {
                     .flex()
                     .flex_col()
                     .min_h_0()
+                    .debug_selector(|| "readme-column".into())
                     .child(header)
                     .child(pane),
             )
@@ -239,13 +227,17 @@ fn render_sidebar(
     cx: &Context<OverviewView>,
 ) -> gpui::AnyElement {
     let settings = store.read(cx).settings();
-    // three stat tiles: each opens its tab
-    let tile = |id: &'static str, label: &'static str, count: u32, color: gpui::Rgba, tab: BottomBarTab| {
+    // three stat tiles: icon + count over the label, each opens its tab
+    let tile = |id: &'static str,
+                label: &'static str,
+                count: u32,
+                color: gpui::Rgba,
+                glyph: &'static str,
+                tab: BottomBarTab| {
         let store = store.clone();
         div()
             .id(id)
             .cursor_pointer()
-            .when(count > 0, |d| d.cursor_pointer())
             .flex_1()
             .flex()
             .flex_col()
@@ -255,6 +247,7 @@ fn render_sidebar(
             .border_color(theme::HAIRLINE)
             .bg(theme::STRONG_BACKGROUND)
             .p_2()
+            .debug_selector(move || id.to_string())
             .hover(|s| s.border_color(theme::TEXT_FAINT))
             .on_click(move |_, _, cx| {
                 let folder = store.read(cx).selected_repo.clone().unwrap_or_default();
@@ -265,14 +258,16 @@ fn render_sidebar(
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap_1()
+                    .gap_1p5()
                     .text_size(px(theme::font_title()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color)
+                    .child(icon(glyph, px(theme::icon_small()), color))
                     .child(format!("{count}")),
             )
             .child(
                 div()
+                    .min_w_0()
                     .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_MUTED)
                     .child(label),
@@ -284,7 +279,8 @@ fn render_sidebar(
 
     let mut side = div()
         .id("overview-sidebar")
-        .w(px(300.))
+        .w(relative(0.4))
+        .min_w(px(280.))
         .h_full()
         .flex()
         .flex_col()
@@ -293,21 +289,38 @@ fn render_sidebar(
         .border_l_1()
         .border_color(theme::HAIRLINE)
         .overflow_y_scroll()
+        .debug_selector(|| "overview-sidebar".into())
         .child(
             div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .child(tile("tile-changes", "Changes", modified, theme::AMBER_BRIGHT, BottomBarTab::Changes))
+                .debug_selector(|| "tiles-row".into())
+                .child(tile(
+                    "tile-changes",
+                    "Changes",
+                    modified,
+                    theme::AMBER_BRIGHT,
+                    "icons/icon-source-branch.svg",
+                    BottomBarTab::Changes,
+                ))
                 .when(settings.repos.enable_git_hub, |row| {
                     row.child(tile(
                         "tile-prs",
                         "Pull Requests",
                         prs,
                         theme::PURPLE_BRIGHT,
+                        "icons/icon-git-pull-request.svg",
                         BottomBarTab::PullRequests,
                     ))
-                    .child(tile("tile-issues", "Issues", issues, theme::SUCCESS_BRIGHT, BottomBarTab::Issues))
+                    .child(tile(
+                        "tile-issues",
+                        "Issues",
+                        issues,
+                        theme::SUCCESS_BRIGHT,
+                        "icons/icon-issue.svg",
+                        BottomBarTab::Issues,
+                    ))
                 }),
         )
         .child(
@@ -315,15 +328,16 @@ fn render_sidebar(
                 .text_size(px(theme::font_title()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Repository Details"),
-        )
-        .child(detail_row("Folder", folder.unwrap_or_default()));
-    if let Some(branch) = entry.and_then(|e| e.git_branch_name) {
-        side = side.child(detail_row("Branch", branch));
+        );
+    if let Some(details) = &details
+        && let Some(url) = &details.url
+    {
+        side = side.child(link_detail_row("GitHub", url.clone()));
+    }
+    if let Some(folder) = &folder {
+        side = side.child(link_detail_row("Folder", folder.clone()));
     }
     if let Some(details) = &details {
-        if let Some(url) = &details.url {
-            side = side.child(link_row("GitHub", url.clone()));
-        }
         if let Some(owner) = &details.owner {
             side = side.child(detail_row("Owner", owner.clone()));
         }
@@ -337,16 +351,18 @@ fn render_sidebar(
             side = side.child(detail_row("License", license.clone()));
         }
         if let Some(branch) = &details.default_branch {
-            side = side.child(detail_row("Default branch", branch.clone()));
+            side = side.child(detail_row("Default Branch", branch.clone()));
         }
         if !details.topics.is_empty() {
             side = side.child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap_1()
+                    .flex_row()
+                    .items_start()
                     .child(
                         div()
+                            .w(px(110.))
+                            .flex_shrink_0()
                             .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_MUTED)
                             .child("Topics"),
@@ -386,37 +402,79 @@ fn format_created(iso: &str) -> String {
         .unwrap_or_else(|_| iso.to_string())
 }
 
+/// The .NET details card: muted label column on the left, value on the right.
 fn detail_row(label: &str, value: String) -> impl IntoElement + use<> {
     div()
         .flex()
-        .flex_col()
-        .gap_0p5()
-        .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(label.to_string()))
+        .flex_row()
+        .items_start()
         .child(
             div()
+                .w(px(110.))
+                .flex_shrink_0()
+                .text_size(px(theme::font_small()))
+                .text_color(theme::TEXT_MUTED)
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
                 .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_DIM)
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
                 .child(value),
         )
 }
 
-fn link_row(label: &str, url: String) -> impl IntoElement + use<> {
-    let open_url = url.clone();
+/// A detail row whose value opens in the system opener, with the .NET row's
+/// trailing external-link glyph.
+fn link_detail_row(label: &str, value: String) -> impl IntoElement + use<> {
+    let open_value = value.clone();
     div()
         .id(gpui::SharedString::from(format!("detail-link-{label}")))
         .cursor_pointer()
         .flex()
-        .flex_col()
-        .gap_0p5()
+        .flex_row()
+        .items_start()
+        .hover(|s| s.bg(theme::HOVER))
         .on_click(move |_, _, _| {
-            let _ = devtools_core::terminal::open_folder(&open_url);
+            let _ = devtools_core::terminal::open_folder(&open_value);
         })
-        .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_MUTED).child(label.to_string()))
         .child(
             div()
+                .w(px(110.))
+                .flex_shrink_0()
                 .text_size(px(theme::font_small()))
-                .text_color(theme::ACCENT)
-                .child(url),
+                .text_color(theme::TEXT_MUTED)
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .overflow_hidden()
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::TEXT_DIM)
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(value),
+                )
+                .child(icon(
+                    "icons/icon-open-in-new.svg",
+                    px(theme::icon_small() - 2.),
+                    theme::TEXT_FAINT,
+                )),
         )
 }
 

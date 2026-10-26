@@ -10,10 +10,12 @@ use crate::ui::icon;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{div, px, App, Context, Entity, FontWeight, Pixels, SharedString, Window};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::component::table::{Column, DataTable, TableDelegate, TableEvent, TableState};
+use std::cell::Cell;
+use std::rc::Rc;
 
 pub struct ReposPage {
     pub store: Entity<Store>,
@@ -21,6 +23,13 @@ pub struct ReposPage {
     search: Entity<InputState>,
     sort_menu_open: bool,
     pub dialog: Option<Dialog>,
+    /// The table's available width, written by render each frame; the
+    /// delegate distributes it across the columns (the kit's table has no
+    /// flex columns — its widths only re-prepare on `TableState::refresh`).
+    available_width: Rc<Cell<Pixels>>,
+    /// Fingerprint of everything the column widths depend on (available
+    /// width, shortcut toggles, widest branch); a change triggers one refresh.
+    layout_fingerprint: Cell<u64>,
 }
 
 impl ReposPage {
@@ -29,8 +38,17 @@ impl ReposPage {
         let store_for_table = store.clone();
         let store_for_observe = store.clone();
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories"));
+        let available_width = Rc::new(Cell::new(px(1280.)));
         let table = cx.new(|cx| {
-            TableState::new(ReposDelegate { store: store.clone() }, window, cx).row_selectable(true)
+            TableState::new(
+                ReposDelegate {
+                    store: store.clone(),
+                    available_width: available_width.clone(),
+                },
+                window,
+                cx,
+            )
+            .row_selectable(true)
         });
 
         let search_for_store = search.clone();
@@ -53,11 +71,41 @@ impl ReposPage {
         .detach();
 
         cx.observe(&store_for_observe, |_, _, cx| cx.notify()).detach();
-        Self { store, table, search, sort_menu_open: false, dialog: None }
+        Self {
+            store,
+            table,
+            search,
+            sort_menu_open: false,
+            dialog: None,
+            available_width,
+            layout_fingerprint: Cell::new(0),
+        }
     }
 }
 
 impl ReposPage {
+    /// Packs everything the column widths depend on into one u64: available
+    /// width, the shortcut-toggle flags, and the widest branch in the current
+    /// projection.
+    fn layout_fingerprint_value(&self, available: Pixels, cx: &Context<Self>) -> u64 {
+        let settings = self.store.read(cx).settings();
+        let mut fp = f32::from(available).to_bits() as u64;
+        let mut flag = |bit: u32, on: bool| {
+            if on {
+                fp ^= 1 << bit;
+            }
+        };
+        flag(1, settings.opencode.enable_opencode);
+        flag(2, settings.repos.enable_zcode);
+        flag(3, cfg!(windows) && settings.repos.enable_visual_studio);
+        flag(4, settings.repos.enable_vscode);
+        flag(5, settings.repos.enable_terminal);
+        flag(6, settings.repos.enable_git_hub);
+        flag(7, settings.repos.enable_azure_dev_ops);
+        fp ^= (widest_branch_chars(&self.store, cx) as u64) << 8;
+        fp
+    }
+
     /// Sends the Add-Repositories dialog's deep scan.
     pub fn kick_deep_scan(&mut self, cx: &mut Context<Self>) {
         let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
@@ -168,6 +216,18 @@ impl Render for ReposPage {
                 dialog.error = result.error.or_else(|| Some("clone failed".into()));
             }
         }
+        // Dynamic columns: the kit's table only re-prepares column widths on
+        // refresh(), so feed it the real available width and refresh once per
+        // fingerprint change (window resize, shortcut toggles, widest branch).
+        let available = window.viewport_size().width
+            - px(24.) // the px_3 gutters around the table
+            - px(14.); // vertical scrollbar + slack
+        let fingerprint = self.layout_fingerprint_value(available, cx);
+        if fingerprint != self.layout_fingerprint.get() {
+            self.layout_fingerprint.set(fingerprint);
+            self.available_width.set(available);
+            self.table.update(cx, |state, cx| state.refresh(cx));
+        }
         let mut page = div()
             .size_full()
             .flex()
@@ -181,8 +241,11 @@ impl Render for ReposPage {
                     .min_h_0()
                     .px_3()
                     .pb_2()
-                    .child(DataTable::new(&self.table).with_size(Size::Size(px(64.))).stripe(false).bordered(false)),
+                    .child(DataTable::new(&self.table).with_size(Size::Size(px(36.))).stripe(false).bordered(false)),
             );
+        if self.sort_menu_open {
+            page = page.child(self.render_sort_overlay(cx));
+        }
         if let Some(dialog) = &mut self.dialog {
             page = page.child(dialog.render(window, cx));
         }
@@ -317,6 +380,7 @@ impl ReposPage {
                 // sort select: bordered box with up/down chevrons
                 div()
                     .id("sort-button")
+                    .debug_selector(|| "dt-sort-chip".into())
                     .cursor_pointer()
                     .rounded_md()
                     .border_1()
@@ -434,33 +498,47 @@ impl ReposPage {
                             .child("Clone from URL"),
                     ),
             )
-            .when(self.sort_menu_open, |toolbar| {
-                toolbar.child(
-                    div()
-                        .id("sort-menu-catcher")
-                        .absolute()
-                        .inset_0()
-                        .occlude()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.sort_menu_open = false;
-                            cx.notify();
-                        }))
-                        .child(
-                            div()
-                                .absolute()
-                                .right(px(260.))
-                                .top(px(44.))
-                                .min_w(px(150.))
-                                .rounded_lg()
-                                .border_1()
-                                .border_color(theme::HAIRLINE)
-                                .bg(theme::POPUP)
-                                .p_1()
-                                .shadow_lg()
-                                .child(self.render_sort_menu(cx)),
-                        ),
-                )
-            })
+            .into_any_element()
+    }
+
+    /// The sort dropdown as a root-level overlay: a full-page click-catcher
+    /// plus the menu under the sort chip. It cannot live inside the toolbar
+    /// row — later siblings (the table) paint over toolbar overflow, burying
+    /// the menu, and a row-sized catcher never sees clicks outside it.
+    fn render_sort_overlay(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
+            .absolute()
+            .inset_0()
+            .child(
+                div()
+                    .id("sort-menu-catcher")
+                    .debug_selector(|| "dt-sort-scrim".into())
+                    .absolute()
+                    .inset_0()
+                    .occlude()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.sort_menu_open = false;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .debug_selector(|| "dt-sort-menu".into())
+                    .top(px(48.))
+                    // right edge of the menu = right edge of the sort chip:
+                    // 12px toolbar padding + Clone/Add/refresh/Clear buttons
+                    // and gaps to the chip's right
+                    .right(px(370.))
+                    .min_w(px(150.))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .bg(theme::POPUP)
+                    .p_1()
+                    .shadow_lg()
+                    .child(self.render_sort_menu(cx)),
+            )
             .into_any_element()
     }
 
@@ -476,6 +554,7 @@ impl ReposPage {
         let mut list = div().flex().flex_col();
         for (label_index, (mode, label)) in modes.iter().enumerate() {
             let selected = *mode == current;
+            let mode = *mode;
             list = list.child(
                 div()
                     .id(gpui::ElementId::NamedInteger("sort-item".into(), label_index as u64))
@@ -489,13 +568,11 @@ impl ReposPage {
                     })
                     .when(!selected, |d| d.text_color(theme::TEXT_DIM))
                     .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let this_store = self.store.clone();
-                        let mode = *mode;
-                        move |_, _, cx| {
-                            this_store.update(cx, |s, cx| s.set_sort(mode, cx));
-                        }
-                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, cx| s.set_sort(mode, cx));
+                        this.sort_menu_open = false;
+                        cx.notify();
+                    }))
                     .child(*label),
             );
         }
@@ -505,6 +582,55 @@ impl ReposPage {
 
 fn index_of_tag(tags: &[String], tag: &str) -> usize {
     tags.iter().position(|t| t == tag).unwrap_or(0)
+}
+
+/// The shortcuts column hugs its button row: 28px buttons, 6px gaps, and the
+/// opencode group's divider (1px + mx_1). Follows the same settings gates as
+/// `shortcuts_cell`.
+fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
+    let mut buttons = 1usize; // open folder is always present
+    if settings.repos.enable_terminal {
+        buttons += 1;
+    }
+    if settings.repos.enable_vscode {
+        buttons += 1;
+    }
+    if settings.repos.enable_zcode {
+        buttons += 1;
+    }
+    if cfg!(windows) && settings.repos.enable_visual_studio {
+        buttons += 1;
+    }
+    let divider = settings.opencode.enable_opencode;
+    if divider {
+        buttons += 1; // the opencode button itself
+    }
+    let children = buttons + divider as usize;
+    let gaps = children.saturating_sub(1) as f32 * 6.0;
+    px(buttons as f32 * 28.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
+}
+
+/// The widest branch name in the current projection, in characters — the
+/// branch column hugs it so long branch names get room and short ones don't
+/// waste 240px.
+fn widest_branch_chars(store: &Entity<Store>, cx: &App) -> usize {
+    let store = store.read(cx);
+    store
+        .projected
+        .iter()
+        .filter_map(|&ix| store.repos.get(ix))
+        .filter_map(|repo| repo.git_branch_name.as_deref())
+        .filter(|branch| !branch.is_empty())
+        .map(|branch| branch.chars().count())
+        .max()
+        .unwrap_or(6)
+}
+
+/// Branch column width from the widest branch pill: git glyph, pill padding,
+/// ~7.2px per character in the code font, clamped to sane bounds.
+fn branch_column_width(store: &Entity<Store>, cx: &App) -> Pixels {
+    let chars = widest_branch_chars(store, cx) as f32;
+    px(52. + chars * 7.2).clamp(px(110.), px(240.))
 }
 
 fn sort_label(mode: RepoSortMode) -> &'static str {
@@ -558,6 +684,9 @@ fn column_kind(col_ix: usize, settings: &AppSettings) -> ColKind {
 
 pub struct ReposDelegate {
     pub store: Entity<Store>,
+    /// The table's available width, kept current by the page's render; see
+    /// `ReposPage::available_width`.
+    pub available_width: Rc<Cell<Pixels>>,
 }
 
 impl ReposDelegate {
@@ -603,23 +732,39 @@ impl TableDelegate for ReposDelegate {
 
     fn column(&self, col_ix: usize, cx: &App) -> Column {
         let settings = self.store.read(cx).settings();
+        // fixed-width columns scale with the font factor so scaled text keeps
+        // fitting; the name column absorbs whatever is left over
+        let scale = theme::font_small() / 12.0;
+        let mut fixed = px(36.) // star
+            + shortcuts_column_width(&settings)
+            + px(150.) * scale // changes
+            + px(84.) * scale; // activity
+        if settings.repos.enable_git_hub {
+            fixed += px(96.) * scale;
+        }
+        if settings.repos.enable_azure_dev_ops {
+            fixed += px(120.) * scale;
+        }
+        let branch = branch_column_width(&self.store, cx);
+        let name = (self.available_width.get() - fixed - branch).max(px(140.));
         match column_kind(col_ix, &settings) {
             ColKind::Star => {
                 Column::new("star", "").width(px(36.)).resizable(false).text_center()
             }
-            ColKind::Name => Column::new("name", "Repository").width(px(280.)).sortable(),
+            ColKind::Name => Column::new("name", "Repository").width(name).sortable().min_width(px(140.)),
             ColKind::Shortcuts => {
-                // full set: opencode + divider + zcode + solution + vscode +
-                // folder + terminal = 6 buttons, one divider, six gaps
-                Column::new("shortcuts", "").width(px(270.)).resizable(false)
+                // hugs its button row: the width follows the enabled launchers
+                Column::new("shortcuts", "").width(shortcuts_column_width(&settings)).resizable(false)
             }
-            ColKind::Branch => Column::new("branch", "Branch").width(px(240.)).resizable(false),
-            ColKind::Changes => Column::new("changes", "Changes").width(px(170.)).resizable(false).sortable(),
-            ColKind::Github => Column::new("github", "GitHub").width(px(140.)).sortable(),
+            ColKind::Branch => Column::new("branch", "Branch").width(branch).resizable(false),
+            ColKind::Changes => Column::new("changes", "Changes").width(px(150.) * scale).resizable(false).sortable(),
+            ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sortable(),
             ColKind::Azure => {
-                Column::new("azure", "Azure DevOps").width(px(200.)).text_center().resizable(false)
+                Column::new("azure", "Azure DevOps").width(px(120.) * scale).text_center().resizable(false)
             }
-            ColKind::Activity => Column::new("activity", "Last activity").width(px(90.)).resizable(false).sortable(),
+            ColKind::Activity => {
+                Column::new("activity", "Last activity").width(px(84.) * scale).resizable(false).sortable()
+            }
         }
     }
 
@@ -716,6 +861,7 @@ impl TableDelegate for ReposDelegate {
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .text_size(px(theme::font_body() + 1.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
@@ -1041,7 +1187,7 @@ fn shortcuts_cell(
             .border_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::CARD)
-            .size(px(36.))
+            .size(px(28.))
             .flex()
             .items_center()
             .justify_center()
@@ -1094,7 +1240,7 @@ fn shortcuts_cell(
             div()
                 .mx_1()
                 .self_center()
-                .h(px(20.))
+                .h(px(16.))
                 .w(px(1.))
                 .bg(theme::HAIRLINE),
         );
@@ -1127,7 +1273,7 @@ fn shortcuts_cell(
                     Box::new(move || terminal::open_solution(&solution, &ide)),
                 ));
             }
-            None => row = row.child(div().size(px(36.))),
+            None => row = row.child(div().size(px(28.))),
         }
     }
     if settings.repos.enable_vscode {
@@ -1196,4 +1342,33 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         ))
         .child(if busy { "summarizing…" } else { "Summary" })
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with(launchers: &[&str]) -> AppSettings {
+        let mut settings = AppSettings::default();
+        settings.repos.enable_terminal = launchers.contains(&"terminal");
+        settings.repos.enable_vscode = launchers.contains(&"vscode");
+        settings.repos.enable_zcode = launchers.contains(&"zcode");
+        settings.repos.enable_visual_studio = launchers.contains(&"sln");
+        settings.opencode.enable_opencode = launchers.contains(&"opencode");
+        settings
+    }
+
+    #[test]
+    fn shortcuts_column_hugs_the_enabled_launchers() {
+        // folder only: one 28px button, no gaps, no divider, slack 8
+        assert_eq!(shortcuts_column_width(&settings_with(&[])), px(36.));
+        // folder + terminal: two buttons + one gap
+        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(70.));
+        // full linux set: opencode button + divider, zcode, vscode, folder,
+        // terminal = 5 buttons + divider = 6 children -> 5 gaps + divider
+        // (1px + mx_1 = 9); the solution slot only joins on Windows
+        let full =
+            shortcuts_column_width(&settings_with(&["terminal", "vscode", "zcode", "opencode"]));
+        assert_eq!(full, px(5. * 28. + 5. * 6. + 9. + 8.));
+    }
 }
