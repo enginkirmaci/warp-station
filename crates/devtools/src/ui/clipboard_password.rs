@@ -6,7 +6,7 @@ use crate::store::Store;
 use crate::theme;
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, Window};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::Sizable as _;
 
 pub struct ClipboardPasswordDrawer {
@@ -16,6 +16,7 @@ pub struct ClipboardPasswordDrawer {
     /// A finished save asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
+    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
 }
 
 /// The stored password decoded, ready for the clipboard.
@@ -41,7 +42,7 @@ pub fn copy_stored_password(store: &Entity<Store>, cx: &mut App) -> &'static str
 
 fn status_line(has_stored: bool) -> &'static str {
     if has_stored {
-        "Password is stored and ready to use with Ctrl+Shift+V"
+        "Password is stored."
     } else {
         "No password stored yet"
     }
@@ -51,16 +52,37 @@ impl ClipboardPasswordDrawer {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let has_stored = stored_password(&store.read(cx).settings()).is_some();
         let password = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Type your password here…")
-                .masked(true)
+            let state = InputState::new(window, cx).masked(true);
+            if has_stored {
+                state.placeholder("Stored — type a new password")
+            } else {
+                state.placeholder("Type your password here…")
+            }
         });
+        cx.subscribe(&password, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.save(cx);
+            }
+            // the Save button enables as soon as there is something to save
+            cx.notify();
+        })
+        .detach();
         Self {
             store,
             password,
             status: status_line(has_stored).to_string(),
             pending_clear: false,
+            on_close: None,
         }
+    }
+
+    /// Wires the host window's close action into the shared drawer header.
+    pub fn with_on_close(
+        mut self,
+        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    ) -> Self {
+        self.on_close = Some(std::rc::Rc::new(handler));
+        self
     }
 
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -111,7 +133,7 @@ impl Render for ClipboardPasswordDrawer {
 
         div()
             .id("clipboard-password-drawer")
-            .w(px(380.))
+            .w(px(420.))
             .h_full()
             .bg(theme::POPUP)
             .border_l_1()
@@ -122,12 +144,11 @@ impl Render for ClipboardPasswordDrawer {
             .flex_col()
             .gap_2()
             .occlude()
-            .child(
-                div()
-                    .text_size(px(theme::font_title()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Clipboard Password"),
-            )
+            .child(crate::ui::drawer_header(
+                "Clipboard Password",
+                "Copy the stored password from anywhere with Ctrl+Shift+V.",
+                self.on_close.clone(),
+            ))
             .child(
                 div()
                     .flex()
@@ -164,7 +185,7 @@ impl Render for ClipboardPasswordDrawer {
                     .child(accent_button(
                         "clipboard-save",
                         "Save Password",
-                        !stored,
+                        !self.password.read(cx).value().trim().is_empty(),
                         cx.listener(|this, _, _, cx| this.save(cx)),
                     )),
             )

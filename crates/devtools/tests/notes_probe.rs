@@ -5,7 +5,6 @@ use devtools::store::Store;
 use devtools::ui::notes::NotesPage;
 use gpui::prelude::*;
 use gpui::{px, size, Bounds, Modifiers, Point, Pixels, TestAppContext, VisualTestContext};
-use std::path::PathBuf;
 
 fn seed_notes(home: &std::path::Path) {
     let notes = home.join(".devtools/notes/alpha");

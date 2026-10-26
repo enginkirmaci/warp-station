@@ -13,6 +13,7 @@ use gpui_kit::component::Sizable as _;
 pub struct NugetDrawer {
     pub store: Entity<Store>,
     watch_input: Entity<InputState>,
+    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
 }
 
 impl NugetDrawer {
@@ -37,7 +38,16 @@ impl NugetDrawer {
         })
         .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store, watch_input }
+        Self { store, watch_input, on_close: None }
+    }
+
+    /// Wires the host window's close action into the shared drawer header.
+    pub fn with_on_close(
+        mut self,
+        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    ) -> Self {
+        self.on_close = Some(std::rc::Rc::new(handler));
+        self
     }
 
     /// Persists the typed folder and applies it to the service.
@@ -92,7 +102,7 @@ impl Render for NugetDrawer {
 
         div()
             .id("nuget-drawer")
-            .w(px(440.))
+            .w(px(420.))
             .h_full()
             .bg(theme::POPUP)
             .border_l_1()
@@ -103,12 +113,11 @@ impl Render for NugetDrawer {
             .flex_col()
             .gap_2()
             .occlude()
-            .child(
-                div()
-                    .text_size(px(theme::font_title()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("NuGet Package Manager"),
-            )
+            .child(crate::ui::drawer_header(
+                "NuGet Package Manager",
+                "Refresh the global cache when a local build produces .nupkg files.",
+                self.on_close.clone(),
+            ))
             // setup card: watch folder, resolved cache paths, register
             .child(
                 div()
@@ -124,32 +133,35 @@ impl Render for NugetDrawer {
                         div()
                             .text_size(px(theme::font_small() - 1.))
                             .text_color(theme::TEXT_MUTED)
-                            .child("Watch Directory"),
+                            .child("Watch directory"),
                     )
                     .child(Input::new(&self.watch_input).small())
-                    .child(
-                        div()
-                            .text_size(px(theme::font_small() - 2.))
-                            .text_color(theme::TEXT_FAINT)
-                            .child("Enter applies the folder to a running watch."),
-                    )
-                    .child(path_row("Local Cache", snapshot.copy_folder.as_deref()))
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(path_row("Global Cache", snapshot.global_packages_folder.as_deref()))
-                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child("Enter applies the folder to a running watch."),
+                            )
                             .child(action_button(
                                 "nuget-register",
-                                "Register",
+                                "Register source",
                                 theme::ACCENT,
                                 false,
                                 cx.listener(|this, _, _, cx| this.register(cx)),
                             )),
-                    ),
+                    )
+                    .child(path_row("Local cache", snapshot.copy_folder.as_deref()))
+                    .child(path_row(
+                        "Global cache",
+                        snapshot.global_packages_folder.as_deref(),
+                    )),
             )
             // how-it-works card
             .child(
@@ -259,6 +271,7 @@ fn path_row(label: &str, value: Option<&str>) -> gpui::AnyElement {
         .gap_2()
         .child(
             div()
+                .w(px(90.))
                 .text_size(px(theme::font_small() - 1.))
                 .text_color(theme::TEXT_MUTED)
                 .child(label.to_string()),
@@ -271,7 +284,7 @@ fn path_row(label: &str, value: Option<&str>) -> gpui::AnyElement {
                 .text_color(theme::TEXT_DIM)
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .child(value.unwrap_or("—").to_string()),
+                .child(value.unwrap_or("Not resolved yet").to_string()),
         )
         .into_any_element()
 }

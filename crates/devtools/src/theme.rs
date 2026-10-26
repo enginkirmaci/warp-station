@@ -131,7 +131,9 @@ pub const HOVER: Hsla = hsla(0.0, 0.0, 1.0, 0.08);
 pub const TEXT: Rgba = c(0xEDFFFFFF); // SukiText (white at 0.93)
 pub const TEXT_DIM: Rgba = c(0xCAFFFFFF); // SukiLowText — secondary body text
 pub const TEXT_MUTED: Rgba = c(0xB4B4B4FF); // SukiMuteText — labels, metadata
-pub const TEXT_FAINT: Rgba = c(0x727272FF); // hints, quietest meta
+/// Hints and the quietest metadata. Kept at ~4.6:1 on BACKGROUND (the old
+/// 0x727272 sat at ~3.2:1, below AA for the 10–11px text it is used on).
+pub const TEXT_FAINT: Rgba = c(0x8C8C8CFF);
 
 /// Text selection in fields: the accent at 25% alpha.
 pub fn selection() -> Rgba {

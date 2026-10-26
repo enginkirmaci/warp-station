@@ -11,7 +11,7 @@ use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, Pixels, SharedString, Window};
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::component::table::{Column, DataTable, TableDelegate, TableEvent, TableState};
 use std::cell::Cell;
@@ -37,6 +37,11 @@ impl ReposPage {
         let store_for_search = store.clone();
         let store_for_table = store.clone();
         let store_for_observe = store.clone();
+        // `TableState` queues its SelectRow event for a later effect flush, so
+        // a boolean "currently syncing" flag would already be false by the
+        // time the event arrives. Count the rows we push in from the store
+        // and let the subscription swallow exactly those events.
+        let suppressed_select_rows = Rc::new(Cell::new(0usize));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories"));
         let available_width = Rc::new(Cell::new(px(1280.)));
         let table = cx.new(|cx| {
@@ -57,12 +62,36 @@ impl ReposPage {
                 let text = search_for_store.read(cx).value().to_string();
                 store_for_search.update(cx, |s, cx| s.set_search(text, cx));
             }
+            // Enter in the filter opens the first remaining row, so a search
+            // can be completed without reaching for the mouse.
+            if matches!(event, InputEvent::PressEnter { .. })
+                && !search_for_store.read(cx).value().trim().is_empty()
+            {
+                let folder = {
+                    let store = store_for_search.read(cx);
+                    store
+                        .projected
+                        .first()
+                        .and_then(|&ix| store.repos.get(ix))
+                        .map(|repo| repo.folder_path.to_string_lossy().to_string())
+                };
+                if let Some(folder) = folder {
+                    store_for_search.update(cx, |s, cx| {
+                        s.open_repo_tab(&folder, BottomBarTab::Overview, cx)
+                    });
+                }
+            }
         })
         .detach();
 
         let table_for_store = table.clone();
+        let suppressed_for_table = suppressed_select_rows.clone();
         cx.subscribe(&table, move |_, _, event: &TableEvent, cx| {
             if let TableEvent::SelectRow(row_ix) = event {
+                if suppressed_for_table.get() > 0 {
+                    suppressed_for_table.set(suppressed_for_table.get() - 1);
+                    return;
+                }
                 let folder = table_for_store.read(cx).delegate().folder_at(*row_ix, cx);
                 tracing::info!("row {row_ix} selected -> {folder:?}");
                 store_for_table.update(cx, |s, cx| s.select_repo(folder, cx));
@@ -70,7 +99,35 @@ impl ReposPage {
         })
         .detach();
 
-        cx.observe(&store_for_observe, |_, _, cx| cx.notify()).detach();
+        // Mirror selection made anywhere else (global search, notes button,
+        // E2E hooks, close_bar) into the table's highlight. The table only
+        // paints the store's selection this way — it has no external binding.
+        let table_for_observe = table.clone();
+        let suppressed_for_observe = suppressed_select_rows.clone();
+        cx.observe(&store_for_observe, move |_, store, cx| {
+            let wanted = {
+                let store = store.read(cx);
+                store.selected_repo.as_deref().and_then(|folder| {
+                    table_for_observe.read(cx).delegate().row_for_folder(folder, cx)
+                })
+            };
+            if wanted != table_for_observe.read(cx).selected_row() {
+                match wanted {
+                    Some(row_ix) => {
+                        // the set_selected_row event is skipped by the
+                        // subscription above, so select_repo never toggles an
+                        // externally-selected row closed
+                        suppressed_for_observe.set(suppressed_for_observe.get() + 1);
+                        table_for_observe.update(cx, |table, cx| {
+                            table.set_selected_row(row_ix, cx)
+                        });
+                    }
+                    None => table_for_observe.update(cx, |table, cx| table.clear_selection(cx)),
+                }
+            }
+            cx.notify();
+        })
+        .detach();
         Self {
             store,
             table,
@@ -84,6 +141,27 @@ impl ReposPage {
 }
 
 impl ReposPage {
+    /// Ctrl+F from the window root: put the cursor in the list filter.
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    /// Escape closes the topmost page overlay. Returns whether one was
+    /// actually open, so the window can fall through to its own layers.
+    pub fn dismiss_overlay(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.dialog.is_some() {
+            self.dialog = None;
+            cx.notify();
+            return true;
+        }
+        if self.sort_menu_open {
+            self.sort_menu_open = false;
+            cx.notify();
+            return true;
+        }
+        false
+    }
+
     /// Packs everything the column widths depend on into one u64: available
     /// width, the shortcut-toggle flags, and the widest branch in the current
     /// projection.
@@ -243,6 +321,26 @@ impl Render for ReposPage {
                     .pb_2()
                     .child(DataTable::new(&self.table).with_size(Size::Size(px(36.))).stripe(false).bordered(false)),
             );
+        // With the workspace closed the table's lower half is empty; a quiet
+        // footer explains what a row opens instead of leaving a dead area.
+        if self.store.read(cx).selected_repo.is_none() {
+            page = page.child(
+                div()
+                    .h(px(26.))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_4()
+                    .text_size(px(theme::font_small() - 1.))
+                    .text_color(theme::TEXT_FAINT)
+                    .child(icon("icons/icon-chevron-right.svg", px(10.), theme::TEXT_FAINT))
+                    .child("Select a repository to open its overview, changes and notes")
+                    .child(div().flex_1())
+                    .child("Ctrl+F filters the list"),
+            );
+        }
         if self.sort_menu_open {
             page = page.child(self.render_sort_overlay(cx));
         }
@@ -255,94 +353,102 @@ impl Render for ReposPage {
 
 impl ReposPage {
     fn render_toolbar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (tags, active_tag, scanning, summary_busy, notice) = {
+        let (tags, active_tags, scanning, summary_busy, notice) = {
             let store = self.store.read(cx);
             let notice = store
                 .notice
                 .as_ref()
                 .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(4))
                 .map(|(text, _)| text.clone());
-            (store.all_tags(), store.tag_filters.clone(), store.scanning, store.summary_busy, notice)
+            (
+                store.all_tags(),
+                store.tag_filters.clone(),
+                store.scanning,
+                store.summary_busy,
+                notice,
+            )
         };
 
-        // header count chips: repos always; changes when non-zero; PRs and
-        // issues together when the GitHub column is on and either is open
-        let store = self.store.read(cx);
-        let total_repos = store.repos.len();
-        let total_changes: u32 = store.repos.iter().map(|r| r.git_modified_count).sum();
-        let total_prs: u32 = store.repos.iter().map(|r| r.github_pr_count).sum();
-        let total_issues: u32 = store.repos.iter().map(|r| r.github_issue_count).sum();
-        let github_on = store.settings().repos.enable_git_hub;
+        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active, sort_mode) = {
+            let store = self.store.read(cx);
+            (
+                store.repos.len(),
+                store.repos.iter().map(|r| r.git_modified_count).sum::<u32>(),
+                store.repos.iter().map(|r| r.github_pr_count).sum::<u32>(),
+                store.repos.iter().map(|r| r.github_issue_count).sum::<u32>(),
+                store.settings().repos.enable_git_hub,
+                !store.search.trim().is_empty() || !store.tag_filters.is_empty(),
+                store.sort_mode,
+            )
+        };
 
-        let count_chip = |count: u32, color: gpui::Rgba, icon_path: Option<&'static str>| {
+        let count_chip = |count: u32,
+                          label: &'static str,
+                          color: gpui::Rgba,
+                          icon_path: Option<&'static str>| {
             div()
-                .rounded_md()
-                .px_1p5()
+                .rounded_full()
+                .px_2()
                 .py_0p5()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_small() - 1.))
+                .font_weight(FontWeight::MEDIUM)
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_1()
                 .bg(theme::tint(color))
                 .text_color(color)
-                .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 2.), color)))
-                .child(format!("{count}"))
+                .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 3.), color)))
+                .child(format!("{count} {label}"))
         };
 
-        // filter checkboxes: OR semantics across every checked tag
-        let mut filters = div().flex().flex_row().items_center().gap_3();
-        for tag in &tags {
-            let active = active_tag.iter().any(|t| t.eq_ignore_ascii_case(tag));
-            filters = filters.child(
+        // tag filters read as pills: tinted+bordered when active, quiet
+        // outlines otherwise (OR semantics across the checked set)
+        let mut tag_pills = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1p5()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden();
+        for (index, tag) in tags.iter().enumerate() {
+            let active = active_tags.iter().any(|t| t.eq_ignore_ascii_case(tag));
+            tag_pills = tag_pills.child(
                 div()
-                    .id(gpui::ElementId::NamedInteger("filter".into(), index_of_tag(&tags, tag) as u64))
+                    .id(gpui::ElementId::NamedInteger("filter".into(), index as u64))
                     .cursor_pointer()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .hover(|s| s.opacity(0.85))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(if active { theme::ACCENT } else { theme::HAIRLINE })
+                    .px_2()
+                    .py_0p5()
+                    .text_size(px(theme::font_small() - 1.))
+                    .when(active, |d| {
+                        d.bg(theme::tint(theme::ACCENT))
+                            .text_color(theme::ACCENT)
+                            .font_weight(FontWeight::MEDIUM)
+                    })
+                    .when(!active, |d| d.text_color(theme::TEXT_MUTED))
+                    .hover(|s| s.border_color(theme::TEXT_FAINT).text_color(theme::TEXT))
                     .on_click({
                         let tag = tag.clone();
                         cx.listener(move |this, _, _, cx| {
                             this.store.update(cx, |s, cx| s.toggle_tag_filter(&tag, cx));
                         })
                     })
-                    .child(
-                        div()
-                            .rounded_xs()
-                            .size(px(13.))
-                            .border_1()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .border_color(theme::TEXT_FAINT)
-                            .when(active, |d| d.bg(theme::ACCENT).border_color(theme::ACCENT))
-                            .when(active, |d| {
-                                d.child(icon("icons/icon-check.svg", px(9.), theme::ON_ACCENT))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::font_small()))
-                            .when(active, |d| d.text_color(theme::TEXT).font_weight(FontWeight::SEMIBOLD))
-                            .when(!active, |d| d.text_color(theme::TEXT_MUTED))
-                            .child(tag.clone()),
-                    ),
+                    .child(tag.clone()),
             );
         }
 
-        let store_handle_refresh = self.store.clone();
-        let store_handle_clear = self.store.clone();
-        div()
+        let store_refresh = self.store.clone();
+        let header_row = div()
+            .h(px(46.))
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
             .px_3()
-            .py_2()
-            .relative()
             .child(icon("icons/icon-logo-mark.svg", px(theme::icon_medium()), theme::TEXT_MUTED))
             .child(
                 div()
@@ -355,15 +461,27 @@ impl ReposPage {
                 div()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
-                    .child(format!("{}", total_repos)),
+                    .child(format!("{total_repos} repos")),
             )
-            .when(total_changes > 0, |d| d.child(count_chip(total_changes, theme::AMBER_BRIGHT, None)))
-            .when(github_on && (total_prs > 0 || total_issues > 0), |d| {
-                d.child(count_chip(total_prs, theme::PURPLE_BRIGHT, Some("icons/icon-git-pull-request.svg")))
-                    .child(count_chip(total_issues, theme::SUCCESS_BRIGHT, Some("icons/icon-issue.svg")))
+            .when(total_changes > 0, |row| {
+                row.child(count_chip(total_changes, "changes", theme::AMBER_BRIGHT, None))
             })
-            .child(div().w(px(8.)))
-            .child(filters)
+            .when(github_on && total_prs > 0, |row| {
+                row.child(count_chip(
+                    total_prs,
+                    "PRs",
+                    theme::PURPLE_BRIGHT,
+                    Some("icons/icon-git-pull-request.svg"),
+                ))
+            })
+            .when(github_on && total_issues > 0, |row| {
+                row.child(count_chip(
+                    total_issues,
+                    "issues",
+                    theme::SUCCESS_BRIGHT,
+                    Some("icons/icon-issue.svg"),
+                ))
+            })
             .child(div().flex_1())
             .when_some(notice, |row, notice| {
                 row.child(
@@ -372,132 +490,130 @@ impl ReposPage {
                         .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_MUTED)
                         .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
                         .child(notice),
                 )
             })
             .child(summary_button(&self.store, summary_busy))
+            .child(icon_action(
+                "refresh-button",
+                "icons/icon-refresh.svg",
+                if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
+                move |_, _, cx| {
+                    store_refresh.update(cx, |s, cx| s.refresh(cx));
+                },
+            ))
+            .child(toolbar_action(
+                "add-repo-button",
+                "Add Repository",
+                Some("icons/icon-plus.svg"),
+                true,
+                cx.listener(|this, _, window, cx| {
+                    this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, cx)));
+                    cx.notify();
+                }),
+            ))
+            .child(toolbar_action(
+                "clone-button",
+                "Clone",
+                Some("icons/icon-cloud-download.svg"),
+                false,
+                cx.listener(|this, _, window, cx| {
+                    let store = this.store.clone();
+                    this.dialog = Some(Dialog::Clone(CloneDialog::new(&store, window, cx)));
+                    cx.notify();
+                }),
+            ));
+
+        let store_clear = self.store.clone();
+        let search = self.search.clone();
+        let filter_row = div()
+            .h(px(46.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .border_t_1()
+            .border_color(theme::BORDER_LIGHT)
             .child(
-                // sort select: bordered box with up/down chevrons
+                div()
+                    .w(px(280.))
+                    .child(
+                        Input::new(&self.search)
+                            .small()
+                            .cleanable(true)
+                            .prefix(icon(
+                                "icons/icon-search.svg",
+                                px(theme::icon_small() - 1.),
+                                theme::TEXT_FAINT,
+                            )),
+                    ),
+            )
+            .child(tag_pills)
+            .when(filters_active, |row| {
+                row.child(
+                    div()
+                        .id("clear-button")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_1()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                        .on_click(move |_, window, cx| {
+                            search.update(cx, |state, cx| state.set_value("", window, cx));
+                            store_clear.update(cx, |s, cx| s.clear_filters(cx));
+                        })
+                        .child("Clear"),
+                )
+            })
+            .child(
+                // sort select: compact chip; the menu opens below the toolbar
                 div()
                     .id("sort-button")
                     .debug_selector(|| "dt-sort-chip".into())
                     .cursor_pointer()
                     .rounded_md()
-                    .border_1()
-                    .border_color(theme::HAIRLINE)
+                    .bg(theme::CHIP)
                     .px_2p5()
                     .py_1()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap_2()
-                    .hover(|s| s.border_color(theme::TEXT_FAINT))
+                    .gap_1p5()
+                    .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.sort_menu_open = !this.sort_menu_open;
                         cx.notify();
                     }))
                     .child(
                         div()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::TEXT_DIM)
-                            .child({
-                let store = self.store.read(cx);
-                sort_label(store.sort_mode).to_string()
-            }),
+                            .text_size(px(theme::font_small() - 1.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child("Sort"),
                     )
-                    .child(div().text_size(px(theme::font_small() - 2.)).text_color(theme::TEXT_FAINT).child("⇅")),
-            )
-            .child(
-                div()
-                    .id("clear-button")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .text_size(px(theme::font_small()))
-                    .text_color(theme::TEXT_MUTED)
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let search = self.search.clone();
-                        move |_, window, cx| {
-                            search.update(cx, |state, cx| state.set_value("", window, cx));
-                            store_handle_clear.update(cx, |s, cx| s.clear_filters(cx));
-                        }
-                    })
-                    .child("Clear"),
-            )
-            .child(
-                div()
-                    .id("refresh-button")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(28.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(move |_, _, cx| {
-                        store_handle_refresh.update(cx, |s, cx| s.refresh(cx));
-                    })
-                    .child(icon(
-                        "icons/icon-refresh.svg",
-                        px(theme::icon_small()),
-                        if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
-                    )),
-            )
-            .child(
-                div()
-                    .id("add-repo-button")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme::ACCENT)
-                    .px_3()
-                    .py_1p5()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .hover(|s| s.bg(theme::tint(theme::ACCENT)))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, cx)));
-                        cx.notify();
-                    }))
-                    .child(div().text_color(theme::ACCENT).text_size(px(theme::font_small())).child("+"))
-                    .child(
-                        div()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::ACCENT)
-                            .child("Add Repository"),
-                    ),
-            )
-            .child(
-                div()
-                    .id("clone-button")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme::HAIRLINE)
-                    .px_3()
-                    .py_1p5()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let store = this.store.clone();
-                        this.dialog = Some(Dialog::Clone(CloneDialog::new(&store, window, cx)));
-                        cx.notify();
-                    }))
-                    .child(icon("icons/icon-cloud-download.svg", px(theme::icon_small()), theme::TEXT_DIM))
                     .child(
                         div()
                             .text_size(px(theme::font_small()))
                             .text_color(theme::TEXT_DIM)
-                            .child("Clone from URL"),
-                    ),
-            )
+                            .child(sort_label(sort_mode).to_string()),
+                    )
+                    .child(icon(
+                        "icons/icon-chevron-down.svg",
+                        px(theme::icon_small() - 2.),
+                        theme::TEXT_FAINT,
+                    )),
+            );
+
+        div()
+            .flex()
+            .flex_col()
+            .relative()
+            .child(header_row)
+            .child(filter_row)
             .into_any_element()
     }
 
@@ -525,12 +641,12 @@ impl ReposPage {
                 div()
                     .absolute()
                     .debug_selector(|| "dt-sort-menu".into())
-                    .top(px(48.))
-                    // right edge of the menu = right edge of the sort chip:
-                    // 12px toolbar padding + Clone/Add/refresh/Clear buttons
-                    // and gaps to the chip's right
-                    .right(px(370.))
-                    .min_w(px(150.))
+                    // the two toolbar rows are 46px each; the menu hangs
+                    // just below them, right-aligned with the sort chip
+                    // (both sit 12px from the window edge)
+                    .top(px(96.))
+                    .right(px(12.))
+                    .w(px(180.))
                     .rounded_lg()
                     .border_1()
                     .border_color(theme::HAIRLINE)
@@ -562,6 +678,10 @@ impl ReposPage {
                     .rounded_md()
                     .px_2()
                     .py_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
                     .text_size(px(theme::font_small()))
                     .when(selected, |d| {
                         d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
@@ -573,6 +693,11 @@ impl ReposPage {
                         this.sort_menu_open = false;
                         cx.notify();
                     }))
+                    .child(
+                        div().w(px(14.)).flex().items_center().when(selected, |d| {
+                            d.child(icon("icons/icon-check.svg", px(theme::icon_small() - 2.), theme::ACCENT))
+                        }),
+                    )
                     .child(*label),
             );
         }
@@ -580,8 +705,58 @@ impl ReposPage {
     }
 }
 
-fn index_of_tag(tags: &[String], tag: &str) -> usize {
-    tags.iter().position(|t| t == tag).unwrap_or(0)
+/// A labelled toolbar button: filled when primary, outlined otherwise.
+fn toolbar_action(
+    id: &'static str,
+    label: &'static str,
+    icon_path: Option<&'static str>,
+    primary: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::AnyElement {
+    let color = if primary { theme::ON_ACCENT } else { theme::TEXT_DIM };
+    div()
+        .id(id)
+        .cursor_pointer()
+        .rounded_md()
+        .h(px(30.))
+        .px_3()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
+        .text_size(px(theme::font_small()))
+        .text_color(color)
+        .when(primary, |d| d.bg(theme::ACCENT).hover(|s| s.opacity(0.9)))
+        .when(!primary, |d| {
+            d.border_1()
+                .border_color(theme::HAIRLINE)
+                .hover(|s| s.bg(theme::HOVER).border_color(theme::TEXT_FAINT))
+        })
+        .on_click(on_click)
+        .children(icon_path.map(|path| icon(path, px(theme::icon_small()), color)))
+        .child(label)
+        .into_any_element()
+}
+
+/// A square, borderless icon button for the toolbar's utility actions.
+fn icon_action(
+    id: &'static str,
+    icon_path: &'static str,
+    color: gpui::Rgba,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .rounded_md()
+        .size(px(30.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|s| s.bg(theme::HOVER))
+        .on_click(on_click)
+        .child(icon(icon_path, px(theme::icon_small()), color))
+        .into_any_element()
 }
 
 /// The shortcuts column hugs its button row: 28px buttons, 6px gaps, and the
@@ -703,6 +878,18 @@ impl ReposDelegate {
         self.repo_at(row_ix, cx)
             .map(|r| r.folder_path.to_string_lossy().to_string())
     }
+
+    /// Inverse of [`Self::folder_at`]: the visible row for a folder, used to
+    /// mirror the store's selection into the table highlight.
+    fn row_for_folder(&self, folder: &str, cx: &App) -> Option<usize> {
+        let store = self.store.read(cx);
+        store.projected.iter().position(|&ix| {
+            store
+                .repos
+                .get(ix)
+                .is_some_and(|repo| repo.folder_path.to_string_lossy() == folder)
+        })
+    }
 }
 
 impl TableDelegate for ReposDelegate {
@@ -737,7 +924,7 @@ impl TableDelegate for ReposDelegate {
         let scale = theme::font_small() / 12.0;
         let mut fixed = px(36.) // star
             + shortcuts_column_width(&settings)
-            + px(150.) * scale // changes
+            + px(132.) * scale // changes
             + px(84.) * scale; // activity
         if settings.repos.enable_git_hub {
             fixed += px(96.) * scale;
@@ -757,7 +944,7 @@ impl TableDelegate for ReposDelegate {
                 Column::new("shortcuts", "").width(shortcuts_column_width(&settings)).resizable(false)
             }
             ColKind::Branch => Column::new("branch", "Branch").width(branch).resizable(false),
-            ColKind::Changes => Column::new("changes", "Changes").width(px(150.) * scale).resizable(false).sortable(),
+            ColKind::Changes => Column::new("changes", "Changes").width(px(132.) * scale).resizable(false).sortable(),
             ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sortable(),
             ColKind::Azure => {
                 Column::new("azure", "Azure DevOps").width(px(120.) * scale).text_center().resizable(false)
@@ -1015,9 +1202,10 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .into_any_element()
 }
 
-/// The changes cell: `[amber modified] Changes (push, pull)` with the .NET
-/// arrow glyphs, plus a gray check when the branch is synced — rendered in
-/// every state, never "clean".
+/// The changes cell: an amber count + "changes" when the tree is dirty,
+/// a quiet "clean" check when it is not, and push/pull arrows only when
+/// there is actually something to sync. Repeating "Changes (↑0, ↓0)" on every
+/// clean row made the column the loudest thing in the list.
 fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
     let synced = repo.git_to_push_count == 0 && repo.git_to_pull_count == 0;
     let mut row = div()
@@ -1026,34 +1214,54 @@ fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
         .items_center()
         .gap_1p5()
         .text_size(px(theme::font_small()));
-    row = row.child(
-        div()
-            .rounded_md()
-            .bg(theme::tint(theme::AMBER_BRIGHT))
-            .px_1p5()
-            .py_0p5()
-            .text_size(px(theme::font_small() - 1.))
-            .text_color(theme::AMBER_BRIGHT)
-            .child(format!("{}", repo.git_modified_count)),
-    );
-    row = row
-        .child(div().text_color(theme::TEXT_DIM).child("Changes"))
-        .child(
+    if repo.git_modified_count > 0 {
+        row = row
+            .child(
+                div()
+                    .rounded_md()
+                    .bg(theme::tint(theme::AMBER_BRIGHT))
+                    .px_1p5()
+                    .py_0p5()
+                    .text_size(px(theme::font_small() - 1.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::AMBER_BRIGHT)
+                    .child(format!("{}", repo.git_modified_count)),
+            )
+            .child(div().text_color(theme::TEXT_DIM).child("changes"));
+    } else if synced {
+        row = row
+            .child(icon(
+                "icons/icon-check.svg",
+                px(theme::icon_small() - 2.),
+                theme::TEXT_MUTED,
+            ))
+            .child(div().text_color(theme::TEXT_FAINT).child("clean"));
+    }
+    if !synced {
+        let arrow = |glyph: &'static str, count: u32, color: gpui::Rgba| {
             div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_0p5()
-                .text_color(theme::TEXT_MUTED)
-                .child("(")
-                .child(icon("icons/icon-arrow-up.svg", px(theme::icon_small() - 4.), theme::SUCCESS_BRIGHT))
-                .child(div().text_color(theme::SUCCESS_BRIGHT).child(format!("{}", repo.git_to_push_count)))
-                .child(div().child(","))
-                .child(icon("icons/icon-arrow-down.svg", px(theme::icon_small() - 4.), theme::BLUE_BRIGHT))
-                .child(div().text_color(theme::BLUE_BRIGHT).child(format!("{}", repo.git_to_pull_count)))
-                .child(")"),
-        );
-    let _ = synced;
+                .child(icon(glyph, px(theme::icon_small() - 4.), color))
+                .child(div().text_color(color).child(format!("{count}")))
+        };
+        if repo.git_to_push_count > 0 {
+            row = row.child(arrow(
+                "icons/icon-arrow-up.svg",
+                repo.git_to_push_count,
+                theme::SUCCESS_BRIGHT,
+            ));
+        }
+        if repo.git_to_pull_count > 0 {
+            row = row.child(arrow(
+                "icons/icon-arrow-down.svg",
+                repo.git_to_pull_count,
+                theme::BLUE_BRIGHT,
+            ));
+        }
+    }
     row.into_any_element()
 }
 
@@ -1100,7 +1308,12 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
         );
     }
     if repo.github_pr_count == 0 && repo.github_issue_count == 0 {
-        row = row.child(icon("icons/icon-check.svg", px(theme::icon_small() - 3.), theme::TEXT_MUTED));
+        row = row.child(
+            div()
+                .text_size(px(theme::font_small()))
+                .text_color(theme::TEXT_FAINT)
+                .child("—"),
+        );
     }
     row.into_any_element()
 }
@@ -1184,14 +1397,11 @@ fn shortcuts_cell(
             .id(SharedString::from(id))
             .cursor_pointer()
             .rounded_md()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::CARD)
             .size(px(28.))
             .flex()
             .items_center()
             .justify_center()
-            .hover(|s| s.border_color(theme::TEXT_FAINT))
+            .hover(|s| s.bg(theme::HOVER))
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 if let Err(err) = launch() {
@@ -1319,11 +1529,11 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         .id("summary-button")
         .cursor_pointer()
         .rounded_md()
-        .px_2()
-        .py_1()
+        .h(px(30.))
+        .px_2p5()
         .flex()
         .items_center()
-        .gap_1()
+        .gap_1p5()
         .text_size(px(theme::font_small()))
         .when(busy, |d| d.text_color(theme::ACCENT))
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
@@ -1370,5 +1580,84 @@ mod tests {
         let full =
             shortcuts_column_width(&settings_with(&["terminal", "vscode", "zcode", "opencode"]));
         assert_eq!(full, px(5. * 28. + 5. * 6. + 9. + 8.));
+    }
+
+    /// Selection can originate outside a row click (global search, the notes
+    /// button, E2E hooks). The table must mirror it into its highlight without
+    /// the queued SelectRow event looping back through `select_repo` and
+    /// toggling the already-selected row closed.
+    #[gpui::test]
+    fn external_selection_mirrors_into_the_table(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(theme::apply_kit_theme);
+
+        let home = std::env::temp_dir().join(format!("devtools-repos-unit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".devtools")).unwrap();
+        // SAFETY: process-global env, set before Store::new; the other tests in
+        // this binary don't read HOME.
+        unsafe { std::env::set_var("HOME", &home) };
+
+        let entry = |name: &str, path: &str| devtools_core::repo_store::RepoEntry {
+            name: name.into(),
+            folder_path: std::path::PathBuf::from(path),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+        };
+
+        let (net_tx, _net_rx) = async_channel::unbounded();
+        let store = cx.new(|cx| {
+            let mut store = Store::new(cx, net_tx);
+            store.replace_repos(vec![
+                entry("alpha", "/probe/alpha"),
+                entry("beta", "/probe/beta"),
+            ]);
+            store
+        });
+        let store_for_page = store.clone();
+        let (page, cx) =
+            cx.add_window_view(|window, cx| ReposPage::new(store_for_page, window, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read_entity(&page, |page, cx| page.table.read(cx).selected_row()),
+            None,
+            "no row is highlighted before a selection"
+        );
+
+        cx.update_entity(&store, |s, cx| {
+            s.select_repo(Some("/probe/beta".into()), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read_entity(&store, |s, _| s.selected_repo.clone()).as_deref(),
+            Some("/probe/beta"),
+            "mirroring the selection must not toggle the bar closed"
+        );
+        assert_eq!(
+            cx.read_entity(&page, |page, cx| page.table.read(cx).selected_row()),
+            Some(1),
+            "the table highlights the externally selected row"
+        );
+
+        cx.update_entity(&store, |s, cx| s.close_bar(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read_entity(&page, |page, cx| page.table.read(cx).selected_row()),
+            None,
+            "closing the bar clears the table highlight"
+        );
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

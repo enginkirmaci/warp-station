@@ -100,7 +100,11 @@ fn plain_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &
         .into_any_element()
 }
 
-fn accent_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static) -> gpui::AnyElement {
+fn accent_button(
+    label: &str,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
     div()
         .id(SharedString::from(format!("btn-accent-{label}")))
         .cursor_pointer()
@@ -111,8 +115,14 @@ fn accent_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, 
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)
-        .hover(|s| s.opacity(0.9))
-        .on_click(on_click)
+        .map(|d| {
+            if enabled {
+                d.hover(|s| s.opacity(0.9))
+            } else {
+                d.opacity(0.4)
+            }
+        })
+        .when(enabled, |d| d.on_click(on_click))
         .child(label.to_string())
         .into_any_element()
 }
@@ -133,6 +143,8 @@ impl AddRepoDialog {
             if let InputEvent::PressEnter { .. } = event {
                 this.kick_deep_scan(cx);
             }
+            // the Scan button enables as soon as a path is typed
+            cx.notify();
         })
         .detach();
         Self { root, scanning: false, found: Vec::new() }
@@ -194,19 +206,19 @@ impl AddRepoDialog {
         let hint = if self.scanning {
             "Scanning…"
         } else if self.found.is_empty() {
-            "Pick a folder and scan — searched up to the configured depth"
+            "Type a folder path and scan — searched up to the configured depth"
         } else {
             "Click entries to toggle selection, then Add"
         };
 
+        let can_scan = if self.found.is_empty() {
+            !self.scanning && !self.root.read(cx).value().trim().is_empty()
+        } else {
+            true
+        };
+
         let body = card("Add repositories")
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(div().flex_1().child(Input::new(&self.root).small())),
-            )
+            .child(Input::new(&self.root).small())
             .child(
                 div()
                     .text_size(px(theme::font_small()))
@@ -273,6 +285,7 @@ impl AddRepoDialog {
                     })))
                     .child(accent_button(
                         if self.found.is_empty() { "Scan" } else { "Add" },
+                        can_scan,
                         cx.listener(|this: &mut ReposPage, _, _, cx| {
                             if let Some(Dialog::AddRepo(dialog)) = &this.dialog {
                                 if dialog.found.is_empty() {
@@ -367,6 +380,7 @@ impl CloneDialog {
                     })))
                     .child(accent_button(
                         if busy { "Cloning…" } else { "Clone" },
+                        !busy,
                         cx.listener(|this: &mut ReposPage, _, _, cx| this.commit_clone(cx)),
                     )),
             );

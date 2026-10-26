@@ -421,7 +421,20 @@ impl Render for BottomBar {
                                 });
                             }
                         })
-                        .child(format!("⎇ {branch}")),
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .font_family(SharedString::from(theme::code_font()))
+                                .child(icon(
+                                    "icons/icon-source-branch.svg",
+                                    px(theme::icon_small() - 3.),
+                                    theme::TEXT_MUTED,
+                                ))
+                                .child(branch.clone()),
+                        ),
                 )
             })
             .child(div().w(px(8.)))

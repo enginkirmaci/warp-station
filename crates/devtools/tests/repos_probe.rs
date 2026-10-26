@@ -102,8 +102,8 @@ fn px_col() -> gpui::Pixels {
 }
 
 fn px_row() -> gpui::Pixels {
-    // titlebar 38 + toolbar ~44 (no totals row, header collapsed) + row center
-    gpui::px(100.)
+    // titlebar 38 + two 46px toolbar rows + row center (36px rows)
+    gpui::px(148.)
 }
 
 fn entry_with_branch(name: &str, path: &str, branch: &str) -> RepoEntry {

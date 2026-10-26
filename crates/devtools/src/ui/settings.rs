@@ -77,7 +77,15 @@ impl SettingsPage {
 
         let page = Self {
             store: store.clone(),
-            notes_store_path: field(window, cx, &general.notes_store_path),
+            notes_store_path: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .default_value(general.notes_store_path.clone())
+                    .placeholder(
+                        devtools_core::notes::resolve_store_root("")
+                            .to_string_lossy()
+                            .to_string(),
+                    )
+            }),
             show_tooltips: general.show_tooltips,
             start_minimized: general.start_minimized,
             start_at_boot: general.start_at_boot,
@@ -291,16 +299,32 @@ impl Render for SettingsPage {
                                         .child("saved ✓"),
                                 )
                             })
-                            .child(icon_button(
-                                "settings-open-folder",
-                                "icons/icon-folder.svg",
-                                theme::TEXT_MUTED,
-                                |_, _, _| {
-                                    let folder = devtools_core::paths::AppPaths::user_data_root();
-                                    let _ = std::fs::create_dir_all(&folder);
-                                    let _ = devtools_core::terminal::open_folder(&folder.to_string_lossy());
-                                },
-                            ))
+                            .child(
+                                div()
+                                    .id("settings-open-folder")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .px_2()
+                                    .py_1p5()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::TEXT_MUTED)
+                                    .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                                    .on_click(|_, _, _| {
+                                        let folder = devtools_core::paths::AppPaths::user_data_root();
+                                        let _ = std::fs::create_dir_all(&folder);
+                                        let _ = devtools_core::terminal::open_folder(&folder.to_string_lossy());
+                                    })
+                                    .child(crate::ui::icon(
+                                        "icons/icon-folder.svg",
+                                        px(theme::icon_small()),
+                                        theme::TEXT_MUTED,
+                                    ))
+                                    .child("Data folder"),
+                            )
                             .child(save_button(cx)),
                     )
                     // two balanced columns of cards
@@ -595,14 +619,13 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .id("settings-save")
         .cursor_pointer()
         .rounded_md()
-        .border_1()
-        .border_color(theme::ACCENT)
+        .bg(theme::ACCENT)
         .px_4()
         .py_1p5()
         .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::ACCENT)
-        .hover(|s| s.bg(theme::tint(theme::ACCENT)))
+        .text_color(theme::ON_ACCENT)
+        .hover(|s| s.opacity(0.9))
         .on_click(cx.listener(|this, _, _, cx| this.save(cx)))
         .child("Save")
         .into_any_element()

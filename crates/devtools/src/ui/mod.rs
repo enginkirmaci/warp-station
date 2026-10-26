@@ -15,7 +15,10 @@ pub mod repos;
 pub mod settings;
 pub mod window;
 
-use gpui::Styled;
+use gpui::prelude::*;
+use gpui::{div, px, FontWeight, Styled};
+
+use crate::theme;
 
 /// A tinted svg icon.
 pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpui::Svg {
@@ -27,4 +30,61 @@ pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpu
         .size(size)
         .flex_shrink_0()
         .text_color(color.into())
+}
+
+/// The shared drawer title row: a title (with an optional one-line hint) and
+/// a close button on the right. The close button only appears when the host
+/// window wired a handler via the drawer's `with_on_close`.
+pub fn drawer_header(
+    title: &'static str,
+    hint: &'static str,
+    on_close: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
+) -> gpui::AnyElement {
+    let mut header = div()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(theme::font_title()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::TEXT)
+                        .child(title),
+                )
+                .child(div().flex_1())
+                .when_some(on_close, |row, close| {
+                    row.child(
+                        div()
+                            .id("drawer-close")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(24.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(move |_, window, cx| close(window, cx))
+                            .child(icon(
+                                "icons/icon-close.svg",
+                                px(theme::icon_small()),
+                                theme::TEXT_MUTED,
+                            )),
+                    )
+                }),
+        );
+    if !hint.is_empty() {
+        header = header.child(
+            div()
+                .text_size(px(theme::font_small() - 1.))
+                .text_color(theme::TEXT_FAINT)
+                .child(hint),
+        );
+    }
+    header.into_any_element()
 }

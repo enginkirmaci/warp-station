@@ -53,6 +53,7 @@ impl Render for OverviewView {
         let entry = self.store.read(cx).selected_entry().cloned();
         let draft = self.store.read(cx).readme_draft.clone();
         let wand_active = self.store.read(cx).wand_busy == Some(WandKind::Readme);
+        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
         let has_draft = draft.is_some();
         let shown = draft.clone().or_else(|| self.readme.clone());
 
@@ -140,7 +141,7 @@ impl Render for OverviewView {
                         .child("Save"),
                 )
             })
-            .when(!wand_active && self.store.read(cx).settings().opencode.enable_opencode, |row| {
+            .when(!wand_active && shown.is_some() && opencode_on, |row| {
                 row.child({
                     let store = self.store.clone();
                     div()
@@ -168,6 +169,7 @@ impl Render for OverviewView {
                 )
             });
 
+        let store_for_empty = self.store.clone();
         let pane = div()
             .id("readme-pane")
             .flex_1()
@@ -185,13 +187,55 @@ impl Render for OverviewView {
                         .flex_col()
                         .items_center()
                         .justify_center()
+                        .gap_2()
                         .h_full()
+                        .child(icon(
+                            "icons/icon-note.svg",
+                            px(theme::icon_large() + 10.),
+                            theme::TEXT_FAINT,
+                        ))
                         .child(
                             div()
-                                .text_size(px(theme::font_body()))
+                                .text_size(px(theme::font_body() + 1.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::TEXT_DIM)
+                                .child("No README yet"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_FAINT)
-                                .child("No README"),
-                        ),
+                                .child("Create a README.md in the repository root to see it here."),
+                        )
+                        .when(opencode_on && !wand_active, |column| {
+                            column.child(
+                                div()
+                                    .id("readme-empty-wand")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(theme::ACCENT)
+                                    .px_3()
+                                    .py_1p5()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::ACCENT)
+                                    .hover(|s| s.bg(theme::tint(theme::ACCENT)))
+                                    .on_click(move |_, _, cx| {
+                                        store_for_empty
+                                            .update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
+                                    })
+                                    .child(icon(
+                                        "icons/icon-wand.svg",
+                                        px(theme::icon_small()),
+                                        theme::ACCENT,
+                                    ))
+                                    .child("Draft with OpenCode"),
+                            )
+                        }),
                 )
             });
 
@@ -329,15 +373,30 @@ fn render_sidebar(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Repository Details"),
         );
-    if let Some(details) = &details
-        && let Some(url) = &details.url
-    {
-        side = side.child(link_detail_row("GitHub", url.clone()));
-    }
     if let Some(folder) = &folder {
         side = side.child(link_detail_row("Folder", folder.clone()));
     }
+    if let Some(entry) = &entry {
+        if let Some(branch) = entry.git_branch_name.as_deref().filter(|b| !b.is_empty()) {
+            side = side.child(detail_row("Branch", branch.to_string()));
+        }
+        let sync = if entry.git_to_push_count == 0 && entry.git_to_pull_count == 0 {
+            "Up to date".to_string()
+        } else {
+            format!(
+                "{} to push · {} to pull",
+                entry.git_to_push_count, entry.git_to_pull_count
+            )
+        };
+        side = side.child(detail_row("Sync", sync));
+        if let Some(at) = entry.git_last_commit_at {
+            side = side.child(detail_row("Last commit", devtools_core::rel_time::format(at)));
+        }
+    }
     if let Some(details) = &details {
+        if let Some(url) = &details.url {
+            side = side.child(link_detail_row("GitHub", url.clone()));
+        }
         if let Some(owner) = &details.owner {
             side = side.child(detail_row("Owner", owner.clone()));
         }

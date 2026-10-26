@@ -32,6 +32,9 @@ pub struct NotesPage {
     open_note: Option<PathBuf>,
     /// Unsaved note contents by path — navigation never loses an edit.
     dirty: HashMap<PathBuf, String>,
+    /// The on-disk contents of the open note; comparing against the editor
+    /// makes the unsaved marker follow every keystroke.
+    saved_text: String,
     mode: NotesMode,
     search: Entity<InputState>,
     search_hits: Vec<notes_core::NotesSearchHit>,
@@ -66,6 +69,7 @@ impl NotesPage {
             expanded: std::collections::HashSet::new(),
             open_note: None,
             dirty: HashMap::new(),
+            saved_text: String::new(),
             mode: NotesMode::Split,
             search,
             search_hits: Vec::new(),
@@ -107,12 +111,13 @@ impl NotesPage {
             let text = self.editor.read(cx).value().to_string();
             self.dirty.insert(current, text);
         }
+        let baseline = notes_core::read_note(&path).unwrap_or_default();
         let content = self
             .dirty
             .get(&path)
             .cloned()
-            .or_else(|| notes_core::read_note(&path).ok())
-            .unwrap_or_default();
+            .unwrap_or_else(|| baseline.clone());
+        self.saved_text = baseline;
         self.open_note = Some(path);
         self.editor.update(cx, |state, cx| state.set_value(content.as_str(), window, cx));
         cx.notify();
@@ -125,6 +130,7 @@ impl NotesPage {
         match notes_core::write_note(&path, &text) {
             Ok(()) => {
                 self.dirty.remove(&path);
+                self.saved_text = text;
                 tracing::info!("saved {}", path.display());
                 let _ = root;
             }
@@ -198,6 +204,7 @@ impl NotesPage {
                     Ok(()) => {
                         self.dirty.remove(&path);
                         self.open_note = None;
+                        self.saved_text.clear();
                         self.tree = notes_core::load_tree(&root);
                     }
                     Err(err) => self.notice(cx, &format!("note delete failed: {err}")),
@@ -256,12 +263,7 @@ impl Render for NotesPage {
             }
         }
         let preview_text = self.editor.read(cx).value().to_string();
-        let has_repo = self.store.read(cx).selected_entry().is_some();
-        let dirty = self
-            .open_note
-            .as_ref()
-            .map(|p| self.dirty.contains_key(p))
-            .unwrap_or(false);
+        let dirty = self.open_note.is_some() && preview_text != self.saved_text;
         let armed = self
             .armed_delete
             .as_ref()
@@ -274,7 +276,7 @@ impl Render for NotesPage {
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "no note selected".into());
+            .unwrap_or_else(|| "No note selected".into());
 
         div()
             .size_full()
@@ -282,6 +284,22 @@ impl Render for NotesPage {
             .flex_col()
             .min_h_0()
             .bg(theme::BACKGROUND)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                let control = event.keystroke.modifiers.control;
+                if control && event.keystroke.key == "s" {
+                    this.save_current(window, cx);
+                    cx.stop_propagation();
+                } else if control && event.keystroke.key == "n" {
+                    this.create_open = true;
+                    this.create_name.update(cx, |field, cx| field.focus(window, cx));
+                    cx.notify();
+                    cx.stop_propagation();
+                } else if event.keystroke.key == "escape" && this.create_open {
+                    this.create_open = false;
+                    cx.notify();
+                    cx.stop_propagation();
+                }
+            }))
             .child(self.render_titlebar(window, cx))
             .child(
                 div()
@@ -308,9 +326,11 @@ impl Render for NotesPage {
                             .border_1()
                             .border_color(theme::HAIRLINE)
                             .bg(theme::CARD)
-                            .child(self.render_toolbar(note_title, dirty, armed, has_repo, window, cx))
-                            .child(self.render_editor(preview_text))
-                            .child(self.render_status_bar(cx)),
+                            .child(self.render_toolbar(note_title, dirty, armed, window, cx))
+                            .child(self.render_editor(preview_text, cx))
+                            .when(self.open_note.is_some(), |column| {
+                                column.child(self.render_status_bar(cx))
+                            }),
                     ),
             )
     }
@@ -401,6 +421,7 @@ impl NotesPage {
         let words = text.split_whitespace().count();
         let chars = text.chars().count();
         let lines = text.lines().count();
+        let dirty = self.open_note.is_some() && text != self.saved_text;
         let (line, col) = if self.open_note.is_some() {
             let byte = self.editor.read(cx).selected_range().start;
             let prefix = &text[..byte.min(text.len())];
@@ -424,6 +445,13 @@ impl NotesPage {
             .text_color(theme::TEXT_FAINT)
             .child(format!("{words} words · {chars} chars · {lines} lines"))
             .child(div().flex_1())
+            .when(dirty, |row| {
+                row.child(
+                    div()
+                        .text_color(theme::AMBER_BRIGHT)
+                        .child("Unsaved · Ctrl+S to save"),
+                )
+            })
             .child(format!("Ln {line}, Col {col}"))
             .into_any_element()
     }
@@ -463,7 +491,11 @@ impl NotesPage {
                                     cx.notify();
                                 }
                             }))
-                            .child(Input::new(&self.search).small()),
+                            .child(Input::new(&self.search).small().cleanable(true).prefix(icon(
+                                "icons/icon-search.svg",
+                                px(theme::icon_small() - 1.),
+                                theme::TEXT_FAINT,
+                            ))),
                     )
                     .when(can_create, |row| {
                         row.child(
@@ -642,13 +674,20 @@ impl NotesPage {
                     .items_center()
                     .gap_1()
                     .when(item.is_folder, |row| {
-                        row.child(div().text_size(px(theme::font_small() - 2.)).text_color(theme::TEXT_FAINT)
-                            .child(if expanded { "▾" } else { "▸" }))
+                        row.child(icon(
+                            if expanded {
+                                "icons/icon-chevron-down.svg"
+                            } else {
+                                "icons/icon-chevron-right.svg"
+                            },
+                            px(theme::icon_small() - 4.),
+                            theme::TEXT_FAINT,
+                        ))
                     })
                     .child(if item.is_folder {
                         icon("icons/icon-folder.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)
                     } else {
-                        icon("icons/icon-code-block.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)
+                        icon("icons/icon-note.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)
                     })
                     .child(item.name.clone()));
             list = list.child(row);
@@ -664,7 +703,6 @@ impl NotesPage {
         note_title: String,
         dirty: bool,
         armed: bool,
-        has_repo: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -706,29 +744,56 @@ impl NotesPage {
             );
         }
 
-        let mut formats = div().flex().flex_row().gap_1();
-        for (format, glyph) in [
-            ("bold", "B"), ("italic", "I"), ("strike", "S"), ("code", "</>"), ("codeblock", "▣"),
-            ("link", "🔗"), ("h1", "H1"), ("h2", "H2"), ("h3", "H3"),
-            ("bullet", "•"), ("numbered", "1."), ("task", "☑"), ("quote", ">"), ("hr", "―"),
-        ] {
-            formats = formats.child(
-                div()
-                    .id(SharedString::from(format!("fmt-{format}")))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(22.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(theme::font_small() - 1.))
-                    .text_color(theme::TEXT_MUTED)
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        cx.listener(move |this, _, window, cx| this.apply_format(format, window, cx))
-                    })
-                    .child(glyph),
-            );
+        // formatting row: text styles, headings, lists and inserts, separated
+        // into groups; icon buttons where the asset set has a glyph and short
+        // text labels for the rest (B/I/S/H1–H3)
+        let mut formats = div().flex().flex_row().items_center().gap_0p5();
+        let spec: [(&str, &str, Option<&str>, bool); 14] = [
+            ("bold", "B", None, false),
+            ("italic", "I", None, false),
+            ("strike", "S", None, false),
+            ("code", "", Some("icons/icon-code.svg"), false),
+            ("link", "", Some("icons/icon-link.svg"), false),
+            ("h1", "H1", None, true),
+            ("h2", "H2", None, false),
+            ("h3", "H3", None, false),
+            ("bullet", "", Some("icons/icon-list-bullet.svg"), true),
+            ("numbered", "", Some("icons/icon-list-ordered.svg"), false),
+            ("task", "", Some("icons/icon-task.svg"), false),
+            ("quote", "", Some("icons/icon-quote.svg"), false),
+            ("codeblock", "", Some("icons/icon-code-block.svg"), true),
+            ("hr", "—", None, false),
+        ];
+        for (format, label, icon_path, separator) in spec {
+            if separator {
+                formats = formats.child(
+                    div()
+                        .mx_1()
+                        .h(px(14.))
+                        .w(px(1.))
+                        .bg(theme::HAIRLINE),
+                );
+            }
+            let mut button = div()
+                .id(SharedString::from(format!("fmt-{format}")))
+                .cursor_pointer()
+                .rounded_md()
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::font_small() - 1.))
+                .text_color(theme::TEXT_MUTED)
+                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.apply_format(format, window, cx)
+                }));
+            if let Some(path) = icon_path {
+                button = button.child(icon(path, px(theme::icon_small() - 1.), theme::TEXT_MUTED));
+            } else {
+                button = button.child(label);
+            }
+            formats = formats.child(button);
         }
 
         div()
@@ -762,7 +827,7 @@ impl NotesPage {
                     .when(dirty, |row| row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
                     .child(div().flex_1())
                     .child(modes)
-                    .when(has_repo || !self.tree.is_empty(), |row| {
+                    .when(self.open_note.is_some(), |row| {
                         row.child(
                             div()
                                 .id("note-save")
@@ -770,12 +835,21 @@ impl NotesPage {
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
                                 .text_size(px(theme::font_small()))
                                 .text_color(theme::TEXT_DIM)
                                 .border_1()
                                 .border_color(theme::HAIRLINE)
                                 .hover(|s| s.bg(theme::HOVER))
                                 .on_click(cx.listener(|this, _, window, cx| this.save_current(window, cx)))
+                                .child(icon(
+                                    "icons/icon-save.svg",
+                                    px(theme::icon_small() - 1.),
+                                    theme::TEXT_MUTED,
+                                ))
                                 .child("Save"),
                         )
                         .child(
@@ -798,21 +872,73 @@ impl NotesPage {
                         )
                     }),
             )
-            .when(self.mode != NotesMode::Preview, |toolbar| toolbar.child(formats))
+            .when(
+                self.open_note.is_some() && self.mode != NotesMode::Preview,
+                |toolbar| toolbar.child(formats),
+            )
             .into_any_element()
     }
 
-    fn render_editor(&mut self, preview_text: String) -> gpui::AnyElement {
+    fn render_editor(&mut self, preview_text: String, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.open_note.is_none() {
+            let can_create =
+                self.store.read(cx).selected_entry().is_some() || !self.tree.is_empty();
             return div()
                 .id("notes-empty")
                 .flex_1()
                 .flex()
+                .flex_col()
                 .items_center()
                 .justify_center()
-                .text_size(px(theme::font_body()))
-                .text_color(theme::TEXT_FAINT)
-                .child("Pick a note from the tree, or create one")
+                .gap_2()
+                .child(icon(
+                    "icons/icon-note.svg",
+                    px(theme::icon_large() + 8.),
+                    theme::TEXT_FAINT,
+                ))
+                .child(
+                    div()
+                        .text_size(px(theme::font_body() + 1.))
+                        .text_color(theme::TEXT_MUTED)
+                        .child("No note open"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::TEXT_FAINT)
+                        .child("Pick one from the tree, or start a new note."),
+                )
+                .when(can_create, |column| {
+                    column.child(
+                        div()
+                            .id("notes-empty-new")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme::ACCENT)
+                            .px_3()
+                            .py_1p5()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1p5()
+                            .text_size(px(theme::font_small()))
+                            .text_color(theme::ACCENT)
+                            .hover(|s| s.bg(theme::tint(theme::ACCENT)))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.create_open = true;
+                                this.create_name
+                                    .update(cx, |field, cx| field.focus(window, cx));
+                                cx.notify();
+                            }))
+                            .child(icon(
+                                "icons/icon-plus.svg",
+                                px(theme::icon_small()),
+                                theme::ACCENT,
+                            ))
+                            .child("New note"),
+                    )
+                })
                 .into_any_element();
         }
         let preview = TextView::markdown(
@@ -827,7 +953,7 @@ impl NotesPage {
                 .flex_1()
                 .min_h_0()
                 .p_2()
-                .child(Textarea::new(&self.editor).bordered(false).appearance(false)),
+                .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
             NotesMode::Preview => div()
                 .id("notes-preview-pane")
                 .debug_selector(|| "notes-preview-pane".into())
@@ -850,7 +976,7 @@ impl NotesPage {
                         .flex_1()
                         .min_h_0()
                         .p_2()
-                        .child(Textarea::new(&self.editor).bordered(false).appearance(false)),
+                        .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
                 )
                 .child(
                     div()
@@ -880,7 +1006,7 @@ impl NotesPage {
                         .p_2()
                         .border_r_1()
                         .border_color(theme::HAIRLINE)
-                        .child(Textarea::new(&self.editor).bordered(false).appearance(false)),
+                        .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
                 )
                 .child(
                     div()

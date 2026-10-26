@@ -50,7 +50,7 @@ impl MainWindow {
         let settings_page = cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
         let global_search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search repos and notes  (Ctrl+K)")
+            InputState::new(window, cx).placeholder("Search repositories and notes")
         });
         let search_store = store.clone();
         cx.subscribe(&global_search, move |_, field, event: &InputEvent, cx| {
@@ -63,7 +63,11 @@ impl MainWindow {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
-            page: Page::Repos,
+            // E2E hook: DEVTOOLS_PAGE=settings opens Settings on launch
+            page: match std::env::var("DEVTOOLS_PAGE").as_deref() {
+                Ok("settings") => Page::Settings,
+                _ => Page::Repos,
+            },
             repos_page,
             settings_page,
             bottom_bar,
@@ -103,11 +107,14 @@ impl Render for MainWindow {
             .bg(theme::BACKGROUND)
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
-            // Ctrl+K focuses the global-search field; Ctrl+Shift+V copies the
-            // stored Clipboard Password (the titlebar's hotkeys)
+            // Ctrl+K focuses the global-search field; Ctrl+F the repo filter;
+            // Ctrl+Shift+V copies the stored Clipboard Password; Escape
+            // dismisses the topmost layer (tools menu, drawer, page dialog,
+            // settings, then search text).
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let modifiers = event.keystroke.modifiers;
-                if modifiers.control && modifiers.shift && event.keystroke.key == "v" {
+                let key = event.keystroke.key.as_str();
+                if modifiers.control && modifiers.shift && key == "v" {
                     let message = copy_stored_password(&this.store, cx);
                     this.store.update(cx, |s, cx| {
                         s.notice = Some((message.to_string(), std::time::Instant::now()));
@@ -116,9 +123,47 @@ impl Render for MainWindow {
                     cx.stop_propagation();
                     return;
                 }
-                if event.keystroke.key == "k" && modifiers.control {
+                if key == "k" && modifiers.control {
                     this.global_search.update(cx, |state, cx| state.focus(window, cx));
                     cx.stop_propagation();
+                    return;
+                }
+                if key == "f" && modifiers.control && this.page == Page::Repos {
+                    this.repos_page
+                        .update(cx, |page, cx| page.focus_search(window, cx));
+                    cx.stop_propagation();
+                    return;
+                }
+                if key == "escape" {
+                    if this.tools_menu_open {
+                        this.tools_menu_open = false;
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this.active_drawer.take().is_some() {
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this.page == Page::Repos
+                        && this.repos_page.update(cx, |page, cx| page.dismiss_overlay(cx))
+                    {
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this.page == Page::Settings {
+                        this.page = Page::Repos;
+                        cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if !this.global_search.read(cx).value().trim().is_empty() {
+                        this.global_search
+                            .update(cx, |state, cx| state.set_value("", window, cx));
+                        this.store.update(cx, |s, cx| s.run_global_search("", cx));
+                        cx.stop_propagation();
+                    }
                 }
             }))
             // mounts the window's selection machinery: without this layer the
@@ -131,7 +176,7 @@ impl Render for MainWindow {
         if let Some(ask) = self.render_wand_ask(cx) {
             root = root.child(ask);
         }
-        if let Some(popup) = self.render_search_popup(cx) {
+        if let Some(popup) = self.render_search_popup(window, cx) {
             root = root.child(popup);
         }
         if let Some(drawer) = self.render_drawer_overlay(window, cx) {
@@ -197,7 +242,7 @@ impl MainWindow {
             // titlebar padding + three 26px window buttons + settings (+ SnapIt
             // on Windows), 4px gaps
             .right(px(if cfg!(windows) { 158. } else { 128. }))
-            .w(px(200.))
+            .w(px(224.))
             .occlude()
             .rounded_lg()
             .border_1()
@@ -264,22 +309,51 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let kind = self.active_drawer?;
+        let store = self.store.clone();
+        // closing via the drawer's header X routes back into the window
+        let close_target = cx.entity();
+        let on_close: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
+            std::rc::Rc::new(move |_, cx| {
+                close_target.update(cx, |this, cx| {
+                    this.active_drawer = None;
+                    cx.notify();
+                });
+            });
         let drawer = match kind {
             DrawerKind::Formatters => self
                 .formatters
                 .get_or_insert_with(|| {
-                    cx.new(|cx| crate::ui::formatters::FormattersDrawer::new(self.store.clone(), window, cx))
+                    let on_close = on_close.clone();
+                    let store = store.clone();
+                    cx.new(move |cx| {
+                        crate::ui::formatters::FormattersDrawer::new(store, window, cx)
+                            .with_on_close(move |window, cx| on_close(window, cx))
+                    })
                 })
                 .clone()
                 .into_any_element(),
             DrawerKind::Nuget => self
                 .nuget_drawer
-                .get_or_insert_with(|| cx.new(|cx| NugetDrawer::new(self.store.clone(), window, cx)))
+                .get_or_insert_with(|| {
+                    let on_close = on_close.clone();
+                    let store = store.clone();
+                    cx.new(move |cx| {
+                        NugetDrawer::new(store, window, cx)
+                            .with_on_close(move |window, cx| on_close(window, cx))
+                    })
+                })
                 .clone()
                 .into_any_element(),
             DrawerKind::ClipboardPassword => self
                 .clipboard_drawer
-                .get_or_insert_with(|| cx.new(|cx| ClipboardPasswordDrawer::new(self.store.clone(), window, cx)))
+                .get_or_insert_with(|| {
+                    let on_close = on_close.clone();
+                    let store = store.clone();
+                    cx.new(move |cx| {
+                        ClipboardPasswordDrawer::new(store, window, cx)
+                            .with_on_close(move |window, cx| on_close(window, cx))
+                    })
+                })
                 .clone()
                 .into_any_element(),
         };
@@ -311,10 +385,13 @@ impl MainWindow {
     }
 
     /// The global-search results popup under the titlebar field.
-    fn render_search_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {        let term = self.global_search.read(cx).value().to_string();
+    fn render_search_popup(&mut self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let term = self.global_search.read(cx).value().to_string();
         if term.trim().is_empty() {
             return None;
         }
+        // the field is centered at 420px; the popup hangs from the same x
+        let left = ((window.viewport_size().width.as_f32() - 420.) / 2.).max(0.);
         let hits = self.store.read(cx).global_search.clone();
         if hits.is_empty() {
             // the popup shows a "No matches." footer while focused
@@ -323,7 +400,7 @@ impl MainWindow {
                     .id("search-popup")
                     .absolute()
                     .top(px(40.))
-                    .left(px(150.))
+                    .left(px(left))
                     .w(px(420.))
                     .occlude()
                     .rounded_lg()
@@ -392,7 +469,7 @@ impl MainWindow {
                 .id("search-popup")
                 .absolute()
                 .top(px(40.))
-                .left(px(150.))
+                .left(px(left))
                 .w(px(420.))
                 .occlude()
                 .rounded_lg()
@@ -579,6 +656,20 @@ pub(crate) fn window_button(
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
+/// An empty stretch of titlebar that moves the window when dragged.
+fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_1()
+        .h_full()
+        // Windows drags via the hit-test path (this hitbox answers HTCAPTION);
+        // start_window_move is a no-op there. Linux keeps the explicit move.
+        .window_control_area(WindowControlArea::Drag)
+        .on_mouse_down(MouseButton::Left, |_, window, _| {
+            window.start_window_move();
+        })
+}
+
 impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         div()
@@ -591,20 +682,57 @@ impl MainWindow {
                 gpui_kit::base::GlobalState::suppress_text_selection(cx);
             })
             .child(
+                // fixed brand column: matching the right action group's
+                // width keeps the centered search truly centered
                 div()
+                    .w(px(if cfg!(windows) { 206. } else { 176. }))
                     .flex()
                     .items_center()
-                    .justify_center()
-                    .size(px(30.))
-                    .child(icon("icons/icon-logo-mark.svg", px(theme::icon_large()), theme::TEXT)),
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(px(30.))
+                            .child(icon(
+                                "icons/icon-logo-mark.svg",
+                                px(theme::icon_large()),
+                                theme::TEXT,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_title()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Dev Tools"),
+                    ),
             )
+            // equal drag spacers on both sides of the search field
+            .child(titlebar_drag("titlebar-drag-left"))
             .child(
                 div()
-                    .text_size(px(theme::font_title()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Dev Tools"),
+                    .w(px(420.))
+                    .min_w(px(160.))
+                    .flex_shrink_1()
+                    .child(
+                        Input::new(&self.global_search)
+                            .small()
+                            .cleanable(true)
+                            .suffix(
+                                div()
+                                    .flex_shrink_0()
+                                    .rounded_md()
+                                    .bg(theme::CHIP)
+                                    .px_1()
+                                    .py_0p5()
+                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child("Ctrl K"),
+                            ),
+                    ),
             )
-            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
+            .child(titlebar_drag("titlebar-drag-right"))
             .child({
                 div()
                     .id("notes-toggle")
@@ -625,26 +753,6 @@ impl MainWindow {
                         if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
                     ))
             })
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .justify_center()
-                    .child(div().w(px(480.)).child(Input::new(&self.global_search).small())),
-            )
-            .child(
-                div()
-                    .id("titlebar-drag")
-                    .flex_1()
-                    .h_full()
-                    // Windows drags via the hit-test path (this hitbox answers
-                    // HTCAPTION); start_window_move is a no-op there. Linux
-                    // keeps the explicit move call.
-                    .window_control_area(WindowControlArea::Drag)
-                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    }),
-            )
             .child({
                 div()
                     .id("tools-toggle")

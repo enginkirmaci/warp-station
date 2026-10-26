@@ -51,7 +51,7 @@ impl ChangesView {
                 .default_value(initial)
         });
         let commit_message = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder("Commit message (empty = auto-generate)")
+            TextareaState::new(window, cx).placeholder("Describe your changes…")
         });
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
@@ -893,10 +893,28 @@ impl ChangesView {
             .gap_2()
             .child(
                 div()
-                    .text_size(px(theme::font_small()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::TEXT)
-                    .child("Commit message"),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .child("Commit message"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small() - 2.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(if generate_and_commit {
+                                "empty = auto-generate"
+                            } else {
+                                "Ctrl+Enter to commit"
+                            }),
+                    ),
             )
             .child(
                 div()
@@ -943,25 +961,32 @@ impl ChangesView {
             let message = self.commit_message.clone();
             let this = cx.entity();
             let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
+            let can_commit = !busy && (!message_empty || opencode_on);
+            let color = if can_commit { theme::ON_ACCENT } else { theme::TEXT_FAINT };
             div()
                 .id("commit-button")
                 .cursor_pointer()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::ACCENT)
-                .px_3()
-                .py_1p5()
+                .w_full()
+                .h(px(34.))
+                .rounded_md()
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap_1p5()
-                .when(busy, |b| b.opacity(0.5))
-                .when(!busy, |b| b.hover(|s| s.bg(theme::tint(theme::ACCENT))))
+                .text_color(color)
+                .when(can_commit, |b| {
+                    b.bg(theme::ACCENT).hover(|s| s.opacity(0.9))
+                })
+                .when(!can_commit, |b| b.bg(theme::CHIP))
                 .on_click(move |_, _, cx| {
                     if busy {
                         return;
                     }
                     let text = message.read(cx).value().to_string();
                     if text.trim().is_empty() {
+                        if !opencode_on {
+                            return;
+                        }
                         // empty box: generate first; the drained draft
                         // lands in the textarea and then commits itself
                         let wand_busy = store.read(cx).wand_busy.is_some();
@@ -979,13 +1004,13 @@ impl ChangesView {
                 .child(icon(
                     if generate_and_commit { "icons/icon-wand.svg" } else { "icons/icon-check.svg" },
                     px(theme::icon_small()),
-                    theme::ACCENT,
+                    color,
                 ))
                 .child(
                     div()
                         .text_size(px(theme::font_small()))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::ACCENT)
+                        .text_color(color)
                         .child(label),
                 )
         });

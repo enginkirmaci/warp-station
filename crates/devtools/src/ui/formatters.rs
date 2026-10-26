@@ -66,6 +66,7 @@ pub struct FormattersDrawer {
     /// A finished convert asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
+    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
 }
 
 impl FormattersDrawer {
@@ -74,11 +75,21 @@ impl FormattersDrawer {
         cx.subscribe(&input, |this, field, event: &InputEvent, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 this.run(field.read(cx).value().to_string());
-                cx.notify();
             }
+            // keeps the Run button's enabled state in step with the field
+            cx.notify();
         })
         .detach();
-        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new(), pending_clear: false }
+        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new(), pending_clear: false, on_close: None }
+    }
+
+    /// Wires the host window's close action into the shared drawer header.
+    pub fn with_on_close(
+        mut self,
+        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    ) -> Self {
+        self.on_close = Some(std::rc::Rc::new(handler));
+        self
     }
 
     fn run(&mut self, text: String) {
@@ -107,35 +118,45 @@ impl Render for FormattersDrawer {
             self.pending_clear = false;
             self.input.update(cx, |state, cx| state.set_value(String::new(), window, cx));
         }
-        let mut modes = div().flex().flex_row().gap_1().flex_wrap();
-        for mode in [
+        let mut modes = div().flex().flex_col().gap_1();
+        for row_modes in [
             FormatterMode::Base64Encode,
             FormatterMode::Base64Decode,
             FormatterMode::SnakeCase,
             FormatterMode::PascalCase,
-        ] {
-            let active = self.mode == mode;
-            modes = modes.child(
-                div()
-                    .id(SharedString::from(format!("fmt-mode-{}", mode.label())))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .text_size(px(theme::font_small()))
-                    .when(active, |d| {
-                        d.bg(theme::tint(theme::ACCENT))
-                            .text_color(theme::ACCENT)
-                            .font_weight(FontWeight::SEMIBOLD)
-                    })
-                    .when(!active, |d| d.bg(theme::CHIP).text_color(theme::TEXT_MUTED))
-                    .hover(|s| s.opacity(0.9))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.mode = mode;
-                        cx.notify();
-                    }))
-                    .child(mode.label()),
-            );
+        ]
+        .chunks(2)
+        {
+            let mut row = div().flex().flex_row().gap_1();
+            for &mode in row_modes {
+                let active = self.mode == mode;
+                row = row.child(
+                    div()
+                        .id(SharedString::from(format!("fmt-mode-{}", mode.label())))
+                        .cursor_pointer()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .px_2()
+                        .py_1()
+                        .text_size(px(theme::font_small()))
+                        .when(active, |d| {
+                            d.bg(theme::tint(theme::ACCENT))
+                                .text_color(theme::ACCENT)
+                                .font_weight(FontWeight::SEMIBOLD)
+                        })
+                        .when(!active, |d| d.bg(theme::CHIP).text_color(theme::TEXT_MUTED))
+                        .hover(|s| s.opacity(0.9))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.mode = mode;
+                            cx.notify();
+                        }))
+                        .child(mode.label()),
+                );
+            }
+            modes = modes.child(row);
         }
 
         let mut history = div().id("fmt-history-list").flex().flex_col().max_h(px(240.)).overflow_y_scroll();
@@ -190,7 +211,7 @@ impl Render for FormattersDrawer {
 
         div()
             .id("formatters-drawer")
-            .w(px(380.))
+            .w(px(420.))
             .h_full()
             .bg(theme::POPUP)
             .border_l_1()
@@ -201,43 +222,23 @@ impl Render for FormattersDrawer {
             .flex_col()
             .gap_2()
             .occlude()
+            .child(crate::ui::drawer_header(
+                "Formatters",
+                "Base64 and case conversion, one line at a time.",
+                self.on_close.clone(),
+            ))
+            .child(modes)
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .child(
-                        div()
-                            .text_size(px(theme::font_title()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Formatters"),
-                    )
-                    .child(div().flex_1())
-                    .when(!self.history.is_empty(), |row| {
-                        row.child(
-                            div()
-                                .id("fmt-clear-history")
-                                .cursor_pointer()
-                                .rounded_md()
-                                .size(px(20.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_size(px(theme::font_small()))
-                                .text_color(theme::TEXT_MUTED)
-                                .hover(|s| s.bg(theme::HOVER))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.history.clear();
-                                    cx.notify();
-                                }))
-                                .child("✕"),
-                        )
-                    }),
-            )
-            .child(modes)
-            .child(Input::new(&self.input).small())
-            .child(
-                div().flex().flex_row().justify_end().child(run_button(cx)),
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().child(Input::new(&self.input).small()))
+                    .child(run_button(
+                        !self.input.read(cx).value().trim().is_empty(),
+                        cx,
+                    )),
             )
             .child(
                 div()
@@ -254,15 +255,50 @@ impl Render for FormattersDrawer {
                     .font_family(gpui::SharedString::from(theme::code_font()))
                     .text_color(theme::TEXT_DIM)
                     .when(self.output.is_empty(), |d| d.text_color(theme::TEXT_FAINT))
-                    .child(if self.output.is_empty() { "—".to_string() } else { self.output.clone() }),
+                    .child(if self.output.is_empty() {
+                        "Result appears here.".to_string()
+                    } else {
+                        self.output.clone()
+                    }),
             )
             .when(!self.history.is_empty(), |drawer| {
-                drawer.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::TEXT_FAINT).child("Recent")).child(history)
+                drawer
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child("Recent"),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .id("fmt-clear-history")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .px_1p5()
+                                    .py_0p5()
+                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_color(theme::TEXT_MUTED)
+                                    .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.history.clear();
+                                        cx.notify();
+                                    }))
+                                    .child("Clear"),
+                            ),
+                    )
+                    .child(history)
             })
     }
 }
 
-fn run_button(cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
+fn run_button(enabled: bool, cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
     div()
         .id("fmt-run")
         .cursor_pointer()
@@ -273,12 +309,20 @@ fn run_button(cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)
-        .hover(|s| s.opacity(0.9))
-        .on_click(cx.listener(|this, _, _, cx| {
-            let text = this.input.read(cx).value().to_string();
-            this.run(text);
-            cx.notify();
-        }))
+        .map(|d| {
+            if enabled {
+                d.hover(|s| s.opacity(0.9))
+            } else {
+                d.opacity(0.4)
+            }
+        })
+        .when(enabled, |d| {
+            d.on_click(cx.listener(|this, _, _, cx| {
+                let text = this.input.read(cx).value().to_string();
+                this.run(text);
+                cx.notify();
+            }))
+        })
         .child("Run")
         .into_any_element()
 }
