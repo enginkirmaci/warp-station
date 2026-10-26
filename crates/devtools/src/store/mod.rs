@@ -164,10 +164,8 @@ impl Store {
                     store.selected_tab = BottomBarTab::parse(&tab);
                 }
             }
-        // E2E hook: DEVTOOLS_NOTES=1 opens the floating notes window on launch
-        if std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1") {
-            store.notes_requested = true;
-        }
+        // Notes stay closed until the user asks for them (titlebar button,
+        // repo-row note icon, tools menu, or a global-search hit).
         store
     }
 
