@@ -82,6 +82,9 @@ pub struct ReposSettings {
     /// None = the mode's own default (Name ascending, the rest best-first);
     /// legacy settings files predate the field, so absence stays meaningful.
     pub sort_ascending: Option<bool>,
+    /// Background `git fetch --prune` interval; None = off. Absence-meaningful
+    /// like sort_ascending.
+    pub auto_fetch_minutes: Option<u16>,
     pub max_scan_depth: i32,
     pub branch_name_prefix: String,
 }
@@ -111,6 +114,7 @@ impl Default for ReposSettings {
             excluded_folders: None,
             sort_mode: RepoSortMode::Name,
             sort_ascending: None,
+            auto_fetch_minutes: None,
             max_scan_depth: 3,
             branch_name_prefix: "users/enginkirmaci".into(),
         }
@@ -370,6 +374,21 @@ mod tests {
         assert!(json.contains("\"MaxScanDepth\""));
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.sort_mode, s.repos.sort_mode);
+    }
+
+    #[test]
+    fn auto_fetch_minutes_round_trips_and_absent_means_off() {
+        // absence (legacy files) = off
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.repos.auto_fetch_minutes, None);
+        // an explicit interval persists and reads back
+        let on: AppSettings =
+            serde_json::from_str(r#"{"Repos": {"AutoFetchMinutes": 30}}"#).unwrap();
+        assert_eq!(on.repos.auto_fetch_minutes, Some(30));
+        let json = serde_json::to_string_pretty(&on).unwrap();
+        assert!(json.contains("\"AutoFetchMinutes\": 30"));
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.repos.auto_fetch_minutes, Some(30));
     }
 
     #[test]

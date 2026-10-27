@@ -29,6 +29,7 @@ pub struct SettingsPage {
     max_scan_depth: Entity<InputState>,
     // Git
     branch_name_prefix: Entity<InputState>,
+    auto_fetch_minutes: Option<u16>,
     // External tools
     vscode_executable: Entity<InputState>,
     vscode_profile: Entity<InputState>,
@@ -100,6 +101,7 @@ impl SettingsPage {
             platform_folder_name: field(window, cx, &repos.platform_folder_name),
             max_scan_depth: field(window, cx, &repos.max_scan_depth.to_string()),
             branch_name_prefix: field(window, cx, &repos.branch_name_prefix),
+            auto_fetch_minutes: repos.auto_fetch_minutes,
             vscode_executable: field(window, cx, &repos.vscode_executable),
             vscode_profile: field(window, cx, &repos.vscode_profile),
             terminal_executable: field(window, cx, &repos.terminal_executable),
@@ -192,6 +194,7 @@ impl SettingsPage {
         let warp_enabled = self.warp_enabled;
         let warp_exe = Self::value(&self.warp_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
+        let auto_fetch_minutes = self.auto_fetch_minutes;
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
         let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
@@ -210,6 +213,7 @@ impl SettingsPage {
                 s.repos.platform_folder_name = platform;
                 s.repos.max_scan_depth = max_scan_depth;
                 s.repos.branch_name_prefix = branch_prefix;
+                s.repos.auto_fetch_minutes = auto_fetch_minutes;
                 s.repos.vscode_executable = vscode_exe;
                 s.repos.vscode_profile = vscode_profile;
                 s.repos.terminal_executable = terminal_exe;
@@ -233,6 +237,8 @@ impl SettingsPage {
                 s.snap_it.auto_start = snap_it_auto_start;
                 s.keep_awake.enabled = keep_awake_enabled;
             });
+            // the interval may have changed: re-arm the periodic fetch
+            store.refresh_auto_fetch_schedule();
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
             // tokens and the kit rem base resize together); every save
@@ -394,8 +400,9 @@ impl Render for SettingsPage {
                                                 field_row("Max scan depth", &this.max_scan_depth),
                                             ))
                                     }))
-                                    .child(self.card("Git", cx, |this, _cx, card| {
+                                    .child(self.card("Git", cx, |this, cx, card| {
                                         card.child(field_row("Branch name prefix", &this.branch_name_prefix))
+                                            .child(auto_fetch_row(this, cx))
                                     })),
                             )
                             .child(
@@ -647,6 +654,7 @@ impl SettingsPage {
 fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     div()
         .id("settings-save")
+        .debug_selector(|| "settings-save".into())
         .cursor_pointer()
         .rounded_md()
         .bg(theme::ACCENT)
@@ -772,6 +780,46 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
                 .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.text_size = key;
+                    cx.notify();
+                }))
+                .child(name),
+        );
+    }
+    row.into_any_element()
+}
+
+/// The periodic-fetch picker: Off/15m/30m/60m segmented buttons; None = off.
+fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
+    let options: [(Option<u16>, &str, &'static str); 4] = [
+        (None, "Off", "auto-fetch-off"),
+        (Some(15), "15m", "auto-fetch-15"),
+        (Some(30), "30m", "auto-fetch-30"),
+        (Some(60), "60m", "auto-fetch-60"),
+    ];
+    let mut row = div()
+        .id("auto-fetch-row")
+        .debug_selector(|| "auto-fetch-row".into())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(label("Auto fetch"));
+    for (value, name, id) in options {
+        let selected = this.auto_fetch_minutes == value;
+        row = row.child(
+            div()
+                .id(id)
+                .debug_selector(move || id.into())
+                .cursor_pointer()
+                .rounded_md()
+                .px_3()
+                .py_1()
+                .text_size(px(theme::font_small()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
+                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.auto_fetch_minutes = value;
                     cx.notify();
                 }))
                 .child(name),

@@ -16,6 +16,9 @@ pub enum NetCommand {
     Scan { settings: ReposSettings, previous: Vec<RepoEntry> },
     /// One status pass over every folder, 4-way parallel, burst-applied.
     ProbeAll { folders: Vec<PathBuf> },
+    /// The periodic background fetch: `git fetch --prune` over every folder
+    /// with a remote, then one status pass — errors are traced, not toasted.
+    FetchAll { folders: Vec<PathBuf> },
     /// The Add-Repositories dialog's deep scan under one root.
     DeepScan { root: String, depth: i32, settings: ReposSettings },
     /// The Clone-from-URL dialog's clone into a parent directory.
@@ -371,6 +374,23 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let _ = evt_tx.send_blocking(UiEvent::ScanSettled { repos: merged, removed });
             }
             NetCommand::ProbeAll { folders } => {
+                let probes = probe_pass(folders).await;
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
+            }
+            NetCommand::FetchAll { folders } => {
+                devtools_core::refresh::throttled_pass(folders.clone(), 3, |folder| async move {
+                    let outcome = devtools_core::git::cli::fetch(&folder).await;
+                    if !outcome.ok {
+                        tracing::warn!(
+                            "auto fetch failed in {}: {}",
+                            folder.display(),
+                            outcome.error.as_deref().unwrap_or("git rejected it")
+                        );
+                    }
+                })
+                .await;
+                // the settled probes refresh the ahead/behind badges through
+                // the same burst-apply the manual passes use
                 let probes = probe_pass(folders).await;
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
             }

@@ -6,7 +6,7 @@ pub mod projection;
 
 use crate::net::{GitAction, NetCommand, UiEvent, WarpWorkspaceStatus, WandKind};
 use devtools_core::repo_store::{self, RepoEntry};
-use devtools_core::settings::{AppSettings, RepoSortMode, SettingsService};
+use devtools_core::settings::{AppSettings, RepoSortMode, ReposSettings, SettingsService};
 use gpui::{App, Context};
 use std::sync::Arc;
 
@@ -85,6 +85,10 @@ pub struct Store {
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
+    /// When the next periodic `git fetch --prune` fires; None = the feature is
+    /// off. Armed by [Self::refresh_auto_fetch_schedule], checked on the UI's
+    /// once-per-second tick.
+    pub next_auto_fetch: Option<std::time::Instant>,
 
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
@@ -156,10 +160,12 @@ impl Store {
             pending_notes_scope: None,
             commit_details: None,
             commit_file_patch: None,
+            next_auto_fetch: None,
             save_generation: 0,
             nuget: Default::default(),
         };
         store.reproject();
+        store.refresh_auto_fetch_schedule();
 
         // Cache first for instant labels, then the session scan + a status
         // pass over whatever we know (the scan's settle re-probes the merged
@@ -828,6 +834,61 @@ impl Store {
         self.notices.retain(|n| n.born.elapsed() < n.kind.ttl());
         if self.notices.len() != before {
             cx.notify();
+        }
+    }
+
+    // ---- periodic fetch -----------------------------------------------------
+
+    /// The effective auto-fetch interval: DEVTOOLS_AUTO_FETCH_SECS=<secs>
+    /// (E2E hook, mirrors the other DEVTOOLS_* launch hooks) replaces the
+    /// minutes setting; None = the feature is off.
+    fn auto_fetch_interval(repos: &ReposSettings) -> Option<std::time::Duration> {
+        if let Ok(secs) = std::env::var("DEVTOOLS_AUTO_FETCH_SECS")
+            && let Ok(secs) = secs.parse::<u64>()
+        {
+            return Some(std::time::Duration::from_secs(secs));
+        }
+        repos
+            .auto_fetch_minutes
+            .map(|minutes| std::time::Duration::from_secs(u64::from(minutes) * 60))
+    }
+
+    /// Re-arms the periodic fetch from the current settings; call wherever a
+    /// settings load or save can change the interval.
+    pub fn refresh_auto_fetch_schedule(&mut self) {
+        self.next_auto_fetch = Self::auto_fetch_interval(&self.settings().repos)
+            .map(|interval| std::time::Instant::now() + interval);
+    }
+
+    /// The tick's check: when the schedule is due, fetch every repo with a
+    /// remote — except the selected repo's folder while a git mutation runs
+    /// there (index.lock conflict avoidance) — then re-arm immediately; the
+    /// interval is minutes, so waiting for completion buys nothing.
+    pub fn check_auto_fetch(&mut self, _cx: &mut Context<Self>) {
+        let Some(due) = self.next_auto_fetch else { return };
+        if std::time::Instant::now() < due {
+            return;
+        }
+        // the setting may have been turned off since this was armed
+        let Some(interval) = Self::auto_fetch_interval(&self.settings().repos) else {
+            self.next_auto_fetch = None;
+            return;
+        };
+        let busy_folder = self.git_busy.then(|| self.selected_repo.clone()).flatten();
+        let folders: Vec<std::path::PathBuf> = self
+            .repos
+            .iter()
+            .filter(|repo| repo.git_has_remote)
+            .map(|repo| repo.folder_path.clone())
+            .filter(|folder| {
+                busy_folder
+                    .as_ref()
+                    .is_none_or(|busy| folder.to_string_lossy() != *busy)
+            })
+            .collect();
+        self.next_auto_fetch = Some(std::time::Instant::now() + interval);
+        if !folders.is_empty() {
+            let _ = self.net.send_blocking(NetCommand::FetchAll { folders });
         }
     }
 

@@ -582,6 +582,83 @@ fn table_rows_center_their_content(cx: &mut TestAppContext) {
     );
 }
 
+/// The periodic fetch scheduler: a due schedule sends exactly one FetchAll
+/// carrying only the repos with a remote, the selected repo's folder drops
+/// out while a git mutation runs there, and each fire re-arms the next due
+/// instant. DEVTOOLS_AUTO_FETCH_SECS=1 replaces the minutes setting so the
+/// probe runs on the E2E interval.
+#[gpui::test]
+fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
+
+    cx.update(gpui_kit::init);
+
+    // SAFETY: process-global env; read wherever the schedule is computed, no
+    // sibling test in this binary arms a tick to consume it
+    unsafe { std::env::set_var("DEVTOOLS_AUTO_FETCH_SECS", "1") };
+
+    let scratch = std::env::temp_dir().join(format!("devtools-auto-fetch-store-{}.json", std::process::id()));
+    std::fs::write(&scratch, r#"{"Repos": {"AutoFetchMinutes": 30}}"#).expect("scratch settings");
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha", &[]),
+            entry("beta", "/probe/beta", &[]),
+            entry("gamma", "/probe/gamma", &[]),
+        ]);
+        store.repos[1].git_has_remote = false;
+        store
+    });
+    assert!(
+        cx.read_entity(&store, |s, _| s.next_auto_fetch.is_some()),
+        "construction arms the schedule"
+    );
+
+    // force the schedule due, then fire
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.next_auto_fetch = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+
+    let mut fetch_all: Option<Vec<PathBuf>> = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::FetchAll { folders } = command {
+            assert!(fetch_all.is_none(), "exactly one FetchAll went out");
+            fetch_all = Some(folders);
+        }
+    }
+    assert_eq!(
+        fetch_all.expect("the FetchAll command went out"),
+        vec![PathBuf::from("/probe/alpha"), PathBuf::from("/probe/gamma")],
+        "only the repos with a remote are fetched"
+    );
+    cx.read_entity(&store, |s, _| {
+        let due = s.next_auto_fetch.expect("each fire re-arms the schedule");
+        assert!(due > std::time::Instant::now(), "the next due sits in the future");
+    });
+
+    // a git mutation in the selected repo excludes its folder (index.lock)
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.selected_repo = Some("/probe/alpha".into());
+        s.git_busy = true;
+        s.next_auto_fetch = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::FetchAll { folders } = command {
+            assert_eq!(folders, vec![PathBuf::from("/probe/gamma")], "the busy selected repo is excluded");
+        }
+    }
+
+    unsafe { std::env::remove_var("DEVTOOLS_AUTO_FETCH_SECS") };
+    let _ = std::fs::remove_file(&scratch);
+}
+
 fn px_col() -> gpui::Pixels {
     gpui::px(120.)
 }
