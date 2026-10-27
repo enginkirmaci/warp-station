@@ -4,13 +4,16 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-icon_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
-for f in "$here"/icons/devtools-*.png; do
-	size="$(basename "$f" .png)"; size="${size#devtools-}"
-	dir="$icon_root/${size}x${size}/apps"
-	mkdir -p "$dir"
-	cp "$f" "$dir/devtools.png"
-done
+	icon_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+	for f in "$here"/icons/devtools-*.png; do
+		size="$(basename "$f" .png)"; size="${size#devtools-}"
+		dir="$icon_root/${size}x${size}/apps"
+		mkdir -p "$dir"
+		cp "$f" "$dir/devtools.png"
+	done
+	# vector icon: launchers prefer scalable over upscaling the raster sizes
+	install -Dm644 "$here/../../crates/devtools/assets/icons/logo.svg" \
+		"$icon_root/scalable/apps/devtools.svg"
 
 app_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$app_dir"

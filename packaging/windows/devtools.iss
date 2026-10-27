@@ -1,14 +1,9 @@
-; Inno Setup 6 script - per-user installer for DevTools.
-; build.ps1 -Installer invokes this with /DMyAppVersion=<cargo version> and
-; /DMyTargetDir=<cargo target_directory>; the fallbacks below keep plain
-; `ISCC devtools.iss` working too.
+; Inno Setup 6 script - optional per-user installer for DevTools, compiled
+; manually with ISCC after build.ps1 has staged out\. The version fallback
+; keeps plain `ISCC devtools.iss` working too.
 
 #ifndef MyAppVersion
 #define MyAppVersion "0.0.0-dev"
-#endif
-
-#ifndef MyTargetDir
-#define MyTargetDir "..\..\target"
 #endif
 
 #define MyAppName "DevTools"
@@ -34,14 +29,13 @@ SolidCompression=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Files]
-Source: "{#MyTargetDir}\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; SnapIt companion (Windows-only): exe bundles the managed code, native libs stay
-; beside it. Seed defaults install only when missing so user edits survive upgrades.
-Source: "out\snapit-publish\Tools.SnapIt.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "out\snapit-publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "out\snapit-publish\settings\snapit\Settings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "out\snapit-publish\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "out\snapit-publish\settings\snapit\layouts\*.json"; DestDir: "{app}\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "out\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; SnapIt companion (Windows-only): self-contained single-file exe, no loose
+; dlls. Seed defaults install only when missing so user edits survive upgrades.
+Source: "out\Tools.SnapIt.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "out\settings\snapit\Settings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "out\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "out\settings\snapit\layouts\*.json"; DestDir: "{app}\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

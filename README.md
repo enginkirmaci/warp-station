@@ -19,7 +19,7 @@ section enabled in Settings.
   icons so the launcher shows the app; `Exec` points at
   `target/debug/devtools`.
 - Windows (build on a Windows box — GPUI has no Linux→Windows cross build):
-  `packaging/windows/build.ps1` produces a portable zip under
-  `packaging/windows/out`; `-Installer` also compiles the Inno Setup
-  setup.exe. The app icon is embedded into the exe by `build.rs` from
-  `packaging/windows/devtools.ico`.
+  `packaging/windows/build.ps1` stages the runnable files under
+  `packaging/windows/out`: `devtools.exe`, the self-contained single-file
+  `Tools.SnapIt.exe` companion and SnapIt's default settings. The app icon is
+  embedded into the exe by `build.rs` from `packaging/windows/devtools.ico`.
