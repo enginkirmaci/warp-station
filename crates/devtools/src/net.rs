@@ -40,23 +40,25 @@ pub enum NetCommand {
     GitHubDetails { folder: PathBuf, gh_exe: String },
     /// The Azure DevOps activity pass (2-way parallel REST probes).
     AzurePass { folders: Vec<PathBuf>, pat: String, custom_base: String },
-    /// One AI wand run (opencode serve, one session). The net thread builds
-    /// the prompt for the kind; the id routes asks and the result.
-    Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, opencode_exe: String },
-    /// A reply to a pending permission ask.
-    WandRespond { wand_id: String, ask_id: String, response: String },
-    /// The opencode model catalog (`opencode models` + cache).
-    LoadModels { opencode_exe: String, default_model: String },
+    /// One AI wand run: the prompt is built here, the turn runs in
+    /// warp-agent over its door (launching it when merely closed).
+    Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, warp_exe: String },
+    /// The opencode model catalog through the warp-agent door (+ cache).
+    LoadModels { warp_exe: String, default_model: String },
     /// The yesterday-summary wand: day activity across every repo → prompt →
-    /// one run → the summary file path.
+    /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
         id: String,
         folders: Vec<(String, PathBuf)>,
         day: chrono::NaiveDate,
         model: Option<String>,
-        opencode_exe: String,
+        warp_exe: String,
         summaries_dir: PathBuf,
     },
+    /// Opens a repo as a warp-agent workspace (added when missing).
+    WarpOpen { folder: PathBuf, warp_exe: String },
+    /// Hands a prompt to warp-agent as a new chat's composer prefill.
+    WarpAsk { folder: PathBuf, warp_exe: String },
     /// NuGet Local watch controls; the config is captured from settings at
     /// press time (the service holds no settings handle).
     NugetStart { config: devtools_core::nuget::NugetConfig },
@@ -131,6 +133,50 @@ impl GitAction {
     }
 }
 
+/// One warp-agent workspace as the repo rows see it: the running chats'
+/// titles (empty when the workspace is idle).
+#[derive(Clone, Debug, Default)]
+pub struct WarpWorkspaceStatus {
+    pub connected: bool,
+    pub running: Vec<String>,
+}
+
+/// Parses a door status snapshot's `workspaces` payload.
+fn parse_warp_status(workspaces: &serde_json::Value) -> Vec<(String, WarpWorkspaceStatus)> {
+    workspaces
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|ws| {
+                    let path = ws.get("path")?.as_str()?.to_string();
+                    let running: Vec<String> = ws
+                        .get("sessions")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|sessions| {
+                            sessions
+                                .iter()
+                                .filter(|s| {
+                                    s.get("running").and_then(serde_json::Value::as_bool).unwrap_or(false)
+                                })
+                                .filter_map(|s| {
+                                    s.get("title").and_then(serde_json::Value::as_str).map(str::to_string)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some((
+                        path,
+                        WarpWorkspaceStatus {
+                            connected: ws.get("connected").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                            running,
+                        },
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub enum UiEvent {
     ScanSettled { repos: Vec<RepoEntry>, removed: Vec<String> },
     StatusSettled { probes: Vec<StatusProbe> },
@@ -163,12 +209,17 @@ pub enum UiEvent {
     GitHubSettled { items: Vec<(String, devtools_core::github::GitHubSnapshot)> },
     GitHubDetailsLoaded { folder: String, details: Option<devtools_core::github::GitHubRepoDetails> },
     AzureSettled { items: Vec<(String, devtools_core::azure::AzureSnapshot)> },
-    WandAsk { wand_id: String, ask_id: String, title: String },
     WandLog { wand_id: String, line: String },
     WandDone { wand_id: String, kind: WandKind, result: Result<String, String> },
     ModelsLoaded { models: Vec<String> },
     /// The summary wand finished (Ok = the written file path).
     SummaryDone { wand_id: String, result: Result<String, String> },
+    /// warp-agent came up or went away; `connected` gates the status chip.
+    WarpAvailability { connected: bool },
+    /// A warp-agent status snapshot: workspace folder → running chats.
+    WarpStatus { workspaces: Vec<(String, WarpWorkspaceStatus)> },
+    /// A warp-agent open/handoff settled; the error toasts on failure.
+    WarpOpened { folder: String, error: Option<String> },
     /// A NuGet watch service state change (full snapshot).
     Nuget(devtools_core::nuget::NugetSnapshot),
     /// The system-wide Ctrl+Shift+V fired; the copy already ran on the
@@ -269,8 +320,8 @@ async fn listen_clipboard_ping(evt_tx: Sender<UiEvent>) {
 }
 
 async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
-    // live wand runs: id → the run's control channel (permission replies)
-    let wands: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<devtools_core::opencode::WandControl>>>> =
+    // live wand runs: id → the run's kill signal
+    let wands: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<()>>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
     // the NuGet watch service outlives the drawer; its snapshots forward as
@@ -291,6 +342,16 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
         let evt_tx = evt_tx.clone();
         tokio::spawn(async move {
             listen_clipboard_ping(evt_tx).await;
+        });
+    }
+
+    // the warp-agent door watcher: availability for the status chip and
+    // status pushes for the repo rows. Passive — it never launches; runs
+    // that need warp-agent launch it themselves.
+    {
+        let evt_tx = evt_tx.clone();
+        tokio::spawn(async move {
+            warp_status_loop(evt_tx).await;
         });
     }
 
@@ -359,14 +420,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
             }
-            NetCommand::WandSummary { id, folders, day, model, opencode_exe, summaries_dir } => {
+            NetCommand::WandSummary { id, folders, day, model, warp_exe, summaries_dir } => {
                 let evt_tx = evt_tx.clone();
                 tokio::spawn(async move {
                     // gather every repo's day activity (blocking reads)
-                    let anchor = folders
-                        .first()
-                        .map(|(_, f)| f.clone())
-                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
                     let activities = tokio::task::spawn_blocking(move || {
                         let mut collected: Vec<(String, devtools_core::model::GitDayActivity)> = Vec::new();
                         for (name, folder) in &folders {
@@ -395,20 +452,29 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         &devtools_core::opencode::format_repositories_block(&activities),
                     );
 
-                    let (events_tx, events_rx) = async_channel::unbounded::<devtools_core::opencode::WandEvent>();
-                    let (_control_tx, control_rx) = async_channel::unbounded::<devtools_core::opencode::WandControl>();
-                    let result = devtools_core::opencode::run_prompt(
-                        &opencode_exe,
-                        &anchor,
-                        model.as_deref(),
-                        &prompt,
-                        events_tx,
-                        control_rx,
-                    )
-                    .await;
-                    drop(events_rx);
+                    // the summary is a warp-agent General-workspace chat: it
+                    // stays visible there after the note is written
+                    let run = match devtools_core::warp::connect_or_launch(std::path::Path::new(&warp_exe), None).await {
+                        Ok(mut client) => {
+                            let logs = evt_tx.clone();
+                            let log_id = id.clone();
+                            let (_kill_tx, kill_rx) = async_channel::unbounded::<()>();
+                            client
+                                .run_prompt(
+                                    devtools_core::warp::GENERAL,
+                                    &prompt,
+                                    model.as_deref(),
+                                    move |line| {
+                                        let _ = logs.send_blocking(UiEvent::WandLog { wand_id: log_id.clone(), line });
+                                    },
+                                    kill_rx,
+                                )
+                                .await
+                        }
+                        Err(err) => Err(err),
+                    };
 
-                    let outcome = match result {
+                    let outcome = match run {
                         Ok(summary) => {
                             let summary: String = summary.chars().take(30000).collect();
                             let path = summaries_dir.join(format!("{}.md", day.format("%Y-%m-%d")));
@@ -424,8 +490,18 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let _ = evt_tx.send_blocking(UiEvent::SummaryDone { wand_id: id, result: outcome });
                 });
             }
-            NetCommand::LoadModels { opencode_exe, default_model } => {
-                let models = devtools_core::opencode::list_models(&opencode_exe, &default_model).await;
+            NetCommand::LoadModels { warp_exe, default_model } => {
+                let models = match devtools_core::warp::connect_or_launch(std::path::Path::new(&warp_exe), None).await {
+                    Ok(mut client) => match client.models().await {
+                        Ok(models) => {
+                            devtools_core::opencode::store_models_cache(&models, &default_model);
+                            models
+                        }
+                        Err(_) => devtools_core::opencode::cached_models(&default_model),
+                    },
+                    // no door: the cache keeps the pickers working offline
+                    Err(_) => devtools_core::opencode::cached_models(&default_model),
+                };
                 let _ = evt_tx.send_blocking(UiEvent::ModelsLoaded { models });
             }
             NetCommand::NugetStart { config } => nuget.start(config),
@@ -441,94 +517,106 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let _ = evt_tx.send_blocking(UiEvent::FolderPicked { path });
                 });
             }
-            NetCommand::WandRespond { wand_id, ask_id, response } => {
-                let wands = wands.clone();
-                tokio::spawn(async move {
-                    let guard = wands.lock().await;
-                    if let Some(control) = guard.get(&wand_id) {
-                        let _ = control
-                            .send(devtools_core::opencode::WandControl::Respond { id: ask_id, response })
-                            .await;
-                    }
-                });
-            }
-            NetCommand::Wand { id, kind, folder, model, opencode_exe } => {
+            NetCommand::Wand { id, kind, folder, model, warp_exe } => {
                 let evt_tx = evt_tx.clone();
                 let wands = wands.clone();
                 tokio::spawn(async move {
-                    let (control_tx, control_rx) = async_channel::unbounded::<devtools_core::opencode::WandControl>();
-                    let (events_tx, events_rx) = async_channel::unbounded::<devtools_core::opencode::WandEvent>();
-                    wands.lock().await.insert(id.clone(), control_tx.clone());
-
-                    // forward run events to the UI
-                    let forward_tx = evt_tx.clone();
-                    let forward_id = id.clone();
-                    tokio::spawn(async move {
-                        while let Ok(event) = events_rx.recv().await {
-                            match event {
-                                devtools_core::opencode::WandEvent::Ask { id: ask_id, title } => {
-                                    let _ = forward_tx.send_blocking(UiEvent::WandAsk {
-                                        wand_id: forward_id.clone(),
-                                        ask_id,
-                                        title,
-                                    });
-                                }
-                                devtools_core::opencode::WandEvent::Log(line) => {
-                                    let _ = forward_tx.send_blocking(UiEvent::WandLog {
-                                        wand_id: forward_id.clone(),
-                                        line,
-                                    });
-                                }
-                            }
-                        }
-                    });
+                    let (kill_tx, kill_rx) = async_channel::unbounded::<()>();
+                    wands.lock().await.insert(id.clone(), kill_tx);
 
                     // build the prompt for the kind (blocking reads)
                     let prompt = tokio::task::spawn_blocking({
                         let folder = folder.clone();
-                        move || match kind {
-                            WandKind::Commit => {
-                                let (patch, files, subjects) =
-                                    devtools_core::git::read::commit_prompt_context(&folder)
-                                        .unwrap_or_default();
-                                let file_list = files.join(", ");
-                                let subjects: Vec<String> =
-                                    subjects.into_iter().take(5).collect();
-                                let context = if subjects.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!("Recent commit subjects for tone:\n{}", subjects.join("\n"))
-                                };
-                                devtools_core::opencode::commit_message_prompt(&file_list, &patch, &context)
-                            }
-                            WandKind::Readme => {
-                                let name = folder
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().to_string())
-                                    .unwrap_or_default();
-                                let tree = devtools_core::opencode::file_tree(&folder, 200);
-                                devtools_core::opencode::readme_prompt(&name, &tree, "")
-                            }
-                        }
+                        move || build_wand_prompt(kind, &folder)
                     })
                     .await
                     .unwrap_or_default();
 
-                    let result = devtools_core::opencode::run_prompt(
-                        &opencode_exe,
-                        &folder,
-                        model.as_deref(),
-                        &prompt,
-                        events_tx,
-                        control_rx,
+                    // the turn runs as a warp-agent chat in this repo's
+                    // workspace — visible there while it works
+                    let workspace = folder.to_string_lossy().to_string();
+                    let result = match devtools_core::warp::connect_or_launch(
+                        std::path::Path::new(&warp_exe),
+                        Some(&folder),
                     )
-                    .await;
+                    .await
+                    {
+                        Ok(mut client) => {
+                            let logs = evt_tx.clone();
+                            let log_id = id.clone();
+                            client
+                                .run_prompt(
+                                    &workspace,
+                                    &prompt,
+                                    model.as_deref(),
+                                    move |line| {
+                                        let _ = logs.send_blocking(UiEvent::WandLog {
+                                            wand_id: log_id.clone(),
+                                            line,
+                                        });
+                                    },
+                                    kill_rx,
+                                )
+                                .await
+                        }
+                        Err(err) => Err(err),
+                    };
 
                     wands.lock().await.remove(&id);
                     let _ = evt_tx.send_blocking(UiEvent::WandDone {
                         wand_id: id,
                         kind,
                         result: result.map_err(|err| format!("{err:#}")),
+                    });
+                });
+            }
+            NetCommand::WarpOpen { folder, warp_exe } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let result = match devtools_core::warp::connect_or_launch(
+                        std::path::Path::new(&warp_exe),
+                        Some(&folder),
+                    )
+                    .await
+                    {
+                        Ok(mut client) => client.open_workspace(&folder).await.map_err(|err| format!("{err:#}")),
+                        Err(err) => Err(format!("{err:#}")),
+                    };
+                    let _ = evt_tx.send_blocking(UiEvent::WarpOpened {
+                        folder: folder.to_string_lossy().to_string(),
+                        error: result.err(),
+                    });
+                });
+            }
+            NetCommand::WarpAsk { folder, warp_exe } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    // the handoff rides the same commit-context prompt the
+                    // wand uses, as the new chat's composer prefill
+                    let prefill = tokio::task::spawn_blocking({
+                        let folder = folder.clone();
+                        move || build_wand_prompt(WandKind::Commit, &folder)
+                    })
+                    .await
+                    .unwrap_or_default();
+                    let result = match devtools_core::warp::connect_or_launch(
+                        std::path::Path::new(&warp_exe),
+                        Some(&folder),
+                    )
+                    .await
+                    {
+                        Ok(mut client) => {
+                            let workspace = folder.to_string_lossy().to_string();
+                            client
+                                .new_chat(&workspace, &prefill, false, None)
+                                .await
+                                .map_err(|err| format!("{err:#}"))
+                        }
+                        Err(err) => Err(format!("{err:#}")),
+                    };
+                    let _ = evt_tx.send_blocking(UiEvent::WarpOpened {
+                        folder: folder.to_string_lossy().to_string(),
+                        error: result.err(),
                     });
                 });
             }
@@ -666,6 +754,79 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 });
             }
         }
+    }
+}
+
+/// Builds a wand prompt for the kind from local git state.
+fn build_wand_prompt(kind: WandKind, folder: &Path) -> String {
+    match kind {
+        WandKind::Commit => {
+            let (patch, files, subjects) =
+                devtools_core::git::read::commit_prompt_context(folder).unwrap_or_default();
+            let file_list = files.join(", ");
+            let subjects: Vec<String> = subjects.into_iter().take(5).collect();
+            let context = if subjects.is_empty() {
+                String::new()
+            } else {
+                format!("Recent commit subjects for tone:\n{}", subjects.join("\n"))
+            };
+            devtools_core::opencode::commit_message_prompt(&file_list, &patch, &context)
+        }
+        WandKind::Readme => {
+            let name = folder
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let tree = devtools_core::opencode::file_tree(folder, 200);
+            devtools_core::opencode::readme_prompt(&name, &tree, "")
+        }
+    }
+}
+
+/// Watches the warp-agent door: availability changes and status pushes for
+/// the repo-row indicators. Passive — a missing warp-agent only reports
+/// "away"; the runs launch it themselves when they need it.
+async fn warp_status_loop(evt_tx: Sender<UiEvent>) {
+    let mut announced = false;
+    loop {
+        if !devtools_core::settings::SettingsService::open()
+            .get()
+            .warp_agent
+            .enable_warp_agent
+        {
+            if announced {
+                announced = false;
+                let _ = evt_tx.send_blocking(UiEvent::WarpAvailability { connected: false });
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            continue;
+        }
+        let connected = match devtools_core::warp::Client::connect().await {
+            Ok(mut client) => {
+                if let Ok(workspaces) = client.status().await {
+                    let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
+                        workspaces: parse_warp_status(&workspaces),
+                    });
+                }
+                // ride the push stream until the door drops
+                while let Ok(frame) = client.next_frame().await {
+                    if frame.get("event").and_then(serde_json::Value::as_str) == Some("status")
+                        && let Some(workspaces) = frame.pointer("/data/workspaces")
+                    {
+                        let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
+                            workspaces: parse_warp_status(workspaces),
+                        });
+                    }
+                }
+                true
+            }
+            Err(_) => false,
+        };
+        if connected != announced {
+            announced = connected;
+            let _ = evt_tx.send_blocking(UiEvent::WarpAvailability { connected });
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 }
 

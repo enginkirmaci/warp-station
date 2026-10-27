@@ -57,7 +57,7 @@ impl Render for OverviewView {
             state.wand_busy == Some(WandKind::Readme)
                 && state.wand_repo.as_deref() == state.selected_repo.as_deref()
         };
-        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
+        let opencode_on = self.store.read(cx).wand_available();
         let has_draft = draft.is_some();
         let shown = draft.clone().or_else(|| self.readme.clone());
 

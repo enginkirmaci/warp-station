@@ -25,3 +25,4 @@ pub mod scan;
 pub mod snapit;
 pub mod terminal;
 pub mod settings;
+pub mod warp;

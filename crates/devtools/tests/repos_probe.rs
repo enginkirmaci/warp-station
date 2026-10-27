@@ -349,70 +349,64 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     );
 }
 
-/// The permission popup's buttons carry their labels — a label-less button
-/// renders as a bare tinted pill with no text.
+/// The warp status bridge: pushes land per folder, and availability-loss
+/// clears them — the row hints follow warp-agent down with it.
 #[gpui::test]
-fn wand_ask_buttons_render_their_labels(cx: &mut TestAppContext) {
-    use devtools::net::UiEvent;
+fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
+    use devtools::net::{UiEvent, WarpWorkspaceStatus};
 
     cx.update(gpui_kit::init);
-    cx.update(devtools::theme::apply_kit_theme);
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
-    let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
-    cx.run_until_parked();
 
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.on_net_event(
-            UiEvent::WandAsk {
-                wand_id: "w".into(),
-                ask_id: "a".into(),
-                title: "bash ls".into(),
+            UiEvent::WarpStatus {
+                workspaces: vec![(
+                    "/repos/a".into(),
+                    WarpWorkspaceStatus { connected: true, running: vec!["chat one".into(), "chat two".into()] },
+                )],
             },
             cx,
         );
+        s.on_net_event(UiEvent::WarpAvailability { connected: true }, cx);
     });
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(
-        cx.read_entity(&store, |s, _| s.wand_ask.is_some()),
-        "the pending ask is parked on the store"
+    assert!(cx.read_entity(&store, |s, _| s.warp_connected));
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s
+            .warp_running
+            .get("/repos/a")
+            .map(|w| w.running.clone()))
+        .unwrap(),
+        vec!["chat one".to_string(), "chat two".to_string()]
     );
-    // padding alone is ~8px tall; the label adds a full text line
-    for id in ["wand-ask-Reject", "wand-ask-Allow all", "wand-ask-Allow once"] {
-        let bounds = cx
-            .debug_bounds(id)
-            .unwrap_or_else(|| panic!("{id} renders"));
-        assert!(
-            bounds.size.height > gpui::px(14.),
-            "{id} carries its label"
-        );
-    }
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(UiEvent::WarpAvailability { connected: false }, cx);
+    });
+    assert!(!cx.read_entity(&store, |s, _| s.warp_connected));
+    assert!(cx.read_entity(&store, |s, _| s.warp_running.is_empty()));
 }
 
-/// With the OpenCode auto-allow setting on, an ask is answered "always" on
-/// the spot and never raises the popup. The store is backed by a scratch
-/// settings file — flipping the flag must never touch the real settings.
+/// The Changes-tab handoff leaves as a WarpAsk command carrying the repo's
+/// folder. The store is backed by a scratch settings file pointing the
+/// integration at an existing executable, so the gate passes.
 #[gpui::test]
-fn auto_allow_answers_permission_asks_without_the_popup(cx: &mut TestAppContext) {
-    use devtools::net::{NetCommand, UiEvent};
+fn ask_agent_hands_off_through_the_door(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
 
     cx.update(gpui_kit::init);
 
-    let scratch = std::env::temp_dir().join(format!(
-        "devtools-probe-auto-allow-{}.json",
-        std::process::id()
-    ));
-    std::fs::write(
-        &scratch,
-        r#"{"OpenCode": {"AutoAllowPermissions": true}}"#,
-    )
-    .expect("scratch settings");
+    let exe = std::env::current_exe().expect("test binary path");
+    let json = format!(
+        r#"{{"OpenCode": {{"EnableOpenCode": true}}, "WarpAgent": {{"EnableWarpAgent": true, "Executable": "{}"}}}}"#,
+        exe.display().to_string().replace('\\', "\\\\")
+    );
+    let scratch = std::env::temp_dir().join(format!("devtools-probe-warp-{}.json", std::process::id()));
+    std::fs::write(&scratch, json).expect("scratch settings");
+
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         Store::with_settings(
@@ -420,35 +414,20 @@ fn auto_allow_answers_permission_asks_without_the_popup(cx: &mut TestAppContext)
             std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
         )
     });
-
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        s.on_net_event(
-            UiEvent::WandAsk {
-                wand_id: "w".into(),
-                ask_id: "a".into(),
-                title: "bash ls".into(),
-            },
-            cx,
-        );
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.selected_repo = Some("/repos/a".into());
     });
+    cx.update_entity(&store, |s, cx| s.ask_warp_about_changes(cx));
     cx.run_until_parked();
 
-    assert!(
-        cx.read_entity(&store, |s, _| s.wand_ask.is_none()),
-        "the popup never raises"
-    );
-    let sent = {
-        // construction queues ProbeAll/Scan ahead of the reply; drain to it
-        let mut reply = None;
-        while let Ok(command) = net_rx.try_recv() {
-            if let NetCommand::WandRespond { response, .. } = command {
-                reply = Some(response);
-                break;
-            }
+    let mut handed_off = false;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::WarpAsk { folder, .. } = command {
+            assert_eq!(folder, std::path::PathBuf::from("/repos/a"));
+            handed_off = true;
         }
-        reply.expect("the auto-allow reply went out")
-    };
-    assert_eq!(sent, "always");
+    }
+    assert!(handed_off, "the handoff command went out");
 
     let _ = std::fs::remove_file(&scratch);
 }

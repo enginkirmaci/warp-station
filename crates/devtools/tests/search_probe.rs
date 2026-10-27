@@ -134,12 +134,34 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
 /// The brand column (app name + notes + summary) and the right action group
 /// share one fixed width — that is what keeps the search field centered, so
 /// the summary pill moving into the titlebar must not unbalance the sides.
+/// The pill renders only when the warp-agent door resolves, so the probe
+/// backs the store with scratch settings naming an existing executable.
 #[gpui::test]
 fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
-    let store = fake_store(cx);
+    let exe = std::env::current_exe().expect("test binary path");
+    let json = format!(
+        r#"{{"OpenCode": {{"EnableOpenCode": true}}, "WarpAgent": {{"EnableWarpAgent": true, "Executable": "{}"}}}}"#,
+        exe.display().to_string().replace('\\', "\\\\")
+    );
+    let scratch = std::env::temp_dir().join(format!("devtools-probe-titlebar-{}.json", std::process::id()));
+    std::fs::write(&scratch, json).expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+            entry("gamma", "/probe/gamma"),
+        ]);
+        store
+    });
+    let _ = std::fs::remove_file(&scratch);
     let store_handle = store.clone();
     let (_window_handle, cx) = cx.add_window_view(|window, cx| {
         MainWindow::new(store_handle.clone(), window, cx)

@@ -84,16 +84,14 @@ fn main() {
             })
             .detach();
 
-            // wand permission-ask countdown ticks once per second; the same
-            // beat expires toasts past their ttl
-            let wand_store = store.downgrade();
+            // toasts expire on a once-per-second beat
+            let notice_store = store.downgrade();
             cx.spawn(async move |cx| loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(1))
                     .await;
-                if let Some(store) = wand_store.upgrade() {
+                if let Some(store) = notice_store.upgrade() {
                     store.update(cx, |s, cx| {
-                        s.tick_wand(cx);
                         s.tick_notices(cx);
                     });
                 } else {

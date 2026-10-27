@@ -24,6 +24,8 @@ pub struct AppSettings {
     pub keep_awake: KeepAwakeSettings,
     #[serde(default, rename = "OpenCode")]
     pub opencode: OpenCodeSettings,
+    #[serde(default, rename = "WarpAgent")]
+    pub warp_agent: WarpAgentSettings,
     #[serde(default)]
     pub general: GeneralSettings,
 }
@@ -169,9 +171,22 @@ pub struct OpenCodeSettings {
     pub enable_opencode: bool,
     pub default_model: String,
     pub commit_model: Option<String>,
-    /// Answers tool permission asks with "always" instead of raising the
-    /// popup (the serve run is per-generation, so nothing outlives it).
-    pub auto_allow_permissions: bool,
+}
+
+/// The warp-agent integration: DevTools' AI surface runs in warp-agent over
+/// its door, so these toggle the whole AI feature set and name its binary.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct WarpAgentSettings {
+    #[serde(rename = "EnableWarpAgent")]
+    pub enable_warp_agent: bool,
+    pub executable: String,
+}
+
+impl Default for WarpAgentSettings {
+    fn default() -> Self {
+        Self { enable_warp_agent: true, executable: "warp-agent".into() }
+    }
 }
 
 
@@ -358,12 +373,15 @@ mod tests {
     }
 
     #[test]
-    fn auto_allow_permissions_round_trips() {
-        let json = r#"{"OpenCode": {"AutoAllowPermissions": true}}"#;
-        let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert!(s.opencode.auto_allow_permissions);
-        // absent key = off (old settings files never carried it)
-        let off: AppSettings = serde_json::from_str::<AppSettings>("{}").unwrap();
-        assert!(!off.opencode.auto_allow_permissions);
+    fn warp_agent_defaults_on_with_executable() {
+        // absent section = enabled with the default binary name
+        let s: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(s.warp_agent.enable_warp_agent);
+        assert_eq!(s.warp_agent.executable, "warp-agent");
+        // an explicit off round-trips
+        let off: AppSettings =
+            serde_json::from_str(r#"{"WarpAgent": {"EnableWarpAgent": false, "Executable": "wa"}}"#).unwrap();
+        assert!(!off.warp_agent.enable_warp_agent);
+        assert_eq!(off.warp_agent.executable, "wa");
     }
 }

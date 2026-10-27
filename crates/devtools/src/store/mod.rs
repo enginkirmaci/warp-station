@@ -4,7 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{GitAction, NetCommand, UiEvent, WandKind};
+use crate::net::{GitAction, NetCommand, UiEvent, WarpWorkspaceStatus, WandKind};
 use devtools_core::repo_store::{self, RepoEntry};
 use devtools_core::settings::{AppSettings, RepoSortMode, SettingsService};
 use gpui::{App, Context};
@@ -50,22 +50,23 @@ pub struct Store {
     pub azure_by_folder: std::collections::HashMap<String, devtools_core::azure::AzureSnapshot>,
     pub github_details: Option<devtools_core::github::GitHubRepoDetails>,
 
-    // ---- wand (opencode) state ----
+    // ---- wand (warp-agent) state ----
     pub wand_busy: Option<WandKind>,
     /// The repo the running wand was kicked for — its result may only land
     /// while that repo is still selected.
     pub wand_repo: Option<String>,
-    /// A pending permission ask: (wand id, ask id, title, seconds left on the
-    /// auto-reject countdown).
-    pub wand_ask: Option<(String, String, String, u32)>,
     pub wand_error: Option<String>,
     /// The commit-message wand's draft, drained into the Changes commit box.
     pub commit_message_draft: Option<String>,
     /// The README wand's draft, rendered by the Overview pane with Save/Discard.
     pub readme_draft: Option<String>,
-    /// The opencode model catalog (settings pickers + wands).
+    /// The model catalog (settings pickers + wands), cache-backed.
     pub models: Vec<String>,
     pub summary_busy: bool,
+    /// A running warp-agent answered the door (status chip + row hints).
+    pub warp_connected: bool,
+    /// Live warp-agent status per workspace folder (running chat titles).
+    pub warp_running: std::collections::HashMap<String, WarpWorkspaceStatus>,
     /// Toast stack (newest last), capped; the window overlay renders it and
     /// the per-second tick expires it.
     pub notices: Vec<Notice>,
@@ -139,12 +140,13 @@ impl Store {
             github_details: None,
             wand_busy: None,
             wand_repo: None,
-            wand_ask: None,
             wand_error: None,
             commit_message_draft: None,
             readme_draft: None,
             models: Vec::new(),
             summary_busy: false,
+            warp_connected: false,
+            warp_running: std::collections::HashMap::new(),
             notices: Vec::new(),
             notice_generation: 0,
             pending_note_open: None,
@@ -368,22 +370,37 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::WandAsk { wand_id, ask_id, title } => {
-                // the auto-allow setting answers without ever raising the
-                // popup ("always" whitelists the pattern for this run only)
-                if self.settings().opencode.auto_allow_permissions {
-                    let _ = self.net.send_blocking(NetCommand::WandRespond {
-                        wand_id,
-                        ask_id,
-                        response: "always".into(),
-                    });
-                } else {
-                    self.wand_ask = Some((wand_id, ask_id, title, 15));
+            UiEvent::WandLog { line, .. } => {
+                tracing::info!("wand: {line}");
+            }
+            UiEvent::WarpAvailability { connected } => {
+                self.warp_connected = connected;
+                if !connected {
+                    self.warp_running.clear();
                 }
                 cx.notify();
             }
-            UiEvent::WandLog { line, .. } => {
-                tracing::info!("wand: {line}");
+            UiEvent::WarpStatus { workspaces } => {
+                self.warp_running = workspaces.into_iter().collect();
+                cx.notify();
+            }
+            UiEvent::WarpOpened { folder, error } => {
+                match error {
+                    Some(err) => {
+                        tracing::warn!("warp-agent open failed for {folder}: {err}");
+                        self.notify_error(format!("warp-agent: {err}"));
+                    }
+                    None => {
+                        let name = self
+                            .repos
+                            .iter()
+                            .find(|r| r.folder_path.to_string_lossy() == folder)
+                            .map(|r| r.name.clone())
+                            .unwrap_or_else(|| folder.clone());
+                        self.notify_success(format!("opened {name} in warp-agent"));
+                    }
+                }
+                cx.notify();
             }
             UiEvent::WandDone { kind, result, .. } => {
                 // a run kicked for repo A must never land its draft once
@@ -391,7 +408,6 @@ impl Store {
                 let for_selected = self.wand_repo.as_deref() == self.selected_repo.as_deref();
                 self.wand_busy = None;
                 self.wand_repo = None;
-                self.wand_ask = None;
                 match (&result, kind) {
                     (Ok(text), WandKind::Commit) => {
                         if for_selected {
@@ -522,6 +538,16 @@ impl Store {
         });
     }
 
+    /// Resolves the warp-agent binary when the AI surface is enabled; None =
+    /// the features are off (not installed or toggled off).
+    fn warp_ready(&self) -> Option<std::path::PathBuf> {
+        let settings = self.settings();
+        if !settings.opencode.enable_opencode || !settings.warp_agent.enable_warp_agent {
+            return None;
+        }
+        devtools_core::exe::locate(&settings.warp_agent.executable)
+    }
+
     /// Kicks the yesterday-summary wand across every tracked repo.
     pub fn run_summary(&mut self, cx: &mut Context<Self>) {
         if self.summary_busy {
@@ -533,8 +559,13 @@ impl Store {
             cx.notify();
             return;
         }
-        let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
-            self.notify_error("opencode executable not found");
+        if !settings.warp_agent.enable_warp_agent {
+            self.notify_error("warp-agent integration is disabled in settings");
+            cx.notify();
+            return;
+        }
+        let Some(exe) = devtools_core::exe::locate(&settings.warp_agent.executable) else {
+            self.notify_error("warp-agent executable not found");
             cx.notify();
             return;
         };
@@ -558,23 +589,18 @@ impl Store {
             folders,
             day,
             model,
-            opencode_exe: exe.to_string_lossy().to_string(),
+            warp_exe: exe.to_string_lossy().to_string(),
             summaries_dir,
         });
         cx.notify();
     }
 
-    /// Loads the model catalog (cache-backed; the CLI runs on the net thread).
+    /// Loads the model catalog through the door (cache-backed when offline).
     pub fn load_models(&mut self, cx: &mut Context<Self>) {
         let settings = self.settings();
-        if !settings.opencode.enable_opencode {
-            self.models = devtools_core::opencode::cached_models("");
-            cx.notify();
-            return;
-        }
-        if let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) {
+        if let Some(exe) = self.warp_ready() {
             let _ = self.net.send_blocking(NetCommand::LoadModels {
-                opencode_exe: exe.to_string_lossy().to_string(),
+                warp_exe: exe.to_string_lossy().to_string(),
                 default_model: settings.opencode.default_model.clone(),
             });
         } else {
@@ -609,8 +635,13 @@ impl Store {
             cx.notify();
             return;
         }
-        let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
-            self.notify_error("Could not generate — opencode executable not found");
+        if !settings.warp_agent.enable_warp_agent {
+            self.notify_error("Could not generate — warp-agent integration is disabled in settings");
+            cx.notify();
+            return;
+        }
+        let Some(exe) = devtools_core::exe::locate(&settings.warp_agent.executable) else {
+            self.notify_error("Could not generate — warp-agent executable not found");
             cx.notify();
             return;
         };
@@ -625,39 +656,43 @@ impl Store {
             kind,
             folder: std::path::PathBuf::from(folder),
             model,
-            opencode_exe: exe.to_string_lossy().to_string(),
+            warp_exe: exe.to_string_lossy().to_string(),
         });
         cx.notify();
     }
 
-    /// Answers a pending permission ask.
-    pub fn respond_wand(&mut self, response: &str, cx: &mut Context<Self>) {
-        if let Some((wand_id, ask_id, _, _)) = self.wand_ask.clone() {
-            self.wand_ask = None;
-            let _ = self.net.send_blocking(NetCommand::WandRespond {
-                wand_id,
-                ask_id,
-                response: response.to_string(),
-            });
-            cx.notify();
-        }
+    /// True when the AI surface can run (gates every wand button).
+    pub fn wand_available(&self) -> bool {
+        self.warp_ready().is_some()
     }
 
-    /// Once-per-second countdown tick: auto-rejects a pending ask at zero.
-    pub fn tick_wand(&mut self, cx: &mut Context<Self>) {
-        if let Some((wand, ask, title, secs)) = self.wand_ask.clone() {
-            if secs <= 1 {
-                self.wand_ask = None;
-                let _ = self.net.send_blocking(NetCommand::WandRespond {
-                    wand_id: wand,
-                    ask_id: ask,
-                    response: "reject".into(),
-                });
-            } else {
-                self.wand_ask = Some((wand, ask, title, secs - 1));
-            }
+    /// Opens a repo as a warp-agent workspace (added there when missing).
+    pub fn open_in_warp(&mut self, folder: String, cx: &mut Context<Self>) {
+        let Some(exe) = self.warp_ready() else {
+            self.notify_error("warp-agent is not available");
             cx.notify();
-        }
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::WarpOpen {
+            folder: std::path::PathBuf::from(folder),
+            warp_exe: exe.to_string_lossy().to_string(),
+        });
+        cx.notify();
+    }
+
+    /// Hands the repo's commit context to warp-agent as a new chat prefill.
+    pub fn ask_warp_about_changes(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else { return };
+        let Some(exe) = self.warp_ready() else {
+            self.notify_error("warp-agent is not available");
+            cx.notify();
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::WarpAsk {
+            folder: std::path::PathBuf::from(folder),
+            warp_exe: exe.to_string_lossy().to_string(),
+        });
+        cx.notify();
     }
 
     /// Sends one mutation for the selected repo and marks the rail busy; the

@@ -10,8 +10,18 @@ cargo test           # unit + live git parity + headless UI probes
 ```
 
 User data lives in `~/.devtools` (settings, repos cache, notes, opencode
-prompts). The opencode AI wands need `opencode` on PATH and the OpenCode
-section enabled in Settings.
+prompts).
+
+## warp-agent integration
+
+The AI surface (commit-message / README wands, the daily summary, the model
+catalog) runs in [warp-agent](../warp-agent) over its loopback door
+(`~/.warp-agent/ipc.port` + `ipc.token`) — DevTools no longer spawns
+`opencode serve` itself. Rules: a missing warp-agent binary turns the AI
+features off; a merely closed one is launched on demand. Wand runs happen as
+visible warp-agent chats in the repo's workspace (added when missing), the
+daily summary runs in warp-agent's General workspace, and tool-permission
+asks are answered in warp-agent's own UI.
 
 ## Package
 

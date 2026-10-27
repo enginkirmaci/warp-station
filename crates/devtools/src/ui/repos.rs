@@ -136,7 +136,9 @@ impl ReposPage {
         flag(5, settings.repos.enable_terminal);
         flag(6, settings.repos.enable_git_hub);
         flag(7, settings.repos.enable_azure_dev_ops);
-        fp ^= (widest_branch_chars(&self.store, cx) as u64) << 8;
+        flag(8, settings.warp_agent.enable_warp_agent);
+        // gates own the low byte; the branch width owns everything above it
+        fp ^= (widest_branch_chars(&self.store, cx) as u64) << 16;
         // the kit's header sort glyphs live in the cached column groups, so a
         // sort change needs the same one-shot refresh as a width change
         {
@@ -591,6 +593,9 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     if cfg!(windows) && settings.repos.enable_visual_studio {
         buttons += 1;
     }
+    if settings.warp_agent.enable_warp_agent {
+        buttons += 1; // the warp-agent door
+    }
     let divider = settings.opencode.enable_opencode;
     if divider {
         buttons += 1; // the opencode button itself
@@ -1032,7 +1037,16 @@ impl TableDelegate for ReposDelegate {
                     )
                     .into_any_element()
             }
-            ColKind::Shortcuts => shortcuts_cell(&repo, &settings, row_ix, &self.store),
+            ColKind::Shortcuts => {
+                let warp_running = self
+                    .store
+                    .read(cx)
+                    .warp_running
+                    .get(&folder)
+                    .filter(|status| !status.running.is_empty())
+                    .map(|status| status.running.join(", "));
+                shortcuts_cell(&repo, &settings, row_ix, &self.store, warp_running)
+            }
             // branch pill and changes cell open the bar's Changes tab; the
             // GitHub/Azure cells route to their own tabs
             ColKind::Branch => tab_cell(
@@ -1371,11 +1385,58 @@ fn shortcuts_cell(
     settings: &AppSettings,
     row_ix: usize,
     store: &Entity<Store>,
+    warp_running: Option<String>,
 ) -> gpui::AnyElement {
     use devtools_core::terminal;
     let folder = repo.folder_path.to_string_lossy().to_string();
     let show_tooltips = settings.general.show_tooltips;
     let mut row = div().flex().flex_row().items_center().gap_1p5();
+
+    // a live warp-agent turn in this repo's workspace: leading sparkle
+    if let Some(titles) = warp_running {
+        let element = div()
+            .id(SharedString::from(format!("warp-running-{row_ix}")))
+            .flex()
+            .items_center()
+            .child(icon("icons/icon-agent-sparkle.svg", px(theme::icon_small()), theme::SUCCESS_BRIGHT));
+        row = row.child(crate::ui::with_tooltip(
+            element,
+            show_tooltips,
+            SharedString::from(format!("warp-agent is running: {titles}")),
+        ));
+    }
+
+    // the agent door: opens the repo as a warp-agent workspace (added when
+    // missing, launched when closed)
+    if settings.warp_agent.enable_warp_agent {
+        let store = store.clone();
+        let folder_for_open = folder.clone();
+        let element = div()
+            .id(SharedString::from(format!("open-warp-{row_ix}")))
+            .debug_selector(move || format!("repos-warp-cell-{row_ix}"))
+            .cursor_pointer()
+            .rounded_md()
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .hover(|s| s.bg(theme::HOVER))
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                let folder = folder_for_open.clone();
+                store.update(cx, |s, cx| s.open_in_warp(folder, cx));
+            })
+            .child(icon(
+                "icons/icon-agent-sparkle.svg",
+                px(theme::icon_large()),
+                theme::ACCENT,
+            ));
+        row = row.child(crate::ui::with_tooltip(
+            element,
+            show_tooltips,
+            "Open in warp-agent",
+        ));
+    }
 
     let button = |id: String,
                   icon_path: &'static str,
@@ -1565,6 +1626,7 @@ mod tests {
         settings.repos.enable_zcode = launchers.contains(&"zcode");
         settings.repos.enable_visual_studio = launchers.contains(&"sln");
         settings.opencode.enable_opencode = launchers.contains(&"opencode");
+        settings.warp_agent.enable_warp_agent = launchers.contains(&"warp");
         settings
     }
 
@@ -1574,12 +1636,13 @@ mod tests {
         assert_eq!(shortcuts_column_width(&settings_with(&[])), px(44.));
         // folder + terminal: two buttons + one gap
         assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(86.));
-        // full linux set: opencode button + divider, zcode, vscode, folder,
-        // terminal = 5 buttons + divider = 6 children -> 5 gaps + divider
-        // (1px + mx_1 = 9); the solution slot only joins on Windows
-        let full =
-            shortcuts_column_width(&settings_with(&["terminal", "vscode", "zcode", "opencode"]));
-        assert_eq!(full, px(5. * 36. + 5. * 6. + 9. + 8.));
+        // full linux set: warp door, opencode button + divider, zcode, vscode,
+        // folder, terminal = 6 buttons + divider = 7 children -> 6 gaps +
+        // divider (1px + mx_1 = 9); the solution slot only joins on Windows
+        let full = shortcuts_column_width(&settings_with(&[
+            "terminal", "vscode", "zcode", "opencode", "warp",
+        ]));
+        assert_eq!(full, px(6. * 36. + 6. * 6. + 9. + 8.));
     }
 
     /// Selection can originate outside a row click (global search, the notes

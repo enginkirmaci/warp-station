@@ -926,7 +926,8 @@ impl ChangesView {
             state.wand_busy == Some(crate::net::WandKind::Commit)
                 && state.wand_repo.as_deref() == state.selected_repo.as_deref()
         };
-        let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
+        let wand_on = self.store.read(cx).wand_available();
+        let opencode_on = wand_on;
         let message_empty = self.commit_message.read(cx).value().trim().is_empty();
         let generate_and_commit = message_empty && opencode_on;
 
@@ -963,7 +964,31 @@ impl ChangesView {
                             } else {
                                 "Ctrl+Enter to commit"
                             }),
-                    ),
+                    )
+                    // handoff: the same commit context as a new warp-agent
+                    // chat, prefilled for an interactive run
+                    .when(wand_on, |header| {
+                        let store = self.store.clone();
+                        header.child(
+                            div()
+                                .id("ask-agent")
+                                .debug_selector(|| "ask-agent".into())
+                                .cursor_pointer()
+                                .rounded_md()
+                                .p_1()
+                                .flex()
+                                .hover(|s| s.bg(theme::HOVER))
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    store.update(cx, |s, cx| s.ask_warp_about_changes(cx));
+                                })
+                                .child(icon(
+                                    "icons/icon-agent-sparkle.svg",
+                                    px(theme::icon_small()),
+                                    theme::ACCENT,
+                                )),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -985,22 +1010,24 @@ impl ChangesView {
                     })
                     .child(Textarea::new(&self.commit_message).bordered(true).h_full())
                     // .NET's corner wand: overlay inside the message box
-                    .child({
+                    .when(wand_on, |box_area| {
                         let store = self.store.clone();
-                        div()
-                            .id("wand-corner")
-                            .absolute()
-                            .bottom_1()
-                            .right_2()
-                            .cursor_pointer()
-                            .rounded_md()
-                            .p_1()
-                            .flex()
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(move |_, _, cx| {
-                                store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
-                            })
-                            .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
+                        box_area.child(
+                            div()
+                                .id("wand-corner")
+                                .absolute()
+                                .bottom_1()
+                                .right_2()
+                                .cursor_pointer()
+                                .rounded_md()
+                                .p_1()
+                                .flex()
+                                .hover(|s| s.bg(theme::HOVER))
+                                .on_click(move |_, _, cx| {
+                                    store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                                })
+                                .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
+                        )
                     }),
             );
 

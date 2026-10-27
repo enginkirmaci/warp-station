@@ -44,7 +44,8 @@ pub struct SettingsPage {
     keep_awake_enabled: bool,
     // OpenCode
     enable_opencode: bool,
-    auto_allow: bool,
+    warp_enabled: bool,
+    warp_executable: Entity<InputState>,
     default_model: Entity<InputState>,
     commit_model: Entity<InputState>,
     default_model_open: bool,
@@ -112,7 +113,8 @@ impl SettingsPage {
             snap_it_auto_start: settings.snap_it.auto_start,
             keep_awake_enabled: settings.keep_awake.enabled,
             enable_opencode: settings.opencode.enable_opencode,
-            auto_allow: settings.opencode.auto_allow_permissions,
+            warp_enabled: settings.warp_agent.enable_warp_agent,
+            warp_executable: field(window, cx, &settings.warp_agent.executable),
             default_model: field(window, cx, &settings.opencode.default_model),
             commit_model: field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default()),
             default_model_open: false,
@@ -187,7 +189,8 @@ impl SettingsPage {
         );
         let snap_it_auto_start = self.snap_it_auto_start;
         let keep_awake_enabled = self.keep_awake_enabled;
-        let auto_allow = self.auto_allow;
+        let warp_enabled = self.warp_enabled;
+        let warp_exe = Self::value(&self.warp_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
@@ -218,7 +221,8 @@ impl SettingsPage {
                 s.repos.enable_visual_studio = flags.5;
                 s.repos.enable_zcode = flags.6;
                 s.opencode.enable_opencode = flags.7;
-                s.opencode.auto_allow_permissions = auto_allow;
+                s.warp_agent.enable_warp_agent = warp_enabled;
+                s.warp_agent.executable = warp_exe;
                 s.opencode.default_model = default_model;
                 s.opencode.commit_model = (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
                 s.repos.enable_git_hub = flags.8;
@@ -452,10 +456,11 @@ impl Render for SettingsPage {
                                             this.enable_opencode = !this.enable_opencode;
                                             cx.notify();
                                         })))
-                                        .child(switch_row("Auto-allow permission requests", this.auto_allow, cx.listener(|this, _, _, cx| {
-                                            this.auto_allow = !this.auto_allow;
+                                        .child(switch_row("Run AI features in warp-agent", this.warp_enabled, cx.listener(|this, _, _, cx| {
+                                            this.warp_enabled = !this.warp_enabled;
                                             cx.notify();
                                         })))
+                                        .child(field_row("warp-agent executable", &this.warp_executable))
                                         .child(label("Default model"))
                                         .child({
                                             let field = this.default_model.clone();

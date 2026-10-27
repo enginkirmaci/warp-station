@@ -227,9 +227,6 @@ impl Render for MainWindow {
             .child(self.render_titlebar(window, cx))
             .child(self.render_body(window, cx))
             .relative();
-        if let Some(ask) = self.render_wand_ask(cx) {
-            root = root.child(ask);
-        }
         if let Some(popup) = self.render_search_popup(window, cx) {
             root = root.child(popup);
         }
@@ -705,102 +702,6 @@ impl MainWindow {
     }
 }
 
-impl MainWindow {
-    /// The opencode permission popup: allow once / allow all / reject, with
-    /// the auto-reject countdown.
-    fn render_wand_ask(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let (wand_id, ask_id, title, secs) = self.store.read(cx).wand_ask.clone()?;
-        let store = self.store.clone();
-        let store_all = self.store.clone();
-        let store_reject = self.store.clone();
-        let _ = (&wand_id, &ask_id);
-        Some(
-            div()
-                .id("wand-ask-overlay")
-                .absolute()
-                .inset_0()
-                .occlude()
-                .bg(gpui::black().opacity(0.45))
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_4()
-                .child(
-                    div()
-                        .id("wand-ask-card")
-                        .occlude()
-                        .min_w(px(420.))
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(theme::tint(theme::WARN))
-                        .bg(theme::POPUP)
-                        .shadow_lg()
-                        .p_4()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .on_click(|_, _, _| {})
-                        .child(
-                            div()
-                                .text_size(px(theme::font_title()))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("OpenCode needs permission"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(theme::font_small()))
-                                .text_color(theme::TEXT_DIM)
-                                .child(title.clone()),
-                        )
-                        .child(
-                            div().flex().flex_row().justify_end().gap_2()
-                                .child(ask_button("Reject", theme::DANGER, move |_, _, cx| {
-                                    store_reject.update(cx, |s, cx| s.respond_wand("reject", cx));
-                                }))
-                                .child(ask_button("Allow all", theme::ACCENT, move |_, _, cx| {
-                                    store_all.update(cx, |s, cx| s.respond_wand("always", cx));
-                                }))
-                                .child(ask_button("Allow once", theme::SUCCESS_BRIGHT, move |_, _, cx| {
-                                    store.update(cx, |s, cx| s.respond_wand("once", cx));
-                                })),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(theme::font_small() - 1.))
-                                .text_color(theme::TEXT_FAINT)
-                                .child(format!("auto-reject in {secs}s")),
-                        ),
-                )
-                .into_any_element(),
-        )
-    }
-}
-
-fn ask_button(
-    label: &str,
-    color: gpui::Rgba,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-) -> gpui::AnyElement {
-    div()
-        .id(gpui::SharedString::from(format!("wand-ask-{label}")))
-        .debug_selector({
-            let id = format!("wand-ask-{label}");
-            move || id.clone()
-        })
-        .cursor_pointer()
-        .rounded_md()
-        .px_3()
-        .py_1()
-        .text_size(px(theme::font_small()))
-        .font_weight(FontWeight::SEMIBOLD)
-        .bg(theme::tint(color))
-        .text_color(color)
-        .hover(|s| s.opacity(0.85))
-        .on_click(on_click)
-        .child(label.to_string())
-        .into_any_element()
-}
-
 pub(crate) fn window_button(
     id: &'static str,
     icon_path: &'static str,
@@ -892,6 +793,7 @@ impl MainWindow {
         let settings = self.store.read(cx).settings();
         let show_tooltips = settings.general.show_tooltips;
         let nuget_enabled = settings.nuget_local.enable_nuget;
+        let warp_enabled = settings.warp_agent.enable_warp_agent;
         let nuget_watching = self.store.read(cx).nuget.watching;
         // the two tool buttons share one inset pill; the window controls
         // stay flat on the titlebar so the two groups read differently
@@ -976,6 +878,26 @@ impl MainWindow {
                     },
                 ))
             })
+            // warp-agent door: green while a running instance answers, muted
+            // when away; click opens (or launches) it on the General workspace
+            .when(warp_enabled, |d| {
+                let connected = self.store.read(cx).warp_connected;
+                let store = self.store.clone();
+                d.child(status_chip(
+                    "warp-status",
+                    "warp",
+                    if connected { theme::SUCCESS_BRIGHT } else { theme::TEXT_MUTED },
+                    if connected {
+                        "warp-agent: connected — click to open it on General"
+                    } else {
+                        "warp-agent: not running — click to launch it"
+                    },
+                    show_tooltips,
+                    move |_, _, cx| {
+                        store.update(cx, |s, cx| s.open_in_warp("general".into(), cx));
+                    },
+                ))
+            })
             .when(cfg!(windows), |d| {
                 let awake = devtools_core::keepawake::is_enabled();
                 let store = self.store.clone();
@@ -1013,7 +935,7 @@ impl MainWindow {
             })
             // the chips group separates from the tool pill only when a chip
             // actually rendered
-            .when(nuget_enabled || cfg!(windows), |d| {
+            .when(nuget_enabled || warp_enabled || cfg!(windows), |d| {
                 d.child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             })
             .child(
@@ -1176,7 +1098,9 @@ impl MainWindow {
                                 if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
                             ))
                     })
-                    .child(summary_button(&self.store, self.store.read(cx).summary_busy)),
+                    .when(self.store.read(cx).wand_available(), |left| {
+                        left.child(summary_button(&self.store, self.store.read(cx).summary_busy))
+                    }),
             )
             // equal drag spacers on both sides of the search field
             .child(titlebar_drag("titlebar-drag-left"))
