@@ -862,11 +862,11 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
 /// Both titlebar side columns share this width so the centered search field
 /// sits at the window's true center. It fits the wider side on either
 /// platform: the app name + notes + summary group on the left, and the
-/// status chips + tool pill + window controls on the right (the SnapIt chip
-/// joins the NuGet one on Windows only).
+/// status chips + tool pill + window controls on the right (the SnapIt and
+/// Awake chips join the NuGet one on Windows only).
 fn titlebar_side_w() -> f32 {
     if cfg!(windows) {
-        288.0
+        352.0
     } else {
         252.0
     }
@@ -898,7 +898,8 @@ impl MainWindow {
             // status chips mirror the .NET titlebar: an 8px state dot + label,
             // click toggles the tool. NuGet amber when idle, green while the
             // watch runs; SnapIt red when stopped, green when running — and
-            // Windows-only, like the tool itself.
+            // Windows-only, like the tool itself. Keep awake is Windows-only
+            // too: green while it holds the machine awake, muted when off.
             .when(nuget_enabled, |d| {
                 let store = self.store.clone();
                 d.child(status_chip(
@@ -955,6 +956,41 @@ impl MainWindow {
                                 s.notify_error(err);
                                 cx.notify();
                             });
+                        }
+                        cx.refresh_windows();
+                    },
+                ))
+            })
+            .when(cfg!(windows), |d| {
+                let awake = devtools_core::keepawake::is_enabled();
+                let store = self.store.clone();
+                d.child(status_chip(
+                    "keepawake-status",
+                    "Awake",
+                    if awake {
+                        theme::SUCCESS_BRIGHT
+                    } else {
+                        theme::TEXT_MUTED
+                    },
+                    if awake {
+                        "Keep awake: on — system and display stay on, click to allow sleep"
+                    } else {
+                        "Keep awake: off — click to prevent sleep and display off"
+                    },
+                    show_tooltips,
+                    move |_, _, cx| {
+                        let enable = !devtools_core::keepawake::is_enabled();
+                        match devtools_core::keepawake::set_enabled(enable) {
+                            Ok(()) => store.update(cx, |s, cx| {
+                                s.update_settings(|settings| {
+                                    settings.keep_awake.enabled = enable;
+                                });
+                                cx.notify();
+                            }),
+                            Err(err) => store.update(cx, |s, cx| {
+                                s.notify_error(err);
+                                cx.notify();
+                            }),
                         }
                         cx.refresh_windows();
                     },

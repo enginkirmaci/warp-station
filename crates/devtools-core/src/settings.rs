@@ -20,6 +20,8 @@ pub struct AppSettings {
     pub clipboard_password: ClipboardPasswordSettings,
     #[serde(default)]
     pub snap_it: SnapItSettings,
+    #[serde(default)]
+    pub keep_awake: KeepAwakeSettings,
     #[serde(default, rename = "OpenCode")]
     pub opencode: OpenCodeSettings,
     #[serde(default)]
@@ -193,6 +195,15 @@ pub struct SnapItSettings {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
+pub struct KeepAwakeSettings {
+    /// Restores the keep-awake execution state at app launch.
+    pub enabled: bool,
+}
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase", default)]
 pub struct GeneralSettings {
     pub start_minimized: bool,
     pub start_at_boot: bool,
@@ -319,6 +330,7 @@ mod tests {
         assert_eq!(s.opencode.commit_model, None);
         // defaults fill absent sections
         assert!(s.nuget_local.enable_nuget);
+        assert!(!s.keep_awake.enabled);
         assert_eq!(s.repos.branch_name_prefix, "users/enginkirmaci");
     }
 

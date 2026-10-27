@@ -41,6 +41,7 @@ pub struct SettingsPage {
     enable_visual_studio: bool,
     enable_zcode: bool,
     snap_it_auto_start: bool,
+    keep_awake_enabled: bool,
     // OpenCode
     enable_opencode: bool,
     auto_allow: bool,
@@ -109,6 +110,7 @@ impl SettingsPage {
             enable_visual_studio: repos.enable_visual_studio,
             enable_zcode: repos.enable_zcode,
             snap_it_auto_start: settings.snap_it.auto_start,
+            keep_awake_enabled: settings.keep_awake.enabled,
             enable_opencode: settings.opencode.enable_opencode,
             auto_allow: settings.opencode.auto_allow_permissions,
             default_model: field(window, cx, &settings.opencode.default_model),
@@ -184,6 +186,7 @@ impl SettingsPage {
             self.enable_azure,
         );
         let snap_it_auto_start = self.snap_it_auto_start;
+        let keep_awake_enabled = self.keep_awake_enabled;
         let auto_allow = self.auto_allow;
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
 
@@ -224,6 +227,7 @@ impl SettingsPage {
                 s.repos.azure_dev_ops_pat = azure_pat;
                 s.repos.azure_dev_ops_url = azure_url;
                 s.snap_it.auto_start = snap_it_auto_start;
+                s.keep_awake.enabled = keep_awake_enabled;
             });
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
@@ -245,6 +249,13 @@ impl SettingsPage {
         });
         // the boot registration follows the saved flag
         devtools_core::autostart::reconcile(self.start_at_boot);
+        // so does the execution state; a failure leaves the chip as the truth
+        if let Err(err) = devtools_core::keepawake::set_enabled(self.keep_awake_enabled) {
+            self.store.update(cx, |s, cx| {
+                s.notify_error(err);
+                cx.notify();
+            });
+        }
         self.saved_note = Some(std::time::Instant::now());
         cx.notify();
     }
@@ -430,6 +441,10 @@ impl Render for SettingsPage {
                                                 })),
                                                 snapit_run_control(cx),
                                             ))
+                                            .child(switch_row("Keep system and display awake (Windows)", this.keep_awake_enabled, cx.listener(|this, _, _, cx| {
+                                                this.keep_awake_enabled = !this.keep_awake_enabled;
+                                                cx.notify();
+                                            })))
                                         })
                                     }))
                                     .child(self.card("OpenCode", cx, |this, cx, card| {

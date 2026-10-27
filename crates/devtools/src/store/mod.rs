@@ -77,6 +77,10 @@ pub struct Store {
     pub global_search: Vec<GlobalSearchHit>,
     /// The repos-table notes button asks for the floating notes window.
     pub notes_requested: bool,
+    /// The repo whose notes folder the Notes window should pin to, set only
+    /// by the rows' notes icon (repo row presses never re-root the tree);
+    /// drained by the Notes page's render.
+    pub pending_notes_scope: Option<String>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -146,6 +150,7 @@ impl Store {
             pending_note_open: None,
             global_search: Vec::new(),
             notes_requested: false,
+            pending_notes_scope: None,
             commit_details: None,
             commit_file_patch: None,
             save_generation: 0,
@@ -863,6 +868,15 @@ impl Store {
         if self.selected_repo.as_deref() != Some(folder) {
             self.select_repo(Some(folder.to_string()), cx);
         }
+    }
+
+    /// The rows' notes icon: pins the Notes window to one repo's notes
+    /// folder and asks for the window. Notifies even when the repo is
+    /// already selected, so an open Notes window drains the request.
+    pub fn request_notes_scope(&mut self, repo: String, cx: &mut Context<Self>) {
+        self.pending_notes_scope = Some(repo);
+        self.notes_requested = true;
+        cx.notify();
     }
 
     /// Closes the bar and clears the row highlight.

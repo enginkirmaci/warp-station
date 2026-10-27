@@ -42,6 +42,13 @@ fn main() {
                 }
             }
 
+            #[cfg(windows)]
+            if store.read(cx).settings().keep_awake.enabled {
+                if let Err(err) = devtools_core::keepawake::set_enabled(true) {
+                    tracing::warn!("Keep awake auto-start failed: {err}");
+                }
+            }
+
             // net events → store. Polled with a timer fallback: this gpui rev
             // does not service cross-thread channel wakeups on foreground tasks,
             // so a plain recv().await would sleep forever (async_channel recv is

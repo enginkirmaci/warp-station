@@ -40,6 +40,10 @@ enum NotesMode {
 
 pub struct NotesPage {
     pub store: Entity<Store>,
+    /// The tree's pinned scope: None roots at the whole notes store (one
+    /// folder per repo), Some at one repo's notes folder. Repo row presses
+    /// never touch it — only the rows' notes icon does.
+    notes_scope: Option<String>,
     tree: Vec<notes_core::NotesTreeItem>,
     tree_loaded_for: Option<String>,
     expanded: std::collections::HashSet<PathBuf>,
@@ -65,6 +69,16 @@ pub struct NotesPage {
 
 impl NotesPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // opening pins the scope once: an icon request wins, else the
+        // selected repo (the title-bar toggle's "notes for the selected
+        // repo"); afterwards selection changes never re-root the tree
+        let notes_scope = {
+            let store = store.read(cx);
+            store
+                .pending_notes_scope
+                .clone()
+                .or_else(|| store.selected_entry().map(|e| e.name.clone()))
+        };
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search all notes…"));
         let caret = Rc::new(RefCell::new(Some(0..0)));
         let highlighter_caret = caret.clone();
@@ -101,6 +115,7 @@ impl NotesPage {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
+            notes_scope,
             tree: Vec::new(),
             tree_loaded_for: None,
             expanded: std::collections::HashSet::new(),
@@ -120,13 +135,21 @@ impl NotesPage {
 
     fn notes_root(&self, cx: &Context<Self>) -> Option<PathBuf> {
         let store = self.store.read(cx);
-        let settings = store.settings();
-        let root = notes_core::resolve_store_root(&settings.general.notes_store_path);
-        // repo-scoped when a repo is selected, whole-store otherwise (the
-        // title-bar notes view roots at the store, one folder per repo)
-        match store.selected_entry() {
-            Some(repo) => Some(notes_core::repo_notes_root(&root, &repo.name)),
+        let root = notes_core::resolve_store_root(&store.settings().general.notes_store_path);
+        // the pinned scope decides — repo-scoped when the notes icon set one,
+        // whole-store otherwise (one folder per repo)
+        match &self.notes_scope {
+            Some(repo) => Some(notes_core::repo_notes_root(&root, repo)),
             None => Some(root),
+        }
+    }
+
+    /// The notes icon's scope request, drained by render; switching clears
+    /// the expansion state since paths from the old root don't apply.
+    fn apply_scope_request(&mut self, scope: String) {
+        if self.notes_scope.as_deref() != Some(scope.as_str()) {
+            self.notes_scope = Some(scope);
+            self.expanded.clear();
         }
     }
 
@@ -313,6 +336,10 @@ impl Render for NotesPage {
                 }
             }
         }
+        // a notes-icon click parked a repo scope to pin to
+        if let Some(scope) = self.store.update(cx, |store, _| store.pending_notes_scope.take()) {
+            self.apply_scope_request(scope);
+        }
         let preview_text = self.editor.read(cx).value().to_string();
         let dirty = self.open_note.is_some() && preview_text != self.saved_text;
         let armed = self
@@ -413,7 +440,7 @@ impl NotesPage {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Notes"),
             )
-            .when_some(self.store.read(cx).selected_entry().map(|e| e.name.clone()), |row, repo| {
+            .when_some(self.notes_scope.clone(), |row, repo| {
                 row.child(
                     div()
                         .rounded_md()
@@ -424,6 +451,20 @@ impl NotesPage {
                         .text_color(theme::TEXT_MUTED)
                         .child(repo),
                 )
+                // up out of the repo's notes folder to the whole store
+                // (one folder per repo)
+                .child(crate::ui::window::window_button(
+                    "notes-up-dir",
+                    "icons/icon-arrow-up.svg",
+                    theme::HOVER,
+                    "Up to all repositories' notes",
+                    show_tooltips,
+                    cx.listener(|this, _, _, cx| {
+                        this.notes_scope = None;
+                        this.expanded.clear();
+                        cx.notify();
+                    }),
+                ))
             })
             .child(
                 div()
@@ -516,7 +557,7 @@ impl NotesPage {
 
     fn render_tree(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let term = self.search.read(cx).value().to_string();
-        let can_create = self.store.read(cx).selected_entry().is_some() || !self.tree.is_empty();
+        let can_create = self.notes_scope.is_some() || !self.tree.is_empty();
         let mut tree = div()
             .id("notes-sidebar")
             .debug_selector(|| "notes-sidebar".into())
@@ -952,8 +993,7 @@ impl NotesPage {
 
     fn render_editor(&mut self, preview_text: String, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.open_note.is_none() {
-            let can_create =
-                self.store.read(cx).selected_entry().is_some() || !self.tree.is_empty();
+            let can_create = self.notes_scope.is_some() || !self.tree.is_empty();
             return div()
                 .id("notes-empty")
                 .flex_1()

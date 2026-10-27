@@ -983,6 +983,7 @@ impl TableDelegate for ReposDelegate {
             ColKind::Name => {
                 let store = self.store.clone();
                 let notes_folder = folder.clone();
+                let notes_name = repo.name.clone();
                 let notes_button = div()
                     .id(("open-notes", row_ix))
                     .cursor_pointer()
@@ -996,7 +997,7 @@ impl TableDelegate for ReposDelegate {
                         cx.stop_propagation();
                         store.update(cx, |s, cx| {
                             s.ensure_repo_selected(&notes_folder, cx);
-                            s.notes_requested = true;
+                            s.request_notes_scope(notes_name.clone(), cx);
                         });
                     })
                     .child(icon(
