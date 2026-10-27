@@ -8,6 +8,17 @@ use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use gpui_platform::application;
 
 fn main() {
+    // The Hyprland global-bind payload: ping the running instance's net
+    // thread and exit before any logging/GPUI startup.
+    #[cfg(target_os = "linux")]
+    if std::env::args().nth(1).as_deref() == Some(devtools_core::hotkey::COPY_PASSWORD_ARG) {
+        if let Err(err) = devtools_core::hotkey::ping_copy_password() {
+            eprintln!("devtools: clipboard password ping failed: {err:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let _log_guard = logging::initialize();
 
     application()

@@ -59,10 +59,10 @@ fn fake_store(cx: &mut TestAppContext, bar_height: f32) -> gpui::Entity<Store> {
     })
 }
 
-fn open_bar<'a>(
-    cx: &'a mut TestAppContext,
+fn open_bar(
+    cx: &mut TestAppContext,
     window_size: Size<Pixels>,
-) -> (gpui::Entity<Store>, &'a mut VisualTestContext) {
+) -> (gpui::Entity<Store>, &mut VisualTestContext) {
     let store = fake_store(cx, window_size.height.into());
     let handle = cx.open_window(window_size, |window, cx| {
         let store = store.clone();

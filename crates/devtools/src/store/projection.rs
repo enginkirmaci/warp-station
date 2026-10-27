@@ -7,21 +7,14 @@ use devtools_core::settings::RepoSortMode;
 
 pub fn project(
     repos: &[RepoEntry],
-    search: &str,
     checked_tags: &[String],
     sort: RepoSortMode,
+    ascending: bool,
 ) -> Vec<usize> {
-    let needle = search.trim().to_lowercase();
     let mut rows: Vec<usize> = repos
         .iter()
         .enumerate()
         .filter(|(_, repo)| {
-            if !needle.is_empty()
-                && !repo.name.to_lowercase().contains(&needle)
-                && !repo.folder_path.to_string_lossy().to_lowercase().contains(&needle)
-            {
-                return false;
-            }
             // OR semantics: a repo matches when it carries any checked tag
             checked_tags.is_empty()
                 || checked_tags.iter().any(|t| {
@@ -34,21 +27,52 @@ pub fn project(
 
     rows.sort_by(|&a, &b| {
         let (ra, rb) = (&repos[a], &repos[b]);
-        // favorites first; then the mode's order (Name ascending, the rest
-        // descending); name breaks ties. Option's None < Some puts repos
-        // without a commit date last in LastActivity.
+        // favorites first; then the mode's order — `ascending` flips the
+        // comparator around the mode's default; name breaks ties. Repos
+        // without a commit date sink in BOTH LastActivity directions.
         rb.is_favorite()
             .cmp(&ra.is_favorite())
             .then_with(|| match sort {
-                RepoSortMode::Name => std::cmp::Ordering::Equal,
-                RepoSortMode::LastActivity => rb.git_last_commit_at.cmp(&ra.git_last_commit_at),
-                RepoSortMode::Changes => changes_weight(rb).cmp(&changes_weight(ra)),
-                RepoSortMode::PullRequests => rb.github_pr_count.cmp(&ra.github_pr_count),
-                RepoSortMode::Issues => rb.github_issue_count.cmp(&ra.github_issue_count),
+                RepoSortMode::Name => order(ascending, &ra.name, &rb.name),
+                RepoSortMode::LastActivity => {
+                    order_opt(ascending, ra.git_last_commit_at, rb.git_last_commit_at)
+                }
+                RepoSortMode::Branch => {
+                    order_opt(ascending, ra.git_branch_name.as_deref(), rb.git_branch_name.as_deref())
+                }
+                RepoSortMode::Changes => order_key(ascending, changes_weight(ra), changes_weight(rb)),
+                RepoSortMode::GitHub => order_key(
+                    ascending,
+                    ra.github_pr_count + ra.github_issue_count,
+                    rb.github_pr_count + rb.github_issue_count,
+                ),
             })
             .then_with(|| ra.name.to_lowercase().cmp(&rb.name.to_lowercase()))
     });
     rows
+}
+
+fn order(ascending: bool, a: &str, b: &str) -> std::cmp::Ordering {
+    let (a, b) = (a.to_lowercase(), b.to_lowercase());
+    if ascending { a.cmp(&b) } else { b.cmp(&a) }
+}
+
+/// Options order by their value, but `None` sinks regardless of direction.
+fn order_opt<T: Ord + Copy>(
+    ascending: bool,
+    a: Option<T>,
+    b: Option<T>,
+) -> std::cmp::Ordering {
+    match (a, b) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(a), Some(b)) => order_key(ascending, a, b),
+    }
+}
+
+fn order_key<T: Ord + Copy>(ascending: bool, a: T, b: T) -> std::cmp::Ordering {
+    if ascending { a.cmp(&b) } else { b.cmp(&a) }
 }
 
 fn changes_weight(repo: &RepoEntry) -> u32 {
@@ -104,31 +128,19 @@ mod tests {
     #[test]
     fn favorites_float_and_name_sorts() {
         let all = repos();
-        let rows = project(&all, "", &[], RepoSortMode::Name);
+        let rows = project(&all, &[], RepoSortMode::Name, true);
         let names: Vec<&str> = rows.iter().map(|&i| all[i].name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "beta", "gamma"]);
     }
 
     #[test]
-    fn search_matches_name_or_path() {
-        let all = repos();
-        let rows = project(&all, "/x/beta", &[], RepoSortMode::Name);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(all[rows[0]].name, "beta");
-
-        let rows = project(&all, "AMM", &[], RepoSortMode::Name);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(all[rows[0]].name, "gamma");
-    }
-
-    #[test]
     fn tag_filter_favorites_and_user_tags() {
         let all = repos();
-        let rows = project(&all, "", &["favorites".to_string()], RepoSortMode::Name);
+        let rows = project(&all, &["favorites".to_string()], RepoSortMode::Name, true);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "alpha");
 
-        let rows = project(&all, "", &["work".to_string()], RepoSortMode::Name);
+        let rows = project(&all, &["work".to_string()], RepoSortMode::Name, true);
         assert_eq!(rows.len(), 1);
         assert_eq!(all[rows[0]].name, "beta");
     }
@@ -138,9 +150,9 @@ mod tests {
         let all = repos();
         let rows = project(
             &all,
-            "",
             &["favorites".to_string(), "work".to_string()],
             RepoSortMode::Name,
+            true,
         );
         assert_eq!(rows.len(), 2);
         let names: Vec<&str> = rows.iter().map(|&i| all[i].name.as_str()).collect();
@@ -156,5 +168,117 @@ mod tests {
         assert_eq!(tags[0], "favorites");
         assert_eq!(tags[1], "platform");
         assert!(tags.contains(&"work".to_string()));
+    }
+
+    #[test]
+    fn name_direction_flips_and_favorites_still_float() {
+        let all = repos();
+        let names = |rows: &[usize]| -> Vec<&str> {
+            rows.iter().map(|&i| all[i].name.as_str()).collect()
+        };
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Name, true)),
+            vec!["alpha", "beta", "gamma"]
+        );
+        // alpha is a favorite, so it leads in both directions
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Name, false)),
+            vec!["alpha", "gamma", "beta"]
+        );
+    }
+
+    #[test]
+    fn last_activity_flips_but_unknown_dates_stay_last() {
+        let mut all = repos();
+        all[0].tags.clear();
+        all[0].git_last_commit_at = Some(chrono::Local::now() - chrono::Duration::days(2));
+        all[1].git_last_commit_at = Some(chrono::Local::now() - chrono::Duration::days(1));
+        let names = |rows: &[usize]| -> Vec<&str> {
+            rows.iter().map(|&i| all[i].name.as_str()).collect()
+        };
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::LastActivity, false)),
+            vec!["beta", "alpha", "gamma"],
+            "descending leads with the most recent commit"
+        );
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::LastActivity, true)),
+            vec!["alpha", "beta", "gamma"],
+            "ascending leads with the oldest commit; no date still sinks"
+        );
+    }
+
+    #[test]
+    fn changes_direction_flips_best_first() {
+        let mut all = repos();
+        all[0].tags.clear();
+        all[0].git_modified_count = 5;
+        all[1].git_modified_count = 2;
+        let names = |rows: &[usize]| -> Vec<&str> {
+            rows.iter().map(|&i| all[i].name.as_str()).collect()
+        };
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Changes, false)),
+            vec!["alpha", "beta", "gamma"]
+        );
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Changes, true)),
+            vec!["gamma", "beta", "alpha"]
+        );
+    }
+
+    #[test]
+    fn branch_sorts_alphabetically_and_unknown_sinks() {
+        let mut all = repos();
+        all[0].tags.clear();
+        all[0].git_branch_name = Some("zeta".into());
+        all[1].git_branch_name = Some("alpha".into());
+        // gamma stays on the entry default ("main" in most setups); give it a
+        // distinct middle value here
+        all[2].git_branch_name = Some("main".into());
+        fn names<'a>(rows: &[usize], all: &'a [RepoEntry]) -> Vec<&'a str> {
+            rows.iter().map(|&i| all[i].name.as_str()).collect()
+        }
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Branch, true), &all),
+            vec!["beta", "gamma", "alpha"],
+            "ascending is alphabetical by branch"
+        );
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Branch, false), &all),
+            vec!["alpha", "gamma", "beta"],
+            "descending flips the branch order"
+        );
+
+        all[2].git_branch_name = None;
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Branch, true), &all),
+            vec!["beta", "alpha", "gamma"],
+            "a repo without a branch sinks in both directions"
+        );
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::Branch, false), &all),
+            vec!["alpha", "beta", "gamma"]
+        );
+    }
+
+    #[test]
+    fn github_sort_sums_prs_and_issues() {
+        let mut all = repos();
+        all[0].tags.clear();
+        all[1].github_pr_count = 3;
+        all[2].github_issue_count = 4;
+        let names = |rows: &[usize]| -> Vec<&str> {
+            rows.iter().map(|&i| all[i].name.as_str()).collect()
+        };
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::GitHub, false)),
+            vec!["gamma", "beta", "alpha"],
+            "descending leads with the most open PRs + issues"
+        );
+        assert_eq!(
+            names(&project(&all, &[], RepoSortMode::GitHub, true)),
+            vec!["alpha", "beta", "gamma"]
+        );
     }
 }

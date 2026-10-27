@@ -75,6 +75,9 @@ pub struct ReposSettings {
     pub azure_dev_ops_url: String,
     pub excluded_folders: Option<Vec<String>>,
     pub sort_mode: RepoSortMode,
+    /// None = the mode's own default (Name ascending, the rest best-first);
+    /// legacy settings files predate the field, so absence stays meaningful.
+    pub sort_ascending: Option<bool>,
     pub max_scan_depth: i32,
     pub branch_name_prefix: String,
 }
@@ -103,6 +106,7 @@ impl Default for ReposSettings {
             azure_dev_ops_url: String::new(),
             excluded_folders: None,
             sort_mode: RepoSortMode::Name,
+            sort_ascending: None,
             max_scan_depth: 3,
             branch_name_prefix: "users/enginkirmaci".into(),
         }
@@ -119,13 +123,24 @@ pub enum RepoSortMode {
     LastActivity = 1,
     /// Most pending work first: changes, then to-push, then to-pull counts.
     Changes = 2,
-    /// Most open GitHub pull requests first.
-    PullRequests = 3,
-    /// Most open GitHub issues first.
-    Issues = 4,
+    /// Most open GitHub pull requests + issues first (the GitHub column's
+    /// combined read).
+    GitHub = 3,
+    /// Alphabetical by branch name; repos without a known branch last.
+    Branch = 5,
 }
 
-// the settings file stores the enum as its number
+impl RepoSortMode {
+    /// The order a column starts in: Name and Branch read naturally
+    /// ascending, the other modes lead with their "best" row (newest / most
+    /// changes / most remote activity), which is a descending read.
+    pub fn default_ascending(self) -> bool {
+        matches!(self, RepoSortMode::Name | RepoSortMode::Branch)
+    }
+}
+
+// the settings file stores the enum as its number; the retired Issues slot
+// (4) falls back to Name
 impl Serialize for RepoSortMode {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u8(*self as u8)
@@ -137,8 +152,8 @@ impl<'de> Deserialize<'de> for RepoSortMode {
         Ok(match u8::deserialize(deserializer)? {
             1 => RepoSortMode::LastActivity,
             2 => RepoSortMode::Changes,
-            3 => RepoSortMode::PullRequests,
-            4 => RepoSortMode::Issues,
+            3 => RepoSortMode::GitHub,
+            5 => RepoSortMode::Branch,
             _ => RepoSortMode::Name,
         })
     }

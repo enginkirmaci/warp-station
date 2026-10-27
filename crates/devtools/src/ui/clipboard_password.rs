@@ -1,6 +1,6 @@
 //! The Clipboard Password drawer: stores a password (Base64 over UTF-8 in the
 //! settings file — the C# build's exact format) and copies it back via the
-//! Copy button or the in-app Ctrl+Shift+V shortcut.
+//! Copy button or the system-wide Ctrl+Shift+V (net.rs registers the grab).
 
 use crate::store::Store;
 use crate::theme;
@@ -247,7 +247,7 @@ impl Render for ClipboardPasswordDrawer {
                 div()
                     .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_FAINT)
-                    .child("Ctrl+Shift+V copies the stored password while DevTools is focused."),
+                    .child("Ctrl+Shift+V copies the stored password system-wide while DevTools runs (focused-only where the OS refuses a global grab)."),
             )
     }
 }

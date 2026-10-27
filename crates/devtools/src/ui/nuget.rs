@@ -131,24 +131,17 @@ impl Render for NugetDrawer {
                     .gap_1p5()
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 1.))
-                            .text_color(theme::TEXT_MUTED)
-                            .child("Watch directory"),
-                    )
-                    .child(Input::new(&self.watch_input).small())
-                    .child(
-                        div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
                             .child(
                                 div()
-                                    .flex_1()
-                                    .text_size(px(theme::font_small() - 2.))
-                                    .text_color(theme::TEXT_FAINT)
-                                    .child("Enter applies the folder to a running watch."),
+                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_color(theme::TEXT_MUTED)
+                                    .child("Watch directory"),
                             )
+                            .child(div().flex_1())
                             .child(action_button(
                                 "nuget-register",
                                 "Register source",
@@ -156,6 +149,13 @@ impl Render for NugetDrawer {
                                 false,
                                 cx.listener(|this, _, _, cx| this.register(cx)),
                             )),
+                    )
+                    .child(Input::new(&self.watch_input).small())
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small() - 2.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child("Enter applies the folder to a running watch."),
                     )
                     .child(path_row("Local cache", snapshot.copy_folder.as_deref()))
                     .child(path_row(

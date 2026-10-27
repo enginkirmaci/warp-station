@@ -56,6 +56,30 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
+    // the row-height wrapper fills the two-line row, rows advance by one row
+    // height, and the name cell sits centered inside its row
+    let wrap0 = cx.debug_bounds("repos-td-wrap-0").expect("row 0 renders");
+    let wrap1 = cx.debug_bounds("repos-td-wrap-1").expect("row 1 renders");
+    assert!(
+        (wrap0.size.height - gpui::px(48.)).abs() < gpui::px(2.),
+        "cells fill the 48px row (got {:?})",
+        wrap0.size.height
+    );
+    let row_pitch = wrap1.origin.y - wrap0.origin.y;
+    assert!(
+        (row_pitch - gpui::px(48.)).abs() < gpui::px(2.),
+        "rows advance by the 48px row height (got {row_pitch})",
+    );
+    let cell = cx
+        .debug_bounds("repos-name-cell-0")
+        .expect("name cell renders");
+    let cell_mid = cell.origin.y + cell.size.height / 2.;
+    let wrap_mid = wrap0.origin.y + wrap0.size.height / 2.;
+    assert!(
+        (cell_mid - wrap_mid).abs() < gpui::px(2.),
+        "the name cell centers in its row (cell mid {cell_mid} vs row mid {wrap_mid})"
+    );
+
     // the table's own selected-row API drives the same path a click does
     let selected_before = cx.read_entity(&store, |s, _| s.selected_repo.clone());
     assert!(selected_before.is_none());
@@ -153,8 +177,9 @@ fn px_col() -> gpui::Pixels {
 }
 
 fn px_row() -> gpui::Pixels {
-    // titlebar 38 + two 46px toolbar rows + row center (36px rows)
-    gpui::px(148.)
+    // titlebar 38 + two 46px toolbar rows + 28px column header + row center
+    // (48px rows)
+    gpui::px(182.)
 }
 
 fn entry_with_branch(name: &str, path: &str, branch: &str) -> RepoEntry {
@@ -187,7 +212,7 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
         let count = delegate.columns_count(cx);
         let widths: Vec<gpui::Pixels> = (0..count).map(|ix| delegate.column(ix, cx).width).collect();
         let name = widths[1];
-        let branch = widths[3];
+        let branch = widths[3]; // shortcuts sits between name and branch
         let others: gpui::Pixels = widths
             .iter()
             .enumerate()
@@ -196,7 +221,7 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
             .sum();
 
         // branch hugs the widest branch: "release/feature-x" = 17 chars
-        assert_eq!(branch, gpui::px(52. + 17. * 7.2));
+        assert_eq!(branch, gpui::px(56. + 17. * 7.8));
         assert!(name >= gpui::px(140.), "the name column keeps its floor (got {name})");
         assert!(
             (others + name - available).abs() < gpui::px(1.),
@@ -215,21 +240,79 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
     });
 }
 
-/// Press + release at a point through the real event pipeline, then settle
-/// and redraw so `debug_bounds` reflects the new frame.
-fn drive_click(cx: &mut gpui::VisualTestContext, at: gpui::Point<gpui::Pixels>) {
-    cx.simulate_mouse_down(at, gpui::MouseButton::Left, gpui::Modifiers::default());
-    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
+/// Narrow windows drop the time/GitHub/Azure columns and finally shrink the
+/// changes cell to its badge-only form; at every width the columns still fit
+/// the table (no horizontal scrollbar) and the name keeps its floor.
+#[gpui::test]
+fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+
+    let store = fake_store(cx);
+    cx.update(|cx| {
+        use gpui_kit::component::table::TableDelegate as _;
+
+        for available in [674., 700., 760., 854., 960., 1100., 1234.] {
+            let delegate = devtools::ui::repos::ReposDelegate {
+                store: store.clone(),
+                available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(available))),
+            };
+            let count = delegate.columns_count(cx);
+            let widths: Vec<gpui::Pixels> =
+                (0..count).map(|ix| delegate.column(ix, cx).width).collect();
+            let sum: gpui::Pixels = widths.iter().copied().sum();
+
+            assert!(
+                sum <= gpui::px(available) + gpui::px(1.),
+                "columns must fit {available}px, got {widths:?} (sum {sum})"
+            );
+            assert!(
+                widths[1] >= gpui::px(140.),
+                "the name column keeps its floor at {available}px (got {})",
+                widths[1]
+            );
+            assert!(
+                widths[4] >= gpui::px(80.) && widths[4] <= gpui::px(154.),
+                "the changes column stays usable at {available}px (got {})",
+                widths[4]
+            );
+            assert_eq!(widths[0], gpui::px(36.), "star column leads at {available}px");
+            assert!(
+                widths[2] > gpui::px(100.),
+                "launcher buttons stay at {available}px (got {})",
+                widths[2]
+            );
+        }
+    });
 }
 
+/// The toolbar's sort dropdown is gone: the table headers are the only sort
+/// controls. A Branch header sort must reach the store as RepoSortMode::Branch
+/// and reorder the projection. The header path persists the mode, so the
+/// probe runs under a temp HOME.
 #[gpui::test]
-fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
+fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
+    use devtools_core::settings::RepoSortMode;
+    use gpui_kit::component::table::{ColumnSort, TableDelegate as _};
+
+    let home = std::env::temp_dir().join(format!("devtools-sort-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; other tests in this binary tolerate a
+    // default-settings store, so a racing HOME read is harmless
+    unsafe { std::env::set_var("HOME", &home) };
+
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
+    cx.update_entity(&store, |s: &mut Store, _| {
+        // alpha ships as a favorite; favorites float above every sort
+        s.repos[0].tags.clear();
+        s.repos[0].git_branch_name = Some("zeta".into());
+        s.repos[1].git_branch_name = Some("alpha".into());
+        // gamma keeps the entry default ("main")
+    });
+
     let store_handle = store.clone();
     let (_window_handle, cx) = cx.add_window_view(|window, cx| {
         MainWindow::new(store_handle.clone(), window, cx)
@@ -237,51 +320,37 @@ fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    // open through the chip's real click path
-    let chip = cx
-        .debug_bounds("dt-sort-chip")
-        .expect("sort chip rendered in the toolbar");
-    drive_click(cx, chip.center());
+    cx.update(|window, cx| {
+        let delegate = devtools::ui::repos::ReposDelegate {
+            store: store.clone(),
+            available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(1100.))),
+        };
+        let branch_ix = (0..delegate.columns_count(cx))
+            .find(|&ix| delegate.column(ix, cx).key == "branch")
+            .expect("the branch column is visible at 1100px");
+        let table = cx.new(|cx| {
+            gpui_kit::component::table::TableState::new(delegate, window, cx)
+        });
+        table.update(cx, |state, cx| {
+            state
+                .delegate_mut()
+                .perform_sort(branch_ix, ColumnSort::Ascending, window, cx);
+        });
+    });
 
-    let menu = cx
-        .debug_bounds("dt-sort-menu")
-        .expect("sort menu visible after clicking the chip");
-    let scrim = cx
-        .debug_bounds("dt-sort-scrim")
-        .expect("full-page click catcher visible");
-    // the popup sits below the chip and fully inside the window
-    assert!(menu.origin.y >= chip.bottom(), "menu must drop below the chip");
-    assert!(
-        menu.origin.x >= scrim.origin.x
-            && menu.bottom() <= scrim.bottom()
-            && menu.right() <= scrim.right(),
-        "menu must stay inside the window ({menu:?} vs scrim {scrim:?})"
-    );
-
-    // a click over the table area must dismiss the menu WITHOUT reaching the
-    // row beneath: the pre-fix in-toolbar catcher buried the popup under the
-    // table, and this same click selected a row instead
-    let over_table = gpui::point(scrim.origin.x + px_col(), px_row());
-    drive_click(cx, over_table);
-    assert!(
-        cx.debug_bounds("dt-sort-menu").is_none(),
-        "clicking outside must close the menu"
-    );
-    let selected = cx.read_entity(&store, |s, _| s.selected_repo.clone());
-    assert!(
-        selected.is_none(),
-        "the dismiss click must not select a table row (got {selected:?})"
+    let (mode, ascending) = cx.read_entity(&store, |s, _| (s.sort_mode, s.sort_ascending));
+    assert_eq!(mode, RepoSortMode::Branch, "the branch header maps to the Branch mode");
+    assert!(ascending, "Ascending lands as ascending");
+    let order = cx.read_entity(&store, |s, _| {
+        s.projected.iter().map(|&i| s.repos[i].name.clone()).collect::<Vec<_>>()
+    });
+    assert_eq!(
+        order,
+        vec!["beta", "gamma", "alpha"],
+        "branches alpha < main < zeta order the rows"
     );
 
-    // the chip still toggles afterwards
-    let chip = cx
-        .debug_bounds("dt-sort-chip")
-        .expect("sort chip still present");
-    drive_click(cx, chip.center());
-    assert!(
-        cx.debug_bounds("dt-sort-menu").is_some(),
-        "menu must reopen from the chip"
-    );
+    let _ = std::fs::remove_dir_all(&home);
 }
 
 fn scanned(name: &str, path: &str) -> devtools_core::scan::ScannedRepo {
@@ -428,4 +497,64 @@ fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
         "validation passed and the commit went out"
     );
     assert!(cx.debug_bounds("clone-overlay").is_some());
+}
+
+/// The kit's header sort glyphs and click cycle read the cached column
+/// groups, so the delegate must hand back the store's live sort state: the
+/// active column carries the direction, everything else stays unsorted.
+#[gpui::test]
+fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
+    use devtools_core::settings::RepoSortMode;
+    use gpui_kit::component::table::ColumnSort;
+
+    cx.update(gpui_kit::init);
+
+    let store = fake_store(cx);
+    cx.update_entity(&store, |s: &mut Store, _| {
+        // in-memory only: the probe must not rewrite the real settings file
+        s.sort_mode = RepoSortMode::LastActivity;
+        s.sort_ascending = false;
+    });
+
+    cx.update(|cx| {
+        let available = gpui::px(1100.);
+        let delegate = devtools::ui::repos::ReposDelegate {
+            store: store.clone(),
+            available_width: std::rc::Rc::new(std::cell::Cell::new(available)),
+        };
+        use gpui_kit::component::table::TableDelegate as _;
+
+        // columns: star, name, shortcuts, branch, changes, …, last activity
+        let activity_ix = delegate.columns_count(cx) - 1;
+        assert!(
+            matches!(delegate.column(activity_ix, cx).sort, Some(ColumnSort::Descending)),
+            "the active column shows its direction"
+        );
+        assert!(
+            matches!(delegate.column(1, cx).sort, Some(ColumnSort::Default)),
+            "inactive columns stay unsorted"
+        );
+    });
+
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.sort_mode = RepoSortMode::Name;
+        s.sort_ascending = true;
+    });
+    cx.update(|cx| {
+        let delegate = devtools::ui::repos::ReposDelegate {
+            store: store.clone(),
+            available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(1100.))),
+        };
+        use gpui_kit::component::table::TableDelegate as _;
+
+        assert!(
+            matches!(delegate.column(1, cx).sort, Some(ColumnSort::Ascending)),
+            "switching modes hands the arrow to the new column"
+        );
+        let activity_ix = delegate.columns_count(cx) - 1;
+        assert!(
+            matches!(delegate.column(activity_ix, cx).sort, Some(ColumnSort::Default)),
+            "the previous column drops back to unsorted"
+        );
+    });
 }

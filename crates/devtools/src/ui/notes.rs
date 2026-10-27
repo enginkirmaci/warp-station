@@ -1,24 +1,38 @@
 //! The Notes page: per-repo markdown notes — folder/file tree on the left,
-//! editor on the right with Edit/Live/Split/Preview modes, a formatting
-//! toolbar over the pure markdown_editing ops, dirty in-memory buffers that
-//! survive navigation, and capped search. Opened from the titlebar.
+//! editor on the right with Edit/Live/Split/Preview modes. Live is an
+//! Obsidian-style live preview: markdown renders in place while typing and
+//! source markers (`**`, backticks, link URLs) fade out wherever the cursor
+//! is not on their line. The toolbar drives the pure markdown_editing ops,
+//! dirty in-memory buffers survive navigation, and search is capped. Opened
+//! from the titlebar.
 
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
+use devtools_core::markdown_live::{self, MarkdownLiveKind};
 use devtools_core::notes as notes_core;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, MouseButton, SharedString, Window, WindowControlArea};
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
-use gpui_kit::component::Sizable as _;
+use gpui::{
+    div, hsla, px, relative, Context, Entity, FontStyle, FontWeight, HighlightStyle,
+    MouseButton, SharedString, StrikethroughStyle, UnderlineStyle, Window, WindowControlArea,
+};
 use gpui_kit::base::text::TextView;
+use gpui_kit::component::input::{
+    Editor, EditorState, FoldRange, HighlightStyleResolver, Input, InputEdit, InputEvent,
+    InputHighlighter, InputHighlighterFactory, InputState, Rope,
+};
+use gpui_kit::component::Sizable as _;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq)]
 enum NotesMode {
     Edit,
-    /// Editor above, rendered markdown below — both update on every keystroke.
+    /// Obsidian-style single surface: markdown styled in place while editing;
+    /// syntax markers fade unless the cursor is on their line.
     Live,
     Split,
     Preview,
@@ -38,7 +52,9 @@ pub struct NotesPage {
     mode: NotesMode,
     search: Entity<InputState>,
     search_hits: Vec<notes_core::NotesSearchHit>,
-    editor: Entity<TextareaState>,
+    /// The shared editor for Edit/Live/Split — the code-editor engine, so
+    /// Live can install the markdown highlighter.
+    editor: Entity<EditorState>,
     /// Delete arming: (path, expire-instant) — a second click within 3s fires.
     armed_delete: Option<(PathBuf, std::time::Instant)>,
     /// The "+ note" create form (name + optional folder).
@@ -50,7 +66,22 @@ pub struct NotesPage {
 impl NotesPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search all notes…"));
-        let editor = cx.new(|cx| TextareaState::new(window, cx).placeholder("# Title"));
+        let caret = Rc::new(RefCell::new(Some(0..0)));
+        let highlighter_caret = caret.clone();
+        let editor = cx.new(|cx| {
+            let mut state = EditorState::new(window, cx)
+                .language(LIVE_LANGUAGE)
+                .line_number(false)
+                .folding(false)
+                .auto_close(false)
+                .smart_indent(false)
+                .placeholder("# Title");
+            // the app's markdown live highlighter owns "markdown"; anything
+            // else (the raw Edit/Split panes use LIVE_LANGUAGE's plain
+            // sibling) falls back to unstyled text.
+            state.set_highlighter_factory(live_highlighter_factory(highlighter_caret), cx);
+            state
+        });
         let create_name = cx.new(|cx| InputState::new(window, cx).placeholder("New note name"));
         let create_folder = cx.new(|cx| InputState::new(window, cx).placeholder("Folder (optional)"));
         cx.subscribe(&search, |this, field, event: &InputEvent, cx| {
@@ -59,8 +90,14 @@ impl NotesPage {
             }
         })
         .detach();
-        // Live/Split previews follow the editor on every keystroke
-        cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+        // previews and marker-fading follow the editor on every keystroke and
+        // every caret move
+        let observe_caret = caret.clone();
+        cx.observe(&editor, move |_, editor, cx| {
+            *observe_caret.borrow_mut() = Some(editor.read(cx).selected_range());
+            cx.notify();
+        })
+        .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
@@ -70,7 +107,7 @@ impl NotesPage {
             open_note: None,
             dirty: HashMap::new(),
             saved_text: String::new(),
-            mode: NotesMode::Split,
+            mode: NotesMode::Live,
             search,
             search_hits: Vec::new(),
             editor,
@@ -219,7 +256,7 @@ impl NotesPage {
     }
 
     fn apply_format(&mut self, format: &str, window: &mut Window, cx: &mut Context<Self>) {
-        // the kit textarea owns the selection: read it, apply over the exact
+        // the kit editor owns the selection: read it, apply over the exact
         // range, and restore the op's returned selection
         let text = self.editor.read(cx).value().to_string();
         let range = self.editor.read(cx).selected_range();
@@ -227,12 +264,26 @@ impl NotesPage {
         let end_ch = byte_to_char(&text, range.end);
         let result = devtools_core::notes::markdown_apply(format, &text, start_ch, end_ch - start_ch);
         self.editor.update(cx, |state, cx| {
-            state.set_value(result.text.as_str(), window, cx);
+            // replace_all keeps the undo stack, unlike set_value
+            state.replace_all(result.text.as_str(), window, cx);
             let start_b = char_to_byte(&result.text, result.start);
             let end_b = char_to_byte(&result.text, result.start + result.length);
             state.set_selected_range(start_b..end_b, cx);
         });
         cx.notify();
+    }
+
+    /// Live styles the markdown in place; the raw panes show plain text.
+    /// Switching resets the editor's syntax engine on the next refresh.
+    fn apply_editor_language(&mut self, cx: &mut Context<Self>) {
+        let language = if self.mode == NotesMode::Live { LIVE_LANGUAGE } else { RAW_LANGUAGE };
+        self.editor.update(cx, |state, cx| state.set_highlighter(language, cx));
+    }
+
+    /// The editor's current buffer — for headless probes.
+    #[doc(hidden)]
+    pub fn editor_value(&self, cx: &gpui::App) -> String {
+        self.editor.read(cx).value().to_string()
     }
 }
 
@@ -745,6 +796,7 @@ impl NotesPage {
                     .hover(|s| s.opacity(0.85))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.mode = mode;
+                        this.apply_editor_language(cx);
                         cx.notify();
                     }))
                     .child(label),
@@ -886,6 +938,18 @@ impl NotesPage {
             .into_any_element()
     }
 
+    /// The one editor element shared by the editing modes, in the UI font —
+    /// the kit Editor defaults to mono, refined away here.
+    fn editor_element(&self) -> Editor {
+        Editor::new(&self.editor)
+            .bordered(false)
+            .appearance(false)
+            .h_full()
+            .font_family(SharedString::from(theme::ui_font()))
+            .text_size(px(theme::font_body() + 1.))
+            .line_height(relative(1.7))
+    }
+
     fn render_editor(&mut self, preview_text: String, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.open_note.is_none() {
             let can_create =
@@ -960,7 +1024,7 @@ impl NotesPage {
                 .flex_1()
                 .min_h_0()
                 .p_2()
-                .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
+                .child(self.editor_element()),
             NotesMode::Preview => div()
                 .id("notes-preview-pane")
                 .debug_selector(|| "notes-preview-pane".into())
@@ -974,29 +1038,8 @@ impl NotesPage {
                 .debug_selector(|| "notes-live".into())
                 .flex_1()
                 .min_h_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .id("notes-live-edit")
-                        .debug_selector(|| "notes-live-edit".into())
-                        .flex_1()
-                        .min_h_0()
-                        .p_2()
-                        .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
-                )
-                .child(
-                    div()
-                        .id("notes-live-preview")
-                        .debug_selector(|| "notes-live-preview".into())
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .p_3()
-                        .border_t_1()
-                        .border_color(theme::HAIRLINE)
-                        .child(preview),
-                ),
+                .p_2()
+                .child(self.editor_element()),
             NotesMode::Split => div()
                 .id("notes-split")
                 .debug_selector(|| "notes-split".into())
@@ -1007,17 +1050,19 @@ impl NotesPage {
                 .child(
                     div()
                         .id("notes-split-edit")
+                        .debug_selector(|| "notes-split-edit".into())
                         .flex_1()
                         .min_w_0()
                         .h_full()
                         .p_2()
                         .border_r_1()
                         .border_color(theme::HAIRLINE)
-                        .child(Textarea::new(&self.editor).bordered(false).appearance(false).h_full()),
+                        .child(self.editor_element()),
                 )
                 .child(
                     div()
                         .id("notes-split-preview")
+                        .debug_selector(|| "notes-split-preview".into())
                         .flex_1()
                         .min_w_0()
                         .h_full()
@@ -1027,5 +1072,205 @@ impl NotesPage {
                 ),
         }
         .into_any_element()
+    }
+}
+
+// ---- the markdown live highlighter -------------------------------------------
+
+/// Language name that triggers the app markdown live styling.
+const LIVE_LANGUAGE: &str = "markdown";
+/// Anything the factory does not own falls back to plain text.
+const RAW_LANGUAGE: &str = "plaintext";
+
+/// How far source markers fade when the cursor is on another line.
+const MARKER_FADE: f32 = 0.8;
+/// Slightly deeper fade for whole fence lines.
+const FENCE_FADE: f32 = 0.85;
+
+/// Builds the editor's highlighter factory: `markdown` gets the live engine,
+/// every other language stays unstyled. A free function so the closure
+/// coerces to the higher-ranked `dyn Fn(&str)` without inference trouble.
+fn live_highlighter_factory(caret: Rc<RefCell<Option<Range<usize>>>>) -> InputHighlighterFactory {
+    Rc::new(move |language: &str| {
+        (language == LIVE_LANGUAGE).then(|| {
+            Box::new(MarkdownLiveHighlighter::new(caret.clone())) as Box<dyn InputHighlighter>
+        })
+    })
+}
+
+/// The Notes live editor's syntax engine: maps the core parser's spans onto
+/// editor text styles, fading source markers on lines the caret is not on.
+struct MarkdownLiveHighlighter {
+    spans: Vec<markdown_live::MarkdownLiveSpan>,
+    line_starts: Vec<usize>,
+    len: usize,
+    /// The editor caret; the page keeps it current on every keystroke and
+    /// caret move, so each frame's layout fades against the live position.
+    caret: Rc<RefCell<Option<Range<usize>>>>,
+}
+
+impl MarkdownLiveHighlighter {
+    fn new(caret: Rc<RefCell<Option<Range<usize>>>>) -> Self {
+        Self { spans: Vec::new(), line_starts: Vec::new(), len: 0, caret }
+    }
+
+    fn style_for(kind: MarkdownLiveKind) -> HighlightStyle {
+        let mut style = HighlightStyle::default();
+        match kind {
+            MarkdownLiveKind::HeadingMarker => {
+                style.color = Some(theme::ACCENT.into());
+                style.font_weight = Some(FontWeight::SEMIBOLD);
+            }
+            MarkdownLiveKind::HeadingText => {
+                style.font_weight = Some(FontWeight::BOLD);
+            }
+            MarkdownLiveKind::Emphasis { bold, italic, strike } => {
+                if bold {
+                    style.font_weight = Some(FontWeight::BOLD);
+                }
+                if italic {
+                    style.font_style = Some(FontStyle::Italic);
+                }
+                if strike {
+                    style.strikethrough = Some(StrikethroughStyle {
+                        thickness: px(1.),
+                        color: Some(theme::TEXT_MUTED.into()),
+                    });
+                    style.color = Some(theme::TEXT_MUTED.into());
+                }
+            }
+            MarkdownLiveKind::InlineCode => {
+                style.background_color = Some(theme::CHIP.into());
+                style.color = Some(theme::GOLD_BRIGHT.into());
+            }
+            MarkdownLiveKind::CodeFence => {
+                style.background_color = Some(hsla(0., 0., 0., 0.16));
+                style.color = Some(theme::TEXT_FAINT.into());
+            }
+            MarkdownLiveKind::CodeBlock => {
+                style.background_color = Some(hsla(0., 0., 0., 0.16));
+            }
+            MarkdownLiveKind::LinkText => {
+                style.color = Some(theme::ACCENT.into());
+                style.underline = Some(UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(theme::ACCENT.into()),
+                    wavy: false,
+                });
+            }
+            MarkdownLiveKind::QuoteText => {
+                style.font_style = Some(FontStyle::Italic);
+                style.color = Some(theme::TEXT_DIM.into());
+            }
+            MarkdownLiveKind::TaskDone => {
+                style.color = Some(theme::SUCCESS_BRIGHT.into());
+            }
+            // everything quiet shares the faint ink
+            MarkdownLiveKind::Marker
+            | MarkdownLiveKind::LinkUrl
+            | MarkdownLiveKind::QuoteMarker
+            | MarkdownLiveKind::ListMarker
+            | MarkdownLiveKind::TaskOpen
+            | MarkdownLiveKind::HorizontalRule => {
+                style.color = Some(theme::TEXT_FAINT.into());
+            }
+            MarkdownLiveKind::Plain => {}
+        }
+        style
+    }
+
+    /// Which kinds are source syntax that disappears when not being edited.
+    fn fades(kind: MarkdownLiveKind) -> Option<f32> {
+        match kind {
+            MarkdownLiveKind::CodeFence => Some(FENCE_FADE),
+            MarkdownLiveKind::Marker | MarkdownLiveKind::LinkUrl => Some(MARKER_FADE),
+            _ => None,
+        }
+    }
+
+    /// The line the caret is on, as a byte range.
+    fn caret_line(&self) -> Option<Range<usize>> {
+        let caret = self.caret.borrow().as_ref()?.start.min(self.len);
+        let idx = self.line_starts.partition_point(|&start| start <= caret).checked_sub(1)?;
+        let start = self.line_starts[idx];
+        let end = self.line_starts.get(idx + 1).copied().unwrap_or(self.len);
+        Some(start..end.max(start))
+    }
+}
+
+impl InputHighlighter for MarkdownLiveHighlighter {
+    fn language(&self) -> SharedString {
+        LIVE_LANGUAGE.into()
+    }
+
+    fn update(
+        &mut self,
+        _edit: Option<InputEdit>,
+        text: &Rope,
+        _folding: bool,
+        _window: &mut Window,
+        _cx: &mut Context<EditorState>,
+    ) {
+        // notes are small; a full reparse per edit keeps offsets trivially
+        // correct (and the engine re-drives this on every text change)
+        let text = text.to_string();
+        self.line_starts = std::iter::once(0)
+            .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        self.len = text.len();
+        self.spans = markdown_live::parse(&text);
+    }
+
+    fn styles(
+        &self,
+        range: &Range<usize>,
+        _resolver: &dyn HighlightStyleResolver,
+    ) -> Vec<(Range<usize>, HighlightStyle)> {
+        let caret_line = self.caret_line();
+        let mut out: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+        let push_run = |out: &mut Vec<(Range<usize>, HighlightStyle)>,
+                            start: usize,
+                            end: usize,
+                            kind: MarkdownLiveKind| {
+            let mut style = Self::style_for(kind);
+            if let Some(fade) = Self::fades(kind)
+                && caret_line.as_ref().is_some_and(|line| !(start < line.end && end > line.start))
+            {
+                style.fade_out = Some(fade);
+            }
+            // adjacent runs with one style shape as one
+            if let Some((last_range, last_style)) = out.last_mut()
+                && *last_style == style
+                && last_range.end == start
+            {
+                last_range.end = end;
+            } else {
+                out.push((start..end, style));
+            }
+        };
+        let mut pos = range.start;
+        for span in &self.spans {
+            if span.range.end <= range.start {
+                continue;
+            }
+            if span.range.start >= range.end {
+                break;
+            }
+            let start = span.range.start.max(range.start);
+            let end = span.range.end.min(range.end);
+            if start > pos {
+                push_run(&mut out, pos, start, MarkdownLiveKind::Plain);
+            }
+            push_run(&mut out, start, end, span.kind);
+            pos = end;
+        }
+        if pos < range.end {
+            push_run(&mut out, pos, range.end, MarkdownLiveKind::Plain);
+        }
+        out
+    }
+
+    fn fold_ranges(&self, _: &Rope) -> Vec<FoldRange> {
+        Vec::new()
     }
 }

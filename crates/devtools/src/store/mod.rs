@@ -14,10 +14,12 @@ pub struct Store {
     pub net: async_channel::Sender<NetCommand>,
     settings: Arc<SettingsService>,
     pub repos: Vec<RepoEntry>,
-    pub search: String,
     /// Checked tag-filter chips (OR semantics: a repo matches when it has any).
     pub tag_filters: Vec<String>,
     pub sort_mode: RepoSortMode,
+    /// false = the mode's default "best-first" read, true = flipped. Seeded
+    /// from the persisted direction when set, else the mode's default.
+    pub sort_ascending: bool,
     /// Row order for the table: indices into `repos` after filter+sort.
     pub projected: Vec<usize>,
     /// Folder path of the repo the bottom bar is attached to.
@@ -92,9 +94,12 @@ impl Store {
             net,
             settings,
             repos: cached,
-            search: String::new(),
             tag_filters: Vec::new(),
             sort_mode: app_settings.repos.sort_mode,
+            sort_ascending: app_settings
+                .repos
+                .sort_ascending
+                .unwrap_or_else(|| app_settings.repos.sort_mode.default_ascending()),
             projected: Vec::new(),
             selected_repo: None,
             bar_height: 440.0,
@@ -320,6 +325,12 @@ impl Store {
             }
             UiEvent::Nuget(snapshot) => {
                 self.nuget = snapshot;
+                cx.notify();
+            }
+            UiEvent::ClipboardHotkey { message } => {
+                // the copy ran on the trigger thread (gpui's Wayland
+                // clipboard write is focus-gated); here we only toast
+                self.notice = Some((message.to_string(), std::time::Instant::now()));
                 cx.notify();
             }
             UiEvent::SummaryDone { result, .. } => {
@@ -697,24 +708,22 @@ impl Store {
 
     // ---- list shaping ------------------------------------------------------
 
-    pub fn set_search(&mut self, text: String, cx: &mut Context<Self>) {
-        self.search = text;
-        self.reproject();
-        cx.notify();
-    }
-
-    /// Clears the search text and tag filter in one transition (the toolbar's
-    /// Clear).
+    /// Clears the tag filter in one transition (the toolbar's Clear).
     pub fn clear_filters(&mut self, cx: &mut Context<Self>) {
-        self.search.clear();
         self.tag_filters.clear();
         self.reproject();
         cx.notify();
     }
 
-    pub fn set_sort(&mut self, mode: RepoSortMode, cx: &mut Context<Self>) {
+    /// A sortable header click: the kit's cycle drives both the mode and the
+    /// direction, so both land together.
+    pub fn set_sort_direction(&mut self, mode: RepoSortMode, ascending: bool, cx: &mut Context<Self>) {
         self.sort_mode = mode;
-        self.update_settings(|s| s.repos.sort_mode = mode);
+        self.sort_ascending = ascending;
+        self.update_settings(|s| {
+            s.repos.sort_mode = mode;
+            s.repos.sort_ascending = Some(ascending);
+        });
         self.reproject();
         cx.notify();
     }
@@ -815,7 +824,7 @@ impl Store {
     }
 
     fn reproject(&mut self) {
-        self.projected = projection::project(&self.repos, &self.search, &self.tag_filters, self.sort_mode);
+        self.projected = projection::project(&self.repos, &self.tag_filters, self.sort_mode, self.sort_ascending);
     }
 
     /// Every distinct tag across the list, favorites and platform leading —

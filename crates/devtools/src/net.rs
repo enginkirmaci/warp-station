@@ -168,6 +168,10 @@ pub enum UiEvent {
     SummaryDone { wand_id: String, result: Result<String, String> },
     /// A NuGet watch service state change (full snapshot).
     Nuget(devtools_core::nuget::NugetSnapshot),
+    /// The system-wide Ctrl+Shift+V fired; the copy already ran on the
+    /// trigger thread (wl-copy / raw SetClipboardData — gpui's Wayland write
+    /// is focus-gated), the store only shows the toast.
+    ClipboardHotkey { message: &'static str },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -176,6 +180,7 @@ pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, R
     let handle = std::thread::Builder::new()
         .name("net".into())
         .spawn(move || {
+            setup_clipboard_hotkey(evt_tx.clone());
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -185,6 +190,77 @@ pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, R
         })
         .expect("net thread");
     (handle, cmd_tx, evt_rx)
+}
+
+/// Registers the system-wide Ctrl+Shift+V while the Clipboard Password tool
+/// is enabled; a disabled tool must not hold a global key grab. Hyprland gets
+/// a runtime bind (re-added each launch), Windows a RegisterHotKey thread.
+/// The in-window shortcut in MainWindow stays as the fallback for sessions
+/// where neither grab lands.
+fn setup_clipboard_hotkey(evt_tx: Sender<UiEvent>) {
+    let enabled = devtools_core::settings::SettingsService::open()
+        .get()
+        .clipboard_password
+        .enable_clipboard_password;
+    if !enabled {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        if let Err(err) = devtools_core::hotkey::spawn_ctrl_shift_v(move || {
+            let message = devtools_core::hotkey::copy_password_to_clipboard();
+            let _ = evt_tx.send_blocking(UiEvent::ClipboardHotkey { message });
+        }) {
+            tracing::warn!("global Ctrl+Shift+V unavailable: {err:#}");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // the linux trigger is the ping socket in net_main, not this channel
+        let _ = evt_tx;
+        match devtools_core::hotkey::register_hyprland_bind() {
+            Ok(()) => tracing::info!("global Ctrl+Shift+V bound via Hyprland"),
+            Err(err) => tracing::warn!("global Ctrl+Shift+V unavailable: {err:#}"),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = evt_tx;
+    }
+}
+
+/// The ping socket the Hyprland bind's payload process connects to: one
+/// "copy-password" line in, one ClipboardHotkey event out, "ok" back.
+#[cfg(target_os = "linux")]
+async fn listen_clipboard_ping(evt_tx: Sender<UiEvent>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Some(path) = devtools_core::hotkey::clipboard_socket_path() else {
+        tracing::warn!("XDG_RUNTIME_DIR unset; global Ctrl+Shift+V ping socket disabled");
+        return;
+    };
+    // a crashed previous run leaves a stale socket file behind
+    let _ = std::fs::remove_file(&path);
+    let listener = match tokio::net::UnixListener::bind(&path) {
+        Ok(listener) => listener,
+        Err(err) => {
+            tracing::warn!("clipboard ping socket bind failed: {err}");
+            return;
+        }
+    };
+    while let Ok((mut stream, _)) = listener.accept().await {
+        let evt_tx = evt_tx.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 32];
+            if stream.read(&mut buf).await.unwrap_or(0) == 0 {
+                return;
+            }
+            if buf.starts_with(b"copy-password") {
+                let message = devtools_core::hotkey::copy_password_to_clipboard().await;
+                let _ = evt_tx.send(UiEvent::ClipboardHotkey { message }).await;
+                let _ = stream.write_all(b"ok\n").await;
+            }
+        });
+    }
 }
 
 async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
@@ -202,6 +278,14 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             while let Ok(snapshot) = nuget_receiver.recv().await {
                 let _ = evt_tx.send_blocking(UiEvent::Nuget(snapshot));
             }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let evt_tx = evt_tx.clone();
+        tokio::spawn(async move {
+            listen_clipboard_ping(evt_tx).await;
         });
     }
 

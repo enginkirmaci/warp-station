@@ -140,5 +140,13 @@ pub fn drawer_header(
                 .child(hint),
         );
     }
-    header.into_any_element()
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .pb_3()
+        .border_b_1()
+        .border_color(theme::BORDER_LIGHT)
+        .child(header)
+        .into_any_element()
 }

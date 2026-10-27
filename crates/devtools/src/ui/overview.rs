@@ -63,8 +63,10 @@ impl Render for OverviewView {
             .flex_row()
             .items_center()
             .gap_2()
-            .px_3()
-            .py_1()
+            .px_4()
+            .py_2()
+            .border_b_1()
+            .border_color(theme::BORDER_LIGHT)
             .child(
                 div()
                     .text_size(px(theme::font_small()))
@@ -176,7 +178,8 @@ impl Render for OverviewView {
             .min_w_0()
             .min_h_0()
             .overflow_y_scroll()
-            .p_3()
+            .px_5()
+            .py_4()
             .when(shown.is_some(), |pane| {
                 pane.child(render_markdown(shown.as_deref().unwrap_or("")))
             })
@@ -283,10 +286,11 @@ fn render_sidebar(
             .id(id)
             .cursor_pointer()
             .flex_1()
+            .min_w_0()
             .flex()
             .flex_col()
-            .gap_0p5()
-            .rounded_md()
+            .gap_1()
+            .rounded_lg()
             .border_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::STRONG_BACKGROUND)
@@ -312,6 +316,11 @@ fn render_sidebar(
             .child(
                 div()
                     .min_w_0()
+                    // never break a word: at the tightest tile widths the
+                    // label ellipsizes instead of splitting ("Change s")
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
                     .text_size(px(theme::font_small() - 1.))
                     .text_color(theme::TEXT_MUTED)
                     .child(label),
@@ -324,34 +333,36 @@ fn render_sidebar(
     let mut side = div()
         .id("overview-sidebar")
         .w(relative(0.4))
-        .min_w(px(280.))
+        // the floor grows with the text so the tile labels keep fitting when
+        // the system font scale is large (the tiles' room comes from here)
+        .min_w(px(280.) * (theme::font_small() / 12.0))
         .h_full()
         .flex()
         .flex_col()
         .gap_2()
-        .p_3()
+        .p_4()
         .border_l_1()
-        .border_color(theme::HAIRLINE)
+        .border_color(theme::BORDER_LIGHT)
         .overflow_y_scroll()
         .debug_selector(|| "overview-sidebar".into())
         .child(
             div()
                 .flex()
                 .flex_row()
-                .gap_2()
+                .gap_1p5()
                 .debug_selector(|| "tiles-row".into())
                 .child(tile(
                     "tile-changes",
                     "Changes",
                     modified,
                     theme::AMBER_BRIGHT,
-                    "icons/icon-source-branch.svg",
+                    "icons/icon-code.svg",
                     BottomBarTab::Changes,
                 ))
                 .when(settings.repos.enable_git_hub, |row| {
                     row.child(tile(
                         "tile-prs",
-                        "Pull Requests",
+                        "PRs",
                         prs,
                         theme::PURPLE_BRIGHT,
                         "icons/icon-git-pull-request.svg",

@@ -141,7 +141,7 @@ impl BottomBar {
 }
 
 impl Render for BottomBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let Some(entry) = self.store.read(cx).selected_entry().cloned() else {
             return div().into_any_element();
         };
@@ -154,6 +154,13 @@ impl Render for BottomBar {
             .github_details
             .as_ref()
             .and_then(|d| d.url.clone());
+        // the stored height is the user's preference; the rendered height
+        // also has to leave the repos list enough room in short windows
+        let max_height = (window.viewport_size().height.as_f32()
+            - theme::TITLEBAR_H
+            - 180.)
+            .max(260.);
+        let bar_height = bar_height.min(max_height);
 
         // ---- tabs (settings gates; the Changes tab carries the modified count) ----
         let mut tabs = div().flex().flex_row().items_end().gap_5();
@@ -367,16 +374,6 @@ impl Render for BottomBar {
                 .child("+")
                 .child("Add tag")
         };
-        let tags_row = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .pb_1()
-            .child(tag_chips)
-            .child(add_tag_row);
-
         let kebab_store = self.store.clone();
         let kebab_open = self.kebab_open;
         let mut header = div()
@@ -384,8 +381,9 @@ impl Render for BottomBar {
             .flex_row()
             .items_center()
             .gap_2()
-            .px_3()
+            .px_4()
             .py_1p5()
+            .min_h(px(44.))
             .relative()
             .debug_selector(|| "bar-header".into())
             .child(
@@ -393,9 +391,12 @@ impl Render for BottomBar {
                 div()
                     .id("bar-star")
                     .cursor_pointer()
+                    .rounded_md()
+                    .size(px(24.))
                     .flex()
                     .items_center()
                     .justify_center()
+                    .hover(|s| s.bg(theme::HOVER))
                     .child(icon(
                         "icons/icon-star.svg",
                         px(theme::icon_small()),
@@ -411,7 +412,8 @@ impl Render for BottomBar {
             )
             .child(
                 div()
-                    .text_size(px(theme::font_body()))
+                    .flex_shrink_0()
+                    .text_size(px(theme::font_body() + 1.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(entry.name.clone()),
             )
@@ -420,6 +422,7 @@ impl Render for BottomBar {
                     div()
                         .id("bar-branch")
                         .cursor_pointer()
+                        .flex_shrink_0()
                         .rounded_md()
                         .bg(theme::CHIP)
                         .px_1p5()
@@ -455,14 +458,26 @@ impl Render for BottomBar {
                         ),
                 )
             })
-            .child(div().w(px(8.)))
-            .child(div().flex_1())
+            // tags ride the identity row: no separate strip, one header
+            .child(div().mx_1().h(px(14.)).w(px(1.)).bg(theme::HAIRLINE))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(tag_chips)
+                    .child(add_tag_row),
+            )
             .when_some(self.store.read(cx).last_git_error.clone(), |row, error| {
                 row.child(
                     div()
                         .text_size(px(theme::font_small()))
                         .text_color(theme::DANGER)
-                        .max_w(px(320.))
+                        .max_w(px(240.))
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -540,9 +555,9 @@ impl Render for BottomBar {
             );
 
         if kebab_open {
-            // deferred: the header paints before the tags row, tabs row and
-            // panel — without it those later siblings paint over the open
-            // menu and its lower items vanish behind the Overview tiles
+            // deferred: the header paints before the tabs row and panel —
+            // without it those later siblings paint over the open menu and
+            // its lower items vanish behind the Overview tiles
             header = header.child(deferred(
                 self.render_kebab_menu(github_url.clone(), folder.clone(), cx),
             ));
@@ -555,13 +570,22 @@ impl Render for BottomBar {
             .border_t_1()
             .border_color(theme::HAIRLINE)
             .debug_selector(|| "bar-root".into())
-            // .NET bar: the strip itself is the dark surface and the panels
-            // inside it are the raised cards
+            // the strip itself is the raised surface and the panels inside it
+            // are the cards
             .bg(theme::CARD)
             .child(self.render_splitter())
             .child(header)
-            .child(tags_row)
-            .child(div().flex().flex_row().items_end().px_3().pb_1().child(tabs))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_end()
+                    .px_4()
+                    .pt_1()
+                    .border_b_1()
+                    .border_color(theme::BORDER_LIGHT)
+                    .child(tabs),
+            )
             .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab)))
             .into_any_element()
     }
@@ -580,7 +604,7 @@ impl BottomBar {
             .id("kebab-menu")
             .absolute()
             .right(px(12.))
-            .top(px(34.))
+            .top(px(46.))
             .w(px(210.))
             .rounded_md()
             .border_1()

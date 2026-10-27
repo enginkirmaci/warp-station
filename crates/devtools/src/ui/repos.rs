@@ -1,7 +1,8 @@
-//! The Repos page: toolbar (search, sort, tag chips, refresh, totals) and the
-//! repos table. The table delegate reads the store's projection at render
-//! time, so filter/sort/status changes land with the next frame — no mirrored
-//! row list to keep in sync.
+//! The Repos page: toolbar (tag chips, refresh, totals) and the repos table.
+//! The table delegate reads the store's projection at render time, so
+//! filter/sort/status changes land with the next frame — no mirrored
+//! row list to keep in sync. Sorting is driven entirely by the table's
+//! sortable headers.
 
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
@@ -11,17 +12,14 @@ use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, Pixels, SharedString, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{Sizable as _, Size};
-use gpui_kit::component::table::{Column, DataTable, TableDelegate, TableEvent, TableState};
+use gpui_kit::component::table::{Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState};
 use std::cell::Cell;
 use std::rc::Rc;
 
 pub struct ReposPage {
     pub store: Entity<Store>,
     table: Entity<TableState<ReposDelegate>>,
-    search: Entity<InputState>,
-    sort_menu_open: bool,
     pub dialog: Option<Dialog>,
     /// The table's available width, written by render each frame; the
     /// delegate distributes it across the columns (the kit's table has no
@@ -34,7 +32,6 @@ pub struct ReposPage {
 
 impl ReposPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let store_for_search = store.clone();
         let store_for_table = store.clone();
         let store_for_observe = store.clone();
         // `TableState` queues its SelectRow event for a later effect flush, so
@@ -42,7 +39,6 @@ impl ReposPage {
         // time the event arrives. Count the rows we push in from the store
         // and let the subscription swallow exactly those events.
         let suppressed_select_rows = Rc::new(Cell::new(0usize));
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories"));
         let available_width = Rc::new(Cell::new(px(1280.)));
         let table = cx.new(|cx| {
             TableState::new(
@@ -55,34 +51,6 @@ impl ReposPage {
             )
             .row_selectable(true)
         });
-
-        let search_for_store = search.clone();
-        cx.subscribe(&search, move |_, _, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                let text = search_for_store.read(cx).value().to_string();
-                store_for_search.update(cx, |s, cx| s.set_search(text, cx));
-            }
-            // Enter in the filter opens the first remaining row, so a search
-            // can be completed without reaching for the mouse.
-            if matches!(event, InputEvent::PressEnter { .. })
-                && !search_for_store.read(cx).value().trim().is_empty()
-            {
-                let folder = {
-                    let store = store_for_search.read(cx);
-                    store
-                        .projected
-                        .first()
-                        .and_then(|&ix| store.repos.get(ix))
-                        .map(|repo| repo.folder_path.to_string_lossy().to_string())
-                };
-                if let Some(folder) = folder {
-                    store_for_search.update(cx, |s, cx| {
-                        s.open_repo_tab(&folder, BottomBarTab::Overview, cx)
-                    });
-                }
-            }
-        })
-        .detach();
 
         let table_for_store = table.clone();
         let suppressed_for_table = suppressed_select_rows.clone();
@@ -131,8 +99,6 @@ impl ReposPage {
         Self {
             store,
             table,
-            search,
-            sort_menu_open: false,
             dialog: None,
             available_width,
             layout_fingerprint: Cell::new(0),
@@ -141,21 +107,11 @@ impl ReposPage {
 }
 
 impl ReposPage {
-    /// Ctrl+F from the window root: put the cursor in the list filter.
-    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.search.update(cx, |state, cx| state.focus(window, cx));
-    }
-
     /// Escape closes the topmost page overlay. Returns whether one was
     /// actually open, so the window can fall through to its own layers.
     pub fn dismiss_overlay(&mut self, cx: &mut Context<Self>) -> bool {
         if self.dialog.is_some() {
             self.dialog = None;
-            cx.notify();
-            return true;
-        }
-        if self.sort_menu_open {
-            self.sort_menu_open = false;
             cx.notify();
             return true;
         }
@@ -181,6 +137,15 @@ impl ReposPage {
         flag(6, settings.repos.enable_git_hub);
         flag(7, settings.repos.enable_azure_dev_ops);
         fp ^= (widest_branch_chars(&self.store, cx) as u64) << 8;
+        // the kit's header sort glyphs live in the cached column groups, so a
+        // sort change needs the same one-shot refresh as a width change
+        {
+            let store = self.store.read(cx);
+            fp ^= (store.sort_mode as u8 as u64) << 16;
+            if store.sort_ascending {
+                fp ^= 1 << 24;
+            }
+        }
         fp
     }
 
@@ -305,7 +270,7 @@ impl Render for ReposPage {
         // refresh(), so feed it the real available width and refresh once per
         // fingerprint change (window resize, shortcut toggles, widest branch).
         let available = window.viewport_size().width
-            - px(24.) // the px_3 gutters around the table
+            - px(32.) // the px_4 gutters around the table
             - px(14.); // vertical scrollbar + slack
         let fingerprint = self.layout_fingerprint_value(available, cx);
         if fingerprint != self.layout_fingerprint.get() {
@@ -319,38 +284,20 @@ impl Render for ReposPage {
             .flex_col()
             .min_h_0()
             .relative()
-            .child(self.render_toolbar(cx))
+            .child(self.render_toolbar(window.viewport_size().width, cx))
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px_3()
-                    .pb_2()
-                    .child(DataTable::new(&self.table).with_size(Size::Size(px(36.))).stripe(false).bordered(false)),
-            );
-        // With the workspace closed the table's lower half is empty; a quiet
-        // footer explains what a row opens instead of leaving a dead area.
-        if self.store.read(cx).selected_repo.is_none() {
-            page = page.child(
-                div()
-                    .h(px(26.))
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
                     .px_4()
-                    .text_size(px(theme::font_small() - 1.))
-                    .text_color(theme::TEXT_FAINT)
-                    .child(icon("icons/icon-chevron-right.svg", px(10.), theme::TEXT_FAINT))
-                    .child("Select a repository to open its overview, changes and notes")
-                    .child(div().flex_1())
-                    .child("Ctrl+F filters the list"),
+                    .pb_2()
+                    .child(
+                        DataTable::new(&self.table)
+                            .with_size(Size::Size(px(theme::TABLE_ROW_H)))
+                            .stripe(false)
+                            .bordered(false),
+                    ),
             );
-        }
-        if self.sort_menu_open {
-            page = page.child(self.render_sort_overlay(cx));
-        }
         if let Some(dialog) = &mut self.dialog {
             page = page.child(dialog.render(window, cx));
         }
@@ -359,24 +306,18 @@ impl Render for ReposPage {
 }
 
 impl ReposPage {
-    fn render_toolbar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (tags, active_tags, scanning, summary_busy, notice) = {
+    fn render_toolbar(&mut self, viewport_width: Pixels, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let (tags, active_tags, scanning, notice) = {
             let store = self.store.read(cx);
             let notice = store
                 .notice
                 .as_ref()
                 .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(4))
                 .map(|(text, _)| text.clone());
-            (
-                store.all_tags(),
-                store.tag_filters.clone(),
-                store.scanning,
-                store.summary_busy,
-                notice,
-            )
+            (store.all_tags(), store.tag_filters.clone(), store.scanning, notice)
         };
 
-        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active, sort_mode) = {
+        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active) = {
             let store = self.store.read(cx);
             (
                 store.repos.len(),
@@ -384,10 +325,26 @@ impl ReposPage {
                 store.repos.iter().map(|r| r.github_pr_count).sum::<u32>(),
                 store.repos.iter().map(|r| r.github_issue_count).sum::<u32>(),
                 store.settings().repos.enable_git_hub,
-                !store.search.trim().is_empty() || !store.tag_filters.is_empty(),
-                store.sort_mode,
+                !store.tag_filters.is_empty(),
             )
         };
+
+        // The header runs out of room before the filter row does; the count
+        // chips are the first thing to go (the table carries the same numbers
+        // per row). The threshold scales with the text size so a large font
+        // does not clip the action buttons.
+        let scale = theme::font_small() / 14.0;
+        let compact = viewport_width < px(840.) * scale;
+        // The chips also vary with the data (remote counts arrive after the
+        // first frame), so they drop in priority order: remote counts first,
+        // then the local changes total. A transient notice shares the header,
+        // so it claims the remote chips' room and, on the tightest sizes, the
+        // changes chip too — never the action buttons.
+        let has_notice = notice.is_some();
+        let roomy = viewport_width >= px(1000.) * scale;
+        let notice_fits_remote = viewport_width >= px(1150.) * scale;
+        let show_change_chip = !compact && (roomy || !has_notice);
+        let show_remote_chips = show_change_chip && roomy && (!has_notice || notice_fits_remote);
 
         let count_chip = |count: u32,
                           label: &'static str,
@@ -450,17 +407,17 @@ impl ReposPage {
 
         let store_refresh = self.store.clone();
         let header_row = div()
-            .h(px(46.))
+            .h(px(theme::TOOLBAR_H))
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
-            .px_3()
-            .child(icon("icons/icon-logo-mark.svg", px(theme::icon_medium()), theme::TEXT_MUTED))
+            .px_4()
+            .child(icon("icons/icon-logo-mark.svg", px(theme::icon_medium()), theme::TEXT_FAINT))
             .child(
                 div()
-                    .text_size(px(theme::font_title() + 2.))
-                    .font_weight(FontWeight::BOLD)
+                    .text_size(px(theme::font_title() + 1.))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::TEXT)
                     .child("Repositories"),
             )
@@ -470,10 +427,10 @@ impl ReposPage {
                     .text_color(theme::TEXT_MUTED)
                     .child(format!("{total_repos} repos")),
             )
-            .when(total_changes > 0, |row| {
+            .when(show_change_chip && total_changes > 0, |row| {
                 row.child(count_chip(total_changes, "changes", theme::AMBER_BRIGHT, None))
             })
-            .when(github_on && total_prs > 0, |row| {
+            .when(show_remote_chips && github_on && total_prs > 0, |row| {
                 row.child(count_chip(
                     total_prs,
                     "PRs",
@@ -481,7 +438,7 @@ impl ReposPage {
                     Some("icons/icon-git-pull-request.svg"),
                 ))
             })
-            .when(github_on && total_issues > 0, |row| {
+            .when(show_remote_chips && github_on && total_issues > 0, |row| {
                 row.child(count_chip(
                     total_issues,
                     "issues",
@@ -494,6 +451,7 @@ impl ReposPage {
                 row.child(
                     div()
                         .max_w(px(320.))
+                        .min_w_0()
                         .text_size(px(theme::font_small() - 1.))
                         .text_color(theme::TEXT_MUTED)
                         .overflow_hidden()
@@ -502,7 +460,6 @@ impl ReposPage {
                         .child(notice),
                 )
             })
-            .child(summary_button(&self.store, summary_busy))
             .child(icon_action(
                 "refresh-button",
                 "icons/icon-refresh.svg",
@@ -534,30 +491,15 @@ impl ReposPage {
             ));
 
         let store_clear = self.store.clone();
-        let search = self.search.clone();
         let filter_row = div()
-            .h(px(46.))
+            .h(px(theme::TOOLBAR_H))
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
-            .px_3()
+            .px_4()
             .border_t_1()
             .border_color(theme::BORDER_LIGHT)
-            .child(
-                div()
-                    .w(px(280.))
-                    .child(
-                        Input::new(&self.search)
-                            .small()
-                            .cleanable(true)
-                            .prefix(icon(
-                                "icons/icon-search.svg",
-                                px(theme::icon_small() - 1.),
-                                theme::TEXT_FAINT,
-                            )),
-                    ),
-            )
             .child(tag_pills)
             .when(filters_active, |row| {
                 row.child(
@@ -570,50 +512,12 @@ impl ReposPage {
                         .text_size(px(theme::font_small()))
                         .text_color(theme::TEXT_MUTED)
                         .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
-                        .on_click(move |_, window, cx| {
-                            search.update(cx, |state, cx| state.set_value("", window, cx));
+                        .on_click(move |_, _, cx| {
                             store_clear.update(cx, |s, cx| s.clear_filters(cx));
                         })
                         .child("Clear"),
                 )
-            })
-            .child(
-                // sort select: compact chip; the menu opens below the toolbar
-                div()
-                    .id("sort-button")
-                    .debug_selector(|| "dt-sort-chip".into())
-                    .cursor_pointer()
-                    .rounded_md()
-                    .bg(theme::CHIP)
-                    .px_2p5()
-                    .py_1()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.sort_menu_open = !this.sort_menu_open;
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(theme::font_small() - 1.))
-                            .text_color(theme::TEXT_FAINT)
-                            .child("Sort"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::TEXT_DIM)
-                            .child(sort_label(sort_mode).to_string()),
-                    )
-                    .child(icon(
-                        "icons/icon-chevron-down.svg",
-                        px(theme::icon_small() - 2.),
-                        theme::TEXT_FAINT,
-                    )),
-            );
+            });
 
         div()
             .flex()
@@ -622,93 +526,6 @@ impl ReposPage {
             .child(header_row)
             .child(filter_row)
             .into_any_element()
-    }
-
-    /// The sort dropdown as a root-level overlay: a full-page click-catcher
-    /// plus the menu under the sort chip. It cannot live inside the toolbar
-    /// row — later siblings (the table) paint over toolbar overflow, burying
-    /// the menu, and a row-sized catcher never sees clicks outside it.
-    fn render_sort_overlay(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        div()
-            .absolute()
-            .inset_0()
-            .child(
-                div()
-                    .id("sort-menu-catcher")
-                    .debug_selector(|| "dt-sort-scrim".into())
-                    .absolute()
-                    .inset_0()
-                    .occlude()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.sort_menu_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .debug_selector(|| "dt-sort-menu".into())
-                    // the two toolbar rows are 46px each; the menu hangs
-                    // just below them, right-aligned with the sort chip
-                    // (both sit 12px from the window edge)
-                    .top(px(96.))
-                    .right(px(12.))
-                    .w(px(180.))
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme::HAIRLINE)
-                    .bg(theme::POPUP)
-                    .p_1()
-                    .shadow_lg()
-                    .child(self.render_sort_menu(cx)),
-            )
-            .into_any_element()
-    }
-
-    fn render_sort_menu(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let current = self.store.read(cx).sort_mode;
-        let modes = [
-            (RepoSortMode::Name, "Name"),
-            (RepoSortMode::LastActivity, "Last activity"),
-            (RepoSortMode::Changes, "Changes"),
-            (RepoSortMode::PullRequests, "Pull requests"),
-            (RepoSortMode::Issues, "Issues"),
-        ];
-        let mut list = div().flex().flex_col();
-        for (label_index, (mode, label)) in modes.iter().enumerate() {
-            let selected = *mode == current;
-            let mode = *mode;
-            list = list.child(
-                div()
-                    .id(gpui::ElementId::NamedInteger("sort-item".into(), label_index as u64))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .text_size(px(theme::font_small()))
-                    .when(selected, |d| {
-                        d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
-                    })
-                    .when(!selected, |d| d.text_color(theme::TEXT_DIM))
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.store.update(cx, |s, cx| s.set_sort(mode, cx));
-                        this.sort_menu_open = false;
-                        cx.notify();
-                    }))
-                    .child(
-                        div().w(px(14.)).flex().items_center().when(selected, |d| {
-                            d.child(icon("icons/icon-check.svg", px(theme::icon_small() - 2.), theme::ACCENT))
-                        }),
-                    )
-                    .child(*label),
-            );
-        }
-        list.into_any_element()
     }
 }
 
@@ -767,7 +584,7 @@ fn icon_action(
         .into_any_element()
 }
 
-/// The shortcuts column hugs its button row: 28px buttons, 6px gaps, and the
+/// The shortcuts column hugs its button row: 30px buttons, 6px gaps, and the
 /// opencode group's divider (1px + mx_1). Follows the same settings gates as
 /// `shortcuts_cell`.
 fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
@@ -790,7 +607,7 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     }
     let children = buttons + divider as usize;
     let gaps = children.saturating_sub(1) as f32 * 6.0;
-    px(buttons as f32 * 28.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
+    px(buttons as f32 * 30.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
 }
 
 /// The widest branch name in the current projection, in characters — the
@@ -810,59 +627,144 @@ fn widest_branch_chars(store: &Entity<Store>, cx: &App) -> usize {
 }
 
 /// Branch column width from the widest branch pill: git glyph, pill padding,
-/// ~7.2px per character in the code font, clamped to sane bounds.
+/// ~7.8px per character in the code font, clamped to sane bounds.
 fn branch_column_width(store: &Entity<Store>, cx: &App) -> Pixels {
     let chars = widest_branch_chars(store, cx) as f32;
-    px(52. + chars * 7.2).clamp(px(110.), px(240.))
-}
-
-fn sort_label(mode: RepoSortMode) -> &'static str {
-    match mode {
-        RepoSortMode::Name => "Name",
-        RepoSortMode::LastActivity => "Last activity",
-        RepoSortMode::Changes => "Changes",
-        RepoSortMode::PullRequests => "Pull requests",
-        RepoSortMode::Issues => "Issues",
-    }
+    px(56. + chars * 7.8).clamp(px(110.), px(240.))
 }
 
 // ---- the table --------------------------------------------------------------
 
 /// Which column sits at an index — the GitHub/Azure columns exist only when
-/// their settings enable them, so everything resolves through this.
+/// their settings enable them, so everything resolves through this. Row
+/// actions (the launcher buttons) sit right after the name column, in the
+/// dead space the folder path leaves, so the eye scans identity → actions →
+/// state → time.
 #[derive(Clone, Copy, PartialEq)]
 enum ColKind {
     Star,
     Name,
-    Shortcuts,
     Branch,
     Changes,
     Github,
     Azure,
     Activity,
+    Shortcuts,
 }
 
-fn column_kind(col_ix: usize, settings: &AppSettings) -> ColKind {
-    match col_ix {
-        0 => ColKind::Star,
-        1 => ColKind::Name,
-        2 => ColKind::Shortcuts,
-        3 => ColKind::Branch,
-        4 => ColKind::Changes,
-        _ => {
-            let mut ix = 5;
-            if settings.repos.enable_git_hub {
-                if col_ix == ix {
-                    return ColKind::Github;
-                }
-                ix += 1;
-            }
-            if settings.repos.enable_azure_dev_ops && col_ix == ix {
-                return ColKind::Azure;
-            }
-            ColKind::Activity
-        }
+/// The columns that fit the current width. Identity, actions and state (star,
+/// name, launcher buttons, branch, changes) always stay; the activity
+/// timestamp, then the Azure status, then the GitHub counters drop out as the
+/// window narrows. Without this the fixed columns squeeze the name column to
+/// its floor and spill a horizontal scrollbar onto the table.
+fn visible_columns(settings: &AppSettings, available: Pixels, branch: Pixels) -> Vec<ColKind> {
+    let scale = theme::font_small() / 12.0;
+    let star = px(36.);
+    let shortcuts = shortcuts_column_width(settings);
+    let changes = px(132.) * scale;
+    let activity = px(84.) * scale;
+    let github = if settings.repos.enable_git_hub { px(96.) * scale } else { px(0.) };
+    let azure = if settings.repos.enable_azure_dev_ops { px(120.) * scale } else { px(0.) };
+    // what the name column needs to stay readable next to the fixed ones
+    let required = |extra: Pixels| star + shortcuts + changes + branch + px(140.) + extra;
+
+    let mut show_activity = true;
+    let mut show_azure = settings.repos.enable_azure_dev_ops;
+    let mut show_github = settings.repos.enable_git_hub;
+
+    if available < required(activity + github + azure) {
+        show_activity = false;
     }
+    if available < required(github + azure) {
+        show_azure = false;
+    }
+    if available < required(github) {
+        show_github = false;
+    }
+
+    let mut cols = vec![
+        ColKind::Star,
+        ColKind::Name,
+        ColKind::Shortcuts,
+        ColKind::Branch,
+        ColKind::Changes,
+    ];
+    if show_github {
+        cols.push(ColKind::Github);
+    }
+    if show_azure {
+        cols.push(ColKind::Azure);
+    }
+    if show_activity {
+        cols.push(ColKind::Activity);
+    }
+    cols
+}
+
+/// The widths the table's fixed columns get. `changes` is the rendered
+/// changes-column width: at narrow sizes the word "changes"/"clean" is
+/// dropped (the header still labels the column) and the room goes to the
+/// repository name.
+#[derive(Clone, Copy)]
+struct LayoutMetrics {
+    branch: Pixels,
+    changes: Pixels,
+    compact_changes: bool,
+}
+
+/// The width of one column kind. The name column is not covered here — it
+/// absorbs whatever the others leave over.
+fn column_width(kind: ColKind, settings: &AppSettings, m: LayoutMetrics) -> Pixels {
+    let scale = theme::font_small() / 12.0;
+    match kind {
+        ColKind::Star => px(36.),
+        ColKind::Name => px(0.),
+        ColKind::Branch => m.branch,
+        ColKind::Changes => m.changes,
+        ColKind::Github => px(96.) * scale,
+        ColKind::Azure => px(120.) * scale,
+        ColKind::Activity => px(84.) * scale,
+        ColKind::Shortcuts => shortcuts_column_width(settings),
+    }
+}
+
+/// Picks the fixed widths for the current width. The column *visibility* is
+/// decided with the full changes column (so narrowing never brings a hidden
+/// column back); the compact changes cell only kicks in once the name column
+/// would otherwise be squeezed below a readable 200px.
+fn layout_metrics(settings: &AppSettings, available: Pixels, branch: Pixels) -> LayoutMetrics {
+    let scale = theme::font_small() / 12.0;
+    let full = LayoutMetrics {
+        branch,
+        changes: px(132.) * scale,
+        compact_changes: false,
+    };
+    let cols = visible_columns(settings, available, branch);
+    let name = name_width(&cols, settings, available, full);
+    if name < px(200.) {
+        LayoutMetrics {
+            branch,
+            changes: px(86.) * scale,
+            compact_changes: true,
+        }
+    } else {
+        full
+    }
+}
+
+/// The name column's share of the table width: whatever the other visible
+/// columns leave over, floored so it never disappears.
+fn name_width(
+    cols: &[ColKind],
+    settings: &AppSettings,
+    available: Pixels,
+    m: LayoutMetrics,
+) -> Pixels {
+    let fixed = cols
+        .iter()
+        .filter(|kind| **kind != ColKind::Name)
+        .fold(px(0.), |sum, kind| sum + column_width(*kind, settings, m));
+    (available - fixed).max(px(140.))
 }
 
 pub struct ReposDelegate {
@@ -898,12 +800,29 @@ impl ReposDelegate {
                 .is_some_and(|repo| repo.folder_path.to_string_lossy() == folder)
         })
     }
+
+    /// Which column sits at an index given the current width and settings.
+    fn kind(&self, col_ix: usize, cx: &App) -> ColKind {
+        let settings = self.store.read(cx).settings();
+        let branch = branch_column_width(&self.store, cx);
+        visible_columns(&settings, self.available_width.get(), branch)
+            .get(col_ix)
+            .copied()
+            .unwrap_or(ColKind::Shortcuts)
+    }
+
+    /// Whether the changes column is rendering its compact form (badge only).
+    fn compact_changes(&self, cx: &App) -> bool {
+        let settings = self.store.read(cx).settings();
+        let branch = branch_column_width(&self.store, cx);
+        layout_metrics(&settings, self.available_width.get(), branch).compact_changes
+    }
 }
 
 impl TableDelegate for ReposDelegate {
-    /// The list has no column headers — the toolbar carries sort/filter —
-    /// so the header row collapses to zero height (refine_style applies these
-    /// after the kit's own h_flex/background styling).
+    /// A compact column-header strip: the labels explain the icon cluster,
+    /// the branch pill and the quiet "—" cells, and the sortable headers are
+    /// the page's only sort controls (mode + direction cycle per column).
     fn render_header(
         &mut self,
         _window: &mut Window,
@@ -911,14 +830,41 @@ impl TableDelegate for ReposDelegate {
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id("repos-header")
-            .h_0()
-            .overflow_hidden()
-            .text_color(gpui::transparent_black())
+            .h(px(theme::TABLE_HEAD_H))
+            .border_b_1()
+            .border_color(theme::BORDER_LIGHT)
+            .text_color(theme::TEXT_MUTED)
+    }
+
+    fn render_th(
+        &mut self,
+        col_ix: usize,
+        _window: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let label = match self.kind(col_ix, cx) {
+            ColKind::Name => "Repository",
+            ColKind::Branch => "Branch",
+            ColKind::Changes => "Changes",
+            ColKind::Github => "GitHub",
+            ColKind::Azure => "Azure DevOps",
+            ColKind::Activity => "Last activity",
+            ColKind::Star | ColKind::Shortcuts => "",
+        };
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .text_size(px(theme::font_small() - 2.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::TEXT_MUTED)
+            .child(label)
     }
 
     fn columns_count(&self, cx: &App) -> usize {
         let settings = self.store.read(cx).settings();
-        6 + settings.repos.enable_git_hub as usize + settings.repos.enable_azure_dev_ops as usize
+        let branch = branch_column_width(&self.store, cx);
+        visible_columns(&settings, self.available_width.get(), branch).len()
     }
 
     fn rows_count(&self, cx: &App) -> usize {
@@ -930,35 +876,43 @@ impl TableDelegate for ReposDelegate {
         // fixed-width columns scale with the font factor so scaled text keeps
         // fitting; the name column absorbs whatever is left over
         let scale = theme::font_small() / 12.0;
-        let mut fixed = px(36.) // star
-            + shortcuts_column_width(&settings)
-            + px(132.) * scale // changes
-            + px(84.) * scale; // activity
-        if settings.repos.enable_git_hub {
-            fixed += px(96.) * scale;
-        }
-        if settings.repos.enable_azure_dev_ops {
-            fixed += px(120.) * scale;
-        }
         let branch = branch_column_width(&self.store, cx);
-        let name = (self.available_width.get() - fixed - branch).max(px(140.));
-        match column_kind(col_ix, &settings) {
+        let available = self.available_width.get();
+        let cols = visible_columns(&settings, available, branch);
+        let metrics = layout_metrics(&settings, available, branch);
+        let name = name_width(&cols, &settings, available, metrics);
+        // the header's sort glyph and its click cycle (default → descending →
+        // ascending) run off this state, so it must mirror the store, not
+        // start blank every rebuild
+        let kit_sort = |mode: RepoSortMode| -> ColumnSort {
+            let store = self.store.read(cx);
+            if store.sort_mode == mode {
+                if store.sort_ascending {
+                    ColumnSort::Ascending
+                } else {
+                    ColumnSort::Descending
+                }
+            } else {
+                ColumnSort::Default
+            }
+        };
+        match cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
             ColKind::Star => {
                 Column::new("star", "").width(px(36.)).resizable(false).text_center()
             }
-            ColKind::Name => Column::new("name", "Repository").width(name).sortable().min_width(px(140.)),
-            ColKind::Shortcuts => {
-                // hugs its button row: the width follows the enabled launchers
-                Column::new("shortcuts", "").width(shortcuts_column_width(&settings)).resizable(false)
-            }
-            ColKind::Branch => Column::new("branch", "Branch").width(branch).resizable(false),
-            ColKind::Changes => Column::new("changes", "Changes").width(px(132.) * scale).resizable(false).sortable(),
-            ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sortable(),
+            ColKind::Name => Column::new("name", "Repository").width(name).min_width(px(140.)).sort(kit_sort(RepoSortMode::Name)),
+            ColKind::Branch => Column::new("branch", "Branch").width(metrics.branch).resizable(false).sort(kit_sort(RepoSortMode::Branch)),
+            ColKind::Changes => Column::new("changes", "Changes").width(metrics.changes).resizable(false).sort(kit_sort(RepoSortMode::Changes)),
+            ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sort(kit_sort(RepoSortMode::GitHub)),
             ColKind::Azure => {
                 Column::new("azure", "Azure DevOps").width(px(120.) * scale).text_center().resizable(false)
             }
             ColKind::Activity => {
-                Column::new("activity", "Last activity").width(px(84.) * scale).resizable(false).sortable()
+                Column::new("activity", "Last activity").width(px(84.) * scale).resizable(false).sort(kit_sort(RepoSortMode::LastActivity))
+            }
+            ColKind::Shortcuts => {
+                // hugs its button row: the width follows the enabled launchers
+                Column::new("shortcuts", "").width(shortcuts_column_width(&settings)).resizable(false)
             }
         }
     }
@@ -966,22 +920,28 @@ impl TableDelegate for ReposDelegate {
     fn perform_sort(
         &mut self,
         col_ix: usize,
-        _sort: gpui_kit::component::table::ColumnSort,
+        sort: ColumnSort,
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) {
-        let settings = self.store.read(cx).settings();
-        let mode = match column_kind(col_ix, &settings) {
+        let mode = match self.kind(col_ix, cx) {
             ColKind::Name => Some(RepoSortMode::Name),
+            ColKind::Branch => Some(RepoSortMode::Branch),
             ColKind::Changes => Some(RepoSortMode::Changes),
-            ColKind::Github => Some(RepoSortMode::PullRequests),
+            ColKind::Github => Some(RepoSortMode::GitHub),
             ColKind::Activity => Some(RepoSortMode::LastActivity),
             _ => None,
         };
-        if let Some(mode) = mode {
-            let store = self.store.clone();
-            store.update(cx, |s, cx| s.set_sort(mode, cx));
-        }
+        let Some(mode) = mode else { return };
+        // the kit's third click lands on Default ("unsorted" chevron); the
+        // table always sorts, so that settles back to the mode's default
+        let ascending = match sort {
+            ColumnSort::Ascending => true,
+            ColumnSort::Descending => false,
+            ColumnSort::Default => mode.default_ascending(),
+        };
+        let store = self.store.clone();
+        store.update(cx, |s, cx| s.set_sort_direction(mode, ascending, cx));
     }
 
     fn render_td(
@@ -998,7 +958,7 @@ impl TableDelegate for ReposDelegate {
         let settings = self.store.read(cx).settings();
         let show_tooltips = settings.general.show_tooltips;
 
-        match column_kind(col_ix, &settings) {
+        let cell: gpui::AnyElement = match self.kind(col_ix, cx) {
             ColKind::Star => {
                 let favorite = repo.is_favorite();
                 let star = div()
@@ -1007,7 +967,7 @@ impl TableDelegate for ReposDelegate {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .size(px(26.))
+                    .size(px(30.))
                     .on_click({
                         let store = self.store.clone();
                         let folder = folder.clone();
@@ -1018,7 +978,7 @@ impl TableDelegate for ReposDelegate {
                     })
                     .child(icon(
                         "icons/icon-star.svg",
-                        px(theme::icon_small()),
+                        px(theme::icon_medium()),
                         if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
                     ));
                 crate::ui::with_tooltip(
@@ -1030,28 +990,32 @@ impl TableDelegate for ReposDelegate {
             }
             ColKind::Name => {
                 let store = self.store.clone();
-                let folder = folder.clone();
+                let notes_folder = folder.clone();
                 let notes_button = div()
                     .id(("open-notes", row_ix))
                     .cursor_pointer()
+                    .flex_shrink_0()
                     .rounded_md()
-                    .p_1()
+                    .p_1p5()
                     .flex()
                     .items_center()
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         store.update(cx, |s, cx| {
-                            s.ensure_repo_selected(&folder, cx);
+                            s.ensure_repo_selected(&notes_folder, cx);
                             s.notes_requested = true;
                         });
                     })
                     .child(icon(
                         "icons/icon-note.svg",
-                        px(theme::icon_small()),
+                        px(theme::icon_medium()),
                         theme::TEXT_MUTED,
                     ));
+                // one semibold line — the folder path left the table when the
+                // rows went tall; the name uses the whole column
                 div()
+                    .debug_selector(move || format!("repos-name-cell-{row_ix}"))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -1063,8 +1027,9 @@ impl TableDelegate for ReposDelegate {
                     ))
                     .child(
                         div()
+                            .flex_1()
                             .min_w_0()
-                            .text_size(px(theme::font_body() + 1.))
+                            .text_size(px(theme::font_title()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
                             .overflow_hidden()
@@ -1089,7 +1054,7 @@ impl TableDelegate for ReposDelegate {
                 &folder,
                 BottomBarTab::Changes,
                 &self.store,
-                changes_cell(&repo),
+                changes_cell(&repo, self.compact_changes(cx)),
             ),
             ColKind::Github => {
                 let tab = if repo.github_pr_count > 0 {
@@ -1113,8 +1078,6 @@ impl TableDelegate for ReposDelegate {
             ),
             ColKind::Activity => div()
                 .flex()
-                .justify_end()
-                .pr_1()
                 .text_size(px(theme::font_small()))
                 .text_color(theme::TEXT_MUTED)
                 .child(
@@ -1123,7 +1086,19 @@ impl TableDelegate for ReposDelegate {
                         .unwrap_or_else(|| "—".into()),
                 )
                 .into_any_element(),
-        }
+        };
+
+        // the kit's cell wrapper is a block div and percentage heights don't
+        // resolve through it, so cell content would hug the row top; every
+        // cell centers inside an explicitly row-height flex column instead
+        div()
+            .debug_selector(move || format!("repos-td-wrap-{row_ix}"))
+            .h(px(theme::TABLE_ROW_H))
+            .flex()
+            .flex_col()
+            .justify_center()
+            .child(cell)
+            .into_any_element()
     }
 
     fn render_empty(
@@ -1139,7 +1114,7 @@ impl TableDelegate for ReposDelegate {
                 .repo_scan_folders
                 .as_ref()
                 .is_some_and(|f| !f.is_empty());
-            (store.scanning, !store.search.trim().is_empty() || !store.tag_filters.is_empty(), has_folders)
+            (store.scanning, !store.tag_filters.is_empty(), has_folders)
         };
         let text = if scanning {
             "Scanning folders…"
@@ -1209,19 +1184,18 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .flex_row()
         .items_center()
         .gap_1()
-        .text_size(px(theme::font_small() - 1.))
+        .text_size(px(theme::font_small()))
         .font_family(gpui::SharedString::from(theme::code_font()))
         .text_color(color)
-        .child(icon("icons/icon-source-branch.svg", px(theme::icon_small() - 3.), color))
+        .child(icon("icons/icon-source-branch.svg", px(theme::icon_small() - 2.), color))
         .child(branch.to_string())
         .into_any_element()
 }
 
-/// The changes cell: an amber count + "changes" when the tree is dirty,
-/// a quiet "clean" check when it is not, and push/pull arrows only when
-/// there is actually something to sync. Repeating "Changes (↑0, ↓0)" on every
-/// clean row made the column the loudest thing in the list.
-fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
+/// The changes cell: an amber count + "changes" when the tree is dirty, the
+/// GitHub column's quiet "—" when it is clean, and push/pull arrows only when
+/// there is actually something to sync.
+fn changes_cell(repo: &RepoEntry, compact: bool) -> gpui::AnyElement {
     let synced = repo.git_to_push_count == 0 && repo.git_to_pull_count == 0;
     let mut row = div()
         .flex()
@@ -1230,27 +1204,28 @@ fn changes_cell(repo: &RepoEntry) -> gpui::AnyElement {
         .gap_1p5()
         .text_size(px(theme::font_small()));
     if repo.git_modified_count > 0 {
-        row = row
-            .child(
-                div()
-                    .rounded_md()
-                    .bg(theme::tint(theme::AMBER_BRIGHT))
-                    .px_1p5()
-                    .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::AMBER_BRIGHT)
-                    .child(format!("{}", repo.git_modified_count)),
-            )
-            .child(div().text_color(theme::TEXT_DIM).child("changes"));
+        row = row.child(
+            div()
+                .rounded_md()
+                .bg(theme::tint(theme::AMBER_BRIGHT))
+                .px_1p5()
+                .py_0p5()
+                .text_size(px(theme::font_small()))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::AMBER_BRIGHT)
+                .child(format!("{}", repo.git_modified_count)),
+        );
+        if !compact {
+            row = row.child(div().text_color(theme::TEXT_DIM).child("changes"));
+        }
     } else if synced {
-        row = row
-            .child(icon(
-                "icons/icon-check.svg",
-                px(theme::icon_small() - 2.),
-                theme::TEXT_MUTED,
-            ))
-            .child(div().text_color(theme::TEXT_FAINT).child("clean"));
+        // a fully settled repo has nothing to say — the GitHub column's dash
+        row = row.child(
+            div()
+                .text_size(px(theme::font_small()))
+                .text_color(theme::TEXT_FAINT)
+                .child("—"),
+        );
     }
     if !synced {
         let arrow = |glyph: &'static str, count: u32, color: gpui::Rgba| {
@@ -1417,7 +1392,7 @@ fn shortcuts_cell(
             .id(SharedString::from(id))
             .cursor_pointer()
             .rounded_md()
-            .size(px(28.))
+            .size(px(30.))
             .flex()
             .items_center()
             .justify_center()
@@ -1431,7 +1406,7 @@ fn shortcuts_cell(
                     });
                 }
             })
-            .child(icon(icon_path, px(theme::icon_small()), tint_color));
+            .child(icon(icon_path, px(theme::icon_medium()), tint_color));
         crate::ui::with_tooltip(element, show_tooltips, tip)
     };
 
@@ -1550,10 +1525,13 @@ fn shortcuts_cell(
     row.into_any_element()
 }
 
-fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
+/// The yesterday-summary pill. Lives in the titlebar next to the app name
+/// (rendered by the window), so it works on every page.
+pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
     let handle = store.clone();
     div()
         .id("summary-button")
+        .debug_selector(|| "summary-button".into())
         .cursor_pointer()
         .rounded_md()
         .h(px(30.))
@@ -1597,16 +1575,16 @@ mod tests {
 
     #[test]
     fn shortcuts_column_hugs_the_enabled_launchers() {
-        // folder only: one 28px button, no gaps, no divider, slack 8
-        assert_eq!(shortcuts_column_width(&settings_with(&[])), px(36.));
+        // folder only: one 30px button, no gaps, no divider, slack 8
+        assert_eq!(shortcuts_column_width(&settings_with(&[])), px(38.));
         // folder + terminal: two buttons + one gap
-        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(70.));
+        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(74.));
         // full linux set: opencode button + divider, zcode, vscode, folder,
         // terminal = 5 buttons + divider = 6 children -> 5 gaps + divider
         // (1px + mx_1 = 9); the solution slot only joins on Windows
         let full =
             shortcuts_column_width(&settings_with(&["terminal", "vscode", "zcode", "opencode"]));
-        assert_eq!(full, px(5. * 28. + 5. * 6. + 9. + 8.));
+        assert_eq!(full, px(5. * 30. + 5. * 6. + 9. + 8.));
     }
 
     /// Selection can originate outside a row click (global search, the notes

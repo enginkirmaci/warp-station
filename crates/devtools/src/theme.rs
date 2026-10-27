@@ -78,7 +78,10 @@ pub fn apply_kit_theme(cx: &mut App) {
         t.danger = DANGER.into();
         t.danger_foreground = ON_ACCENT.into();
         t.border = HAIRLINE.into();
-        t.input = INPUT.into();
+        // the kit paints an input's border with `input` and its fill with
+        // `input` mixed over the surface, so a fill-coloured token made the
+        // border vanish on popups; the hairline gives fields a real edge
+        t.input = HAIRLINE.into();
         t.ring = ACCENT.into();
         t.selection = selection().into();
         t.caret = TEXT.into();
@@ -105,6 +108,7 @@ pub fn apply_kit_theme(cx: &mut App) {
         // reconcile into the tokens)
         t.table = BACKGROUND.into();
         t.table_head = BACKGROUND.into();
+        t.table_head_foreground = TEXT_FAINT.into();
         t.table_even = BACKGROUND.into();
         t.table_hover = HOVER;
         t.table_active = tint(ACCENT);
@@ -114,26 +118,29 @@ pub fn apply_kit_theme(cx: &mut App) {
     });
 }
 
-// ---- surfaces (ThemeResources.axaml) ---------------------------------------
+// ---- surfaces --------------------------------------------------------------
+// A single neutral ramp from the window canvas up to popovers. Every step is
+// a few points apart so panels read as raised layers instead of one flat
+// grey: canvas < titlebar < card < popup < field.
 
-pub const BACKGROUND: Rgba = c(0x252525FF); // SukiBackground — window + sidebar
-pub const STRONG_BACKGROUND: Rgba = c(0x292929FF); // SukiStrongBackground — bottom bar
-pub const CARD: Rgba = c(0x222222FF); // SukiCardBackground — cards, table rows
-pub const POPUP: Rgba = c(0x2B2B2BFF); // SukiPopupBackground — popovers/menus
-pub const INPUT: Rgba = c(0x333333FF); // opaque glass — text fields
-pub const CHIP: Rgba = c(0x3A3A3AFF); // neutral pill background
-pub const HAIRLINE: Rgba = c(0x3F3F3FFF); // SukiBorderBrush
-pub const BORDER_LIGHT: Rgba = c(0x333333FF);
-pub const HOVER: Hsla = hsla(0.0, 0.0, 1.0, 0.08);
+pub const BACKGROUND: Rgba = c(0x1C1D20FF); // window canvas + page
+pub const STRONG_BACKGROUND: Rgba = c(0x232428FF); // titlebar, recessed wells
+pub const CARD: Rgba = c(0x26272BFF); // workspace bar, cards, table rows
+pub const POPUP: Rgba = c(0x2B2C31FF); // popovers, menus, drawers, dialogs
+pub const INPUT: Rgba = c(0x2E2F35FF); // text fields
+pub const CHIP: Rgba = c(0x32333AFF); // neutral pill background
+pub const HAIRLINE: Rgba = c(0x3A3B42FF); // visible separators, card borders
+pub const BORDER_LIGHT: Rgba = c(0x2A2B30FF); // quiet dividers
+pub const HOVER: Hsla = hsla(0.0, 0.0, 1.0, 0.07);
 
 // ---- text ------------------------------------------------------------------
 
-pub const TEXT: Rgba = c(0xEDFFFFFF); // SukiText (white at 0.93)
-pub const TEXT_DIM: Rgba = c(0xCAFFFFFF); // SukiLowText — secondary body text
-pub const TEXT_MUTED: Rgba = c(0xB4B4B4FF); // SukiMuteText — labels, metadata
+pub const TEXT: Rgba = c(0xEDEDF0FF); // primary text
+pub const TEXT_DIM: Rgba = c(0xC6C7CEFF); // secondary body text
+pub const TEXT_MUTED: Rgba = c(0xA5A7AFFF); // labels, metadata
 /// Hints and the quietest metadata. Kept at ~4.6:1 on BACKGROUND (the old
 /// 0x727272 sat at ~3.2:1, below AA for the 10–11px text it is used on).
-pub const TEXT_FAINT: Rgba = c(0x8C8C8CFF);
+pub const TEXT_FAINT: Rgba = c(0x85878FFF);
 
 /// Text selection in fields: the accent at 25% alpha.
 pub fn selection() -> Rgba {
@@ -164,11 +171,23 @@ pub fn tint(color: Rgba) -> Hsla {
     Hsla { a: 0.18, ..h }
 }
 
-// ---- diffs (renderer arrives with the Changes tab) --------------------------
+// ---- layout ----------------------------------------------------------------
+// Shared chrome sizes. Views and the window position their overlays from
+// these, so a change here keeps menus and popups anchored.
 
+/// Custom titlebar height (window buttons + search field live here).
+pub const TITLEBAR_H: f32 = 38.0;
+/// One repos toolbar row (title row / filter row).
+pub const TOOLBAR_H: f32 = 46.0;
+/// Compact column-header strip above the repos table.
+pub const TABLE_HEAD_H: f32 = 28.0;
+/// Repos table row height (fits the two-line name + folder path cell).
+pub const TABLE_ROW_H: f32 = 48.0;
+
+// ---- diffs (renderer arrives with the Changes tab) --------------------------
 pub const DIFF_GUTTER: Rgba = c(0xB4B4B49E);
-pub const DIFF_ADD_BG: Hsla = hsla(0.30, 0.55, 0.5, 0.15);
-pub const DIFF_DEL_BG: Hsla = hsla(0.01, 0.85, 0.6, 0.15);
+pub const DIFF_ADD_BG: Hsla = hsla(0.28, 0.50, 0.45, 0.22);
+pub const DIFF_DEL_BG: Hsla = hsla(0.012, 0.70, 0.48, 0.24);
 pub const DIFF_HUNK_BG: Hsla = hsla(0.0, 0.0, 0.6, 0.10);
 
 // ---- font scale ------------------------------------------------------------

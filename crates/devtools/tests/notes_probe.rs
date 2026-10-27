@@ -1,5 +1,6 @@
 //! Headless probe for the Notes window: the carded sidebar, opening a note
-//! from the tree, and the four view modes (Edit / Live / Split / Preview).
+//! from the tree, and the four view modes — Live (Obsidian-style single
+//! surface), Split, Preview, Edit.
 
 use devtools::store::Store;
 use devtools::ui::notes::NotesPage;
@@ -46,11 +47,13 @@ fn notes_window_modes_and_tree(cx: &mut TestAppContext) {
     unsafe { std::env::set_var("HOME", &home) };
 
     let store = fake_store(cx);
+    let mut page: Option<gpui::Entity<NotesPage>> = None;
     let handle = cx.open_window(size(px(1000.), px(700.)), |window, cx| {
         let store = store.clone();
+        page = Some(cx.entity());
         NotesPage::new(store, window, cx)
     });
-    let cx = VisualTestContext::from_window(handle.into(), &cx).into_mut();
+    let cx = VisualTestContext::from_window(handle.into(), cx).into_mut();
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -66,14 +69,16 @@ fn notes_window_modes_and_tree(cx: &mut TestAppContext) {
         "the note header strip appears once a note is open"
     );
 
-    // default mode is Split
-    assert!(bounds(cx, "notes-split").is_some(), "Split is the default pane");
+    // default mode is Live: the Obsidian-style single surface — the editor
+    // itself renders the markdown, so there is no separate preview pane
+    assert!(bounds(cx, "notes-live").is_some(), "Live is the default pane");
+    assert!(bounds(cx, "notes-live-edit").is_none(), "Live has no separate editor pane");
+    assert!(bounds(cx, "notes-live-preview").is_none(), "Live has no separate preview pane");
 
-    // Live: editor above, rendered markdown below
-    click(cx, "notes-mode-Live");
-    assert!(bounds(cx, "notes-live").is_some(), "Live pane renders");
-    assert!(bounds(cx, "notes-live-edit").is_some(), "Live shows the editor");
-    assert!(bounds(cx, "notes-live-preview").is_some(), "Live shows the preview");
+    // Split: raw editor beside the rendered preview
+    click(cx, "notes-mode-Split");
+    assert!(bounds(cx, "notes-split").is_some(), "Split pane renders");
+    assert!(bounds(cx, "notes-split-preview").is_some(), "Split shows the preview");
 
     // Preview: rendered only, no formatting strip needed
     click(cx, "notes-mode-Preview");
@@ -82,6 +87,28 @@ fn notes_window_modes_and_tree(cx: &mut TestAppContext) {
     // Edit: raw editor
     click(cx, "notes-mode-Edit");
     assert!(bounds(cx, "notes-edit").is_some(), "Edit pane renders");
+
+    // back to Live for the same single surface
+    click(cx, "notes-mode-Live");
+    assert!(bounds(cx, "notes-live").is_some(), "Live pane returns");
+
+    // typing markdown on the Live surface drives the live highlighter on
+    // every edit (its parse must not panic and the buffer must hold)
+    let live = bounds(cx, "notes-live").unwrap();
+    cx.simulate_click(
+        Point::new(live.origin.x + live.size.width / 2., live.origin.y + live.size.height / 2.),
+        Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.simulate_input("# Heading\n\n**bold** and `code`\n- [x] done\n");
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(bounds(cx, "notes-live").is_some(), "Live pane survives markdown typing");
+    cx.update(|_, cx| {
+        let value = page.as_ref().unwrap().read(cx).editor_value(cx);
+        assert!(value.contains("# Heading"), "typed markdown reached the buffer: {value:?}");
+        assert!(value.contains("**bold**"), "typed bold markers intact: {value:?}");
+    });
 
     let _ = std::fs::remove_dir_all(&home);
 }

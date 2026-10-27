@@ -247,11 +247,15 @@ impl SettingsPage {
 }
 
 impl Render for SettingsPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let just_saved = self
             .saved_note
             .map(|at| at.elapsed() < std::time::Duration::from_secs(2))
             .unwrap_or(false);
+        // Side-by-side cards stop working before the window gets truly narrow:
+        // each card halves, then each field halves again, and the switch
+        // labels run into their neighbours. Below this the cards stack.
+        let stack = window.viewport_size().width < px(1180.) * (theme::font_small() / 14.0);
 
         div()
             .id("settings-scroll")
@@ -327,17 +331,16 @@ impl Render for SettingsPage {
                             )
                             .child(save_button(cx)),
                     )
-                    // two balanced columns of cards
+                    // two balanced columns of cards; stacked when narrow
                     .child(
                         div()
                             .flex()
-                            .flex_row()
-                            .items_start()
                             .gap_3()
+                            .when(stack, |d| d.flex_col().items_stretch())
+                            .when(!stack, |d| d.flex_row().items_start())
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w(px(0.))
+                                    .when(!stack, |d| d.flex_1().min_w(px(0.)))
                                     .flex()
                                     .flex_col()
                                     .gap_3()
@@ -378,8 +381,7 @@ impl Render for SettingsPage {
                             )
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w(px(0.))
+                                    .when(!stack, |d| d.flex_1().min_w(px(0.)))
                                     .flex()
                                     .flex_col()
                                     .gap_3()
@@ -718,7 +720,9 @@ fn switch_row(
         .items_center()
         .gap_2()
         .child(Switch::new(SharedString::from(format!("switch-{label_text}"))).checked(checked).on_click(on_click))
-        .child(label(label_text))
+        // the label gives up room (and wraps) instead of running under the
+        // neighbouring column when the card is narrow
+        .child(div().flex_1().min_w_0().child(label(label_text)))
         .into_any_element()
 }
 

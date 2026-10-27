@@ -400,8 +400,9 @@ impl ChangesView {
                     .bg(theme::CARD)
                     .border_1()
                     .border_color(theme::BORDER_LIGHT)
-                    .p_2()
+                    .py_2()
                     .max_h(px(220.))
+                    .overflow_hidden()
                     .overflow_y_scroll()
                     .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
             );
@@ -819,8 +820,9 @@ impl ChangesView {
                         .bg(theme::CARD)
                         .border_1()
                         .border_color(theme::BORDER_LIGHT)
-                        .p_2()
+                        .py_2()
                         .max_h(px(220.))
+                        .overflow_hidden()
                         .overflow_y_scroll()
                         .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
                 );
@@ -1036,6 +1038,8 @@ impl ChangesView {
         let branch = entry.as_ref().and_then(|e| e.git_branch_name.clone());
         let has_remote = entry.as_ref().map(|e| e.git_has_remote).unwrap_or(false);
         let published = entry.as_ref().map(|e| e.git_branch_published).unwrap_or(false);
+        let to_push = entry.as_ref().map(|e| e.git_to_push_count).unwrap_or(0);
+        let to_pull = entry.as_ref().map(|e| e.git_to_pull_count).unwrap_or(0);
 
         let mut rail = div()
             .w(px(280.))
@@ -1096,6 +1100,7 @@ impl ChangesView {
                           label: &'static str,
                           enabled: bool,
                           active: bool,
+                          badge: Option<(u32, gpui::Rgba)>,
                           click: Option<RailAction>| {
             let mut row = div()
                 .id(SharedString::from(format!("rail-{label}")))
@@ -1133,16 +1138,32 @@ impl ChangesView {
             };
             row.child(icon(icon_path, px(theme::icon_small()), icon_color))
                 .child(label)
+                .when_some(badge.filter(|_| enabled), |row, (count, color)| {
+                    // the table row's pending-work pill, on the action that
+                    // resolves it
+                    row.child(
+                        div()
+                            .rounded_md()
+                            .bg(theme::tint(color))
+                            .px_1p5()
+                            .py_0p5()
+                            .text_size(px(theme::font_small() - 1.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(color)
+                            .child(format!("{count}")),
+                    )
+                })
                 .into_any_element()
         };
         macro_rules! rail_action {
-            ($list:ident, $icon:expr, $label:expr, $enabled:expr, $action:expr) => {{
+            ($list:ident, $icon:expr, $label:expr, $enabled:expr, $badge:expr, $action:expr) => {{
                 let store = self.store.clone();
                 $list = $list.child(action_row(
                     $icon,
                     $label,
                     $enabled,
                     false,
+                    $badge,
                     Some(Box::new(move |cx| {
                         store.update(cx, |s, cx| s.run_git($action.clone(), cx));
                     })),
@@ -1150,13 +1171,21 @@ impl ChangesView {
             }};
         }
         let mut action_list = div().flex().flex_col().gap_0p5();
-        rail_action!(action_list, "icons/icon-cloud-download.svg", "Fetch", !busy, GitAction::Fetch);
-        rail_action!(action_list, "icons/icon-arrow-down.svg", "Pull", has_remote && !busy, GitAction::Pull);
+        rail_action!(action_list, "icons/icon-cloud-download.svg", "Fetch", !busy, None, GitAction::Fetch);
+        rail_action!(
+            action_list,
+            "icons/icon-arrow-down.svg",
+            "Pull",
+            has_remote && !busy,
+            (to_pull > 0).then_some((to_pull, theme::BLUE_BRIGHT)),
+            GitAction::Pull
+        );
         rail_action!(
             action_list,
             "icons/icon-arrow-up.svg",
             "Push",
             has_remote && published && !busy,
+            (to_push > 0).then_some((to_push, theme::SUCCESS_BRIGHT)),
             GitAction::Push
         );
         if let Some(b) = branch.clone() {
@@ -1165,11 +1194,12 @@ impl ChangesView {
                 "icons/icon-arrow-up.svg",
                 "Publish",
                 has_remote && !published && !busy,
+                None,
                 GitAction::Publish { branch: b.clone() }
             );
         }
         action_list = action_list.child(divider());
-        rail_action!(action_list, "icons/icon-refresh.svg", "Sync", has_remote && !busy, GitAction::Sync);
+        rail_action!(action_list, "icons/icon-refresh.svg", "Sync", has_remote && !busy, None, GitAction::Sync);
         let history_toggle = cx.listener(|this, _, _, cx| {
             if this.history_open {
                 this.history_open = false;
@@ -1412,6 +1442,7 @@ fn section_header(
         .child(div().flex_1());
     for (id, action_label, action) in actions {
         let store = store.clone();
+        let stage_action = action_label.starts_with("Stage") || action_label.starts_with("Unstage");
         header = header.child(
             div()
                 .id(id)
@@ -1420,8 +1451,14 @@ fn section_header(
                 .px_1p5()
                 .py_0p5()
                 .text_size(px(theme::font_small()))
-                .text_color(theme::TEXT_MUTED)
-                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                .text_color(if stage_action { theme::ACCENT } else { theme::TEXT_MUTED })
+                .hover(move |s| {
+                    if stage_action {
+                        s.bg(theme::tint(theme::ACCENT))
+                    } else {
+                        s.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER)
+                    }
+                })
                 .on_click(move |_, _, cx| {
                     store.update(cx, |s, cx| s.run_git(action.clone(), cx));
                 })

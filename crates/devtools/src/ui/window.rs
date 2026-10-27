@@ -8,6 +8,7 @@ use crate::ui::clipboard_password::{copy_stored_password, ClipboardPasswordDrawe
 use crate::ui::icon;
 use crate::ui::notes::NotesPage;
 use crate::ui::nuget::NugetDrawer;
+use crate::ui::repos::summary_button;
 use gpui::prelude::*;
 use gpui::{div, px, size, App, Bounds, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -127,10 +128,12 @@ impl Render for MainWindow {
                     bar.dismiss_kebab(cx);
                 });
             }))
-            // Ctrl+K focuses the global-search field; Ctrl+F the repo filter;
-            // Ctrl+Shift+V copies the stored Clipboard Password; Escape
-            // dismisses the topmost layer (tools menu, drawer, page dialog,
-            // settings, then search text).
+            // Ctrl+K and Ctrl+F focus the global-search field; Ctrl+Shift+V
+            // copies the stored Clipboard Password (fallback for when the
+            // system-wide grab in net.rs did not land); Escape dismisses the
+            // topmost layer (tools menu, drawer, page dialog, settings, then
+            // search text). Any other typed character starts a fresh global
+            // search when no text input owns the focus.
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let modifiers = event.keystroke.modifiers;
                 let key = event.keystroke.key.as_str();
@@ -143,14 +146,12 @@ impl Render for MainWindow {
                     cx.stop_propagation();
                     return;
                 }
-                if key == "k" && modifiers.control {
-                    this.global_search.update(cx, |state, cx| state.focus(window, cx));
-                    cx.stop_propagation();
-                    return;
-                }
-                if key == "f" && modifiers.control && this.page == Page::Repos {
-                    this.repos_page
-                        .update(cx, |page, cx| page.focus_search(window, cx));
+                if modifiers.control && !modifiers.shift && matches!(key, "f" | "k") {
+                    this.global_search.update(cx, |state, cx| {
+                        state.focus(window, cx);
+                        // typing after the shortcut replaces the previous term
+                        state.select_all(window, cx);
+                    });
                     cx.stop_propagation();
                     return;
                 }
@@ -186,6 +187,34 @@ impl Render for MainWindow {
                         this.global_search
                             .update(cx, |state, cx| state.set_value("", window, cx));
                         this.store.update(cx, |s, cx| s.run_global_search("", cx));
+                        cx.stop_propagation();
+                    }
+                }
+
+                // type-anywhere search: a plain printable character (no
+                // ctrl/meta — those are shortcuts) starts a fresh term when
+                // no text input owns the focus path; every kit text surface
+                // carries the "Input" key context, so a focused field keeps
+                // its characters. Control characters are excluded so Enter,
+                // Tab and friends keep their normal meaning.
+                if !modifiers.control
+                    && !modifiers.platform
+                    && !modifiers.function
+                    && !window
+                        .context_stack()
+                        .iter()
+                        .any(|context| context.contains("Input"))
+                {
+                    let typed = event.keystroke.key_char.clone().filter(|text| {
+                        !text.is_empty() && !text.contains(|ch: char| ch.is_control())
+                    });
+                    if let Some(term) = typed {
+                        this.global_search.update(cx, |state, cx| {
+                            state.set_value(term.as_str(), window, cx);
+                            state.focus(window, cx);
+                        });
+                        this.store
+                            .update(cx, |s, cx| s.run_global_search(&term, cx));
                         cx.stop_propagation();
                     }
                 }
@@ -261,11 +290,11 @@ impl MainWindow {
         let mut menu = div()
             .id("tools-menu")
             .absolute()
-            .top(px(42.))
+            .top(px(theme::TITLEBAR_H + 4.))
             // right edge of the menu = right edge of the tools button: 8px
-            // titlebar padding + three 26px window buttons + settings (+ SnapIt
-            // on Windows), 4px gaps
-            .right(px(if cfg!(windows) { 158. } else { 128. }))
+            // titlebar padding + the two window buttons + the divider + the
+            // inset utility pill (2px pad + settings + gap) + the tools button
+            .right(px(if cfg!(windows) { 197. } else { 167. }))
             .w(px(224.))
             .occlude()
             .rounded_lg()
@@ -336,7 +365,7 @@ impl MainWindow {
         let store = self.store.clone();
         // closing via the drawer's header X routes back into the window
         let close_target = cx.entity();
-        let on_close = std::rc::Rc::new(move |_, cx: &mut gpui::App| {
+        let on_close: crate::ui::DrawerCloseHandler = std::rc::Rc::new(move |_, cx| {
             close_target.update(cx, |this, cx| {
                 this.active_drawer = None;
                 cx.notify();
@@ -398,7 +427,7 @@ impl MainWindow {
                 .child(
                     div()
                         .absolute()
-                        .top(px(38.))
+                        .top(px(theme::TITLEBAR_H))
                         .right_0()
                         .bottom_0()
                         .child(drawer),
@@ -421,6 +450,7 @@ impl MainWindow {
             return Some(
                 div()
                     .id("search-popup")
+                    .debug_selector(|| "search-popup".into())
                     .absolute()
                     .top(px(40.))
                     .left(px(left))
@@ -490,6 +520,7 @@ impl MainWindow {
         Some(
             div()
                 .id("search-popup")
+                .debug_selector(|| "search-popup".into())
                 .absolute()
                 .top(px(40.))
                 .left(px(left))
@@ -696,117 +727,91 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
         })
 }
 
+/// Both titlebar side columns share this width so the centered search field
+/// sits at the window's true center. It fits the wider side on either
+/// platform: the app name + notes + summary group on the left, and the tool
+/// pill + SnapIt + window controls on the right (Windows only for SnapIt).
+const TITLEBAR_SIDE_W: f32 = 252.0;
+
 impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
-        div()
-            .h(px(38.))
+        // the two tool buttons share one inset pill; the window controls
+        // stay flat on the titlebar so the two groups read differently
+        let utility_group = div()
             .flex()
             .items_center()
-            .px_2()
-            .gap_1()
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                gpui_kit::base::GlobalState::suppress_text_selection(cx);
-            })
+            .gap_0p5()
+            .rounded_md()
+            .bg(theme::POPUP)
+            .p_0p5();
+        // fixed side column: matching the brand column's width keeps the
+        // centered search truly centered
+        let right_group = div()
+            .debug_selector(|| "titlebar-right".into())
+            .w(px(TITLEBAR_SIDE_W))
+            .flex()
+            .items_center()
+            .justify_end()
             .child(
-                // fixed brand column: matching the right action group's
-                // width keeps the centered search truly centered
-                div()
-                    .w(px(if cfg!(windows) { 206. } else { 176. }))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
+                utility_group
+                    .child({
                         div()
+                            .id("tools-toggle")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(26.))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .size(px(30.))
+                            .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.tools_menu_open = !this.tools_menu_open;
+                                cx.notify();
+                            }))
+                            // the menu itself explains the tools; a tooltip
+                            // hanging over it would just be noise
+                            .when(show_tooltips && !self.tools_menu_open, |d| {
+                                d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
+                            })
                             .child(icon(
-                                "icons/icon-logo-mark.svg",
-                                px(theme::icon_large()),
-                                theme::TEXT,
-                            )),
-                    )
-                    .child(
+                                "icons/icon-tools.svg",
+                                px(theme::icon_medium()),
+                                if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
+                            ))
+                    })
+                    .child({
+                        let on_settings = self.page == Page::Settings;
                         div()
-                            .text_size(px(theme::font_title()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Dev Tools"),
-                    ),
+                            .id("settings-toggle")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(26.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
+                                cx.notify();
+                            }))
+                            .when(show_tooltips, |d| {
+                                d.tooltip(crate::ui::tooltip_text(if on_settings {
+                                    "Back to repositories"
+                                } else {
+                                    "Settings"
+                                }))
+                            })
+                            .child(icon(
+                                "icons/icon-cog.svg",
+                                px(theme::icon_medium()),
+                                if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
+                            ))
+                    }),
             )
-            // equal drag spacers on both sides of the search field
-            .child(titlebar_drag("titlebar-drag-left"))
-            .child(
-                div()
-                    .w(px(420.))
-                    .min_w(px(160.))
-                    .flex_shrink_1()
-                    .child(
-                        Input::new(&self.global_search)
-                            .small()
-                            .cleanable(true)
-                            .suffix(
-                                div()
-                                    .flex_shrink_0()
-                                    .rounded_md()
-                                    .bg(theme::CHIP)
-                                    .px_1()
-                                    .py_0p5()
-                                    .text_size(px(theme::font_small() - 2.))
-                                    .text_color(theme::TEXT_FAINT)
-                                    .child("Ctrl K"),
-                            ),
-                    ),
-            )
-            .child(titlebar_drag("titlebar-drag-right"))
-            .child({
-                div()
-                    .id("notes-toggle")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_notes_window(window, cx);
-                    }))
-                    .when(show_tooltips, |d| {
-                        d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
-                    })
-                    .child(icon(
-                        "icons/icon-note.svg",
-                        px(theme::icon_medium()),
-                        if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
-                    ))
-            })
-            .child({
-                div()
-                    .id("tools-toggle")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.tools_menu_open = !this.tools_menu_open;
-                        cx.notify();
-                    }))
-                    .when(show_tooltips, |d| {
-                        d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
-                    })
-                    .child(icon(
-                        "icons/icon-tools.svg",
-                        px(theme::icon_medium()),
-                        if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
-                    ))
-            })
+            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             .when(cfg!(windows), |d| {
                 let running = devtools_core::snapit::is_running();
                 d.child({
@@ -841,35 +846,6 @@ impl MainWindow {
                         ))
                 })
             })
-            .child({
-                let on_settings = self.page == Page::Settings;
-                div()
-                    .id("settings-toggle")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
-                        cx.notify();
-                    }))
-                    .when(show_tooltips, |d| {
-                        d.tooltip(crate::ui::tooltip_text(if on_settings {
-                            "Back to repositories"
-                        } else {
-                            "Settings"
-                        }))
-                    })
-                    .child(icon(
-                        "icons/icon-cog.svg",
-                        px(theme::icon_medium()),
-                        if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
-                    ))
-            })
             .child(window_button(
                 "minimize-window",
                 "icons/icon-window-minimize.svg",
@@ -902,7 +878,105 @@ impl MainWindow {
                 "Close",
                 show_tooltips,
                 |_, window, _| window.remove_window(),
-            ))
+            ));
+        div()
+            .h(px(theme::TITLEBAR_H))
+            .flex()
+            .items_center()
+            .px_2()
+            .gap_1()
+            .bg(theme::STRONG_BACKGROUND)
+            .border_b_1()
+            .border_color(theme::BORDER_LIGHT)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                gpui_kit::base::GlobalState::suppress_text_selection(cx);
+            })
+            .child(
+                // fixed side column: matching the right action group's width
+                // keeps the centered search truly centered; the notes toggle
+                // and the summary pill ride next to the app name
+                div()
+                    .debug_selector(|| "titlebar-brand".into())
+                    .w(px(TITLEBAR_SIDE_W))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(px(28.))
+                            .child(icon(
+                                "icons/icon-logo-mark.svg",
+                                px(theme::icon_large()),
+                                theme::ACCENT,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_title()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .child("Dev Tools"),
+                    )
+                    .child({
+                        div()
+                            .id("notes-toggle")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(26.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_notes_window(window, cx);
+                            }))
+                            .when(show_tooltips, |d| {
+                                d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
+                            })
+                            .child(icon(
+                                "icons/icon-note.svg",
+                                px(theme::icon_medium()),
+                                if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
+                            ))
+                    })
+                    .child(summary_button(&self.store, self.store.read(cx).summary_busy)),
+            )
+            // equal drag spacers on both sides of the search field
+            .child(titlebar_drag("titlebar-drag-left"))
+            .child(
+                div()
+                    .w(px(420.))
+                    .min_w(px(160.))
+                    .flex_shrink_1()
+                    .child(
+                        Input::new(&self.global_search)
+                            .small()
+                            .cleanable(true)
+                            .prefix(icon(
+                                "icons/icon-search.svg",
+                                px(theme::icon_small()),
+                                theme::TEXT_FAINT,
+                            ))
+                            .suffix(
+                                div()
+                                    .flex_shrink_0()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(theme::HAIRLINE)
+                                    .px_1()
+                                    .py_0p5()
+                                    .text_size(px(theme::font_small() - 3.))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child("Ctrl F"),
+                            ),
+                    ),
+            )
+            .child(titlebar_drag("titlebar-drag-right"))
+            .child(right_group)
             .into_any_element()
     }
 
