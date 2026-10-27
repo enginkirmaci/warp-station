@@ -20,6 +20,55 @@ use gpui::{div, px, FontWeight, Styled};
 
 use crate::theme;
 
+/// A tooltip body in the app's palette. GPUI hosts tooltip views in their own
+/// layer, so this is a tiny view rather than an absolutely-positioned child.
+struct TooltipText {
+    text: gpui::SharedString,
+}
+
+impl Render for TooltipText {
+    fn render(&mut self, _window: &mut gpui::Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .rounded_md()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::POPUP)
+            .px_2()
+            .py_1()
+            .text_size(px(theme::font_small() - 1.))
+            .text_color(theme::TEXT_DIM)
+            .shadow_md()
+            .whitespace_nowrap()
+            .child(self.text.clone())
+    }
+}
+
+/// Tooltip builder for `.tooltip(ui::tooltip_text("…"))`.
+pub fn tooltip_text(
+    text: impl Into<gpui::SharedString>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    let text = text.into();
+    move |_, cx| {
+        let text = text.clone();
+        cx.new(move |_| TooltipText { text }).into()
+    }
+}
+
+/// Attaches a tooltip when the user has "Show tooltips" enabled. Every helper
+/// takes an id'd element, so this stays a plain `Stateful<Div>` pass-through.
+pub fn with_tooltip(
+    element: gpui::Stateful<gpui::Div>,
+    show: bool,
+    text: impl Into<gpui::SharedString> + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    if show {
+        let text = text.into();
+        element.tooltip(tooltip_text(text))
+    } else {
+        element
+    }
+}
+
 /// A tinted svg icon.
 pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpui::Svg {
     // flex_shrink_0: an svg is a leaf with no intrinsic size, so the default
@@ -32,13 +81,18 @@ pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpu
         .text_color(color.into())
 }
 
+/// The close hook every drawer shares: the host window routes its own
+/// close path in via `with_on_close`.
+pub type DrawerCloseHandler = std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>;
+pub type DrawerOnClose = Option<DrawerCloseHandler>;
+
 /// The shared drawer title row: a title (with an optional one-line hint) and
 /// a close button on the right. The close button only appears when the host
 /// window wired a handler via the drawer's `with_on_close`.
 pub fn drawer_header(
     title: &'static str,
     hint: &'static str,
-    on_close: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
+    on_close: DrawerOnClose,
 ) -> gpui::AnyElement {
     let mut header = div()
         .flex()

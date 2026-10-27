@@ -178,6 +178,31 @@ fn kebab_menu_opens_with_anchored_geometry(cx: &mut TestAppContext) {
     );
     assert!(close(menu.size.width, px(210.)), "menu keeps its 210px width");
 
+    // Any press outside the menu dismisses it — including the titlebar.
+    cx.simulate_click(point(px(4.), px(4.)), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("kebab-menu").is_none(),
+        "outside press must dismiss the kebab menu",
+    );
+
+    // Escape is the keyboard path back out of the menu.
+    let kebab = bounds(cx, "bar-kebab");
+    cx.simulate_click(
+        point(kebab.origin.x + kebab.size.width / 2., kebab.origin.y + kebab.size.height / 2.),
+        Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.debug_bounds("kebab-menu").is_some(), "kebab reopens");
+    cx.simulate_keystrokes("escape");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("kebab-menu").is_none(),
+        "Escape must dismiss the kebab menu",
+    );
+
     let _ = std::fs::remove_dir_all(&tmp);
 }
 

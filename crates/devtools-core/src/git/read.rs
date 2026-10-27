@@ -768,16 +768,35 @@ fn message_body(message: &str) -> Option<String> {
 fn normalize_patch_prefixes(patch: &str) -> String {
     let mut out = String::with_capacity(patch.len());
     for line in patch.split_inclusive('\n') {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
+        // Keep the terminator: these are header lines and the next line must
+        // start on a new row. Dropping it merged `--- a/` into the `+++ b/`
+        // line, which in turn hid the `@@` hunk header and reset the diff
+        // line numbers to zero.
+        let (body, ending) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        if let Some(rest) = body.strip_prefix("diff --git ") {
             if let Some((old, new)) = split_git_line(rest) {
-                out.push_str(&format!("diff --git a/{old} b/{new}"));
+                out.push_str(&format!("diff --git a/{old} b/{new}{ending}"));
                 continue;
             }
-        } else if line.starts_with("--- c/") || line.starts_with("--- i/") {
+        } else if let Some(path) = body
+            .strip_prefix("--- c/")
+            .or_else(|| body.strip_prefix("--- i/"))
+        {
             out.push_str("--- a/");
+            out.push_str(path);
+            out.push_str(ending);
             continue;
-        } else if line.starts_with("+++ c/") || line.starts_with("+++ i/") || line.starts_with("+++ w/") {
+        } else if let Some(path) = body
+            .strip_prefix("+++ c/")
+            .or_else(|| body.strip_prefix("+++ i/"))
+            .or_else(|| body.strip_prefix("+++ w/"))
+        {
             out.push_str("+++ b/");
+            out.push_str(path);
+            out.push_str(ending);
             continue;
         }
         out.push_str(line);
@@ -858,5 +877,48 @@ mod merge_tests {
         let (staged, unstaged) = snap.change_groups();
         assert_eq!(staged[0].additions, Some(3));
         assert_eq!(unstaged[0].deletions, Some(4));
+    }
+}
+
+#[cfg(test)]
+mod patch_prefix_tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_mnemonic_headers_without_losing_lines_or_paths() {
+        let patch = "diff --git i/src/main.rs w/src/main.rs\n\
+                     index 476a51b..bdf883c 100644\n\
+                     --- i/src/main.rs\n\
+                     +++ w/src/main.rs\n\
+                     @@ -15,2 +15,3 @@\n\
+                     \x20context\n\
+                     +added\n";
+        let normalized = normalize_patch_prefixes(patch);
+        assert_eq!(
+            normalized,
+            "diff --git a/src/main.rs b/src/main.rs\n\
+             index 476a51b..bdf883c 100644\n\
+             --- a/src/main.rs\n\
+             +++ b/src/main.rs\n\
+             @@ -15,2 +15,3 @@\n\
+             \x20context\n\
+             +added\n",
+        );
+        // every header must still occupy its own row
+        assert!(normalized.lines().any(|line| line == "+++ b/src/main.rs"));
+        assert!(normalized.lines().any(|line| line.starts_with("@@ -15,2")));
+    }
+
+    #[test]
+    fn keeps_plain_a_b_headers_and_a_missing_final_newline() {
+        let patch = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new";
+        assert_eq!(normalize_patch_prefixes(patch), patch);
+    }
+
+    #[test]
+    fn leaves_unrecognized_header_shapes_alone() {
+        let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n";
+        assert_eq!(normalize_patch_prefixes(patch), patch);
+        assert_eq!(normalize_patch_prefixes(""), "");
     }
 }

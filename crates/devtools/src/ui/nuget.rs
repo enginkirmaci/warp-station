@@ -13,7 +13,7 @@ use gpui_kit::component::Sizable as _;
 pub struct NugetDrawer {
     pub store: Entity<Store>,
     watch_input: Entity<InputState>,
-    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
+    on_close: crate::ui::DrawerOnClose,
 }
 
 impl NugetDrawer {

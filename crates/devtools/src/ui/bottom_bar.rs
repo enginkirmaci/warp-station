@@ -26,6 +26,10 @@ pub struct BottomBar {
     issue_view: Entity<ItemListView>,
     azure_view: Entity<AzureView>,
     kebab_open: bool,
+    /// First click on "Remove from repositories" arms the item; the second
+    /// click inside the open menu removes the repo. Reset whenever the menu
+    /// closes.
+    remove_armed: bool,
     add_tag: Entity<InputState>,
     /// The "+ Add tag" chip swaps for the inline input once pressed.
     add_tag_open: bool,
@@ -49,9 +53,23 @@ impl BottomBar {
             issue_view,
             azure_view,
             kebab_open: false,
+            remove_armed: false,
             add_tag,
             add_tag_open: false,
             splitter_drag: std::rc::Rc::new(std::cell::Cell::new(None)),
+        }
+    }
+
+    /// Dismisses the kebab menu from an outside click or Escape. Returns
+    /// whether it was actually open so the window can stop propagating.
+    pub fn dismiss_kebab(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.kebab_open || self.remove_armed {
+            self.kebab_open = false;
+            self.remove_armed = false;
+            cx.notify();
+            true
+        } else {
+            false
         }
     }
 
@@ -486,11 +504,15 @@ impl Render for BottomBar {
                     .justify_center()
                     .debug_selector(|| "bar-kebab".into())
                     .hover(|s| s.border_color(theme::TEXT_FAINT))
+                    // keep the window's outside-click dismissal from seeing
+                    // this press: it must toggle, not close-then-reopen
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click({
                         let this = cx.entity();
                         move |_, _, cx| {
                             this.update(cx, |bar, cx| {
                                 bar.kebab_open = !bar.kebab_open;
+                                bar.remove_armed = false;
                                 cx.notify();
                             });
                         }
@@ -566,6 +588,9 @@ impl BottomBar {
             .bg(theme::POPUP)
             .shadow_md()
             .py_1()
+            // clicks inside the menu must not reach the window's outside-click
+            // dismissal; items close the menu themselves
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .debug_selector(|| "kebab-menu".into());
         let make_item = |label: &'static str, action: MenuAction| -> gpui::AnyElement {
             let this = this.clone();
@@ -582,6 +607,7 @@ impl BottomBar {
                     action(cx);
                     this.update(cx, |bar, cx| {
                         bar.kebab_open = false;
+                        bar.remove_armed = false;
                         cx.notify();
                     });
                 })
@@ -609,6 +635,7 @@ impl BottomBar {
         let store_folder = store.clone();
         let folder_remove = folder.clone();
         let store_remove = store.clone();
+        let remove_armed = self.remove_armed;
         menu = menu
             .child(make_item("Copy folder path", Box::new(move |cx: &mut App| {
                 Self::copy_text(folder_copy.clone(), cx);
@@ -617,13 +644,60 @@ impl BottomBar {
                     cx.notify();
                 });
             })))
-            .child(make_item("Remove from repositories", Box::new(move |cx: &mut App| {
-                let folder = folder_remove.clone();
-                store_remove.update(cx, |s, cx| {
-                    s.selected_repo = Some(folder);
-                    s.remove_from_repositories(cx);
-                });
-            })));
+            .child(div().h(px(1.)).mx_2().my_1().bg(theme::HAIRLINE))
+            .child({
+                let this = this.clone();
+                div()
+                    .id("kebab-remove")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_1p5()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .text_size(px(theme::font_small()))
+                    .text_color(if remove_armed { theme::DANGER } else { theme::TEXT_DIM })
+                    .when(remove_armed, |d| d.bg(theme::tint(theme::DANGER)))
+                    .hover(|s| {
+                        s.bg(theme::tint(theme::DANGER))
+                            .text_color(theme::DANGER)
+                    })
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        if remove_armed {
+                            let folder = folder_remove.clone();
+                            store_remove.update(cx, |s, cx| {
+                                s.selected_repo = Some(folder);
+                                s.remove_from_repositories(cx);
+                            });
+                            this.update(cx, |bar, cx| {
+                                bar.kebab_open = false;
+                                bar.remove_armed = false;
+                                cx.notify();
+                            });
+                        } else {
+                            // destructive action: require a second click on the
+                            // now-highlighted item; any outside click disarms
+                            this.update(cx, |bar, cx| {
+                                bar.remove_armed = true;
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .child(if remove_armed {
+                        "Remove from repositories?"
+                    } else {
+                        "Remove from repositories"
+                    })
+                    .when(remove_armed, |d| {
+                        d.child(
+                            div()
+                                .text_size(px(theme::font_small() - 2.))
+                                .text_color(theme::DANGER)
+                                .child("Click again to confirm"),
+                        )
+                    })
+            });
         menu.into_any_element()
     }
 

@@ -341,6 +341,7 @@ impl NotesPage {
     /// with appears_transparent, so without this strip there is no title,
     /// drag region, or window controls.
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         div()
             .h(px(38.))
             .flex()
@@ -389,6 +390,8 @@ impl NotesPage {
                 "notes-minimize",
                 "icons/icon-window-minimize.svg",
                 theme::HOVER,
+                "Minimize",
+                show_tooltips,
                 |_, window, _| window.minimize_window(),
             ))
             .child(crate::ui::window::window_button(
@@ -399,6 +402,8 @@ impl NotesPage {
                     "icons/icon-window-maximize.svg"
                 },
                 theme::HOVER,
+                if window.is_maximized() { "Restore" } else { "Maximize" },
+                show_tooltips,
                 cx.listener(|_, _, window, cx| {
                     window.zoom_window();
                     // the compositor toggles asynchronously — nudge a
@@ -410,6 +415,8 @@ impl NotesPage {
                 "notes-close",
                 "icons/icon-window-close.svg",
                 theme::tint(theme::DANGER),
+                "Close",
+                show_tooltips,
                 |_, window, _| window.remove_window(),
             ))
             .into_any_element()

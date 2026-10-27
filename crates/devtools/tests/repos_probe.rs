@@ -74,6 +74,57 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     );
 }
 
+/// A dialog is a modal over the whole workspace: while it is open the page
+/// takes the body height (the bar would otherwise paint over the dialog's
+/// footer) and Escape brings the bar back.
+#[gpui::test]
+fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx)
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.debug_bounds("bar-root").is_some(), "bar starts open");
+
+    let add = cx
+        .debug_bounds("add-repo-button")
+        .expect("add-repository button in the toolbar");
+    cx.simulate_click(
+        gpui::point(add.origin.x + add.size.width / 2., add.origin.y + add.size.height / 2.),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.debug_bounds("add-repo-overlay").is_some(),
+        "dialog is open",
+    );
+    assert!(
+        cx.debug_bounds("bar-root").is_none(),
+        "the bar must yield the body height to the dialog",
+    );
+
+    cx.simulate_keystrokes("escape");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("add-repo-overlay").is_none(),
+        "Escape closes the dialog",
+    );
+    assert!(
+        cx.debug_bounds("bar-root").is_some(),
+        "the bar comes back after the dialog closes",
+    );
+}
+
 #[gpui::test]
 fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
@@ -180,7 +231,7 @@ fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, mut cx) = cx.add_window_view(|window, cx| {
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
         MainWindow::new(store_handle.clone(), window, cx)
     });
     cx.run_until_parked();
@@ -190,7 +241,7 @@ fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
     let chip = cx
         .debug_bounds("dt-sort-chip")
         .expect("sort chip rendered in the toolbar");
-    drive_click(&mut cx, chip.center());
+    drive_click(cx, chip.center());
 
     let menu = cx
         .debug_bounds("dt-sort-menu")
@@ -211,7 +262,7 @@ fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
     // row beneath: the pre-fix in-toolbar catcher buried the popup under the
     // table, and this same click selected a row instead
     let over_table = gpui::point(scrim.origin.x + px_col(), px_row());
-    drive_click(&mut cx, over_table);
+    drive_click(cx, over_table);
     assert!(
         cx.debug_bounds("dt-sort-menu").is_none(),
         "clicking outside must close the menu"
@@ -226,9 +277,155 @@ fn sort_menu_opens_above_the_table_and_dismisses(cx: &mut TestAppContext) {
     let chip = cx
         .debug_bounds("dt-sort-chip")
         .expect("sort chip still present");
-    drive_click(&mut cx, chip.center());
+    drive_click(cx, chip.center());
     assert!(
         cx.debug_bounds("dt-sort-menu").is_some(),
         "menu must reopen from the chip"
     );
+}
+
+fn scanned(name: &str, path: &str) -> devtools_core::scan::ScannedRepo {
+    devtools_core::scan::ScannedRepo {
+        name: name.into(),
+        folder_path: PathBuf::from(path),
+        solution_path: None,
+        tags: Vec::new(),
+    }
+}
+
+fn dialog_click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let b = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} missing from the frame"));
+    cx.simulate_click(b.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+fn dialog_draw(cx: &mut gpui::VisualTestContext) {
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+/// The Add dialog: results arrive through the store (the net settle path),
+/// Add stays gated until a row is checked — a no-op click must not close the
+/// dialog — and Rescan resets to the Scan state through the real field +
+/// button interaction.
+#[gpui::test]
+fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+
+    dialog_click(cx, "add-repo-button");
+    assert!(cx.debug_bounds("add-repo-overlay").is_some(), "dialog opens");
+    assert!(cx.debug_bounds("btn-accent-Scan").is_some());
+    assert!(
+        cx.debug_bounds("btn-Rescan").is_none(),
+        "Rescan appears only after a scan settles"
+    );
+
+    // the net settle path: the worker drops results on the store, the page
+    // drains them while drawing
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.deep_scan_result = Some(vec![
+            scanned("repo-x", "/probe/scan/repo-x"),
+            scanned("repo-y", "/probe/scan/repo-y"),
+        ]);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+    assert!(cx.debug_bounds("btn-accent-Add").is_some(), "primary flips to Add");
+    assert!(cx.debug_bounds("btn-Rescan").is_some(), "Rescan is visible with results");
+    assert!(cx.debug_bounds("found-repo-0").is_some());
+
+    // uncheck both rows: the disabled Add must be a no-op, not a close
+    dialog_click(cx, "found-repo-0");
+    dialog_click(cx, "found-repo-1");
+    dialog_click(cx, "btn-accent-Add");
+    assert!(
+        cx.debug_bounds("add-repo-overlay").is_some(),
+        "gated Add must not close the dialog"
+    );
+
+    // type a fresh path and Rescan: back to the Scan state, stale rows gone
+    dialog_click(cx, "add-root-input");
+    cx.simulate_input("/probe/scan-root");
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "btn-Rescan");
+    assert!(
+        cx.debug_bounds("btn-accent-Scan").is_some(),
+        "Rescan returns the primary to Scan"
+    );
+    assert!(cx.debug_bounds("btn-Rescan").is_none());
+    assert!(
+        cx.debug_bounds("found-repo-0").is_none(),
+        "stale results are cleared on rescan"
+    );
+    assert!(cx.debug_bounds("add-repo-overlay").is_some());
+}
+
+/// The Clone dialog: the destination is editable and feeds validation — an
+/// empty destination holds the dialog open with the inline error, a valid
+/// one lets the commit flip the button to its busy label.
+#[gpui::test]
+fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+
+    dialog_click(cx, "clone-button");
+    assert!(cx.debug_bounds("clone-overlay").is_some(), "dialog opens");
+    assert!(cx.debug_bounds("btn-accent-Clone").is_some());
+
+    // no URL yet: the disabled Clone is a no-op
+    dialog_click(cx, "btn-accent-Clone");
+    assert!(cx.debug_bounds("clone-overlay").is_some());
+
+    // URL typed, destination cleared: validation must hold the dialog open
+    dialog_click(cx, "clone-url-input");
+    cx.simulate_input("https://github.com/owner/dt-probe-clone.git");
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "clone-dest-input");
+    cx.simulate_keystrokes("ctrl-a backspace");
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "btn-accent-Clone");
+    assert!(
+        cx.debug_bounds("clone-overlay").is_some(),
+        "a missing destination keeps the dialog open"
+    );
+    assert!(
+        cx.debug_bounds("btn-accent-Cloning…").is_none(),
+        "the clone must not have been sent"
+    );
+
+    // a valid destination passes validation: the button flips to busy (the
+    // net channel has no worker in the probe, so the result never settles)
+    dialog_click(cx, "clone-dest-input");
+    cx.simulate_input("/tmp");
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "btn-accent-Clone");
+    assert!(
+        cx.debug_bounds("btn-accent-Cloning…").is_some(),
+        "validation passed and the commit went out"
+    );
+    assert!(cx.debug_bounds("clone-overlay").is_some());
 }

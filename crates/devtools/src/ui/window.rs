@@ -42,6 +42,10 @@ pub struct MainWindow {
     nuget_drawer: Option<Entity<NugetDrawer>>,
     clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
     tools_menu_open: bool,
+    /// Window-level focus for the app shortcuts. The window body is not made
+    /// of text fields, so without this root handle Escape/Ctrl+K only fire
+    /// after an input has been clicked.
+    focus_handle: gpui::FocusHandle,
 }
 
 impl MainWindow {
@@ -61,7 +65,8 @@ impl MainWindow {
         })
         .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self {
+        let focus_handle = cx.focus_handle();
+        let this = Self {
             store,
             // E2E hook: DEVTOOLS_PAGE=settings opens Settings on launch
             page: match std::env::var("DEVTOOLS_PAGE").as_deref() {
@@ -86,7 +91,12 @@ impl MainWindow {
             clipboard_drawer: None,
             // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
             tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
-        }
+            focus_handle,
+        };
+        // keep the root focus handle live so Escape / Ctrl+K work before the
+        // first input click; inputs take focus back when the user clicks them
+        window.focus(&this.focus_handle, cx);
+        this
     }
 }
 
@@ -107,6 +117,16 @@ impl Render for MainWindow {
             .bg(theme::BACKGROUND)
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
+            .track_focus(&self.focus_handle)
+            // any press outside the bar's kebab menu dismisses it; the menu
+            // itself and its trigger stop propagation so their own handlers
+            // remain the only ones that see the press
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                gpui_kit::base::GlobalState::suppress_text_selection(cx);
+                this.bottom_bar.update(cx, |bar, cx| {
+                    bar.dismiss_kebab(cx);
+                });
+            }))
             // Ctrl+K focuses the global-search field; Ctrl+F the repo filter;
             // Ctrl+Shift+V copies the stored Clipboard Password; Escape
             // dismisses the topmost layer (tools menu, drawer, page dialog,
@@ -143,6 +163,10 @@ impl Render for MainWindow {
                     }
                     if this.active_drawer.take().is_some() {
                         cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if this.bottom_bar.update(cx, |bar, cx| bar.dismiss_kebab(cx)) {
                         cx.stop_propagation();
                         return;
                     }
@@ -312,13 +336,12 @@ impl MainWindow {
         let store = self.store.clone();
         // closing via the drawer's header X routes back into the window
         let close_target = cx.entity();
-        let on_close: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
-            std::rc::Rc::new(move |_, cx| {
-                close_target.update(cx, |this, cx| {
-                    this.active_drawer = None;
-                    cx.notify();
-                });
+        let on_close = std::rc::Rc::new(move |_, cx: &mut gpui::App| {
+            close_target.update(cx, |this, cx| {
+                this.active_drawer = None;
+                cx.notify();
             });
+        });
         let drawer = match kind {
             DrawerKind::Formatters => self
                 .formatters
@@ -563,9 +586,9 @@ impl MainWindow {
                 .occlude()
                 .bg(gpui::black().opacity(0.45))
                 .flex()
-                .items_start()
+                .items_center()
                 .justify_center()
-                .pt(px(90.))
+                .p_4()
                 .child(
                     div()
                         .id("wand-ask-card")
@@ -641,6 +664,8 @@ pub(crate) fn window_button(
     id: &'static str,
     icon_path: &'static str,
     hover_bg: gpui::Hsla,
+    tooltip: &'static str,
+    show_tooltip: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl gpui::IntoElement {
     div()
@@ -653,6 +678,7 @@ pub(crate) fn window_button(
         .justify_center()
         .hover(move |s| s.bg(hover_bg))
         .on_click(on_click)
+        .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
@@ -672,6 +698,7 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
 
 impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         div()
             .h(px(38.))
             .flex()
@@ -747,6 +774,9 @@ impl MainWindow {
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_notes_window(window, cx);
                     }))
+                    .when(show_tooltips, |d| {
+                        d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
+                    })
                     .child(icon(
                         "icons/icon-note.svg",
                         px(theme::icon_medium()),
@@ -768,6 +798,9 @@ impl MainWindow {
                         this.tools_menu_open = !this.tools_menu_open;
                         cx.notify();
                     }))
+                    .when(show_tooltips, |d| {
+                        d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
+                    })
                     .child(icon(
                         "icons/icon-tools.svg",
                         px(theme::icon_medium()),
@@ -824,6 +857,13 @@ impl MainWindow {
                         this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
                         cx.notify();
                     }))
+                    .when(show_tooltips, |d| {
+                        d.tooltip(crate::ui::tooltip_text(if on_settings {
+                            "Back to repositories"
+                        } else {
+                            "Settings"
+                        }))
+                    })
                     .child(icon(
                         "icons/icon-cog.svg",
                         px(theme::icon_medium()),
@@ -834,6 +874,8 @@ impl MainWindow {
                 "minimize-window",
                 "icons/icon-window-minimize.svg",
                 theme::HOVER,
+                "Minimize",
+                show_tooltips,
                 |_, window, _| window.minimize_window(),
             ))
             .child(window_button(
@@ -844,6 +886,8 @@ impl MainWindow {
                     "icons/icon-window-maximize.svg"
                 },
                 theme::HOVER,
+                if window.is_maximized() { "Restore" } else { "Maximize" },
+                show_tooltips,
                 cx.listener(|_, _, window, cx| {
                     window.zoom_window();
                     // the compositor toggles asynchronously — nudge a
@@ -855,21 +899,32 @@ impl MainWindow {
                 "close-window",
                 "icons/icon-window-close.svg",
                 theme::tint(theme::DANGER),
+                "Close",
+                show_tooltips,
                 |_, window, _| window.remove_window(),
             ))
             .into_any_element()
     }
 
-    fn render_body(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_body(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         match self.page {
-            Page::Repos => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(div().flex_1().min_h_0().child(self.repos_page.clone()))
-                .child(self.bottom_bar.clone())
-                .into_any_element(),
+            Page::Repos => {
+                // The Add-repositories / Clone dialogs are page-level overlays.
+                // While one is open the workspace bar would paint over the
+                // dialog's footer (the scan-result card is taller than the
+                // page slice above the bar), so give the page the full body.
+                let dialog_open = self.repos_page.read(cx).dialog.is_some();
+                let mut body = div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().flex_1().min_h_0().child(self.repos_page.clone()));
+                if !dialog_open {
+                    body = body.child(self.bottom_bar.clone());
+                }
+                body.into_any_element()
+            }
             Page::Settings => div()
                 .flex_1()
                 .min_h_0()

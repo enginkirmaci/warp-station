@@ -187,11 +187,17 @@ impl ReposPage {
     /// Sends the Add-Repositories dialog's deep scan.
     pub fn kick_deep_scan(&mut self, cx: &mut Context<Self>) {
         let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
+        // Enter and the Rescan button both route here; a scan already in
+        // flight must not be re-sent (two settles would flash two result sets)
+        if dialog.scanning {
+            return;
+        }
         let root = dialog.root.read(cx).value().to_string();
         if root.trim().is_empty() {
             return;
         }
         dialog.scanning = true;
+        dialog.scanned = false;
         dialog.found.clear();
         let settings = self.store.read(cx).settings();
         let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::DeepScan {
@@ -228,7 +234,7 @@ impl ReposPage {
         {
             let url = dialog.url.read(cx).value().to_string();
             let name = dialog.derived_name(cx);
-            let destination = dialog.destination.clone();
+            let destination = dialog.destination.read(cx).value().to_string();
             if url.trim().is_empty() || (!url.contains('/') && !url.contains(':')) {
                 validation_error = Some("Enter a repository URL".into());
             } else if name.is_empty()
@@ -252,7 +258,7 @@ impl ReposPage {
         }
         let url = dialog.url.read(cx).value().to_string();
         let name = dialog.derived_name(cx);
-        let destination = dialog.destination.clone();
+        let destination = dialog.destination.read(cx).value().to_string();
         dialog.busy = true;
         dialog.error = None;
         let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::Clone {
@@ -271,6 +277,7 @@ impl Render for ReposPage {
         if let Some(found) = drained_deep_scan
             && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
                 dialog.scanning = false;
+                dialog.scanned = true;
                 dialog.found = found
                     .into_iter()
                     .map(|repo| {
@@ -726,6 +733,7 @@ fn toolbar_action(
         .gap_1p5()
         .text_size(px(theme::font_small()))
         .text_color(color)
+        .debug_selector(move || id.into())
         .when(primary, |d| d.bg(theme::ACCENT).hover(|s| s.opacity(0.9)))
         .when(!primary, |d| {
             d.border_1()
@@ -988,11 +996,12 @@ impl TableDelegate for ReposDelegate {
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
         let settings = self.store.read(cx).settings();
+        let show_tooltips = settings.general.show_tooltips;
 
         match column_kind(col_ix, &settings) {
             ColKind::Star => {
                 let favorite = repo.is_favorite();
-                div()
+                let star = div()
                     .id(("star", row_ix))
                     .cursor_pointer()
                     .flex()
@@ -1011,41 +1020,47 @@ impl TableDelegate for ReposDelegate {
                         "icons/icon-star.svg",
                         px(theme::icon_small()),
                         if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
-                    ))
-                    .into_any_element()
+                    ));
+                crate::ui::with_tooltip(
+                    star,
+                    show_tooltips,
+                    if favorite { "Remove from favorites" } else { "Add to favorites" },
+                )
+                .into_any_element()
             }
             ColKind::Name => {
                 let store = self.store.clone();
                 let folder = folder.clone();
+                let notes_button = div()
+                    .id(("open-notes", row_ix))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .p_1()
+                    .flex()
+                    .items_center()
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        store.update(cx, |s, cx| {
+                            s.ensure_repo_selected(&folder, cx);
+                            s.notes_requested = true;
+                        });
+                    })
+                    .child(icon(
+                        "icons/icon-note.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    ));
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(
-                        // notes: selects the repo and flags the floating notes
-                        // window open — always opens/switches, never toggles
-                        div()
-                            .id(("open-notes", row_ix))
-                            .cursor_pointer()
-                            .rounded_md()
-                            .p_1()
-                            .flex()
-                            .items_center()
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                store.update(cx, |s, cx| {
-                                    s.ensure_repo_selected(&folder, cx);
-                                    s.notes_requested = true;
-                                });
-                            })
-                            .child(icon(
-                                "icons/icon-note.svg",
-                                px(theme::icon_small()),
-                                theme::TEXT_MUTED,
-                            )),
-                    )
+                    .child(crate::ui::with_tooltip(
+                        notes_button,
+                        show_tooltips,
+                        "Open notes for this repository",
+                    ))
                     .child(
                         div()
                             .min_w_0()
@@ -1389,11 +1404,16 @@ fn shortcuts_cell(
 ) -> gpui::AnyElement {
     use devtools_core::terminal;
     let folder = repo.folder_path.to_string_lossy().to_string();
+    let show_tooltips = settings.general.show_tooltips;
     let mut row = div().flex().flex_row().items_center().gap_1p5();
 
-    let button = |id: String, icon_path: &'static str, tint_color: gpui::Rgba, launch: Box<dyn Fn() -> Result<(), String>>| {
+    let button = |id: String,
+                  icon_path: &'static str,
+                  tint_color: gpui::Rgba,
+                  tip: &'static str,
+                  launch: Box<dyn Fn() -> Result<(), String>>| {
         let store = store.clone();
-        div()
+        let element = div()
             .id(SharedString::from(id))
             .cursor_pointer()
             .rounded_md()
@@ -1411,7 +1431,8 @@ fn shortcuts_cell(
                     });
                 }
             })
-            .child(icon(icon_path, px(theme::icon_small()), tint_color))
+            .child(icon(icon_path, px(theme::icon_small()), tint_color));
+        crate::ui::with_tooltip(element, show_tooltips, tip)
     };
 
     // OpenCode quick-launch: one opencode instance in the repo with the
@@ -1443,6 +1464,7 @@ fn shortcuts_cell(
             format!("open-opencode-{row_ix}"),
             "icons/icon-opencode.svg",
             theme::TEXT_MUTED,
+            "Launch OpenCode with the default model",
             launch,
         ));
         // .NET separates the opencode group from the launch buttons
@@ -1461,6 +1483,7 @@ fn shortcuts_cell(
             format!("open-zcode-{row_ix}"),
             "icons/icon-zcode.svg",
             theme::TEXT_MUTED,
+            "Open in ZCode",
             Box::new({
                 let folder = folder.clone();
                 let term = settings.repos.terminal_executable.clone();
@@ -1480,6 +1503,7 @@ fn shortcuts_cell(
                     format!("open-solution-{row_ix}"),
                     "icons/icon-sln-box.svg",
                     theme::PURPLE_BRIGHT,
+                    "Open solution in Visual Studio",
                     Box::new(move || terminal::open_solution(&solution, &ide)),
                 ));
             }
@@ -1491,6 +1515,7 @@ fn shortcuts_cell(
             format!("open-vscode-{row_ix}"),
             "icons/icon-vscode.svg",
             theme::BLUE_BRIGHT,
+            "Open in VS Code",
             Box::new({
                 let folder = folder.clone();
                 let exe = settings.repos.vscode_executable.clone();
@@ -1503,6 +1528,7 @@ fn shortcuts_cell(
         format!("open-folder-{row_ix}"),
         "icons/icon-folder.svg",
         theme::AMBER_BRIGHT,
+        "Open folder",
         Box::new({
             let folder = folder.clone();
             move || terminal::open_folder(&folder)
@@ -1513,6 +1539,7 @@ fn shortcuts_cell(
             format!("open-terminal-{row_ix}"),
             "icons/icon-terminal.svg",
             theme::SUCCESS_BRIGHT,
+            "Open terminal",
             Box::new({
                 let folder = folder.clone();
                 let term = settings.repos.terminal_executable.clone();

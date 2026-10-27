@@ -222,9 +222,12 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
             }
             NetCommand::DeepScan { root, depth, settings } => {
-                let found = tokio::task::spawn_blocking(move || scan::scan(&settings, Some(depth)))
-                    .await
-                    .unwrap_or_default();
+                let scan_root = PathBuf::from(root.clone());
+                let found = tokio::task::spawn_blocking(move || {
+                    scan::scan_folder(&settings, &scan_root, Some(depth))
+                })
+                .await
+                .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::DeepScanSettled { root, found: found.repos });
             }
             NetCommand::Clone { url, parent_dir, name } => {

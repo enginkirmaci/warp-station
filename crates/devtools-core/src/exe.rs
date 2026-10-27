@@ -89,6 +89,7 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
 /// "is not a valid Win32 application" (os error 193).
 #[cfg(windows)]
 fn resolve_on_path(name: &str) -> Option<PathBuf> {
+    use std::path::Path;
     let path_env = std::env::var_os("PATH")?;
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     let bare_ok = Path::new(name).extension().is_some();

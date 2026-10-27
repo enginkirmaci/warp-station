@@ -47,14 +47,15 @@ fn overlay_shell(
 ) -> gpui::AnyElement {
     div()
         .id(id)
+        .debug_selector(move || id.into())
         .absolute()
         .inset_0()
         .occlude()
         .bg(gpui::black().opacity(0.5))
         .flex()
-        .items_start()
+        .items_center()
         .justify_center()
-        .pt(px(110.))
+        .p_4()
         .on_click(cx.listener(|this: &mut ReposPage, _, _, cx| {
             this.dialog = None;
             cx.notify();
@@ -84,8 +85,10 @@ fn card(title: &str) -> gpui::Div {
 }
 
 fn plain_button(label: &str, on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static) -> gpui::AnyElement {
+    let id = format!("btn-{label}");
     div()
-        .id(SharedString::from(format!("btn-{label}")))
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
         .cursor_pointer()
         .rounded_md()
         .px_3()
@@ -105,8 +108,10 @@ fn accent_button(
     enabled: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> gpui::AnyElement {
+    let id = format!("btn-accent-{label}");
     div()
-        .id(SharedString::from(format!("btn-accent-{label}")))
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
         .cursor_pointer()
         .rounded_md()
         .px_3()
@@ -130,6 +135,9 @@ fn accent_button(
 pub struct AddRepoDialog {
     pub root: Entity<InputState>,
     pub scanning: bool,
+    /// true once a scan has settled — distinguishes "never scanned" from
+    /// "scanned and found nothing"
+    pub scanned: bool,
     /// (repo, checked, already-tracked)
     pub found: Vec<(devtools_core::scan::ScannedRepo, bool, bool)>,
 }
@@ -147,13 +155,28 @@ impl AddRepoDialog {
             cx.notify();
         })
         .detach();
-        Self { root, scanning: false, found: Vec::new() }
+        Self { root, scanning: false, scanned: false, found: Vec::new() }
     }
 
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
         let selectable = self.found.iter().filter(|(_, _, tracked)| !*tracked).count();
+        let selected = self
+            .found
+            .iter()
+            .filter(|(_, checked, tracked)| *checked && !*tracked)
+            .count();
         let all_checked = selectable > 0 && self.found.iter().all(|(_, checked, tracked)| *tracked || *checked);
-        let mut list = div().id("found-repo-list").flex().flex_col().gap_1().max_h(px(280.)).overflow_y_scroll();
+        // leave room for the card chrome, the footer and the window padding
+        // so a long scan result list scrolls instead of pushing Add/Cancel out
+        // of the dialog on short windows
+        let list_max = (window.viewport_size().height.as_f32() - 520.).clamp(100., 280.);
+        let mut list = div()
+            .id("found-repo-list")
+            .flex()
+            .flex_col()
+            .gap_1()
+            .max_h(px(list_max))
+            .overflow_y_scroll();
         for (index, (repo, checked, tracked)) in self.found.iter().enumerate() {
             let label: SharedString = if *tracked {
                 format!("{}   (already tracked)", repo.name).into()
@@ -163,6 +186,7 @@ impl AddRepoDialog {
             list = list.child(
                 div()
                     .id(("found-repo", index as u64))
+                    .debug_selector(move || format!("found-repo-{index}"))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -205,27 +229,40 @@ impl AddRepoDialog {
 
         let hint = if self.scanning {
             "Scanning…"
+        } else if self.found.is_empty() && self.scanned {
+            "No repositories found under that folder — try another folder, or raise the scan depth in Settings"
         } else if self.found.is_empty() {
             "Type a folder path and scan — searched up to the configured depth"
+        } else if selectable == 0 {
+            "All found repositories are already in your list."
         } else {
             "Click entries to toggle selection, then Add"
         };
 
+        // Scan needs a path; Add needs at least one checked row. Keeping the
+        // button disabled until then makes the no-op states obvious instead
+        // of closing the dialog on a click that adds nothing.
         let can_scan = if self.found.is_empty() {
             !self.scanning && !self.root.read(cx).value().trim().is_empty()
         } else {
-            true
+            selected > 0
         };
 
         let body = card("Add repositories")
-            .child(Input::new(&self.root).small())
+            .child(
+                // geometric marker for the probes: its bounds are the field's
+                div()
+                    .id("add-root-input")
+                    .debug_selector(|| "add-root-input".into())
+                    .child(Input::new(&self.root).small()),
+            )
             .child(
                 div()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .child(hint),
             )
-            .when(!self.found.is_empty(), |card| {
+            .when(!self.found.is_empty() && selectable > 0, |card| {
                 card.child(
                     div()
                         .id("select-all-row")
@@ -271,14 +308,23 @@ impl AddRepoDialog {
                         )
                         .child(format!("Select all available ({selectable})")),
                 )
-                .child(list)
             })
+            .when(!self.found.is_empty(), |card| card.child(list))
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .justify_end()
                     .gap_2()
+                    // once results are on screen the primary becomes Add; a
+                    // visible Rescan keeps "scan a different folder" one click
+                    // away instead of hiding it behind Enter-in-the-field
+                    .when(self.scanned && !self.scanning, |row| {
+                        row.child(plain_button(
+                            "Rescan",
+                            cx.listener(|this: &mut ReposPage, _, _, cx| this.kick_deep_scan(cx)),
+                        ))
+                    })
                     .child(plain_button("Cancel", cx.listener(|this: &mut ReposPage, _, _, cx| {
                         this.dialog = None;
                         cx.notify();
@@ -303,7 +349,7 @@ impl AddRepoDialog {
 
 pub struct CloneDialog {
     pub url: Entity<InputState>,
-    pub destination: String,
+    pub destination: Entity<InputState>,
     pub busy: bool,
     pub error: Option<String>,
 }
@@ -317,12 +363,14 @@ impl CloneDialog {
             if let InputEvent::PressEnter { .. } = event {
                 this.commit_clone(cx);
             }
+            // the Clone button enables as soon as the URL has a usable shape
+            cx.notify();
         })
         .detach();
         // default destination: the PARENT of the first existing scan
         // root — roots are repo folders themselves, and cloning into one would
         // nest a repo inside another repo's working tree
-        let destination = store
+        let default_dest = store
             .read(cx)
             .settings()
             .repos
@@ -336,6 +384,11 @@ impl CloneDialog {
                     .map(|p| p.to_string_lossy().to_string())
             })
             .unwrap_or_default();
+        let destination = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Destination folder (defaults to your first scan root's parent)")
+                .default_value(default_dest)
+        });
         Self { url, destination, busy: false, error: None }
     }
 
@@ -345,20 +398,35 @@ impl CloneDialog {
 
     fn render(&mut self, _window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
         let name = self.derived_name(cx);
-        let dest_display = if self.destination.is_empty() {
-            "(first configured scan folder)".to_string()
-        } else {
-            self.destination.clone()
-        };
         let error = self.error.clone();
         let busy = self.busy;
+        let raw_url = self.url.read(cx).value().to_string();
+        let url_valid = !raw_url.trim().is_empty()
+            && (raw_url.contains('/') || raw_url.contains(':'));
+        let dest = self.destination.read(cx).value().to_string();
+        let target_line = if dest.trim().is_empty() {
+            "Enter the destination folder above".to_string()
+        } else {
+            format!("Clones into {}/{}", dest.trim_end_matches('/'), name)
+        };
         let body = card("Clone from URL")
-            .child(Input::new(&self.url).small())
+            .child(
+                div()
+                    .id("clone-url-input")
+                    .debug_selector(|| "clone-url-input".into())
+                    .child(Input::new(&self.url).small()),
+            )
+            .child(
+                div()
+                    .id("clone-dest-input")
+                    .debug_selector(|| "clone-dest-input".into())
+                    .child(Input::new(&self.destination).small()),
+            )
             .child(
                 div()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
-                    .child(format!("Clones into {dest_display}/{name}")),
+                    .child(target_line),
             )
             .when_some(error, |card, error| {
                 card.child(
@@ -380,7 +448,7 @@ impl CloneDialog {
                     })))
                     .child(accent_button(
                         if busy { "Cloning…" } else { "Clone" },
-                        !busy,
+                        !busy && url_valid,
                         cx.listener(|this: &mut ReposPage, _, _, cx| this.commit_clone(cx)),
                     )),
             );

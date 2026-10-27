@@ -23,6 +23,15 @@ pub struct RepoScanResult {
     pub repos: Vec<ScannedRepo>,
 }
 
+/// Scoped scan for the Add-Repositories dialog: `root` wins over the
+/// configured listing roots, so typing a folder actually searches that folder
+/// instead of silently re-scanning the whole settings list.
+pub fn scan_folder(settings: &ReposSettings, root: &Path, max_depth: Option<i32>) -> RepoScanResult {
+    let mut scoped = settings.clone();
+    scoped.repo_scan_folders = Some(vec![root.to_string_lossy().to_string()]);
+    scan(&scoped, max_depth)
+}
+
 /// One scan pass. `max_depth: None` = the listing scan (each scan root's
 /// direct children only); the Add-Repositories dialog passes its configured
 /// depth. Distinct by folder path, name-sorted.
@@ -198,6 +207,20 @@ mod tests {
         std::fs::create_dir_all(tmp.join("platform/repo-p/.git")).unwrap();
         let result = scan(&settings(vec![tmp.to_string_lossy().to_string()]), Some(3));
         assert_eq!(result.repos[0].tags, vec![PLATFORM_TAG.to_string()]);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dialog_scan_is_scoped_to_the_typed_folder() {
+        let tmp = std::env::temp_dir().join(format!("dt-scan-scoped-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("typed/repo-typed/.git")).unwrap();
+        std::fs::create_dir_all(tmp.join("elsewhere/repo-elsewhere/.git")).unwrap();
+
+        let configured = settings(vec![tmp.join("elsewhere").to_string_lossy().to_string()]);
+        let result = scan_folder(&configured, &tmp.join("typed"), Some(3));
+        let names: Vec<&str> = result.repos.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["repo-typed"]);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

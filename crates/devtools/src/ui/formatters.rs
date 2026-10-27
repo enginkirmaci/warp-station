@@ -66,7 +66,7 @@ pub struct FormattersDrawer {
     /// A finished convert asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
-    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
+    on_close: crate::ui::DrawerOnClose,
 }
 
 impl FormattersDrawer {

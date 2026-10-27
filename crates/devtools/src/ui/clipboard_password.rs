@@ -13,10 +13,13 @@ pub struct ClipboardPasswordDrawer {
     pub store: Entity<Store>,
     password: Entity<InputState>,
     status: String,
+    /// First click on "Clear Stored Password" arms the action; the next click
+    /// within the window below actually clears the stored secret.
+    clear_armed: Option<std::time::Instant>,
     /// A finished save asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
-    on_close: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>>,
+    on_close: crate::ui::DrawerOnClose,
 }
 
 /// The stored password decoded, ready for the clipboard.
@@ -71,6 +74,7 @@ impl ClipboardPasswordDrawer {
             store,
             password,
             status: status_line(has_stored).to_string(),
+            clear_armed: None,
             pending_clear: false,
             on_close: None,
         }
@@ -96,6 +100,7 @@ impl ClipboardPasswordDrawer {
             store.update_settings(|s| s.clipboard_password.encrypted_password = Some(encoded));
         });
         self.pending_clear = true;
+        self.clear_armed = None;
         self.status = "Password saved successfully! Use Ctrl+Shift+V to paste it.".into();
         self.toast("Password saved", cx);
     }
@@ -105,11 +110,13 @@ impl ClipboardPasswordDrawer {
             store.update_settings(|s| s.clipboard_password.encrypted_password = None);
         });
         self.pending_clear = true;
+        self.clear_armed = None;
         self.status = "Password cleared".into();
         self.toast("Password cleared", cx);
     }
 
     fn copy(&mut self, cx: &mut Context<Self>) {
+        self.clear_armed = None;
         let message = copy_stored_password(&self.store.clone(), cx);
         self.toast(message, cx);
     }
@@ -130,6 +137,15 @@ impl Render for ClipboardPasswordDrawer {
             self.password.update(cx, |state, cx| state.set_value(String::new(), window, cx));
         }
         let stored = stored_password(&self.store.read(cx).settings()).is_some();
+        // the confirm state auto-expires so the drawer never sits in a
+        // destructive "armed" look after the user has moved on
+        let clear_armed = self
+            .clear_armed
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(4));
+        if self.clear_armed.is_some() && !clear_armed {
+            self.clear_armed = None;
+            self.status = status_line(stored).to_string();
+        }
 
         div()
             .id("clipboard-password-drawer")
@@ -170,16 +186,48 @@ impl Render for ClipboardPasswordDrawer {
                     .gap_2()
                     .child(ghost_button(
                         "clipboard-clear",
-                        "Clear Stored Password",
+                        if clear_armed { "Confirm clear?" } else { "Clear Stored Password" },
                         theme::DANGER,
                         stored,
-                        cx.listener(|this, _, _, cx| this.clear(cx)),
+                        clear_armed,
+                        cx.listener(move |this, _, _, cx| {
+                            if clear_armed {
+                                this.clear(cx);
+                            } else {
+                                let armed_at = std::time::Instant::now();
+                                this.clear_armed = Some(armed_at);
+                                this.status =
+                                    "Click Clear again to remove the stored password.".into();
+                                cx.notify();
+                                // the armed look expires on its own — without
+                                // this the solid danger button would sit armed
+                                // until some unrelated render happened
+                                cx.spawn(async move |this, cx| {
+                                    cx.background_executor()
+                                        .timer(std::time::Duration::from_secs(4))
+                                        .await;
+                                    let _ = this.update(cx, |this, cx| {
+                                        if this.clear_armed == Some(armed_at) {
+                                            this.clear_armed = None;
+                                            let stored = stored_password(
+                                                &this.store.read(cx).settings(),
+                                            )
+                                            .is_some();
+                                            this.status = status_line(stored).to_string();
+                                            cx.notify();
+                                        }
+                                    });
+                                })
+                                .detach();
+                            }
+                        }),
                     ))
                     .child(ghost_button(
                         "clipboard-copy",
                         "Copy",
                         theme::ACCENT,
                         stored,
+                        false,
                         cx.listener(|this, _, _, cx| this.copy(cx)),
                     ))
                     .child(accent_button(
@@ -209,6 +257,7 @@ fn ghost_button(
     label: &str,
     color: gpui::Rgba,
     enabled: bool,
+    emphasized: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
     div()
@@ -219,8 +268,9 @@ fn ghost_button(
         .py_1()
         .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
-        .bg(theme::tint(color))
-        .text_color(color)
+        // emphasized = the destructive confirm state: solid danger fill
+        .bg(if emphasized { color.into() } else { theme::tint(color) })
+        .text_color(if emphasized { theme::ON_ACCENT } else { color })
         .map(|d| {
             if enabled {
                 d.hover(|s| s.opacity(0.85))
