@@ -681,7 +681,22 @@ impl MainWindow {
             },
             cx,
             move |window, cx| {
-                cx.new(|cx| NotesPage::new(store.clone(), window, cx))
+                cx.new(|cx| {
+                    let mut page = NotesPage::new(store.clone(), window, cx);
+                    // E2E hook: DEVTOOLS_NOTE=<relative-path> opens that note
+                    // right away (headless/live capture without clicks)
+                    if let Ok(rel) = std::env::var("DEVTOOLS_NOTE") {
+                        let root = devtools_core::notes::resolve_store_root(
+                            &store.read(cx).settings().general.notes_store_path,
+                        );
+                        let path = root.join(rel.trim_start_matches(['/', '\\']));
+                        for parent in path.ancestors().skip(1) {
+                            page.expand_tree_path(parent.to_path_buf());
+                        }
+                        page.open_note(path, window, cx);
+                    }
+                    page
+                })
             },
         ) {
             self.notes_window = Some(handle);

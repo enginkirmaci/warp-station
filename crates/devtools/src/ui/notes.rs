@@ -1,10 +1,10 @@
 //! The Notes page: per-repo markdown notes — folder/file tree on the left,
-//! editor on the right with Edit/Live/Split/Preview modes. Live is an
-//! Obsidian-style live preview: markdown renders in place while typing and
-//! source markers (`**`, backticks, link URLs) fade out wherever the cursor
-//! is not on their line. The toolbar drives the pure markdown_editing ops,
-//! dirty in-memory buffers survive navigation, and search is capped. Opened
-//! from the titlebar.
+//! a single Obsidian-style live editor on the right. Markdown renders in
+//! place while typing; source markers (`##`, `**`, backticks, link URLs)
+//! fade out wherever the cursor is not on their line, task checkboxes
+//! toggle on click, Enter continues lists, and the toolbar drives the pure
+//! markdown_editing ops. Dirty in-memory buffers survive navigation, and
+//! search is capped. Opened from the titlebar.
 
 use crate::store::Store;
 use crate::theme;
@@ -16,7 +16,6 @@ use gpui::{
     div, hsla, px, relative, Context, Entity, FontStyle, FontWeight, HighlightStyle,
     MouseButton, SharedString, StrikethroughStyle, UnderlineStyle, Window, WindowControlArea,
 };
-use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::{
     Editor, EditorState, FoldRange, HighlightStyleResolver, Input, InputEdit, InputEvent,
     InputHighlighter, InputHighlighterFactory, InputState, Rope,
@@ -27,16 +26,6 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
-
-#[derive(Clone, Copy, PartialEq)]
-enum NotesMode {
-    Edit,
-    /// Obsidian-style single surface: markdown styled in place while editing;
-    /// syntax markers fade unless the cursor is on their line.
-    Live,
-    Split,
-    Preview,
-}
 
 pub struct NotesPage {
     pub store: Entity<Store>,
@@ -53,11 +42,10 @@ pub struct NotesPage {
     /// The on-disk contents of the open note; comparing against the editor
     /// makes the unsaved marker follow every keystroke.
     saved_text: String,
-    mode: NotesMode,
     search: Entity<InputState>,
     search_hits: Vec<notes_core::NotesSearchHit>,
-    /// The shared editor for Edit/Live/Split — the code-editor engine, so
-    /// Live can install the markdown highlighter.
+    /// The live markdown editor — the code-editor engine with the in-place
+    /// markdown highlighter installed.
     editor: Entity<EditorState>,
     /// Delete arming: (path, expire-instant) — a second click within 3s fires.
     armed_delete: Option<(PathBuf, std::time::Instant)>,
@@ -89,10 +77,10 @@ impl NotesPage {
                 .folding(false)
                 .auto_close(false)
                 .smart_indent(false)
+                .submit_on_enter(true)
                 .placeholder("# Title");
             // the app's markdown live highlighter owns "markdown"; anything
-            // else (the raw Edit/Split panes use LIVE_LANGUAGE's plain
-            // sibling) falls back to unstyled text.
+            // else falls back to unstyled text.
             state.set_highlighter_factory(live_highlighter_factory(highlighter_caret), cx);
             state
         });
@@ -101,6 +89,14 @@ impl NotesPage {
         cx.subscribe(&search, |this, field, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.run_search(field.read(cx).value().to_string(), cx);
+            }
+        })
+        .detach();
+        // plain Enter never inserts a newline itself (submit_on_enter): it
+        // continues lists here, or falls back to a bare newline
+        cx.subscribe_in(&editor, window, |this, editor, event: &InputEvent, window, cx| {
+            if let InputEvent::PressEnter { shift: false, .. } = event {
+                this.enter_pressed(editor, window, cx);
             }
         })
         .detach();
@@ -122,7 +118,6 @@ impl NotesPage {
             open_note: None,
             dirty: HashMap::new(),
             saved_text: String::new(),
-            mode: NotesMode::Live,
             search,
             search_hits: Vec::new(),
             editor,
@@ -165,7 +160,7 @@ impl NotesPage {
         }
     }
 
-    fn open_note(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_note(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         // park the current buffer before switching
         if let Some(current) = self.open_note.clone() {
             let text = self.editor.read(cx).value().to_string();
@@ -181,6 +176,11 @@ impl NotesPage {
         self.open_note = Some(path);
         self.editor.update(cx, |state, cx| state.set_value(content.as_str(), window, cx));
         cx.notify();
+    }
+
+    /// Marks a tree folder path as expanded (E2E note-open hook).
+    pub(crate) fn expand_tree_path(&mut self, parent: PathBuf) {
+        self.expanded.insert(parent);
     }
 
     fn save_current(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -296,17 +296,87 @@ impl NotesPage {
         cx.notify();
     }
 
-    /// Live styles the markdown in place; the raw panes show plain text.
-    /// Switching resets the editor's syntax engine on the next refresh.
-    fn apply_editor_language(&mut self, cx: &mut Context<Self>) {
-        let language = if self.mode == NotesMode::Live { LIVE_LANGUAGE } else { RAW_LANGUAGE };
-        self.editor.update(cx, |state, cx| state.set_highlighter(language, cx));
+    /// Plain Enter inside the live editor: continue a list under the caret
+    /// (an empty item ends it), else insert a bare newline. The editor
+    /// itself never inserts on plain Enter (submit_on_enter) — this is the
+    /// only path.
+    fn enter_pressed(
+        &mut self,
+        editor: &Entity<EditorState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = editor.read(cx).value().to_string();
+        let selection = editor.read(cx).selected_range();
+        let caret_char = byte_to_char(&text, selection.start);
+        let (new_text, new_caret_char) = match notes_core::continue_list(&text, caret_char) {
+            Some((text, caret)) => (text, caret),
+            None => {
+                // plain newline, replacing the selection and keeping the
+                // line's indent like the kit's own editor newline does
+                let start = selection.start.min(text.len());
+                let end = selection.end.min(text.len());
+                let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let indent = text[line_start..].len() - text[line_start..].trim_start_matches(' ').len();
+                // never re-type spaces the caret sits inside
+                let keep = indent.min(start - line_start);
+                let mut out = String::with_capacity(text.len() + 1 + keep);
+                out.push_str(&text[..start]);
+                out.push('\n');
+                out.push_str(&text[line_start..line_start + keep]);
+                out.push_str(&text[end..]);
+                (out, caret_char + 1 + keep)
+            }
+        };
+        let caret = char_to_byte(&new_text, new_caret_char);
+        editor.update(cx, |state, cx| {
+            // replace_all keeps the undo stack, unlike set_value
+            state.replace_all(new_text.as_str(), window, cx);
+            state.set_selected_range(caret..caret, cx);
+        });
+        cx.notify();
+    }
+
+    /// A plain click that landed on a task checkbox toggles it — the editor
+    /// has already placed the caret at the click offset by the time this
+    /// bubble-phase handler runs.
+    fn toggle_task_under_click(
+        &mut self,
+        event: &gpui::MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.click_count != 1
+            || event.modifiers.shift
+            || event.modifiers.alt
+            || event.modifiers.control
+        {
+            return;
+        }
+        let range = self.editor.read(cx).selected_range();
+        if range.start != range.end {
+            return; // the press selected text, it was not a click on the box
+        }
+        let text = self.editor.read(cx).value().to_string();
+        if let Some(new_text) = markdown_live::toggle_task_at(&text, range.start) {
+            self.editor.update(cx, |state, cx| {
+                state.replace_all(new_text.as_str(), window, cx);
+                state.set_selected_range(range.start..range.start, cx);
+            });
+            cx.notify();
+        }
     }
 
     /// The editor's current buffer — for headless probes.
     #[doc(hidden)]
     pub fn editor_value(&self, cx: &gpui::App) -> String {
         self.editor.read(cx).value().to_string()
+    }
+
+    /// The editor entity — for headless probes (caret, layout hit-testing).
+    #[doc(hidden)]
+    pub fn editor_handle(&self) -> &Entity<EditorState> {
+        &self.editor
     }
 }
 
@@ -340,8 +410,8 @@ impl Render for NotesPage {
         if let Some(scope) = self.store.update(cx, |store, _| store.pending_notes_scope.take()) {
             self.apply_scope_request(scope);
         }
-        let preview_text = self.editor.read(cx).value().to_string();
-        let dirty = self.open_note.is_some() && preview_text != self.saved_text;
+        let editor_text = self.editor.read(cx).value().to_string();
+        let dirty = self.open_note.is_some() && editor_text != self.saved_text;
         let armed = self
             .armed_delete
             .as_ref()
@@ -405,7 +475,7 @@ impl Render for NotesPage {
                             .border_color(theme::HAIRLINE)
                             .bg(theme::CARD)
                             .child(self.render_toolbar(note_title, dirty, armed, window, cx))
-                            .child(self.render_editor(preview_text, cx))
+                            .child(self.render_editor(cx))
                             .when(self.open_note.is_some(), |column| {
                                 column.child(self.render_status_bar(cx))
                             }),
@@ -806,43 +876,6 @@ impl NotesPage {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let _ = window;
-        // segmented mode control: Edit / Live / Split / Preview
-        let mut modes = div()
-            .flex()
-            .flex_row()
-            .gap_0p5()
-            .p_0p5()
-            .rounded_md()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::BACKGROUND);
-        for (mode, label) in [
-            (NotesMode::Edit, "Edit"),
-            (NotesMode::Live, "Live"),
-            (NotesMode::Split, "Split"),
-            (NotesMode::Preview, "Preview"),
-        ] {
-            let active = self.mode == mode;
-            modes = modes.child(
-                div()
-                    .id(SharedString::from(format!("notes-mode-{label}")))
-                    .debug_selector(move || format!("notes-mode-{label}"))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(theme::font_small()))
-                    .when(active, |d| d.bg(theme::CHIP).text_color(theme::TEXT).font_weight(FontWeight::SEMIBOLD))
-                    .when(!active, |d| d.text_color(theme::TEXT_MUTED))
-                    .hover(|s| s.opacity(0.85))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.mode = mode;
-                        this.apply_editor_language(cx);
-                        cx.notify();
-                    }))
-                    .child(label),
-            );
-        }
 
         // formatting row: text styles, headings, lists and inserts, separated
         // into groups; icon buttons where the asset set has a glyph and short
@@ -926,7 +959,6 @@ impl NotesPage {
                     )
                     .when(dirty, |row| row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unsaved")))
                     .child(div().flex_1())
-                    .child(modes)
                     .when(self.open_note.is_some(), |row| {
                         row.child(
                             div()
@@ -972,10 +1004,7 @@ impl NotesPage {
                         )
                     }),
             )
-            .when(
-                self.open_note.is_some() && self.mode != NotesMode::Preview,
-                |toolbar| toolbar.child(formats),
-            )
+            .when(self.open_note.is_some(), |toolbar| toolbar.child(formats))
             .into_any_element()
     }
 
@@ -991,7 +1020,7 @@ impl NotesPage {
             .line_height(relative(1.7))
     }
 
-    fn render_editor(&mut self, preview_text: String, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_editor(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.open_note.is_none() {
             let can_create = self.notes_scope.is_some() || !self.tree.is_empty();
             return div()
@@ -1052,66 +1081,22 @@ impl NotesPage {
                 })
                 .into_any_element();
         }
-        let preview = TextView::markdown(
-            gpui::ElementId::Name("notes-preview".into()),
-            SharedString::from(preview_text),
-        )
-        .selectable(true);
-        match self.mode {
-            NotesMode::Edit => div()
-                .id("notes-edit")
-                .debug_selector(|| "notes-edit".into())
-                .flex_1()
-                .min_h_0()
-                .p_2()
-                .child(self.editor_element()),
-            NotesMode::Preview => div()
-                .id("notes-preview-pane")
-                .debug_selector(|| "notes-preview-pane".into())
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .p_3()
-                .child(preview),
-            NotesMode::Live => div()
-                .id("notes-live")
-                .debug_selector(|| "notes-live".into())
-                .flex_1()
-                .min_h_0()
-                .p_2()
-                .child(self.editor_element()),
-            NotesMode::Split => div()
-                .id("notes-split")
-                .debug_selector(|| "notes-split".into())
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_row()
-                .child(
-                    div()
-                        .id("notes-split-edit")
-                        .debug_selector(|| "notes-split-edit".into())
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .p_2()
-                        .border_r_1()
-                        .border_color(theme::HAIRLINE)
-                        .child(self.editor_element()),
-                )
-                .child(
-                    div()
-                        .id("notes-split-preview")
-                        .debug_selector(|| "notes-split-preview".into())
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .overflow_y_scroll()
-                        .p_3()
-                        .child(preview),
-                ),
-        }
-        .into_any_element()
+        div()
+            .id("notes-live")
+            .debug_selector(|| "notes-live".into())
+            .flex_1()
+            .min_h_0()
+            .p_2()
+            // bubble phase: the editor has already processed the press, so
+            // the caret marks the click position for the task toggle
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                    this.toggle_task_under_click(event, window, cx);
+                }),
+            )
+            .child(self.editor_element())
+            .into_any_element()
     }
 }
 
@@ -1119,13 +1104,9 @@ impl NotesPage {
 
 /// Language name that triggers the app markdown live styling.
 const LIVE_LANGUAGE: &str = "markdown";
-/// Anything the factory does not own falls back to plain text.
-const RAW_LANGUAGE: &str = "plaintext";
 
 /// How far source markers fade when the cursor is on another line.
-const MARKER_FADE: f32 = 0.8;
-/// Slightly deeper fade for whole fence lines.
-const FENCE_FADE: f32 = 0.85;
+const MARKER_FADE: f32 = 0.85;
 
 /// Builds the editor's highlighter factory: `markdown` gets the live engine,
 /// every other language stays unstyled. A free function so the closure
@@ -1220,10 +1201,15 @@ impl MarkdownLiveHighlighter {
     }
 
     /// Which kinds are source syntax that disappears when not being edited.
+    /// Task boxes never fade — they are the click target for toggling.
     fn fades(kind: MarkdownLiveKind) -> Option<f32> {
         match kind {
-            MarkdownLiveKind::CodeFence => Some(FENCE_FADE),
-            MarkdownLiveKind::Marker | MarkdownLiveKind::LinkUrl => Some(MARKER_FADE),
+            MarkdownLiveKind::CodeFence
+            | MarkdownLiveKind::Marker
+            | MarkdownLiveKind::LinkUrl
+            | MarkdownLiveKind::HeadingMarker
+            | MarkdownLiveKind::ListMarker
+            | MarkdownLiveKind::QuoteMarker => Some(MARKER_FADE),
             _ => None,
         }
     }

@@ -92,6 +92,27 @@ pub fn parse(text: &str) -> Vec<MarkdownLiveSpan> {
     merged
 }
 
+/// Toggle the task checkbox whose `[ ]`/`[x]` span contains `byte`
+/// (either span boundary accepted), returning the full new text. The
+/// replacement is 3 bytes for 3 bytes, so every other offset is stable.
+pub fn toggle_task_at(text: &str, byte: usize) -> Option<String> {
+    let span = parse(text).into_iter().find(|s| {
+        matches!(s.kind, MarkdownLiveKind::TaskOpen | MarkdownLiveKind::TaskDone)
+            && byte >= s.range.start
+            && byte <= s.range.end
+    })?;
+    let replacement = match span.kind {
+        MarkdownLiveKind::TaskOpen => "[x]",
+        _ => "[ ]",
+    };
+    Some(format!(
+        "{}{}{}",
+        &text[..span.range.start],
+        replacement,
+        &text[span.range.end..]
+    ))
+}
+
 fn push(spans: &mut Vec<MarkdownLiveSpan>, start: usize, end: usize, kind: MarkdownLiveKind) {
     if start < end {
         spans.push(MarkdownLiveSpan { range: start..end, kind });
@@ -789,6 +810,35 @@ mod tests {
         assert_covered("just text, nothing markdown");
         assert_covered("");
         assert_covered("multi\nline\nplain");
+    }
+
+    #[test]
+    fn toggle_task_flips_both_ways_and_only_on_tasks() {
+        let text = "- [ ] first\n- [x] second\n- plain item";
+        // open → done (byte inside and on both boundaries of `[ ]`)
+        for byte in [2, 4, 5] {
+            assert_eq!(toggle_task_at(text, byte).as_deref(), Some("- [x] first\n- [x] second\n- plain item"));
+        }
+        // done → open
+        for byte in [14, 16, 17] {
+            assert_eq!(toggle_task_at(text, byte).as_deref(), Some("- [ ] first\n- [ ] second\n- plain item"));
+        }
+        // one byte past the span belongs to the item text, not the box
+        assert_eq!(toggle_task_at(text, 6), None);
+        // list marker / plain item / out of range
+        assert_eq!(toggle_task_at(text, 0), None);
+        assert_eq!(toggle_task_at(text, 22), None);
+        assert_eq!(toggle_task_at(text, 99), None);
+    }
+
+    #[test]
+    fn toggle_task_keeps_length_and_later_offsets_stable() {
+        let text = "- [X] capital done\nplain";
+        // `[X]` normalizes to `[ ]` on untoggle and back to lowercase `[x]`
+        let toggled = toggle_task_at(text, 3).unwrap();
+        assert_eq!(toggled.len(), text.len());
+        assert_eq!(toggled, "- [ ] capital done\nplain");
+        assert_eq!(toggle_task_at(&toggled, 3).as_deref(), Some("- [x] capital done\nplain"));
     }
 
     #[test]

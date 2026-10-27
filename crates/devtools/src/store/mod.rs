@@ -149,7 +149,8 @@ impl Store {
             notice_generation: 0,
             pending_note_open: None,
             global_search: Vec::new(),
-            notes_requested: false,
+            // E2E hook: DEVTOOLS_NOTES=1 opens the Notes window on launch
+            notes_requested: std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1"),
             pending_notes_scope: None,
             commit_details: None,
             commit_file_patch: None,

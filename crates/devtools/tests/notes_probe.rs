@@ -1,8 +1,8 @@
 //! Headless probe for the Notes window: the carded sidebar, opening a note
-//! from the tree, the four view modes — Live (Obsidian-style single
-//! surface), Split, Preview, Edit — and the pinned scope: the tree re-roots
-//! only through the rows' notes icon (or the up button), never a repo row
-//! press.
+//! from the tree, the single Obsidian-style live editor (no mode switcher),
+//! task checkboxes toggling on click, Enter continuing lists — and the
+//! pinned scope: the tree re-roots only through the rows' notes icon (or
+//! the up button), never a repo row press.
 
 use devtools::store::Store;
 use devtools::ui::notes::NotesPage;
@@ -15,6 +15,8 @@ fn seed_notes(home: &std::path::Path) {
     let notes = home.join(".devtools/notes/alpha");
     std::fs::create_dir_all(&notes).unwrap();
     std::fs::write(notes.join("note.md"), "# Note\n\nHello **world**.\n").unwrap();
+    std::fs::write(notes.join("task.md"), "- [ ] alpha task\n").unwrap();
+    std::fs::write(notes.join("list.md"), "- alpha\n").unwrap();
     std::fs::write(notes.join("other.md"), "# Other\n").unwrap();
     let beta = home.join(".devtools/notes/beta");
     std::fs::create_dir_all(&beta).unwrap();
@@ -67,7 +69,7 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 #[gpui::test]
-fn notes_window_modes_tree_and_pinned_scope(cx: &mut TestAppContext) {
+fn notes_live_editor_tree_and_pinned_scope(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -146,34 +148,70 @@ fn notes_window_modes_tree_and_pinned_scope(cx: &mut TestAppContext) {
     assert!(bounds(cx, "note-item-alpha").is_none(), "the previous scope is gone");
     assert!(bounds(cx, "notes-up-dir").is_some(), "repo scope shows the up button again");
 
-    // back to the store root for the mode walk
+    // back to the store root for the editor walk
     click(cx, "notes-up-dir");
 
-    // default mode is Live: the Obsidian-style single surface — the editor
-    // itself renders the markdown, so there is no separate preview pane
-    assert!(bounds(cx, "notes-live").is_some(), "Live is the default pane");
-    assert!(bounds(cx, "notes-live-edit").is_none(), "Live has no separate editor pane");
-    assert!(bounds(cx, "notes-live-preview").is_none(), "Live has no separate preview pane");
+    // single surface: the live editor IS the pane, the mode switcher is gone
+    assert!(bounds(cx, "notes-live").is_some(), "the live editor pane renders");
+    for mode in ["notes-mode-Edit", "notes-mode-Live", "notes-mode-Split", "notes-mode-Preview"] {
+        assert!(bounds(cx, mode).is_none(), "the {mode} mode switcher is gone");
+    }
 
-    // Split: raw editor beside the rendered preview
-    click(cx, "notes-mode-Split");
-    assert!(bounds(cx, "notes-split").is_some(), "Split pane renders");
-    assert!(bounds(cx, "notes-split-preview").is_some(), "Split shows the preview");
+    // clicking a task checkbox toggles it in place — the box is the `[ ]`
+    // span of the first line, toggling keeps its offsets stable
+    click(cx, "note-item-alpha");
+    click(cx, "note-item-task.md");
+    let box_center = {
+        let b = cx
+            .update(|_, cx| {
+                page.as_ref().unwrap().read(cx).editor_handle().read(cx).range_to_bounds(&(2..5))
+            })
+            .expect("the task box has layout bounds");
+        Point::new(b.origin.x + b.size.width / 2., b.origin.y + b.size.height / 2.)
+    };
+    cx.simulate_click(box_center, Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    cx.update(|_, cx| {
+        let value = page.as_ref().unwrap().read(cx).editor_value(cx);
+        assert!(value.contains("- [x]"), "clicking the box checks the task: {value:?}");
+    });
+    cx.simulate_click(box_center, Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        let value = page.as_ref().unwrap().read(cx).editor_value(cx);
+        assert!(value.contains("- [ ]"), "clicking again unchecks it: {value:?}");
+    });
 
-    // Preview: rendered only, no formatting strip needed
-    click(cx, "notes-mode-Preview");
-    assert!(bounds(cx, "notes-preview-pane").is_some(), "Preview pane renders");
+    // Enter inside a list item continues the list. The real key path is the
+    // kit's Enter action (the harness's simulated-IME keystroke would also
+    // inject a literal '\n' before deferred events run), so dispatch the
+    // action itself.
+    click(cx, "note-item-list.md");
+    cx.update(|window, cx| {
+        let editor = page.as_ref().unwrap().read(cx).editor_handle().clone();
+        editor.update(cx, |state, cx| {
+            state.focus(window, cx);
+            state.set_selected_range(7..7, cx); // end of "- alpha"
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        window.dispatch_action(
+            Box::new(gpui_kit::base::input::Enter { secondary: false, shift: false }),
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    cx.update(|_, cx| {
+        let value = page.as_ref().unwrap().read(cx).editor_value(cx);
+        assert!(value.contains("- alpha\n- "), "Enter continues the list: {value:?}");
+    });
 
-    // Edit: raw editor
-    click(cx, "notes-mode-Edit");
-    assert!(bounds(cx, "notes-edit").is_some(), "Edit pane renders");
-
-    // back to Live for the same single surface
-    click(cx, "notes-mode-Live");
-    assert!(bounds(cx, "notes-live").is_some(), "Live pane returns");
-
-    // typing markdown on the Live surface drives the live highlighter on
+    // typing markdown on the live surface drives the live highlighter on
     // every edit (its parse must not panic and the buffer must hold)
+    click(cx, "note-item-note.md");
     let live = bounds(cx, "notes-live").unwrap();
     cx.simulate_click(
         Point::new(live.origin.x + live.size.width / 2., live.origin.y + live.size.height / 2.),
@@ -183,7 +221,7 @@ fn notes_window_modes_tree_and_pinned_scope(cx: &mut TestAppContext) {
     cx.simulate_input("# Heading\n\n**bold** and `code`\n- [x] done\n");
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(bounds(cx, "notes-live").is_some(), "Live pane survives markdown typing");
+    assert!(bounds(cx, "notes-live").is_some(), "the live pane survives markdown typing");
     cx.update(|_, cx| {
         let value = page.as_ref().unwrap().read(cx).editor_value(cx);
         assert!(value.contains("# Heading"), "typed markdown reached the buffer: {value:?}");
