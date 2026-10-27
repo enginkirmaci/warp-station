@@ -11,6 +11,11 @@ use std::path::PathBuf;
 
 pub const FAVORITES_TAG: &str = "favorites";
 
+/// Marks a repo as archived: it leaves the table and every background pass
+/// until restored. A plain tag, so cache persistence and merge_scan survival
+/// come free (no new persisted field).
+pub const ARCHIVED_TAG: &str = "archived";
+
 /// What the cache file serializes per repo. On-disk files from older builds
 /// carry dozens of runtime/computed fields; unknown fields are ignored on
 /// read and not rewritten, and missing keys deserialize as defaults.
@@ -67,6 +72,10 @@ pub struct RepoEntry {
 impl RepoEntry {
     pub fn is_favorite(&self) -> bool {
         self.tags.iter().any(|t| t.eq_ignore_ascii_case(FAVORITES_TAG))
+    }
+
+    pub fn is_archived(&self) -> bool {
+        self.tags.iter().any(|t| t.eq_ignore_ascii_case(ARCHIVED_TAG))
     }
 }
 

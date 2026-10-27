@@ -94,6 +94,18 @@ impl ReposPage {
                     suppressed_for_table.set(suppressed_for_table.get() - 1);
                     return;
                 }
+                // archived rows are inert: never selected, never open the
+                // bar. clear_selection emits ClearSelection (not SelectRow),
+                // so reverting the table's transient highlight cannot loop.
+                if table_for_store
+                    .read(cx)
+                    .delegate()
+                    .repo_at(*row_ix, cx)
+                    .is_some_and(|repo| repo.is_archived())
+                {
+                    table_for_store.update(cx, |table, cx| table.clear_selection(cx));
+                    return;
+                }
                 let folder = table_for_store.read(cx).delegate().folder_at(*row_ix, cx);
                 tracing::info!("row {row_ix} selected -> {folder:?}");
                 store_for_table.update(cx, |s, cx| s.select_repo(folder, cx));
@@ -367,13 +379,23 @@ impl ReposPage {
             (store.all_tags(), store.tag_filters.clone(), store.scanning)
         };
 
-        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active) = {
+        let (archived_count, show_archived) = {
             let store = self.store.read(cx);
             (
-                store.repos.len(),
-                store.repos.iter().map(|r| r.git_modified_count).sum::<u32>(),
-                store.repos.iter().map(|r| r.github_pr_count).sum::<u32>(),
-                store.repos.iter().map(|r| r.github_issue_count).sum::<u32>(),
+                store.repos.iter().filter(|r| r.is_archived()).count(),
+                store.show_archived,
+            )
+        };
+
+        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active) = {
+            let store = self.store.read(cx);
+            // totals describe the live list: archived repos leave every sum
+            let live = store.repos.iter().filter(|r| !r.is_archived());
+            (
+                live.clone().count(),
+                live.clone().map(|r| r.git_modified_count).sum::<u32>(),
+                live.clone().map(|r| r.github_pr_count).sum::<u32>(),
+                live.map(|r| r.github_issue_count).sum::<u32>(),
                 store.settings().repos.enable_git_hub,
                 !store.tag_filters.is_empty(),
             )
@@ -525,6 +547,31 @@ impl ReposPage {
             ));
 
         let store_clear = self.store.clone();
+        // the archived toggle rides the filter row (it is a view filter, and
+        // this row never compacts away): present whenever archived repos
+        // exist or are being shown, pill-styled like the tag chips
+        let archive_chip_visible = archived_count > 0 || show_archived;
+        let archive_chip = div()
+            .id("archive-chip")
+            .debug_selector(|| "archive-chip".into())
+            .cursor_pointer()
+            .rounded_full()
+            .border_1()
+            .border_color(if show_archived { theme::ACCENT } else { theme::HAIRLINE })
+            .px_2()
+            .py_0p5()
+            .text_size(px(theme::font_small() - 1.))
+            .when(show_archived, |d| {
+                d.bg(theme::tint(theme::ACCENT))
+                    .text_color(theme::ACCENT)
+                    .font_weight(FontWeight::MEDIUM)
+            })
+            .when(!show_archived, |d| d.text_color(theme::TEXT_MUTED))
+            .hover(|s| s.border_color(theme::TEXT_FAINT).text_color(theme::TEXT))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.store.update(cx, |s, cx| s.toggle_show_archived(cx));
+            }))
+            .child(format!("Archive ({archived_count})"));
         let filter_row = div()
             .h(px(theme::TOOLBAR_H))
             .flex()
@@ -534,6 +581,7 @@ impl ReposPage {
             .px_4()
             .border_t_1()
             .border_color(theme::BORDER_LIGHT)
+            .when(archive_chip_visible, |row| row.child(archive_chip))
             .child(tag_pills)
             .when(filters_active, |row| {
                 row.child(
@@ -1001,144 +1049,241 @@ impl TableDelegate for ReposDelegate {
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
         let show_tooltips = settings.general.show_tooltips;
+        let archived = repo.is_archived();
 
         let cell: gpui::AnyElement = match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
             ColKind::Star => {
-                let favorite = repo.is_favorite();
-                let star = div()
-                    .id(("star", row_ix))
-                    .debug_selector(move || format!("repos-star-cell-{row_ix}"))
-                    .cursor_pointer()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(30.))
-                    .on_click({
-                        let store = self.store.clone();
-                        let folder = folder.clone();
-                        move |_, _, cx| {
-                            cx.stop_propagation();
-                            store.update(cx, |s, cx| s.toggle_favorite(&folder, cx));
-                        }
-                    })
-                    .child(icon(
-                        "icons/icon-star.svg",
-                        px(theme::icon_medium()),
-                        if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
-                    ));
-                crate::ui::with_tooltip(
-                    star,
-                    show_tooltips,
-                    if favorite { "Remove from favorites" } else { "Add to favorites" },
-                )
-                .into_any_element()
-            }
-            ColKind::Name => {
-                let store = self.store.clone();
-                let notes_folder = folder.clone();
-                let notes_name = repo.name.clone();
-                let notes_button = div()
-                    .id(("open-notes", row_ix))
-                    .cursor_pointer()
-                    .flex_shrink_0()
-                    .rounded_md()
-                    .p_1p5()
-                    .flex()
-                    .items_center()
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        store.update(cx, |s, cx| {
-                            s.ensure_repo_selected(&notes_folder, cx);
-                            s.request_notes_scope(notes_name.clone(), cx);
-                        });
-                    })
-                    .child(icon(
-                        "icons/icon-note.svg",
-                        px(theme::icon_medium()),
-                        theme::TEXT_MUTED,
-                    ));
-                // one semibold line — the folder path left the table when the
-                // rows went tall; the name uses the whole column
-                div()
-                    .debug_selector(move || format!("repos-name-cell-{row_ix}"))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(crate::ui::with_tooltip(
-                        notes_button,
+                if archived {
+                    // archived rows are inert: no star, no toggle
+                    div().into_any_element()
+                } else {
+                    let favorite = repo.is_favorite();
+                    let star = div()
+                        .id(("star", row_ix))
+                        .debug_selector(move || format!("repos-star-cell-{row_ix}"))
+                        .cursor_pointer()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(30.))
+                        .on_click({
+                            let store = self.store.clone();
+                            let folder = folder.clone();
+                            move |_, _, cx| {
+                                cx.stop_propagation();
+                                store.update(cx, |s, cx| s.toggle_favorite(&folder, cx));
+                            }
+                        })
+                        .child(icon(
+                            "icons/icon-star.svg",
+                            px(theme::icon_medium()),
+                            if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
+                        ));
+                    crate::ui::with_tooltip(
+                        star,
                         show_tooltips,
-                        "Open notes for this repository",
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(theme::font_title()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::TEXT)
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(repo.name.clone()),
+                        if favorite { "Remove from favorites" } else { "Add to favorites" },
                     )
                     .into_any_element()
-            }
-            ColKind::Shortcuts => {
-                let warp_running = store
-                    .warp_running
-                    .get(&folder)
-                    .filter(|status| !status.running.is_empty())
-                    .map(|status| status.running.join(", "));
-                shortcuts_cell(repo, &settings, row_ix, &self.store, warp_running)
-            }
-            // branch pill and changes cell open the bar's Changes tab; the
-            // GitHub/Azure cells route to their own tabs
-            ColKind::Branch => tab_cell(
-                ("open-changes", row_ix as u64),
-                &folder,
-                BottomBarTab::Changes,
-                &self.store,
-                branch_pill(repo.git_branch_name.as_deref()),
-            ),
-            ColKind::Changes => tab_cell(
-                ("open-changes", row_ix as u64),
-                &folder,
-                BottomBarTab::Changes,
-                &self.store,
-                changes_cell(repo, layout.metrics.compact_changes),
-            ),
-            ColKind::Github => {
-                let tab = if repo.github_pr_count > 0 {
-                    BottomBarTab::PullRequests
-                } else {
-                    BottomBarTab::Issues
-                };
-                let has_content = repo.github_pr_count > 0 || repo.github_issue_count > 0;
-                if has_content {
-                    tab_cell(("open-gh", row_ix as u64), &folder, tab, &self.store, github_cell(repo))
-                } else {
-                    github_cell(repo)
                 }
             }
-            ColKind::Azure => tab_cell(
-                ("open-azure", row_ix as u64),
-                &folder,
-                BottomBarTab::Azure,
-                &self.store,
-                azure_cell(repo, &self.store, cx),
-            ),
-            ColKind::Activity => div()
-                .flex()
-                .text_size(px(theme::font_small()))
-                .text_color(theme::TEXT_MUTED)
-                .child(
-                    repo.git_last_commit_at
-                        .map(devtools_core::rel_time::format)
-                        .unwrap_or_else(|| "—".into()),
-                )
-                .into_any_element(),
+            ColKind::Name => {
+                if archived {
+                    // limp identity plus the hover-revealed restore action —
+                    // the only live control on the row
+                    let store = self.store.clone();
+                    let folder_restore = folder.clone();
+                    let restore_name = repo.name.clone();
+                    let restore = div()
+                        .id(("restore", row_ix))
+                        .debug_selector(move || format!("repos-restore-{row_ix}"))
+                        .cursor_pointer()
+                        .flex_shrink_0()
+                        .rounded_md()
+                        .p_1p5()
+                        .flex()
+                        .items_center()
+                        .opacity(0.)
+                        .group_hover("archived-row", |s| s.opacity(1.))
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            store.update(cx, |s, cx| {
+                                s.set_repo_archived(&folder_restore, false, cx);
+                                s.notify_success(format!("Restored {restore_name}"));
+                                cx.notify();
+                            });
+                        })
+                        .child(icon(
+                            "icons/icon-undo.svg",
+                            px(theme::icon_medium()),
+                            theme::TEXT_MUTED,
+                        ));
+                    div()
+                        .debug_selector(move || format!("repos-name-cell-{row_ix}"))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(theme::font_title()))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::TEXT_FAINT)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(repo.name.clone()),
+                        )
+                        .child(restore)
+                        .into_any_element()
+                } else {
+                    let store = self.store.clone();
+                    let notes_folder = folder.clone();
+                    let notes_name = repo.name.clone();
+                    let notes_button = div()
+                        .id(("open-notes", row_ix))
+                        .cursor_pointer()
+                        .flex_shrink_0()
+                        .rounded_md()
+                        .p_1p5()
+                        .flex()
+                        .items_center()
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            store.update(cx, |s, cx| {
+                                s.ensure_repo_selected(&notes_folder, cx);
+                                s.request_notes_scope(notes_name.clone(), cx);
+                            });
+                        })
+                        .child(icon(
+                            "icons/icon-note.svg",
+                            px(theme::icon_medium()),
+                            theme::TEXT_MUTED,
+                        ));
+                    // one semibold line — the folder path left the table when the
+                    // rows went tall; the name uses the whole column
+                    div()
+                        .debug_selector(move || format!("repos-name-cell-{row_ix}"))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(crate::ui::with_tooltip(
+                            notes_button,
+                            show_tooltips,
+                            "Open notes for this repository",
+                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(theme::font_title()))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::TEXT)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(repo.name.clone()),
+                        )
+                        .into_any_element()
+                }
+            }
+            ColKind::Shortcuts => {
+                if archived {
+                    div().into_any_element()
+                } else {
+                    let warp_running = store
+                        .warp_running
+                        .get(&folder)
+                        .filter(|status| !status.running.is_empty())
+                        .map(|status| status.running.join(", "));
+                    shortcuts_cell(repo, &settings, row_ix, &self.store, warp_running)
+                }
+            }
+            // branch pill and changes cell open the bar's Changes tab; the
+            // GitHub/Azure cells route to their own tabs. Archived rows
+            // render the same cells faded with no click routing.
+            ColKind::Branch => {
+                let cell = branch_pill(repo.git_branch_name.as_deref());
+                if archived {
+                    faded(cell)
+                } else {
+                    tab_cell(
+                        ("open-changes", row_ix as u64),
+                        &folder,
+                        BottomBarTab::Changes,
+                        &self.store,
+                        cell,
+                    )
+                }
+            }
+            ColKind::Changes => {
+                let cell = changes_cell(repo, layout.metrics.compact_changes);
+                if archived {
+                    faded(cell)
+                } else {
+                    tab_cell(
+                        ("open-changes", row_ix as u64),
+                        &folder,
+                        BottomBarTab::Changes,
+                        &self.store,
+                        cell,
+                    )
+                }
+            }
+            ColKind::Github => {
+                let cell = github_cell(repo);
+                if archived {
+                    faded(cell)
+                } else {
+                    let tab = if repo.github_pr_count > 0 {
+                        BottomBarTab::PullRequests
+                    } else {
+                        BottomBarTab::Issues
+                    };
+                    let has_content = repo.github_pr_count > 0 || repo.github_issue_count > 0;
+                    if has_content {
+                        tab_cell(("open-gh", row_ix as u64), &folder, tab, &self.store, cell)
+                    } else {
+                        cell
+                    }
+                }
+            }
+            ColKind::Azure => {
+                let cell = azure_cell(repo, &self.store, cx);
+                if archived {
+                    faded(cell)
+                } else {
+                    tab_cell(
+                        ("open-azure", row_ix as u64),
+                        &folder,
+                        BottomBarTab::Azure,
+                        &self.store,
+                        cell,
+                    )
+                }
+            }
+            ColKind::Activity => {
+                let cell = div()
+                    .flex()
+                    .text_size(px(theme::font_small()))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(
+                        repo.git_last_commit_at
+                            .map(devtools_core::rel_time::format)
+                            .unwrap_or_else(|| "—".into()),
+                    )
+                    .into_any_element();
+                if archived {
+                    faded(cell)
+                } else {
+                    cell
+                }
+            }
         };
 
         // the kit's cell wrapper is a block div and percentage heights don't
@@ -1146,14 +1291,18 @@ impl TableDelegate for ReposDelegate {
         // cell centers inside an explicit flex column instead. The height
         // must leave the kit's own 4+4 cell padding free — at the full row
         // height the column overflows 8px and content rides ~4px low.
-        div()
+        // Archived rows also register the hover group the restore icon
+        // reveals under.
+        let mut wrap = div()
             .debug_selector(move || format!("repos-td-wrap-{row_ix}"))
             .h(px(theme::TABLE_ROW_H - 8.))
             .flex()
             .flex_col()
-            .justify_center()
-            .child(cell)
-            .into_any_element()
+            .justify_center();
+        if archived {
+            wrap = wrap.group("archived-row");
+        }
+        wrap.child(cell).into_any_element()
     }
 
     fn render_empty(
@@ -1191,6 +1340,12 @@ impl TableDelegate for ReposDelegate {
             .child(text)
             .into_any_element()
     }
+}
+
+/// Wraps a cell's content for an archived row: everything renders, but limp
+/// and without the interactive wrapper (the row is inert except restore).
+fn faded(cell: gpui::AnyElement) -> gpui::AnyElement {
+    div().opacity(0.55).child(cell).into_any_element()
 }
 
 /// Wraps a table cell so clicking it opens the bottom bar on one specific

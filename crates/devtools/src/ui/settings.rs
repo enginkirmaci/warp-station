@@ -294,7 +294,12 @@ impl SettingsPage {
                 theme::set_font_scale(store.settings().general.font_scale.as_deref());
                 theme::apply_kit_theme(cx);
             }
-            let folders: Vec<std::path::PathBuf> = store.repos.iter().map(|r| r.folder_path.clone()).collect();
+            let folders: Vec<std::path::PathBuf> = store
+                .repos
+                .iter()
+                .filter(|repo| !repo.is_archived())
+                .map(|r| r.folder_path.clone())
+                .collect();
             store.kick_github_pass(&folders);
             store.kick_azure_pass(&folders);
             store.load_models(cx);

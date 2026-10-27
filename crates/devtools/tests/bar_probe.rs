@@ -94,6 +94,61 @@ fn notes_button_path_never_closes_the_bar(cx: &mut TestAppContext) {
     });
 }
 
+/// The bar kebab's "Archive repository" item: one click tags the selected
+/// repo, its row leaves the list, the bar closes with it and a toast
+/// confirms.
+#[gpui::test]
+fn kebab_archive_repository_tags_the_selected_repo(cx: &mut TestAppContext) {
+    use devtools::ui::window::MainWindow;
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    cx.update_entity(&store, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.debug_bounds("bar-root").is_some(), "the bar starts open");
+
+    let kebab = cx.debug_bounds("bar-kebab").expect("the kebab button renders");
+    cx.simulate_click(kebab.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let item = cx
+        .debug_bounds("kebab-Archive repository")
+        .expect("the archive item renders in the kebab menu");
+    cx.simulate_click(item.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.read_entity(&store, |s, _| s
+            .repos
+            .iter()
+            .find(|r| r.folder_path == std::path::Path::new("/probe/alpha"))
+            .is_some_and(|r| r.is_archived())),
+        "the kebab item archived the selected repo"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.projected.len()),
+        1,
+        "the archived row left the list"
+    );
+    assert!(
+        cx.read_entity(&store, |s, _| s.selected_repo.is_none()),
+        "the bar closed with the archived repo"
+    );
+    assert!(
+        cx.debug_bounds("toast-0").is_some(),
+        "archiving confirms with a toast"
+    );
+}
+
 fn s_selected(store: &gpui::Entity<Store>, cx: &gpui::App) -> Option<String> {
     store.read(cx).selected_repo.clone()
 }

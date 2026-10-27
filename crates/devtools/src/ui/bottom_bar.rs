@@ -274,6 +274,9 @@ impl Render for BottomBar {
             .clone()
             .into_iter()
             .filter(|tag| !tag.eq_ignore_ascii_case("favorites"))
+            // the archived marker is managed by the kebab's Archive item, not
+            // a removable chip
+            .filter(|tag| !tag.eq_ignore_ascii_case(devtools_core::repo_store::ARCHIVED_TAG))
         {
             let color = tag_color(chip_index);
             chip_index += 1;
@@ -624,6 +627,7 @@ impl BottomBar {
             let this = this.clone();
             div()
                 .id(SharedString::from(format!("kebab-{label}")))
+                .debug_selector(move || format!("kebab-{label}"))
                 .cursor_pointer()
                 .px_3()
                 .py_1p5()
@@ -661,6 +665,9 @@ impl BottomBar {
         }
         let folder_copy = folder.clone();
         let store_folder = store.clone();
+        let folder_archive = folder.clone();
+        let store_archive = store.clone();
+        let archive_name = self.store.read(cx).selected_entry().map(|e| e.name.clone()).unwrap_or_default();
         let folder_remove = folder.clone();
         let store_remove = store.clone();
         let remove_armed = self.remove_armed;
@@ -669,6 +676,14 @@ impl BottomBar {
                 Self::copy_text(folder_copy.clone(), cx);
                 store_folder.update(cx, |s, cx| {
                     s.notify_success("Folder path copied");
+                    cx.notify();
+                });
+            })))
+            // reversible, so no arming like the remove below
+            .child(make_item("Archive repository", Box::new(move |cx: &mut App| {
+                store_archive.update(cx, |s, cx| {
+                    s.set_repo_archived(&folder_archive, true, cx);
+                    s.notify_success(format!("Archived {archive_name}"));
                     cx.notify();
                 });
             })))

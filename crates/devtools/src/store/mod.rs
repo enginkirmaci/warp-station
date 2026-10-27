@@ -16,6 +16,9 @@ pub struct Store {
     pub repos: Vec<RepoEntry>,
     /// Checked tag-filter chips (OR semantics: a repo matches when it has any).
     pub tag_filters: Vec<String>,
+    /// Session-only: while on, archived repos join the table below the live
+    /// ones. Never persisted.
+    pub show_archived: bool,
     pub sort_mode: RepoSortMode,
     /// false = the mode's default "best-first" read, true = flipped. Seeded
     /// from the persisted direction when set, else the mode's default.
@@ -140,6 +143,7 @@ impl Store {
             settings,
             repos: cached,
             tag_filters: Vec::new(),
+            show_archived: false,
             sort_mode: app_settings.repos.sort_mode,
             sort_ascending: app_settings
                 .repos
@@ -200,9 +204,14 @@ impl Store {
 
         // Cache first for instant labels, then the session scan + a status
         // pass over whatever we know (the scan's settle re-probes the merged
-        // list).
-        let folders: Vec<std::path::PathBuf> =
-            store.repos.iter().map(|r| r.folder_path.clone()).collect();
+        // list). Archived repos stay out of the passes; the scan still gets
+        // the full list so their tags survive the merge.
+        let folders: Vec<std::path::PathBuf> = store
+            .repos
+            .iter()
+            .filter(|repo| !repo.is_archived())
+            .map(|r| r.folder_path.clone())
+            .collect();
         let _ = store.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
         store.kick_github_pass(&folders);
         store.kick_azure_pass(&folders);
@@ -337,8 +346,12 @@ impl Store {
                 self.scanning = false;
                 self.reproject();
                 // statuses re-check after every rescan without coordination
-                let folders: Vec<std::path::PathBuf> =
-                    self.repos.iter().map(|r| r.folder_path.clone()).collect();
+                let folders: Vec<std::path::PathBuf> = self
+                    .repos
+                    .iter()
+                    .filter(|repo| !repo.is_archived())
+                    .map(|r| r.folder_path.clone())
+                    .collect();
                 let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
                 self.kick_github_pass(&folders);
                 self.kick_azure_pass(&folders);
@@ -656,6 +669,7 @@ impl Store {
         let folders: Vec<(String, std::path::PathBuf)> = self
             .repos
             .iter()
+            .filter(|repo| !repo.is_archived())
             .map(|r| (r.name.clone(), r.folder_path.clone()))
             .collect();
         if folders.is_empty() {
@@ -957,7 +971,7 @@ impl Store {
         let folders: Vec<std::path::PathBuf> = self
             .repos
             .iter()
-            .filter(|repo| repo.git_has_remote)
+            .filter(|repo| repo.git_has_remote && !repo.is_archived())
             .map(|repo| repo.folder_path.clone())
             .filter(|folder| {
                 busy_folder
@@ -1103,7 +1117,13 @@ impl Store {
     }
 
     fn reproject(&mut self) {
-        self.projected = projection::project(&self.repos, &self.tag_filters, self.sort_mode, self.sort_ascending);
+        self.projected = projection::project(
+            &self.repos,
+            &self.tag_filters,
+            self.sort_mode,
+            self.sort_ascending,
+            self.show_archived,
+        );
         self.projection_generation += 1;
         // the table's branch column hugs the widest branch in the projection;
         // computing it here keeps the per-frame layout path O(1)
@@ -1134,6 +1154,7 @@ impl Store {
     pub fn toggle_repo_tag(&mut self, folder: &str, tag: &str, cx: &mut Context<Self>) {
         if tag.eq_ignore_ascii_case(repo_store::FAVORITES_TAG)
             || tag.eq_ignore_ascii_case(devtools_core::scan::PLATFORM_TAG)
+            || tag.eq_ignore_ascii_case(repo_store::ARCHIVED_TAG)
         {
             return;
         }
@@ -1206,14 +1227,21 @@ impl Store {
             Some(ix) => {
                 entry.tags.remove(ix);
             }
-            None => entry.tags.push(tag.to_string()),
+            None => {
+                entry.tags.push(tag.to_string());
+            }
         }
         self.reproject();
+        self.persist_tags_soon(cx);
+    }
+
+    /// Write-behind cache save: a burst of star/tag/archive clicks collapses
+    /// into one full-file write after a short debounce.
+    fn persist_tags_soon(&mut self, cx: &mut Context<Self>) {
         self.save_generation += 1;
         let generation = self.save_generation;
         let repos = self.repos.clone();
         cx.spawn(async move |this, cx| {
-            // a burst of star/tag clicks collapses into one full-file write
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(400))
                 .await;
@@ -1228,6 +1256,54 @@ impl Store {
         })
         .detach();
         cx.notify();
+    }
+
+    /// The toolbar's Archive chip: flips whether archived rows join the
+    /// projection (sorted below the live ones).
+    pub fn toggle_show_archived(&mut self, cx: &mut Context<Self>) {
+        self.show_archived = !self.show_archived;
+        self.reproject();
+        cx.notify();
+    }
+
+    /// Adds or removes the archived marker. Archiving also closes the bar
+    /// when it points at the repo (its row is leaving the visible list);
+    /// restoring re-probes the folder so the row comes back with fresh
+    /// status. Persistence rides the same debounced save as tags — the
+    /// marker IS a tag, so rescan merges carry it for free.
+    pub fn set_repo_archived(&mut self, folder: &str, archived: bool, cx: &mut Context<Self>) {
+        let Some(entry) = self
+            .repos
+            .iter_mut()
+            .find(|r| r.folder_path.to_string_lossy() == folder)
+        else {
+            return;
+        };
+        let has = entry.is_archived();
+        if has == archived {
+            return;
+        }
+        if archived {
+            entry.tags.push(repo_store::ARCHIVED_TAG.to_string());
+        } else {
+            let ix = entry
+                .tags
+                .iter()
+                .position(|t| t.eq_ignore_ascii_case(repo_store::ARCHIVED_TAG))
+                .expect("archived flag just checked");
+            entry.tags.remove(ix);
+        }
+        self.reproject();
+        if archived {
+            if self.selected_repo.as_deref() == Some(folder) {
+                self.close_bar(cx);
+            }
+        } else {
+            let _ = self.net.send_blocking(NetCommand::ProbeAll {
+                folders: vec![std::path::PathBuf::from(folder)],
+            });
+        }
+        self.persist_tags_soon(cx);
     }
 }
 
@@ -1252,9 +1328,12 @@ impl Store {
             cx.notify();
             return;
         }
+        // captured now, before the debounce: the background task must not
+        // re-read the store, and archived repos stay out of both hit sets
         let repos: Vec<(String, String)> = self
             .repos
             .iter()
+            .filter(|repo| !repo.is_archived())
             .map(|repo| (repo.name.clone(), repo.folder_path.to_string_lossy().to_string()))
             .collect();
         let notes_root =

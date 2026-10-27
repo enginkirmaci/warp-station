@@ -663,6 +663,123 @@ fn px_col() -> gpui::Pixels {
     gpui::px(120.)
 }
 
+/// Leaks a per-row selector for debug_bounds (which wants 'static).
+fn row_selector(prefix: &str, row: usize) -> &'static str {
+    Box::leak(format!("{prefix}{row}").into_boxed_str())
+}
+
+/// The archiving flow: an archived repo leaves the projection (and every
+/// background pass) by default, the Archive chip counts it and toggles the
+/// limp rows back on below the live ones, pressing an archived row stays
+/// inert, and its hover-revealed restore action drops the tag, re-probes the
+/// folder and confirms with a toast.
+#[gpui::test]
+fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha", &["favorites"]),
+            entry("beta", "/probe/beta", &["archived"]),
+            entry("gamma", "/probe/gamma", &[]),
+        ]);
+        store
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.read_entity(&store, |s, _| s
+            .repos
+            .iter()
+            .find(|r| r.name == "beta")
+            .is_some_and(|r| r.is_archived())),
+        "the seeded repo carries the archived tag"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.projected.len()),
+        2,
+        "the archived repo hides from the default projection"
+    );
+    assert!(
+        cx.debug_bounds("archive-chip").is_some(),
+        "the Archive chip shows while an archived repo exists"
+    );
+
+    // the chip toggles the archived rows back on, below the live ones
+    let chip = cx.debug_bounds("archive-chip").expect("the archive chip renders");
+    cx.simulate_click(chip.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.read_entity(&store, |s, _| s.show_archived));
+    assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 3);
+    let beta_row = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .position(|&ix| s.repos[ix].name == "beta")
+            .expect("the archived row joins the projection when shown")
+    });
+    assert_eq!(
+        beta_row,
+        2,
+        "the archived row sorts below every live repo (favorites first)"
+    );
+    assert!(
+        cx.debug_bounds(row_selector("repos-restore-", beta_row)).is_some(),
+        "the archived row carries the hover-revealed restore action"
+    );
+
+    // pressing the archived row must not select it nor open the bar
+    let wrap = cx
+        .debug_bounds(row_selector("repos-td-wrap-", beta_row))
+        .expect("the archived row renders");
+    cx.simulate_click(wrap.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.read_entity(&store, |s, _| s.selected_repo.is_none()),
+        "an archived row press must not select the repo"
+    );
+    assert!(
+        cx.debug_bounds("bar-root").is_none(),
+        "the bar must not open on an archived row"
+    );
+
+    // restore: the tag drops, the folder re-probes, a toast confirms
+    let restore = cx
+        .debug_bounds(row_selector("repos-restore-", beta_row))
+        .expect("the restore action renders");
+    cx.simulate_click(restore.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        !cx.read_entity(&store, |s, _| s
+            .repos
+            .iter()
+            .find(|r| r.name == "beta")
+            .is_some_and(|r| r.is_archived())),
+        "restore drops the archived tag"
+    );
+    let mut restored_probe = false;
+    while let Ok(command) = net_rx.try_recv() {
+        let NetCommand::ProbeAll { folders } = command else { continue };
+        if folders == vec![PathBuf::from("/probe/beta")] {
+            restored_probe = true;
+        }
+    }
+    assert!(restored_probe, "restore re-probes the restored folder");
+    assert!(cx.debug_bounds("toast-0").is_some(), "restore confirms with a toast");
+}
+
 fn px_row() -> gpui::Pixels {
     // titlebar 38 + two 46px toolbar rows + 28px column header + row center
     // (48px rows)
