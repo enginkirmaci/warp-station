@@ -139,8 +139,9 @@ impl Render for MainWindow {
                 let key = event.keystroke.key.as_str();
                 if modifiers.control && modifiers.shift && key == "v" {
                     let message = copy_stored_password(&this.store, cx);
+                    let kind = crate::store::NoticeKind::for_copy_message(message);
                     this.store.update(cx, |s, cx| {
-                        s.notice = Some((message.to_string(), std::time::Instant::now()));
+                        s.notify(kind, message.to_string());
                         cx.notify();
                     });
                     cx.stop_propagation();
@@ -238,7 +239,96 @@ impl Render for MainWindow {
         if let Some(menu) = self.render_tools_menu(cx) {
             root = root.child(menu);
         }
+        if let Some(toasts) = self.render_toasts(cx) {
+            root = root.child(toasts);
+        }
         root
+    }
+}
+
+impl MainWindow {
+    /// The toast stack, bottom-right: severity glyph + full text + a close
+    /// button. Painted last so it rides above drawers and menus; each card
+    /// occludes so a click dismisses instead of falling through to whatever
+    /// sits underneath. The per-second tick expires them (errors live
+    /// longer than confirmations).
+    fn render_toasts(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let notices = self.store.read(cx).notices.clone();
+        if notices.is_empty() {
+            return None;
+        }
+        let mut stack = div()
+            .id("toast-stack")
+            .debug_selector(|| "toast-stack".into())
+            .absolute()
+            .bottom_3()
+            .right_3()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap_2();
+        for notice in notices {
+            let (glyph, color) = match notice.kind {
+                crate::store::NoticeKind::Success => ("icons/icon-check.svg", theme::SUCCESS_BRIGHT),
+                crate::store::NoticeKind::Info => ("icons/icon-info.svg", theme::BLUE_BRIGHT),
+                crate::store::NoticeKind::Error => ("icons/icon-alert.svg", theme::DANGER),
+            };
+            let id = notice.id;
+            let store = self.store.clone();
+            stack = stack.child(
+                div()
+                    .id(("toast", id))
+                    .debug_selector(move || format!("toast-{id}"))
+                    .occlude()
+                    .max_w(px(420.))
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(if notice.kind == crate::store::NoticeKind::Error {
+                        theme::tint(theme::DANGER)
+                    } else {
+                        gpui::Hsla::from(theme::HAIRLINE)
+                    })
+                    .bg(theme::POPUP)
+                    .shadow_lg()
+                    .p_2p5()
+                    .child(icon(glyph, px(theme::icon_small()), color))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_size(px(theme::font_small()))
+                            .text_color(if notice.kind == crate::store::NoticeKind::Error {
+                                theme::TEXT
+                            } else {
+                                theme::TEXT_DIM
+                            })
+                            .child(notice.text.clone()),
+                    )
+                    .child(
+                        div()
+                            .id(("toast-close", id))
+                            .debug_selector(move || format!("toast-close-{id}"))
+                            .cursor_pointer()
+                            .flex_shrink_0()
+                            .rounded_md()
+                            .p_0p5()
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                store.update(cx, |s, cx| s.dismiss_notice(id, cx));
+                            })
+                            .child(icon(
+                                "icons/icon-close.svg",
+                                px(theme::icon_small() - 4.),
+                                theme::TEXT_FAINT,
+                            )),
+                    ),
+            );
+        }
+        Some(stack.into_any_element())
     }
 }
 
@@ -713,6 +803,41 @@ pub(crate) fn window_button(
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
+/// A titlebar status chip: an 8px state dot + label, transparent until
+/// hovered, clicking toggles the tool. The dot colors follow the .NET
+/// titlebar: green = running/watching, amber = NuGet idle, red = SnapIt
+/// stopped.
+fn status_chip(
+    id: &'static str,
+    label: &'static str,
+    dot_color: gpui::Rgba,
+    tooltip: &'static str,
+    show_tooltip: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .rounded_md()
+        .h(px(26.))
+        .px_2()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
+        .hover(|s| s.bg(theme::HOVER))
+        .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
+        .on_click(on_click)
+        .child(div().size(px(8.)).rounded_full().bg(dot_color))
+        .child(
+            div()
+                .text_size(px(theme::font_small() - 1.))
+                .text_color(theme::TEXT_MUTED)
+                .child(label),
+        )
+        .into_any_element()
+}
+
 /// An empty stretch of titlebar that moves the window when dragged.
 fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
     div()
@@ -731,11 +856,25 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
 /// sits at the window's true center. It fits the wider side on either
 /// platform: the app name + notes + summary group on the left, and the tool
 /// pill + SnapIt + window controls on the right (Windows only for SnapIt).
-const TITLEBAR_SIDE_W: f32 = 252.0;
+/// Both titlebar side columns share this width so the centered search field
+/// sits at the window's true center. It fits the wider side on either
+/// platform: the app name + notes + summary group on the left, and the tool
+/// pill + status chips + window controls on the right (the SnapIt chip
+/// joins the NuGet one on Windows only).
+fn titlebar_side_w() -> f32 {
+    if cfg!(windows) {
+        288.0
+    } else {
+        252.0
+    }
+}
 
 impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
+        let settings = self.store.read(cx).settings();
+        let show_tooltips = settings.general.show_tooltips;
+        let nuget_enabled = settings.nuget_local.enable_nuget;
+        let nuget_watching = self.store.read(cx).nuget.watching;
         // the two tool buttons share one inset pill; the window controls
         // stay flat on the titlebar so the two groups read differently
         let utility_group = div()
@@ -749,7 +888,7 @@ impl MainWindow {
         // centered search truly centered
         let right_group = div()
             .debug_selector(|| "titlebar-right".into())
-            .w(px(TITLEBAR_SIDE_W))
+            .w(px(titlebar_side_w()))
             .flex()
             .items_center()
             .justify_end()
@@ -812,39 +951,70 @@ impl MainWindow {
                     }),
             )
             .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
+            // status chips mirror the .NET titlebar: an 8px state dot + label,
+            // click toggles the tool. NuGet amber when idle, green while the
+            // watch runs; SnapIt red when stopped, green when running — and
+            // Windows-only, like the tool itself.
+            .when(nuget_enabled, |d| {
+                let store = self.store.clone();
+                d.child(status_chip(
+                    "nuget-status",
+                    "NuGet",
+                    if nuget_watching {
+                        theme::SUCCESS_BRIGHT
+                    } else {
+                        theme::AMBER_BRIGHT
+                    },
+                    if nuget_watching {
+                        "NuGet watch: running — click to stop"
+                    } else {
+                        "NuGet watch: idle — click to start"
+                    },
+                    show_tooltips,
+                    move |_, _, cx| {
+                        store.update(cx, |s, _| {
+                            if s.nuget.watching {
+                                s.stop_nuget();
+                            } else {
+                                s.start_nuget();
+                            }
+                        });
+                        cx.refresh_windows();
+                    },
+                ))
+            })
             .when(cfg!(windows), |d| {
                 let running = devtools_core::snapit::is_running();
-                d.child({
-                    div()
-                        .id("snapit-toggle")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .size(px(26.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .when(running, |d| d.bg(theme::tint(theme::ACCENT)))
-                        .hover(|s| s.bg(theme::HOVER))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let result = if devtools_core::snapit::is_running() {
-                                devtools_core::snapit::stop()
-                            } else {
-                                devtools_core::snapit::start()
-                            };
-                            if let Err(err) = result {
-                                this.store.update(cx, |s, cx| {
-                                    s.notice = Some((err, std::time::Instant::now()));
-                                    cx.notify();
-                                });
-                            }
-                            cx.notify();
-                        }))
-                        .child(icon(
-                            "icons/icon-grid.svg",
-                            px(theme::icon_medium()),
-                            if running { theme::ACCENT } else { theme::TEXT_MUTED },
-                        ))
-                })
+                let store = self.store.clone();
+                d.child(status_chip(
+                    "snapit-status",
+                    "SnapIt",
+                    if running {
+                        theme::SUCCESS_BRIGHT
+                    } else {
+                        theme::DANGER
+                    },
+                    if running {
+                        "SnapIt: running — click to stop"
+                    } else {
+                        "SnapIt: stopped — click to start"
+                    },
+                    show_tooltips,
+                    move |_, _, cx| {
+                        let result = if devtools_core::snapit::is_running() {
+                            devtools_core::snapit::stop()
+                        } else {
+                            devtools_core::snapit::start()
+                        };
+                        if let Err(err) = result {
+                            store.update(cx, |s, cx| {
+                                s.notify_error(err);
+                                cx.notify();
+                            });
+                        }
+                        cx.refresh_windows();
+                    },
+                ))
             })
             .child(window_button(
                 "minimize-window",
@@ -897,7 +1067,7 @@ impl MainWindow {
                 // and the summary pill ride next to the app name
                 div()
                     .debug_selector(|| "titlebar-brand".into())
-                    .w(px(TITLEBAR_SIDE_W))
+                    .w(px(titlebar_side_w()))
                     .flex()
                     .items_center()
                     .gap_1()
@@ -920,6 +1090,8 @@ impl MainWindow {
                             .text_color(theme::TEXT)
                             .child("Dev Tools"),
                     )
+                    // hairline between the app name and the tools that follow
+                    .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
                     .child({
                         div()
                             .id("notes-toggle")
@@ -967,11 +1139,12 @@ impl MainWindow {
                                     .rounded_md()
                                     .border_1()
                                     .border_color(theme::HAIRLINE)
-                                    .px_1()
+                                    .mx_1()
+                                    .px_1p5()
                                     .py_0p5()
                                     .text_size(px(theme::font_small() - 3.))
                                     .text_color(theme::TEXT_FAINT)
-                                    .child("Ctrl F"),
+                                    .child("Ctrl + F"),
                             ),
                     ),
             )

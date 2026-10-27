@@ -198,8 +198,7 @@ impl Render for FormattersDrawer {
                                 move |_, _, cx| {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(item.clone()));
                                     store.update(cx, |s, cx| {
-                                        s.notice =
-                                            Some(("Copied to clipboard".into(), std::time::Instant::now()));
+                                        s.notify_success("Copied to clipboard");
                                         cx.notify();
                                     });
                                 }

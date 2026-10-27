@@ -39,3 +39,6 @@ futures-util = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
+# the Add-Repositories Browse… button; portal backend shares gpui's ashpd
+# stack on Linux (no GTK dependency), IFileDialog on Windows
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }

@@ -161,13 +161,14 @@ impl ReposPage {
         if root.trim().is_empty() {
             return;
         }
+        let depth = dialog.depth;
         dialog.scanning = true;
         dialog.scanned = false;
         dialog.found.clear();
         let settings = self.store.read(cx).settings();
         let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::DeepScan {
             root: root.trim().to_string(),
-            depth: settings.repos.max_scan_depth,
+            depth,
             settings: settings.repos.clone(),
         });
         cx.notify();
@@ -198,7 +199,7 @@ impl ReposPage {
         let mut validation_error: Option<String> = None;
         {
             let url = dialog.url.read(cx).value().to_string();
-            let name = dialog.derived_name(cx);
+            let name = dialog.folder_name(cx);
             let destination = dialog.destination.read(cx).value().to_string();
             if url.trim().is_empty() || (!url.contains('/') && !url.contains(':')) {
                 validation_error = Some("Enter a repository URL".into());
@@ -222,7 +223,7 @@ impl ReposPage {
             return;
         }
         let url = dialog.url.read(cx).value().to_string();
-        let name = dialog.derived_name(cx);
+        let name = dialog.folder_name(cx);
         let destination = dialog.destination.read(cx).value().to_string();
         dialog.busy = true;
         dialog.error = None;
@@ -256,6 +257,11 @@ impl Render for ReposPage {
                     })
                     .collect();
             }
+        if let Some(path) = self.store.update(cx, |store, _| store.folder_pick_result.take())
+            && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
+        {
+            dialog.root.update(cx, |field, cx| field.set_value(&path, window, cx));
+        }
         let drained_clone = self.store.update(cx, |store, _| store.clone_result.take());
         if let Some((parent_dir, name, result)) = drained_clone {
             if result.success {
@@ -295,7 +301,11 @@ impl Render for ReposPage {
                         DataTable::new(&self.table)
                             .with_size(Size::Size(px(theme::TABLE_ROW_H)))
                             .stripe(false)
-                            .bordered(false),
+                            .bordered(false)
+                            // the columns always sum to the available width
+                            // (the name column absorbs the rest), so the kit's
+                            // always-painted horizontal bar is pure noise
+                            .scrollbar_visible(true, false),
                     ),
             );
         if let Some(dialog) = &mut self.dialog {
@@ -307,14 +317,9 @@ impl Render for ReposPage {
 
 impl ReposPage {
     fn render_toolbar(&mut self, viewport_width: Pixels, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (tags, active_tags, scanning, notice) = {
+        let (tags, active_tags, scanning) = {
             let store = self.store.read(cx);
-            let notice = store
-                .notice
-                .as_ref()
-                .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(4))
-                .map(|(text, _)| text.clone());
-            (store.all_tags(), store.tag_filters.clone(), store.scanning, notice)
+            (store.all_tags(), store.tag_filters.clone(), store.scanning)
         };
 
         let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active) = {
@@ -332,19 +337,15 @@ impl ReposPage {
         // The header runs out of room before the filter row does; the count
         // chips are the first thing to go (the table carries the same numbers
         // per row). The threshold scales with the text size so a large font
-        // does not clip the action buttons.
+        // does not clip the action buttons. The chips also vary with the data
+        // (remote counts arrive after the first frame), so they drop in
+        // priority order: remote counts first, then the local changes total —
+        // never the action buttons.
         let scale = theme::font_small() / 14.0;
         let compact = viewport_width < px(840.) * scale;
-        // The chips also vary with the data (remote counts arrive after the
-        // first frame), so they drop in priority order: remote counts first,
-        // then the local changes total. A transient notice shares the header,
-        // so it claims the remote chips' room and, on the tightest sizes, the
-        // changes chip too — never the action buttons.
-        let has_notice = notice.is_some();
         let roomy = viewport_width >= px(1000.) * scale;
-        let notice_fits_remote = viewport_width >= px(1150.) * scale;
-        let show_change_chip = !compact && (roomy || !has_notice);
-        let show_remote_chips = show_change_chip && roomy && (!has_notice || notice_fits_remote);
+        let show_change_chip = !compact;
+        let show_remote_chips = show_change_chip && roomy;
 
         let count_chip = |count: u32,
                           label: &'static str,
@@ -447,19 +448,6 @@ impl ReposPage {
                 ))
             })
             .child(div().flex_1())
-            .when_some(notice, |row, notice| {
-                row.child(
-                    div()
-                        .max_w(px(320.))
-                        .min_w_0()
-                        .text_size(px(theme::font_small() - 1.))
-                        .text_color(theme::TEXT_MUTED)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(notice),
-                )
-            })
             .child(icon_action(
                 "refresh-button",
                 "icons/icon-refresh.svg",
@@ -474,7 +462,8 @@ impl ReposPage {
                 Some("icons/icon-plus.svg"),
                 true,
                 cx.listener(|this, _, window, cx| {
-                    this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, cx)));
+                    let depth = this.store.read(cx).settings().repos.max_scan_depth;
+                    this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, depth, cx)));
                     cx.notify();
                 }),
             ))
@@ -584,7 +573,7 @@ fn icon_action(
         .into_any_element()
 }
 
-/// The shortcuts column hugs its button row: 30px buttons, 6px gaps, and the
+/// The shortcuts column hugs its button row: 36px buttons, 6px gaps, and the
 /// opencode group's divider (1px + mx_1). Follows the same settings gates as
 /// `shortcuts_cell`.
 fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
@@ -607,7 +596,7 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     }
     let children = buttons + divider as usize;
     let gaps = children.saturating_sub(1) as f32 * 6.0;
-    px(buttons as f32 * 30.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
+    px(buttons as f32 * 36.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
 }
 
 /// The widest branch name in the current projection, in characters — the
@@ -1392,7 +1381,7 @@ fn shortcuts_cell(
             .id(SharedString::from(id))
             .cursor_pointer()
             .rounded_md()
-            .size(px(30.))
+            .size(px(36.))
             .flex()
             .items_center()
             .justify_center()
@@ -1401,12 +1390,12 @@ fn shortcuts_cell(
                 cx.stop_propagation();
                 if let Err(err) = launch() {
                     store.update(cx, |s, cx| {
-                        s.notice = Some((err, std::time::Instant::now()));
+                        s.notify_error(err);
                         cx.notify();
                     });
                 }
             })
-            .child(icon(icon_path, px(theme::icon_medium()), tint_color));
+            .child(icon(icon_path, px(theme::icon_large()), tint_color));
         crate::ui::with_tooltip(element, show_tooltips, tip)
     };
 
@@ -1447,7 +1436,7 @@ fn shortcuts_cell(
             div()
                 .mx_1()
                 .self_center()
-                .h(px(16.))
+                .h(px(20.))
                 .w(px(1.))
                 .bg(theme::HAIRLINE),
         );
@@ -1482,7 +1471,7 @@ fn shortcuts_cell(
                     Box::new(move || terminal::open_solution(&solution, &ide)),
                 ));
             }
-            None => row = row.child(div().size(px(28.))),
+            None => row = row.child(div().size(px(36.))),
         }
     }
     if settings.repos.enable_vscode {
@@ -1575,16 +1564,16 @@ mod tests {
 
     #[test]
     fn shortcuts_column_hugs_the_enabled_launchers() {
-        // folder only: one 30px button, no gaps, no divider, slack 8
-        assert_eq!(shortcuts_column_width(&settings_with(&[])), px(38.));
+        // folder only: one 36px button, no gaps, no divider, slack 8
+        assert_eq!(shortcuts_column_width(&settings_with(&[])), px(44.));
         // folder + terminal: two buttons + one gap
-        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(74.));
+        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(86.));
         // full linux set: opencode button + divider, zcode, vscode, folder,
         // terminal = 5 buttons + divider = 6 children -> 5 gaps + divider
         // (1px + mx_1 = 9); the solution slot only joins on Windows
         let full =
             shortcuts_column_width(&settings_with(&["terminal", "vscode", "zcode", "opencode"]));
-        assert_eq!(full, px(5. * 30. + 5. * 6. + 9. + 8.));
+        assert_eq!(full, px(5. * 36. + 5. * 6. + 9. + 8.));
     }
 
     /// Selection can originate outside a row click (global search, the notes

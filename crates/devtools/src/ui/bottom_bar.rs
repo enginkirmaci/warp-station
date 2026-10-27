@@ -60,10 +60,15 @@ impl BottomBar {
         }
     }
 
-    /// Dismisses the kebab menu from an outside click or Escape. Returns
-    /// whether it was actually open so the window can stop propagating.
+    /// Dismisses the bar's transient popups — the kebab menu, the armed
+    /// remove, and the Changes tab's branch dropdown — from an outside click
+    /// or Escape. Returns whether anything was actually open so the window
+    /// can stop propagating.
     pub fn dismiss_kebab(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.kebab_open || self.remove_armed {
+        let branch_closed = self
+            .changes_view
+            .update(cx, ChangesView::dismiss_branch_menu);
+        if self.kebab_open || self.remove_armed || branch_closed {
             self.kebab_open = false;
             self.remove_armed = false;
             cx.notify();
@@ -436,8 +441,7 @@ impl Render for BottomBar {
                             move |_, _, cx| {
                                 Self::copy_text(branch.clone(), cx);
                                 store.update(cx, |s, cx| {
-                                    s.notice =
-                                        Some(("Branch name copied".into(), std::time::Instant::now()));
+                                    s.notify_success("Branch name copied");
                                     cx.notify();
                                 });
                             }
@@ -650,7 +654,7 @@ impl BottomBar {
                 .child(make_item("Copy GitHub URL", Box::new(move |cx: &mut App| {
                     Self::copy_text(url_copy.clone(), cx);
                     store_copy.update(cx, |s, cx| {
-                        s.notice = Some(("GitHub URL copied".into(), std::time::Instant::now()));
+                        s.notify_success("GitHub URL copied");
                         cx.notify();
                     });
                 })));
@@ -664,7 +668,7 @@ impl BottomBar {
             .child(make_item("Copy folder path", Box::new(move |cx: &mut App| {
                 Self::copy_text(folder_copy.clone(), cx);
                 store_folder.update(cx, |s, cx| {
-                    s.notice = Some(("Folder path copied".into(), std::time::Instant::now()));
+                    s.notify_success("Folder path copied");
                     cx.notify();
                 });
             })))

@@ -128,10 +128,7 @@ impl Render for OverviewView {
                                     Err(err) => {
                                         tracing::warn!("README save failed: {err}");
                                         this.store.update(cx, |s: &mut Store, cx| {
-                                            s.notice = Some((
-                                                "Could not save README.md".into(),
-                                                std::time::Instant::now(),
-                                            ));
+                                            s.notify_error("Could not save README.md");
                                             cx.notify();
                                         });
                                     }
@@ -242,12 +239,15 @@ impl Render for OverviewView {
                 )
             });
 
-        // 60/40: README column + details sidebar
+        // 60/40: README column + details sidebar — both as raised cards on
+        // the bar surface, the Changes tab's section recipe
         div()
             .size_full()
             .flex()
             .flex_row()
             .min_h_0()
+            .gap_2()
+            .p_2()
             .debug_selector(|| "overview-root".into())
             .child(
                 div()
@@ -258,6 +258,9 @@ impl Render for OverviewView {
                     .flex()
                     .flex_col()
                     .min_h_0()
+                    .rounded_lg()
+                    .bg(theme::STRONG_BACKGROUND)
+                    .overflow_hidden()
                     .debug_selector(|| "readme-column".into())
                     .child(header)
                     .child(pane),
@@ -293,7 +296,9 @@ fn render_sidebar(
             .rounded_lg()
             .border_1()
             .border_color(theme::HAIRLINE)
-            .bg(theme::STRONG_BACKGROUND)
+            // CARD on the STRONG card reads as a raised tile (the Changes
+            // sections' chip recipe); STRONG would melt into its own card
+            .bg(theme::CARD)
             .p_2()
             .debug_selector(move || id.to_string())
             .hover(|s| s.border_color(theme::TEXT_FAINT))
@@ -341,8 +346,8 @@ fn render_sidebar(
         .flex_col()
         .gap_2()
         .p_4()
-        .border_l_1()
-        .border_color(theme::BORDER_LIGHT)
+        .rounded_lg()
+        .bg(theme::STRONG_BACKGROUND)
         .overflow_y_scroll()
         .debug_selector(|| "overview-sidebar".into())
         .child(

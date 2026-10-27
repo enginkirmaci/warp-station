@@ -172,6 +172,129 @@ fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
     assert!(cx.read_entity(&store, |s, _| s.selected_repo.is_none()));
 }
 
+/// App alerts surface as toasts in the window's bottom-right corner, not as
+/// inline header text: a store push renders a severity card, and its close
+/// button removes exactly that card.
+#[gpui::test]
+fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.notify_error("Pull failed for warp-agent: cannot pull with rebase");
+        s.notify_success("Fetched alpha");
+        cx.notify();
+    });
+
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(cx.debug_bounds("toast-stack").is_some(), "the toast stack renders");
+    assert!(cx.debug_bounds("toast-0").is_some(), "the error toast renders");
+    assert!(cx.debug_bounds("toast-1").is_some(), "the success toast renders");
+
+    let close = cx
+        .debug_bounds("toast-close-1")
+        .expect("each toast carries a close button");
+    cx.simulate_click(close.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.debug_bounds("toast-1").is_none(), "the dismissed toast is gone");
+    assert!(cx.debug_bounds("toast-0").is_some(), "the sibling toast stays");
+}
+
+/// The branch dropdown follows the kebab menu's dismissal contract: Escape
+/// closes it, a click anywhere outside the card closes it, and picking a
+/// branch closes it — only the toggle button reopens it.
+#[gpui::test]
+fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        // the branch selector lives on the Changes tab
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.branches = vec![
+            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+        ];
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let open_menu = |cx: &mut gpui::VisualTestContext| {
+        let button = cx
+            .debug_bounds("branch-button")
+            .expect("the branch selector renders in the rail");
+        cx.simulate_click(button.center(), gpui::Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| drop(window.draw(cx)));
+    };
+
+    open_menu(cx);
+    assert!(cx.debug_bounds("branch-menu").is_some(), "the dropdown opens");
+
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "Escape closes the dropdown"
+    );
+
+    // a click on the tab strip is outside the card: it dismisses the menu
+    open_menu(cx);
+    let bar = cx.debug_bounds("bar-root").expect("the bar renders");
+    cx.simulate_click(
+        gpui::point(bar.origin.x + gpui::px(60.), bar.origin.y + gpui::px(30.)),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "clicking outside the card closes the dropdown"
+    );
+
+    // picking a branch checks it out and closes the dropdown
+    open_menu(cx);
+    let row = cx
+        .debug_bounds("branch-row-feature")
+        .expect("the filtered branch rows render");
+    cx.simulate_click(row.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "picking a branch closes the dropdown"
+    );
+    assert!(
+        cx.read_entity(&store, |s, _| s.git_busy),
+        "the checkout went out"
+    );
+
+    // the toggle button reopens after all of the above
+    open_menu(cx);
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown reopens from the button"
+    );
+}
+
 fn px_col() -> gpui::Pixels {
     gpui::px(120.)
 }
@@ -394,10 +517,10 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
 
     dialog_click(cx, "add-repo-button");
     assert!(cx.debug_bounds("add-repo-overlay").is_some(), "dialog opens");
-    assert!(cx.debug_bounds("btn-accent-Scan").is_some());
+    assert!(cx.debug_bounds("btn-Scan").is_some(), "the dedicated Scan button renders");
     assert!(
-        cx.debug_bounds("btn-Rescan").is_none(),
-        "Rescan appears only after a scan settles"
+        cx.debug_bounds("add-dialog-close").is_some(),
+        "the header close button renders"
     );
 
     // the net settle path: the worker drops results on the store, the page
@@ -411,8 +534,7 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     dialog_draw(cx);
-    assert!(cx.debug_bounds("btn-accent-Add").is_some(), "primary flips to Add");
-    assert!(cx.debug_bounds("btn-Rescan").is_some(), "Rescan is visible with results");
+    assert!(cx.debug_bounds("btn-accent-Add").is_some(), "Add waits in the footer");
     assert!(cx.debug_bounds("found-repo-0").is_some());
 
     // uncheck both rows: the disabled Add must be a no-op, not a close
@@ -424,22 +546,25 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
         "gated Add must not close the dialog"
     );
 
-    // type a fresh path and Rescan: back to the Scan state, stale rows gone
+    // type a fresh path and Scan again: stale rows are cleared, the dialog
+    // holds; the results well is back to its empty text
     dialog_click(cx, "add-root-input");
     cx.simulate_input("/probe/scan-root");
     cx.run_until_parked();
     dialog_draw(cx);
-    dialog_click(cx, "btn-Rescan");
-    assert!(
-        cx.debug_bounds("btn-accent-Scan").is_some(),
-        "Rescan returns the primary to Scan"
-    );
-    assert!(cx.debug_bounds("btn-Rescan").is_none());
+    dialog_click(cx, "btn-Scan");
     assert!(
         cx.debug_bounds("found-repo-0").is_none(),
         "stale results are cleared on rescan"
     );
     assert!(cx.debug_bounds("add-repo-overlay").is_some());
+
+    // the header X closes the dialog
+    dialog_click(cx, "add-dialog-close");
+    assert!(
+        cx.debug_bounds("add-repo-overlay").is_none(),
+        "the X close button dismisses the dialog"
+    );
 }
 
 /// The Clone dialog: the destination is editable and feeds validation — an

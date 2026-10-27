@@ -63,6 +63,9 @@ pub enum NetCommand {
     NugetStop,
     NugetSetFolder { folder: String },
     NugetRegister,
+    /// Opens the native folder picker on the net thread (a native modal must
+    /// not block the UI thread); the pick settles as [UiEvent::FolderPicked].
+    BrowseFolder,
 }
 
 /// Which generator a wand run is.
@@ -172,6 +175,8 @@ pub enum UiEvent {
     /// trigger thread (wl-copy / raw SetClipboardData — gpui's Wayland write
     /// is focus-gated), the store only shows the toast.
     ClipboardHotkey { message: &'static str },
+    /// The native folder picker closed; None = cancelled or unavailable.
+    FolderPicked { path: Option<String> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -427,6 +432,15 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             NetCommand::NugetStop => nuget.stop(),
             NetCommand::NugetSetFolder { folder } => nuget.set_folder(folder),
             NetCommand::NugetRegister => nuget.register_source(),
+            NetCommand::BrowseFolder => {
+                let evt_tx = evt_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let path = rfd::FileDialog::new()
+                        .pick_folder()
+                        .map(|folder| folder.to_string_lossy().to_string());
+                    let _ = evt_tx.send_blocking(UiEvent::FolderPicked { path });
+                });
+            }
             NetCommand::WandRespond { wand_id, ask_id, response } => {
                 let wands = wands.clone();
                 tokio::spawn(async move {

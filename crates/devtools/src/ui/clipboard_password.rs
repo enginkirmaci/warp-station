@@ -122,8 +122,9 @@ impl ClipboardPasswordDrawer {
     }
 
     fn toast(&mut self, message: &'static str, cx: &mut Context<Self>) {
+        let kind = crate::store::NoticeKind::for_copy_message(message);
         self.store.update(cx, |store, cx| {
-            store.notice = Some((message.to_string(), std::time::Instant::now()));
+            store.notify(kind, message.to_string());
             cx.notify();
         });
         cx.notify();

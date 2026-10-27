@@ -171,7 +171,7 @@ impl NotesPage {
                 tracing::info!("saved {}", path.display());
                 let _ = root;
             }
-            Err(err) => self.notice(cx, &format!("note save failed: {err}")),
+            Err(err) => self.notice(cx, crate::store::NoticeKind::Error, &format!("note save failed: {err}")),
         }
         cx.notify();
     }
@@ -193,7 +193,7 @@ impl NotesPage {
         let raw_name = self.create_name.read(cx).value().to_string();
         let raw_folder = self.create_folder.read(cx).value().to_string();
         let Some(name) = notes_core::sanitize_entry_name(raw_name.trim(), true) else {
-            self.notice(cx, "Enter a note name");
+            self.notice(cx, crate::store::NoticeKind::Info, "Enter a note name");
             return;
         };
         // optional subfolder under the root (sanitized per segment)
@@ -203,7 +203,7 @@ impl NotesPage {
                 match notes_core::sanitize_entry_name(segment, false) {
                     Some(clean) => target.push(clean),
                     None => {
-                        self.notice(cx, "Folder name is not usable");
+                        self.notice(cx, crate::store::NoticeKind::Info, "Folder name is not usable");
                         return;
                     }
                 }
@@ -220,13 +220,13 @@ impl NotesPage {
                 }
                 self.open_note(path, window, cx);
             }
-            Err(err) => self.notice(cx, &format!("note create failed: {err}")),
+            Err(err) => self.notice(cx, crate::store::NoticeKind::Error, &format!("note create failed: {err}")),
         }
     }
 
-    fn notice(&mut self, cx: &mut Context<Self>, text: &str) {
+    fn notice(&mut self, cx: &mut Context<Self>, kind: crate::store::NoticeKind, text: &str) {
         self.store.update(cx, |s, cx| {
-            s.notice = Some((text.to_string(), std::time::Instant::now()));
+            s.notify(kind, text.to_string());
             cx.notify();
         });
         cx.notify();
@@ -244,7 +244,7 @@ impl NotesPage {
                         self.saved_text.clear();
                         self.tree = notes_core::load_tree(&root);
                     }
-                    Err(err) => self.notice(cx, &format!("note delete failed: {err}")),
+                    Err(err) => self.notice(cx, crate::store::NoticeKind::Error, &format!("note delete failed: {err}")),
                 }
                 self.armed_delete = None;
             }

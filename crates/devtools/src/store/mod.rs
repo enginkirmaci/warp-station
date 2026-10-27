@@ -28,6 +28,9 @@ pub struct Store {
     /// Dialog-bound net results, drained by the page's render pass.
     pub deep_scan_result: Option<Vec<devtools_core::scan::ScannedRepo>>,
     pub clone_result: Option<(String, String, devtools_core::model::GitSyncResult)>,
+    /// The Browse… folder picker's answer, drained into the Add-Repositories
+    /// dialog's path field.
+    pub folder_pick_result: Option<String>,
 
     // ---- bottom bar (the selected repo's workspace) ----
     pub selected_tab: BottomBarTab,
@@ -60,8 +63,10 @@ pub struct Store {
     /// The opencode model catalog (settings pickers + wands).
     pub models: Vec<String>,
     pub summary_busy: bool,
-    /// Transient user-facing message (summary written, wand failed…).
-    pub notice: Option<(String, std::time::Instant)>,
+    /// Toast stack (newest last), capped; the window overlay renders it and
+    /// the per-second tick expires it.
+    pub notices: Vec<Notice>,
+    notice_generation: u64,
     /// A note to open in the Notes window (global search click), drained by
     /// the Notes page's render.
     pub pending_note_open: Option<std::path::PathBuf>,
@@ -106,6 +111,7 @@ impl Store {
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
+            folder_pick_result: None,
             selected_tab: BottomBarTab::Overview,
             changes: None,
             changes_loaded_for: None,
@@ -126,7 +132,8 @@ impl Store {
             readme_draft: None,
             models: Vec::new(),
             summary_busy: false,
-            notice: None,
+            notices: Vec::new(),
+            notice_generation: 0,
             pending_note_open: None,
             global_search: Vec::new(),
             notes_requested: false,
@@ -266,6 +273,10 @@ impl Store {
                 self.clone_result = Some((parent_dir, name, result));
                 cx.notify();
             }
+            UiEvent::FolderPicked { path } => {
+                self.folder_pick_result = path;
+                cx.notify();
+            }
             UiEvent::ChangesLoaded { folder, snapshot, branches, recent, unpushed } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.changes = snapshot;
@@ -330,15 +341,16 @@ impl Store {
             UiEvent::ClipboardHotkey { message } => {
                 // the copy ran on the trigger thread (gpui's Wayland
                 // clipboard write is focus-gated); here we only toast
-                self.notice = Some((message.to_string(), std::time::Instant::now()));
+                let kind = NoticeKind::for_copy_message(message);
+                self.notify(kind, message.to_string());
                 cx.notify();
             }
             UiEvent::SummaryDone { result, .. } => {
                 self.summary_busy = false;
-                self.notice = Some(match result {
-                    Ok(path) => (format!("summary written: {path}"), std::time::Instant::now()),
-                    Err(err) => (format!("summary failed: {err}"), std::time::Instant::now()),
-                });
+                match result {
+                    Ok(path) => self.notify_success(format!("summary written: {path}")),
+                    Err(err) => self.notify_error(format!("summary failed: {err}")),
+                }
                 cx.notify();
             }
             UiEvent::WandAsk { wand_id, ask_id, title } => {
@@ -361,16 +373,12 @@ impl Store {
                     (Err(err), WandKind::Commit) => {
                         tracing::warn!("wand failed: {err}");
                         self.wand_error = Some(err.clone());
-                        self.notice = Some((
-                            "Could not generate a commit message".into(),
-                            std::time::Instant::now(),
-                        ));
+                        self.notify_error("Could not generate a commit message");
                     }
                     (Err(err), WandKind::Readme) => {
                         tracing::warn!("wand failed: {err}");
                         self.wand_error = Some(err.clone());
-                        self.notice =
-                            Some(("Could not generate a README".into(), std::time::Instant::now()));
+                        self.notify_error("Could not generate a README");
                     }
                 }
                 cx.notify();
@@ -398,14 +406,14 @@ impl Store {
                 if let Some(err) = error {
                     tracing::warn!("git {label} failed in {folder}: {err}");
                     self.last_git_error = Some(err.clone());
-                    self.notice = Some((
-                        format!("{} failed for {}: {err}", capitalized_label(label), name),
-                        std::time::Instant::now(),
+                    self.notify_error(format!(
+                        "{} failed for {}: {err}",
+                        capitalized_label(label),
+                        name
                     ));
                 } else {
                     self.last_git_error = None;
-                    let now = std::time::Instant::now();
-                    self.notice = Some((
+                    self.notify_success(
                         match (label, commit_hash.as_deref()) {
                             ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
                             ("fetch", _) => format!("Fetched {name}"),
@@ -427,8 +435,7 @@ impl Store {
                             ("revert", _) => format!("Reverted in {name}"),
                             _ => format!("{label} ok"),
                         },
-                        now,
-                    ));
+                    );
                     if let Some(hash) = commit_hash {
                         tracing::info!("committed {hash} in {folder}");
                     }
@@ -485,12 +492,12 @@ impl Store {
         }
         let settings = self.settings();
         if !settings.opencode.enable_opencode {
-            self.notice = Some(("OpenCode is disabled in settings".into(), std::time::Instant::now()));
+            self.notify_error("OpenCode is disabled in settings");
             cx.notify();
             return;
         }
         let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
-            self.notice = Some(("opencode executable not found".into(), std::time::Instant::now()));
+            self.notify_error("opencode executable not found");
             cx.notify();
             return;
         };
@@ -561,18 +568,12 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else { return };
         let settings = self.settings();
         if !settings.opencode.enable_opencode {
-            self.notice = Some((
-                "Could not generate — OpenCode is disabled in settings".into(),
-                std::time::Instant::now(),
-            ));
+            self.notify_error("Could not generate — OpenCode is disabled in settings");
             cx.notify();
             return;
         }
         let Some(exe) = devtools_core::exe::locate(&settings.repos.opencode_executable) else {
-            self.notice = Some((
-                "Could not generate — opencode executable not found".into(),
-                std::time::Instant::now(),
-            ));
+            self.notify_error("Could not generate — opencode executable not found");
             cx.notify();
             return;
         };
@@ -679,8 +680,7 @@ impl Store {
         let folder = std::path::PathBuf::from(parent_dir).join(name);
         if !folder.join(".git").is_dir() {
             tracing::warn!("clone destination missing after clone: {}", folder.display());
-            self.notice =
-                Some(("The clone landed but could not be added to the list".into(), std::time::Instant::now()));
+            self.notify_error("The clone landed but could not be added to the list");
             cx.notify();
             return;
         }
@@ -704,6 +704,54 @@ impl Store {
         self.register_repos(&scanned, cx);
         self.kick_scan(&self.settings());
         self.open_repo_tab(&folder_str, BottomBarTab::Overview, cx);
+    }
+
+    // ---- toasts -------------------------------------------------------------
+
+    pub fn notify(&mut self, kind: NoticeKind, text: impl Into<String>) {
+        let id = self.notice_generation;
+        self.notice_generation += 1;
+        self.notices.push(Notice {
+            id,
+            kind,
+            text: text.into(),
+            born: std::time::Instant::now(),
+        });
+        // a burst of failures must not stack a wall of cards
+        if self.notices.len() > 4 {
+            self.notices.remove(0);
+        }
+    }
+
+    pub fn notify_success(&mut self, text: impl Into<String>) {
+        self.notify(NoticeKind::Success, text);
+    }
+
+    pub fn notify_info(&mut self, text: impl Into<String>) {
+        self.notify(NoticeKind::Info, text);
+    }
+
+    pub fn notify_error(&mut self, text: impl Into<String>) {
+        self.notify(NoticeKind::Error, text);
+    }
+
+    /// The toast's close button.
+    pub fn dismiss_notice(&mut self, id: u64, cx: &mut Context<Self>) {
+        let before = self.notices.len();
+        self.notices.retain(|n| n.id != id);
+        if self.notices.len() != before {
+            cx.notify();
+        }
+    }
+
+    /// Once-per-second tick: drops toasts past their kind's ttl, notifying
+    /// only when one actually expired (idle windows stay idle).
+    pub fn tick_notices(&mut self, cx: &mut Context<Self>) {
+        let before = self.notices.len();
+        self.notices.retain(|n| n.born.elapsed() < n.kind.ttl());
+        if self.notices.len() != before {
+            cx.notify();
+        }
     }
 
     // ---- list shaping ------------------------------------------------------
@@ -861,10 +909,7 @@ impl Store {
             .find(|r| r.folder_path.to_string_lossy() == folder)
             .is_some_and(|r| r.tags.iter().any(|t| t.eq_ignore_ascii_case(trimmed)));
         if duplicate {
-            self.notice = Some((
-                format!("Tag \"{trimmed}\" already exists"),
-                std::time::Instant::now(),
-            ));
+            self.notify_info(format!("Tag \"{trimmed}\" already exists"));
             cx.notify();
             return;
         }
@@ -900,10 +945,7 @@ impl Store {
                 roots.retain(|f| !devtools_core::paths::same_folder_text(f, &folder));
             }
         });
-        self.notice = Some((
-            format!("Removed \"{name}\" from repositories"),
-            std::time::Instant::now(),
-        ));
+        self.notify_success(format!("Removed \"{name}\" from repositories"));
         self.close_bar(cx);
         self.kick_scan(&self.settings());
     }
@@ -1010,6 +1052,45 @@ fn capitalized_label(label: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// A toast's severity: which glyph + color it shows and how long it stays up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeKind {
+    Success,
+    Info,
+    Error,
+}
+
+impl NoticeKind {
+    /// Errors read longer; confirmations clear in the classic few seconds.
+    pub fn ttl(self) -> std::time::Duration {
+        match self {
+            NoticeKind::Error => std::time::Duration::from_secs(8),
+            NoticeKind::Info | NoticeKind::Success => std::time::Duration::from_secs(4),
+        }
+    }
+
+    /// The copy helpers answer fixed static strings ("Password copied…",
+    /// "No password stored", "Clipboard copy failed…"); classify those.
+    pub fn for_copy_message(message: &str) -> Self {
+        if message.starts_with("Clipboard copy failed") {
+            NoticeKind::Error
+        } else if message == "No password stored" {
+            NoticeKind::Info
+        } else {
+            NoticeKind::Success
+        }
+    }
+}
+
+/// One toast in the window's corner stack.
+#[derive(Clone, Debug)]
+pub struct Notice {
+    pub id: u64,
+    pub kind: NoticeKind,
+    pub text: String,
+    born: std::time::Instant,
 }
 
 /// The bottom bar's tabs. Azure is labelled Pipelines in the UI.

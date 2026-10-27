@@ -699,7 +699,7 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
             };
             if let Err(err) = result {
                 this.store.update(cx, |s, cx| {
-                    s.notice = Some((err, std::time::Instant::now()));
+                    s.notify_error(err);
                     cx.notify();
                 });
             }

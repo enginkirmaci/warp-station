@@ -22,10 +22,10 @@ impl Render for ItemListView {
         let title = if self.pull_requests { "pull requests" } else { "issues" };
 
         let Some(snapshot) = snapshot else {
-            return empty_state(format!("No GitHub activity loaded — the {title} tab fills after the gh pass settles"));
+            return tab_card(empty_state(format!("No GitHub activity loaded — the {title} tab fills after the gh pass settles")));
         };
         if !snapshot.available {
-            return empty_state("This repository is not on GitHub (or the gh CLI could not authenticate)".into());
+            return tab_card(empty_state("This repository is not on GitHub (or the gh CLI could not authenticate)".into()));
         }
 
         let items = if self.pull_requests { &snapshot.pulls } else { &snapshot.issues };
@@ -84,13 +84,14 @@ impl Render for ItemListView {
             });
 
         if items.is_empty() {
-            return div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .child(header)
-                .child(empty_state(format!("No open {title}")))
-                .into_any_element();
+            return tab_card(
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .child(header)
+                    .child(empty_state(format!("No open {title}"))),
+            );
         }
 
         let mut list = div()
@@ -106,14 +107,15 @@ impl Render for ItemListView {
         for item in items {
             list = list.child(self.render_row(item));
         }
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .min_h_0()
-            .child(header)
-            .child(list)
-            .into_any_element()
+        tab_card(
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .child(header)
+                .child(list),
+        )
     }
 }
 
@@ -283,6 +285,30 @@ impl ItemListView {
             )
             .child(right)
     }
+}
+
+/// The Changes tab's raised-card recipe: the tab's content sits on one
+/// rounded dark card floating on the bar surface, inset by the same 8px
+/// padding the Changes sections use.
+fn tab_card(content: impl IntoElement) -> gpui::AnyElement {
+    div()
+        .size_full()
+        .min_h_0()
+        .p_2()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .rounded_lg()
+                .bg(theme::STRONG_BACKGROUND)
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .child(content),
+        )
+        .into_any_element()
 }
 
 fn empty_state(text: String) -> gpui::AnyElement {

@@ -12,7 +12,7 @@ use crate::theme;
 use crate::ui::icon;
 use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{div, px, Context, Entity, FontWeight, MouseButton, SharedString, Window};
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::Sizable as _;
 
@@ -69,6 +69,20 @@ impl ChangesView {
             detail_armed: None,
             detail_patches: std::collections::HashMap::new(),
             expanded_details: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Closes the branch dropdown (and its new-branch form) from an outside
+    /// click or Escape. Returns whether it was actually open so the bar can
+    /// stop propagating.
+    pub fn dismiss_branch_menu(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.branch_menu_open {
+            self.branch_menu_open = false;
+            self.new_branch_open = false;
+            cx.notify();
+            true
+        } else {
+            false
         }
     }
 
@@ -231,11 +245,13 @@ impl ChangesView {
 
         // order: unstaged first, then staged; headers render only when
         // their side has rows, each carrying Discard-all (+ stage/unstage all)
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         if !unstaged.is_empty() {
             list = list.child(section_header(
                 "Unstaged Changes",
                 unstaged.len(),
                 false,
+                show_tooltips,
                 vec![
                     ("discard-all-u", "Discard", GitAction::DiscardUnstaged(
                         unstaged.iter().map(|f| f.path.clone()).collect(),
@@ -253,6 +269,7 @@ impl ChangesView {
                 "Staged Changes",
                 staged.len(),
                 true,
+                show_tooltips,
                 vec![
                     ("discard-all-s", "Discard", GitAction::DiscardStaged(
                         staged.iter().map(|f| f.path.clone()).collect(),
@@ -364,7 +381,7 @@ impl ChangesView {
                                             });
                                         }
                                     })
-                                    .child(icon("icons/icon-discard.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
+                                    .child(icon("icons/icon-undo.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
                             ),
                     )
                     .when_some(
@@ -555,10 +572,7 @@ impl ChangesView {
                                     cx.stop_propagation();
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full.clone()));
                                     store.update(cx, |s, cx| {
-                                        s.notice = Some((
-                                            format!("Copied {short} to clipboard"),
-                                            std::time::Instant::now(),
-                                        ));
+                                        s.notify_success(format!("Copied {short} to clipboard"));
                                         cx.notify();
                                     });
                                 }
@@ -686,9 +700,9 @@ impl ChangesView {
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full_hash.clone()));
                     store.update(cx, |s, cx| {
-                        s.notice = Some((
-                            format!("Copied {} to clipboard", &full_hash[..7.min(full_hash.len())]),
-                            std::time::Instant::now(),
+                        s.notify_success(format!(
+                            "Copied {} to clipboard",
+                            &full_hash[..7.min(full_hash.len())]
                         ));
                         cx.notify();
                     });
@@ -1052,10 +1066,13 @@ impl ChangesView {
             .flex_col()
             .relative();
 
-        // branch selector button
+        // branch selector button; the mouse-down stops propagation so the
+        // window's outside-click dismissal never sees it and the button
+        // keeps its open/close toggle
         rail = rail.child(
             div()
                 .id("branch-button")
+                .debug_selector(|| "branch-button".into())
                 .cursor_pointer()
                 .rounded_lg()
                 .border_1()
@@ -1069,9 +1086,13 @@ impl ChangesView {
                 .items_center()
                 .gap_2()
                 .hover(|s| s.border_color(theme::ACCENT))
-                .on_click(cx.listener(|this, _, _, cx| {
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(|this, _, window, cx| {
                     this.branch_menu_open = !this.branch_menu_open;
                     this.new_branch_open = false;
+                    if this.branch_menu_open {
+                        this.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
+                    }
                     cx.notify();
                 }))
                 .child(icon("icons/icon-source-branch.svg", px(theme::icon_small()), theme::TEXT_MUTED))
@@ -1254,6 +1275,7 @@ impl ChangesView {
         if self.new_branch_open {
             return div()
                 .id("branch-menu")
+                .debug_selector(|| "branch-menu".into())
                 .absolute()
                 .top(px(-4.))
                 .left(px(8.))
@@ -1268,6 +1290,9 @@ impl ChangesView {
                 .flex()
                 .flex_col()
                 .gap_2()
+                // presses inside the card must not reach the window's
+                // outside-click dismissal
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(Input::new(&self.new_branch_name).small())
                 .child(
                     div()
@@ -1293,8 +1318,6 @@ impl ChangesView {
                                 .child("Cancel"),
                         )
                         .child({
-                            let store = self.store.clone();
-                            let name_input = self.new_branch_name.clone();
                             div()
                                 .id("new-branch-create")
                                 .cursor_pointer()
@@ -1306,22 +1329,34 @@ impl ChangesView {
                                 .bg(theme::ACCENT)
                                 .text_color(theme::ON_ACCENT)
                                 .hover(|s| s.opacity(0.9))
-                                .on_click(move |_, _, cx| {
-                                    let name = name_input.read(cx).value().to_string();
-                                    if name.trim().is_empty() {
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    let name = this
+                                        .new_branch_name
+                                        .read(cx)
+                                        .value()
+                                        .trim()
+                                        .to_string();
+                                    if name.is_empty() {
                                         return;
                                     }
-                                    store.update(cx, |s, cx| {
+                                    this.store.update(cx, |s, cx| {
                                         s.run_git(
                                             GitAction::CreateBranch {
-                                                name: name.trim().to_string(),
+                                                name,
                                                 start: None,
                                                 checkout: true,
                                             },
                                             cx,
                                         )
                                     });
-                                })
+                                    // a created branch is a selection: the
+                                    // whole dropdown closes and resets
+                                    this.branch_menu_open = false;
+                                    this.new_branch_open = false;
+                                    this.new_branch_name
+                                        .update(cx, |f, cx| f.set_value("", window, cx));
+                                    cx.notify();
+                                }))
                                 .child("Create")
                         }),
                 )
@@ -1338,6 +1373,7 @@ impl ChangesView {
             list = list.child(
                 div()
                     .id(SharedString::from(format!("branch-row-{}", branch_ref.name)))
+                    .debug_selector(move || format!("branch-row-{}", branch_ref.name))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -1353,11 +1389,19 @@ impl ChangesView {
                     })
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
-                        let store = self.store.clone();
                         let name = branch_ref.name.clone();
-                        move |_, _, cx| {
-                            store.update(cx, |s, cx| s.run_git(GitAction::Checkout(name.clone()), cx));
-                        }
+                        cx.listener(move |this, _, window, cx| {
+                            this.store.update(cx, |s, cx| {
+                                s.run_git(GitAction::Checkout(name.clone()), cx)
+                            });
+                            // picking a branch closes the dropdown and resets
+                            // the filter, so the next open lists everything
+                            this.branch_menu_open = false;
+                            this.new_branch_open = false;
+                            this.branch_filter
+                                .update(cx, |f, cx| f.set_value("", window, cx));
+                            cx.notify();
+                        })
                     })
                     .child(branch_ref.name.clone()),
             );
@@ -1369,6 +1413,7 @@ impl ChangesView {
 
         div()
             .id("branch-menu")
+            .debug_selector(|| "branch-menu".into())
             .absolute()
             .top(px(-4.))
             .left(px(8.))
@@ -1383,6 +1428,9 @@ impl ChangesView {
             .flex()
             .flex_col()
             .gap_2()
+            // presses inside the card (filter field, scrollbar, rows) must
+            // not reach the window's outside-click dismissal
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(Input::new(&self.branch_filter).small())
             .child(div().id("branch-list").flex_1().min_h_0().max_h(px(220.)).overflow_y_scroll().child(list))
             .child(
@@ -1409,6 +1457,7 @@ fn section_header(
     label: &str,
     count: usize,
     with_check: bool,
+    show_tooltips: bool,
     actions: Vec<(&'static str, &'static str, GitAction)>,
     store: Entity<Store>,
 ) -> impl IntoElement + use<> {
@@ -1443,27 +1492,42 @@ fn section_header(
     for (id, action_label, action) in actions {
         let store = store.clone();
         let stage_action = action_label.starts_with("Stage") || action_label.starts_with("Unstage");
-        header = header.child(
-            div()
-                .id(id)
-                .cursor_pointer()
-                .rounded_md()
-                .px_1p5()
-                .py_0p5()
-                .text_size(px(theme::font_small()))
-                .text_color(if stage_action { theme::ACCENT } else { theme::TEXT_MUTED })
-                .hover(move |s| {
-                    if stage_action {
-                        s.bg(theme::tint(theme::ACCENT))
-                    } else {
-                        s.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER)
-                    }
-                })
-                .on_click(move |_, _, cx| {
-                    store.update(cx, |s, cx| s.run_git(action.clone(), cx));
-                })
-                .child(action_label),
-        );
+        // the .NET header pair as bare glyphs: undo arrow for discard,
+        // plus/minus for (un)staging — the label survives as the tooltip
+        let glyph = if stage_action {
+            if action_label.starts_with("Unstage") {
+                "icons/icon-minus.svg"
+            } else {
+                "icons/icon-plus.svg"
+            }
+        } else {
+            "icons/icon-undo.svg"
+        };
+        let color = if stage_action {
+            theme::ACCENT
+        } else {
+            theme::TEXT_MUTED
+        };
+        let button = div()
+            .id(id)
+            .cursor_pointer()
+            .rounded_md()
+            .p_1()
+            .flex()
+            .items_center()
+            .text_color(color)
+            .hover(move |s| {
+                if stage_action {
+                    s.bg(theme::tint(theme::ACCENT))
+                } else {
+                    s.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER)
+                }
+            })
+            .on_click(move |_, _, cx| {
+                store.update(cx, |s, cx| s.run_git(action.clone(), cx));
+            })
+            .child(icon(glyph, px(theme::icon_small()), color));
+        header = header.child(crate::ui::with_tooltip(button, show_tooltips, action_label));
     }
     header
 }
@@ -1486,7 +1550,11 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
     } else {
         GitAction::Stage(file.path.clone())
     };
-    let glyph = if staged { "−" } else { "+" };
+    let glyph = if staged {
+        "icons/icon-minus.svg"
+    } else {
+        "icons/icon-plus.svg"
+    };
     div()
         .id(SharedString::from(format!("toggle-{staged}-{}", file.path)))
         .cursor_pointer()
@@ -1495,14 +1563,13 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(theme::font_small()))
         .text_color(theme::ACCENT)
         .hover(|s| s.bg(theme::tint(theme::ACCENT)))
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
             store.update(cx, |s, cx| s.run_git(action.clone(), cx));
         })
-        .child(glyph)
+        .child(icon(glyph, px(theme::icon_small() - 2.), theme::ACCENT))
 }
 
 /// The rounded +N/−N diff pill: bright count on its tinted ground.
