@@ -112,12 +112,40 @@ fn branches_and_remotes_match_cli() {
 }
 
 #[test]
-fn staged_patch_looks_like_a_diff() {
+fn commit_prompt_context_matches_cli() {
     let Some(root) = require() else { return };
-    if let Some(patch) = read::staged_patch(&root)
-        && !patch.is_empty() {
-            assert!(patch.contains("diff --git "), "patch head: {}", &patch[..patch.len().min(80)]);
-        }
+    let Some((patch, files, subjects)) = read::commit_prompt_context(&root) else {
+        panic!("commit_prompt_context returned None");
+    };
+
+    // file list vs `git diff --cached --name-only`; a rename pair reads
+    // "old -> new" and the CLI name-only line is the new side
+    let cached = git(&["diff", "--cached", "--name-only"]).unwrap_or_default();
+    let cli_names: Vec<&str> = cached.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let our_names: Vec<String> = files
+        .iter()
+        .map(|path| {
+            path.rsplit_once(" -> ")
+                .map(|(_, new)| new.to_string())
+                .unwrap_or_else(|| path.clone())
+        })
+        .collect();
+    assert_eq!(our_names.len(), cli_names.len(), "staged count vs CLI: {files:?}");
+    for (ours, cli) in our_names.iter().zip(&cli_names) {
+        assert_eq!(ours, cli);
+    }
+    if cli_names.is_empty() {
+        assert!(patch.is_empty(), "no staged files but a non-empty patch head");
+    } else {
+        assert!(patch.contains("diff --git "), "patch head: {}", &patch[..patch.len().min(80)]);
+    }
+
+    let log = git(&["log", "-10", "--pretty=%s"]).unwrap_or_default();
+    let cli_subjects: Vec<&str> = log.lines().collect();
+    assert_eq!(subjects.len(), cli_subjects.len());
+    for (ours, cli) in subjects.iter().zip(&cli_subjects) {
+        assert_eq!(ours, cli);
+    }
 }
 
 #[test]

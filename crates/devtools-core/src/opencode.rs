@@ -104,7 +104,7 @@ async fn start_server(
         if is_healthy(&health_client, &base_url).await {
             return Ok(ServerProcess { child: Some(child), base_url });
         }
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -389,6 +389,12 @@ async fn error_for_status(resp: reqwest::Response) -> Result<reqwest::Response> 
 
 // ---- prompt templates (user file → seed-once → built-in) ----------------------
 
+/// Appended to every filled prompt: the serve config forces every tool to
+/// "ask", so one tool call stalls the run on the popup until its 15 s
+/// auto-reject kills it. The input is complete by construction.
+const NO_TOOLS_SUFFIX: &str =
+    "\n\nThe input above is complete — do not use any tools; reply with the final answer text directly.";
+
 fn load_template(file_name: &str, default: &str) -> String {
     let path = crate::paths::AppPaths::opencode_dir().join(file_name);
     if let Ok(text) = std::fs::read_to_string(&path) {
@@ -435,6 +441,7 @@ Additional context (ticket/issue, manual notes — may be empty):
         .replace("{file_list}", file_list)
         .replace("{diff}", diff)
         .replace("{context}", context)
+        + NO_TOOLS_SUFFIX
 }
 
 /// The README wand's filled prompt.
@@ -461,6 +468,7 @@ Additional context (may be empty):
         .replace("{repo_name}", repo_name)
         .replace("{file_tree}", file_tree)
         .replace("{context}", context)
+        + NO_TOOLS_SUFFIX
 }
 
 /// The daily-summary wand's filled prompt.
@@ -497,6 +505,7 @@ Repository activity:
     load_template("daily-summary-all.md", DEFAULT)
         .replace("{date}", date_label)
         .replace("{repos}", repositories_block)
+        + NO_TOOLS_SUFFIX
 }
 
 /// The README prompt's file tree: a recursive listing capped at
@@ -726,13 +735,18 @@ mod tests {
         assert!(prompt.contains("Changed files: a.cs"));
         assert!(prompt.contains("@@ -1 +1 @@"));
         assert!(prompt.contains("tone: stuff"));
+        // every wand ends with the no-tools guard: a tool ask would stall the
+        // run until the popup's auto-reject
+        assert!(prompt.ends_with(NO_TOOLS_SUFFIX));
 
         let readme = readme_prompt("proj", "src/\n  main.rs", "");
         assert!(readme.contains("Project name: proj"));
         assert!(readme.contains("src/"));
+        assert!(readme.ends_with(NO_TOOLS_SUFFIX));
 
         let summary = daily_summary_prompt("Oct 8", "- **repo**: things");
         assert!(summary.contains("Day: Oct 8"));
+        assert!(summary.ends_with(NO_TOOLS_SUFFIX));
     }
 
     /// End-to-end proof for the serve handshake: spawns a real `opencode

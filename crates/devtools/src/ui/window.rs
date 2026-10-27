@@ -768,6 +768,10 @@ fn ask_button(
 ) -> gpui::AnyElement {
     div()
         .id(gpui::SharedString::from(format!("wand-ask-{label}")))
+        .debug_selector({
+            let id = format!("wand-ask-{label}");
+            move || id.clone()
+        })
         .cursor_pointer()
         .rounded_md()
         .px_3()
@@ -778,6 +782,7 @@ fn ask_button(
         .text_color(color)
         .hover(|s| s.opacity(0.85))
         .on_click(on_click)
+        .child(label.to_string())
         .into_any_element()
 }
 
@@ -791,6 +796,7 @@ pub(crate) fn window_button(
 ) -> impl gpui::IntoElement {
     div()
         .id(id)
+        .debug_selector(move || id.into())
         .cursor_pointer()
         .size(px(26.))
         .rounded_md()
@@ -817,6 +823,7 @@ fn status_chip(
 ) -> gpui::AnyElement {
     div()
         .id(id)
+        .debug_selector(move || id.into())
         .cursor_pointer()
         .rounded_md()
         .h(px(26.))
@@ -854,12 +861,8 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
 
 /// Both titlebar side columns share this width so the centered search field
 /// sits at the window's true center. It fits the wider side on either
-/// platform: the app name + notes + summary group on the left, and the tool
-/// pill + SnapIt + window controls on the right (Windows only for SnapIt).
-/// Both titlebar side columns share this width so the centered search field
-/// sits at the window's true center. It fits the wider side on either
-/// platform: the app name + notes + summary group on the left, and the tool
-/// pill + status chips + window controls on the right (the SnapIt chip
+/// platform: the app name + notes + summary group on the left, and the
+/// status chips + tool pill + window controls on the right (the SnapIt chip
 /// joins the NuGet one on Windows only).
 fn titlebar_side_w() -> f32 {
     if cfg!(windows) {
@@ -892,65 +895,6 @@ impl MainWindow {
             .flex()
             .items_center()
             .justify_end()
-            .child(
-                utility_group
-                    .child({
-                        div()
-                            .id("tools-toggle")
-                            .cursor_pointer()
-                            .rounded_md()
-                            .size(px(26.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.tools_menu_open = !this.tools_menu_open;
-                                cx.notify();
-                            }))
-                            // the menu itself explains the tools; a tooltip
-                            // hanging over it would just be noise
-                            .when(show_tooltips && !self.tools_menu_open, |d| {
-                                d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
-                            })
-                            .child(icon(
-                                "icons/icon-tools.svg",
-                                px(theme::icon_medium()),
-                                if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
-                            ))
-                    })
-                    .child({
-                        let on_settings = self.page == Page::Settings;
-                        div()
-                            .id("settings-toggle")
-                            .cursor_pointer()
-                            .rounded_md()
-                            .size(px(26.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
-                                cx.notify();
-                            }))
-                            .when(show_tooltips, |d| {
-                                d.tooltip(crate::ui::tooltip_text(if on_settings {
-                                    "Back to repositories"
-                                } else {
-                                    "Settings"
-                                }))
-                            })
-                            .child(icon(
-                                "icons/icon-cog.svg",
-                                px(theme::icon_medium()),
-                                if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
-                            ))
-                    }),
-            )
-            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             // status chips mirror the .NET titlebar: an 8px state dot + label,
             // click toggles the tool. NuGet amber when idle, green while the
             // watch runs; SnapIt red when stopped, green when running — and
@@ -1016,6 +960,72 @@ impl MainWindow {
                     },
                 ))
             })
+            // the chips group separates from the tool pill only when a chip
+            // actually rendered
+            .when(nuget_enabled || cfg!(windows), |d| {
+                d.child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
+            })
+            .child(
+                utility_group
+                    .child({
+                        div()
+                            .id("tools-toggle")
+                            .debug_selector(|| "tools-toggle".into())
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(26.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.tools_menu_open = !this.tools_menu_open;
+                                cx.notify();
+                            }))
+                            // the menu itself explains the tools; a tooltip
+                            // hanging over it would just be noise
+                            .when(show_tooltips && !self.tools_menu_open, |d| {
+                                d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
+                            })
+                            .child(icon(
+                                "icons/icon-tools.svg",
+                                px(theme::icon_medium()),
+                                if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
+                            ))
+                    })
+                    .child({
+                        let on_settings = self.page == Page::Settings;
+                        div()
+                            .id("settings-toggle")
+                            .debug_selector(|| "settings-toggle".into())
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(26.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
+                            .hover(|s| s.bg(theme::HOVER))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
+                                cx.notify();
+                            }))
+                            .when(show_tooltips, |d| {
+                                d.tooltip(crate::ui::tooltip_text(if on_settings {
+                                    "Back to repositories"
+                                } else {
+                                    "Settings"
+                                }))
+                            })
+                            .child(icon(
+                                "icons/icon-cog.svg",
+                                px(theme::icon_medium()),
+                                if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
+                            ))
+                    }),
+            )
+            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             .child(window_button(
                 "minimize-window",
                 "icons/icon-window-minimize.svg",

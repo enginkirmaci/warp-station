@@ -52,7 +52,11 @@ impl Render for OverviewView {
         let details = self.store.read(cx).github_details.clone();
         let entry = self.store.read(cx).selected_entry().cloned();
         let draft = self.store.read(cx).readme_draft.clone();
-        let wand_active = self.store.read(cx).wand_busy == Some(WandKind::Readme);
+        let wand_active = {
+            let state = self.store.read(cx);
+            state.wand_busy == Some(WandKind::Readme)
+                && state.wand_repo.as_deref() == state.selected_repo.as_deref()
+        };
         let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
         let has_draft = draft.is_some();
         let shown = draft.clone().or_else(|| self.readme.clone());

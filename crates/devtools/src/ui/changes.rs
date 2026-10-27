@@ -38,6 +38,8 @@ pub struct ChangesView {
     detail_armed: Option<&'static str>,
     detail_patches: std::collections::HashMap<String, String>,
     expanded_details: std::collections::HashSet<String>,
+    /// The repo the view's local state belongs to; a mismatch resets it all.
+    loaded_for: Option<String>,
 }
 
 impl ChangesView {
@@ -69,7 +71,33 @@ impl ChangesView {
             detail_armed: None,
             detail_patches: std::collections::HashMap::new(),
             expanded_details: std::collections::HashSet::new(),
+            loaded_for: None,
         }
+    }
+
+    /// One-time reset when the selected repo changed: the bar must never show
+    /// the previous repo's draft, expansion, menu or drill-down state.
+    fn sync_repo_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let repo = self.store.read(cx).selected_repo.clone();
+        if self.loaded_for == repo {
+            return;
+        }
+        self.loaded_for = repo;
+        self.expanded.clear();
+        self.patches.clear();
+        self.branch_menu_open = false;
+        self.new_branch_open = false;
+        self.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
+        let prefix = self.store.read(cx).settings().repos.branch_name_prefix.clone();
+        let seed = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
+        self.new_branch_name.update(cx, |f, cx| f.set_value(seed.as_str(), window, cx));
+        self.commit_message.update(cx, |f, cx| f.set_value("", window, cx));
+        self.auto_commit_after_draft = false;
+        self.history_open = false;
+        self.drilled_commit = None;
+        self.detail_armed = None;
+        self.detail_patches.clear();
+        self.expanded_details.clear();
     }
 
     /// Closes the branch dropdown (and its new-branch form) from an outside
@@ -154,6 +182,7 @@ impl ChangesView {
 
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        self.sync_repo_reset(window, cx);
         // drain freshly loaded patches + the commit wand's draft
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
             self.patches.insert((path, staged), patch);
@@ -892,7 +921,11 @@ impl ChangesView {
     /// turns the button into "Generate & Commit": the wand drafts the
     /// message first, then the commit fires itself.
     fn render_commit_card(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let wand_active = self.store.read(cx).wand_busy == Some(crate::net::WandKind::Commit);
+        let wand_active = {
+            let state = self.store.read(cx);
+            state.wand_busy == Some(crate::net::WandKind::Commit)
+                && state.wand_repo.as_deref() == state.selected_repo.as_deref()
+        };
         let opencode_on = self.store.read(cx).settings().opencode.enable_opencode;
         let message_empty = self.commit_message.read(cx).value().trim().is_empty();
         let generate_and_commit = message_empty && opencode_on;
@@ -1365,9 +1398,30 @@ impl ChangesView {
 
         let mut list = div().flex().flex_col().gap_0p5();
         let mut shown = 0;
+        let mut remotes_labeled = false;
         for branch_ref in &self.store.read(cx).branches {
             if !filter.is_empty() && !branch_ref.name.to_lowercase().contains(&filter) {
                 continue;
+            }
+            if shown > 30 {
+                break;
+            }
+            let is_remote = branch_ref.kind == devtools_core::model::GitBranchKind::Remote;
+            // the .NET menu's inert group label: locals first, then the
+            // "Remote" group (re-emerges before the first matching remote
+            // while filtering)
+            if is_remote && !remotes_labeled {
+                remotes_labeled = true;
+                list = list.child(
+                    div()
+                        .debug_selector(|| "branch-group-remote".into())
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .text_size(px(theme::font_small() - 1.))
+                        .text_color(theme::TEXT_FAINT)
+                        .child("Remote"),
+                );
             }
             let is_current = branch_ref.name == current;
             list = list.child(
@@ -1381,7 +1435,7 @@ impl ChangesView {
                     .text_size(px(theme::font_small()))
                     .when(is_current, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
                     .when(!is_current, |d| {
-                        d.text_color(if branch_ref.kind == devtools_core::model::GitBranchKind::Remote {
+                        d.text_color(if is_remote {
                             theme::TEXT_FAINT
                         } else {
                             theme::TEXT_DIM
@@ -1406,9 +1460,6 @@ impl ChangesView {
                     .child(branch_ref.name.clone()),
             );
             shown += 1;
-            if shown > 30 {
-                break;
-            }
         }
 
         div()

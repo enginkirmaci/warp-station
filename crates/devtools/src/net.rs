@@ -488,26 +488,12 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         let folder = folder.clone();
                         move || match kind {
                             WandKind::Commit => {
-                                let patch = devtools_core::git::read::staged_patch(&folder)
-                                    .unwrap_or_default();
-                                let patch: String = patch.chars().take(8000).collect();
-                                let snapshot = devtools_core::git::read::change_snapshot(&folder);
-                                let file_list = snapshot
-                                    .as_ref()
-                                    .map(|s| {
-                                        s.staged_files
-                                            .iter()
-                                            .map(|f| f.path.as_str())
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
-                                    })
-                                    .unwrap_or_default();
-                                let subjects = devtools_core::git::read::recent_commits(&folder)
-                                    .unwrap_or_default()
-                                    .iter()
-                                    .take(5)
-                                    .map(|c| c.subject.clone())
-                                    .collect::<Vec<_>>();
+                                let (patch, files, subjects) =
+                                    devtools_core::git::read::commit_prompt_context(&folder)
+                                        .unwrap_or_default();
+                                let file_list = files.join(", ");
+                                let subjects: Vec<String> =
+                                    subjects.into_iter().take(5).collect();
                                 let context = if subjects.is_empty() {
                                     String::new()
                                 } else {

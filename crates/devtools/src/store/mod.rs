@@ -52,6 +52,9 @@ pub struct Store {
 
     // ---- wand (opencode) state ----
     pub wand_busy: Option<WandKind>,
+    /// The repo the running wand was kicked for — its result may only land
+    /// while that repo is still selected.
+    pub wand_repo: Option<String>,
     /// A pending permission ask: (wand id, ask id, title, seconds left on the
     /// auto-reject countdown).
     pub wand_ask: Option<(String, String, String, u32)>,
@@ -89,7 +92,12 @@ pub struct Store {
 
 impl Store {
     pub fn new(_cx: &App, net: async_channel::Sender<NetCommand>) -> Self {
-        let settings = Arc::new(SettingsService::open());
+        Self::with_settings(net, Arc::new(SettingsService::open()))
+    }
+
+    /// The probe seam: probes pass a scratch-backed service so a settings
+    /// mutation never lands in the real ~/.devtools/settings.json.
+    pub fn with_settings(net: async_channel::Sender<NetCommand>, settings: Arc<SettingsService>) -> Self {
         let app_settings = settings.get();
         let cached = repo_store::load_cache(&repo_store::cache_path())
             .map(|c| c.repos.iter().map(repo_store::entry_from_cache).collect())
@@ -126,6 +134,7 @@ impl Store {
             azure_by_folder: std::collections::HashMap::new(),
             github_details: None,
             wand_busy: None,
+            wand_repo: None,
             wand_ask: None,
             wand_error: None,
             commit_message_draft: None,
@@ -354,30 +363,52 @@ impl Store {
                 cx.notify();
             }
             UiEvent::WandAsk { wand_id, ask_id, title } => {
-                self.wand_ask = Some((wand_id, ask_id, title, 15));
+                // the auto-allow setting answers without ever raising the
+                // popup ("always" whitelists the pattern for this run only)
+                if self.settings().opencode.auto_allow_permissions {
+                    let _ = self.net.send_blocking(NetCommand::WandRespond {
+                        wand_id,
+                        ask_id,
+                        response: "always".into(),
+                    });
+                } else {
+                    self.wand_ask = Some((wand_id, ask_id, title, 15));
+                }
                 cx.notify();
             }
             UiEvent::WandLog { line, .. } => {
                 tracing::info!("wand: {line}");
             }
             UiEvent::WandDone { kind, result, .. } => {
+                // a run kicked for repo A must never land its draft once
+                // another repo is selected
+                let for_selected = self.wand_repo.as_deref() == self.selected_repo.as_deref();
                 self.wand_busy = None;
+                self.wand_repo = None;
                 self.wand_ask = None;
                 match (&result, kind) {
                     (Ok(text), WandKind::Commit) => {
-                        self.commit_message_draft = Some(text.trim().to_string());
+                        if for_selected {
+                            self.commit_message_draft = Some(text.trim().to_string());
+                        }
                     }
                     (Ok(text), WandKind::Readme) => {
-                        self.readme_draft = Some(text.trim().to_string());
+                        if for_selected {
+                            self.readme_draft = Some(text.trim().to_string());
+                        }
                     }
                     (Err(err), WandKind::Commit) => {
                         tracing::warn!("wand failed: {err}");
-                        self.wand_error = Some(err.clone());
+                        if for_selected {
+                            self.wand_error = Some(err.clone());
+                        }
                         self.notify_error("Could not generate a commit message");
                     }
                     (Err(err), WandKind::Readme) => {
                         tracing::warn!("wand failed: {err}");
-                        self.wand_error = Some(err.clone());
+                        if for_selected {
+                            self.wand_error = Some(err.clone());
+                        }
                         self.notify_error("Could not generate a README");
                     }
                 }
@@ -579,6 +610,7 @@ impl Store {
         };
         let model = Self::wand_model(&settings);
         self.wand_busy = Some(kind);
+        self.wand_repo = Some(folder.clone());
         self.wand_error = None;
         let id = format!("wand-{}", self.save_generation);
         self.save_generation += 1;
@@ -852,6 +884,11 @@ impl Store {
         self.commit_details = None;
         self.commit_file_patch = None;
         self.github_details = None;
+        self.commit_message_draft = None;
+        self.readme_draft = None;
+        self.wand_error = None;
+        self.wand_repo = None;
+        self.git_busy = false;
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {

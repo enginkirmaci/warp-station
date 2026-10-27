@@ -56,13 +56,14 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    // the row-height wrapper fills the two-line row, rows advance by one row
-    // height, and the name cell sits centered inside its row
+    // the centering wrapper fills the row minus the kit's own 4+4 cell
+    // padding (48px row → 40px column), rows advance by one row height, and
+    // the name cell sits centered inside its row
     let wrap0 = cx.debug_bounds("repos-td-wrap-0").expect("row 0 renders");
     let wrap1 = cx.debug_bounds("repos-td-wrap-1").expect("row 1 renders");
     assert!(
-        (wrap0.size.height - gpui::px(48.)).abs() < gpui::px(2.),
-        "cells fill the 48px row (got {:?})",
+        (wrap0.size.height - gpui::px(40.)).abs() < gpui::px(2.),
+        "cells fill the row minus the kit's cell padding (got {:?})",
         wrap0.size.height
     );
     let row_pitch = wrap1.origin.y - wrap0.origin.y;
@@ -292,6 +293,313 @@ fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("branch-menu").is_some(),
         "the dropdown reopens from the button"
+    );
+}
+
+/// The dropdown groups local branches first, then an inert "Remote" label,
+/// then the remote-tracking branches.
+#[gpui::test]
+fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.branches = vec![
+            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "origin/main".into(), kind: GitBranchKind::Remote },
+            GitBranchRef { name: "origin/rust".into(), kind: GitBranchKind::Remote },
+        ];
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let button = cx
+        .debug_bounds("branch-button")
+        .expect("the branch selector renders in the rail");
+    cx.simulate_click(button.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(cx.debug_bounds("branch-menu").is_some(), "the dropdown opens");
+    let label = cx
+        .debug_bounds("branch-group-remote")
+        .expect("the Remote group label renders");
+    let local = cx.debug_bounds("branch-row-main").expect("the local row renders");
+    let remote = cx
+        .debug_bounds("branch-row-origin/main")
+        .expect("the remote row renders");
+    assert!(
+        local.bottom() <= label.origin.y,
+        "locals render above the Remote label"
+    );
+    assert!(
+        label.bottom() <= remote.origin.y,
+        "the Remote label renders above the remotes"
+    );
+}
+
+/// The permission popup's buttons carry their labels — a label-less button
+/// renders as a bare tinted pill with no text.
+#[gpui::test]
+fn wand_ask_buttons_render_their_labels(cx: &mut TestAppContext) {
+    use devtools::net::UiEvent;
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::WandAsk {
+                wand_id: "w".into(),
+                ask_id: "a".into(),
+                title: "bash ls".into(),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.read_entity(&store, |s, _| s.wand_ask.is_some()),
+        "the pending ask is parked on the store"
+    );
+    // padding alone is ~8px tall; the label adds a full text line
+    for id in ["wand-ask-Reject", "wand-ask-Allow all", "wand-ask-Allow once"] {
+        let bounds = cx
+            .debug_bounds(id)
+            .unwrap_or_else(|| panic!("{id} renders"));
+        assert!(
+            bounds.size.height > gpui::px(14.),
+            "{id} carries its label"
+        );
+    }
+}
+
+/// With the OpenCode auto-allow setting on, an ask is answered "always" on
+/// the spot and never raises the popup. The store is backed by a scratch
+/// settings file — flipping the flag must never touch the real settings.
+#[gpui::test]
+fn auto_allow_answers_permission_asks_without_the_popup(cx: &mut TestAppContext) {
+    use devtools::net::{NetCommand, UiEvent};
+
+    cx.update(gpui_kit::init);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-auto-allow-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &scratch,
+        r#"{"OpenCode": {"AutoAllowPermissions": true}}"#,
+    )
+    .expect("scratch settings");
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::WandAsk {
+                wand_id: "w".into(),
+                ask_id: "a".into(),
+                title: "bash ls".into(),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+
+    assert!(
+        cx.read_entity(&store, |s, _| s.wand_ask.is_none()),
+        "the popup never raises"
+    );
+    let sent = {
+        // construction queues ProbeAll/Scan ahead of the reply; drain to it
+        let mut reply = None;
+        while let Ok(command) = net_rx.try_recv() {
+            if let NetCommand::WandRespond { response, .. } = command {
+                reply = Some(response);
+                break;
+            }
+        }
+        reply.expect("the auto-allow reply went out")
+    };
+    assert_eq!(sent, "always");
+
+    let _ = std::fs::remove_file(&scratch);
+}
+
+/// Switching repos resets the whole per-repo workspace: snapshot, branches,
+/// history, drafts, wand state and the busy flags — the bar never shows the
+/// previous repo's detail.
+#[gpui::test]
+fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
+    use devtools::store::BottomBarTab;
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        // prime everything the switch must clear (repo A's state)
+        s.changes = None;
+        s.branches = vec![GitBranchRef { name: "main".into(), kind: GitBranchKind::Local }];
+        s.recent_commits = vec![devtools_core::model::GitCommitInfo {
+            hash: "abc".into(),
+            subject: "old".into(),
+            author: None,
+            date: chrono::Local::now(),
+        }];
+        s.unpushed = Some(["abc".to_string()].into_iter().collect());
+        s.last_git_error = Some("stale".into());
+        s.commit_message_draft = Some("A's draft".into());
+        s.readme_draft = Some("A's readme".into());
+        s.wand_busy = Some(devtools::net::WandKind::Commit);
+        s.wand_repo = Some("/probe/alpha".into());
+        s.wand_error = Some("stale".into());
+        s.git_busy = true;
+        s.selected_tab = BottomBarTab::PullRequests;
+    });
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/beta".into()), cx);
+    });
+    cx.run_until_parked();
+
+    cx.read_entity(&store, |s, _| {
+        assert_eq!(s.selected_repo.as_deref(), Some("/probe/beta"));
+        assert_eq!(s.selected_tab, BottomBarTab::Overview);
+        assert!(s.branches.is_empty(), "branches reset");
+        assert!(s.recent_commits.is_empty(), "history reset");
+        assert!(s.unpushed.is_none(), "unpushed reset");
+        assert!(s.last_git_error.is_none(), "git error reset");
+        assert!(s.commit_message_draft.is_none(), "commit draft reset");
+        assert!(s.readme_draft.is_none(), "readme draft reset");
+        assert!(s.wand_error.is_none(), "wand error reset");
+        assert!(!s.git_busy, "git busy reset");
+        // the in-flight run keeps its busy flag but loses its repo: it can
+        // no longer land a draft into beta's bar
+        assert_eq!(s.wand_repo, None);
+    });
+}
+
+/// A wand run kicked for repo A never lands its draft once repo B is
+/// selected — the run ends, but beta's commit box stays empty.
+#[gpui::test]
+fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
+    use devtools::net::{UiEvent, WandKind};
+
+    cx.update(gpui_kit::init);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+    });
+    // the run was kicked for alpha, the user has since moved to beta
+    cx.update_entity(&store, |s, _| {
+        s.wand_busy = Some(WandKind::Commit);
+        s.wand_repo = Some("/probe/alpha".into());
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/beta".into()), cx);
+        s.wand_busy = Some(WandKind::Commit);
+        s.wand_repo = Some("/probe/alpha".into());
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::WandDone {
+                wand_id: "w".into(),
+                kind: WandKind::Commit,
+                result: Ok("A's generated message".into()),
+            },
+            cx,
+        );
+    });
+
+    cx.read_entity(&store, |s, _| {
+        assert!(s.wand_busy.is_none(), "the run ended");
+        assert!(
+            s.commit_message_draft.is_none(),
+            "alpha's draft never lands in beta's bar"
+        );
+    });
+
+    // for comparison: a run for the still-selected repo lands its draft
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.wand_busy = Some(WandKind::Commit);
+        s.wand_repo = Some("/probe/beta".into());
+        s.on_net_event(
+            UiEvent::WandDone {
+                wand_id: "w".into(),
+                kind: WandKind::Commit,
+                result: Ok("B's generated message".into()),
+            },
+            cx,
+        );
+    });
+    cx.read_entity(&store, |s, _| {
+        assert_eq!(
+            s.commit_message_draft.as_deref(),
+            Some("B's generated message")
+        );
+    });
+}
+
+/// Table rows center their content: the first row's name cell sits on the
+/// row's vertical center. The td wrapper must leave the kit's own 4+4 cell
+/// padding free — at the full row height it overflows 8px and everything
+/// rides ~4px low.
+#[gpui::test]
+fn table_rows_center_their_content(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let header = cx.debug_bounds("repos-header").expect("table header renders");
+    let name = cx
+        .debug_bounds("repos-name-cell-0")
+        .expect("the first row renders");
+    let row_center = header.bottom() + gpui::px(devtools::theme::TABLE_ROW_H / 2.);
+    let cell_center = name.origin.y + name.size.height / 2.;
+    assert!(
+        (cell_center - row_center).abs() <= gpui::px(2.),
+        "row content must sit on the row center (cell {cell_center} vs row {row_center})"
     );
 }
 

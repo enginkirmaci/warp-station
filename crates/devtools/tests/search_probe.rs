@@ -166,3 +166,56 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
         brand.origin.x + brand.size.width
     );
 }
+
+/// The titlebar's right section reads left to right: status chips (NuGet,
+/// SnapIt on Windows), a separator, the Tools+Settings pill, another
+/// separator, then the window controls.
+#[gpui::test]
+fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    // scratch settings: the probe must not depend on the real file's
+    // EnableNuget flag ({} = all defaults, NuGet on)
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-titlebar-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    draw(cx);
+    let _ = std::fs::remove_file(&scratch);
+
+    let nuget = cx.debug_bounds("nuget-status").expect("nuget chip renders");
+    let tools = cx.debug_bounds("tools-toggle").expect("tools button");
+    let settings = cx.debug_bounds("settings-toggle").expect("settings button");
+    let minimize = cx.debug_bounds("minimize-window").expect("minimize button");
+
+    assert!(
+        nuget.right() <= tools.origin.x,
+        "the NuGet chip sits left of the tool pill ({:?} vs {:?})",
+        nuget,
+        tools
+    );
+    assert!(
+        tools.right() <= settings.origin.x,
+        "tools and settings share the pill, tools first"
+    );
+    assert!(
+        settings.right() <= minimize.origin.x,
+        "the window controls come after a separator ({:?} vs {:?})",
+        settings,
+        minimize
+    );
+}

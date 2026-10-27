@@ -167,6 +167,9 @@ pub struct OpenCodeSettings {
     pub enable_opencode: bool,
     pub default_model: String,
     pub commit_model: Option<String>,
+    /// Answers tool permission asks with "always" instead of raising the
+    /// popup (the serve run is per-generation, so nothing outlives it).
+    pub auto_allow_permissions: bool,
 }
 
 
@@ -340,5 +343,15 @@ mod tests {
         assert!(json.contains("\"MaxScanDepth\""));
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.sort_mode, s.repos.sort_mode);
+    }
+
+    #[test]
+    fn auto_allow_permissions_round_trips() {
+        let json = r#"{"OpenCode": {"AutoAllowPermissions": true}}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(s.opencode.auto_allow_permissions);
+        // absent key = off (old settings files never carried it)
+        let off: AppSettings = serde_json::from_str::<AppSettings>("{}").unwrap();
+        assert!(!off.opencode.auto_allow_permissions);
     }
 }

@@ -293,6 +293,7 @@ impl Render for ReposPage {
             .child(self.render_toolbar(window.viewport_size().width, cx))
             .child(
                 div()
+                    .debug_selector(|| "repos-table-wrap".into())
                     .flex_1()
                     .min_h_0()
                     .px_4()
@@ -819,6 +820,7 @@ impl TableDelegate for ReposDelegate {
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id("repos-header")
+            .debug_selector(|| "repos-header".into())
             .h(px(theme::TABLE_HEAD_H))
             .border_b_1()
             .border_color(theme::BORDER_LIGHT)
@@ -952,6 +954,7 @@ impl TableDelegate for ReposDelegate {
                 let favorite = repo.is_favorite();
                 let star = div()
                     .id(("star", row_ix))
+                    .debug_selector(move || format!("repos-star-cell-{row_ix}"))
                     .cursor_pointer()
                     .flex()
                     .items_center()
@@ -1079,10 +1082,12 @@ impl TableDelegate for ReposDelegate {
 
         // the kit's cell wrapper is a block div and percentage heights don't
         // resolve through it, so cell content would hug the row top; every
-        // cell centers inside an explicitly row-height flex column instead
+        // cell centers inside an explicit flex column instead. The height
+        // must leave the kit's own 4+4 cell padding free — at the full row
+        // height the column overflows 8px and content rides ~4px low.
         div()
             .debug_selector(move || format!("repos-td-wrap-{row_ix}"))
-            .h(px(theme::TABLE_ROW_H))
+            .h(px(theme::TABLE_ROW_H - 8.))
             .flex()
             .flex_col()
             .justify_center()

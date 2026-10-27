@@ -9,15 +9,14 @@ use git2::{Repository, Status, StatusOptions};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-/// Read cap for the staged patch head (the commit-message prompt truncates far
-/// below it).
-pub const STAGED_PATCH_READ_CAP: usize = 48 * 1024;
-
 /// Read cap for one file's patch row (commit detail and the expandable rows).
 pub const FILE_PATCH_READ_CAP: usize = 64 * 1024;
 
 /// Read cap for a commit-detail message body.
 pub const COMMIT_BODY_READ_CAP: usize = 16 * 1024;
+
+/// Prompt cap for the commit-message wand's staged patch head.
+pub const COMMIT_PROMPT_PATCH_CAP: usize = 8000;
 
 /// Upper bound on commits examined for one day's activity.
 const MAX_DAY_SCAN_COMMITS: usize = 2000;
@@ -331,17 +330,54 @@ pub fn unpushed_hashes(folder: &Path) -> Option<HashSet<String>> {
     .flatten()
 }
 
-/// The staged diff as a patch head for the commit-message prompt; empty when
-/// nothing is staged.
-pub fn staged_patch(folder: &Path) -> Option<String> {
+/// The commit-message wand's context in one repo pass: the staged patch head
+/// capped for the prompt, the staged paths (renames as "old -> new"), and the
+/// recent subjects for tone.
+pub fn commit_prompt_context(folder: &Path) -> Option<(String, Vec<String>, Vec<String>)> {
     with_repo(folder, |repo| {
         let head_tree = head_tree(repo);
         let index = repo.index().ok()?;
-        let diff = repo.diff_tree_to_index(head_tree.as_ref(), Some(&index), None).ok()?;
-        let text = patch_text(&diff);
-        Some(cap(normalize_patch_prefixes(&text), STAGED_PATCH_READ_CAP, ""))
+        let mut opts = diff_options(repo);
+        let mut diff = repo
+            .diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut opts))
+            .ok()?;
+        let _ = find_renames(&mut diff);
+
+        let mut files = Vec::new();
+        for delta in diff.deltas() {
+            let old = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
+            let new = delta.new_file().path().map(|p| p.to_string_lossy().to_string());
+            if let Some(path) = delta_prompt_path(old.as_deref(), new.as_deref()) {
+                files.push(path);
+            }
+        }
+        let patch = cap(
+            normalize_patch_prefixes(&patch_text(&diff)),
+            COMMIT_PROMPT_PATCH_CAP,
+            PATCH_TRUNCATION_SUFFIX,
+        );
+
+        let mut subjects = Vec::new();
+        let mut walker = repo.revwalk().ok()?;
+        walker.push_head().ok()?;
+        for oid in walker.take(10).flatten() {
+            if let Ok(commit) = repo.find_commit(oid) {
+                subjects.push(commit.summary().ok().flatten().unwrap_or_default().to_string());
+            }
+        }
+        Some((patch, files, subjects))
     })
     .flatten()
+}
+
+/// One delta's prompt path: a rename reads "old -> new", everything else its
+/// single side (new for adds, old for deletes).
+fn delta_prompt_path(old: Option<&str>, new: Option<&str>) -> Option<String> {
+    match (old, new) {
+        (Some(old), Some(new)) if old != new => Some(format!("{old} -> {new}")),
+        (Some(path), _) | (None, Some(path)) => Some(path.to_string()),
+        (None, None) => None,
+    }
 }
 
 /// The most recent commits, newest first (the history list's deeper cut).
@@ -920,5 +956,22 @@ mod patch_prefix_tests {
         let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n";
         assert_eq!(normalize_patch_prefixes(patch), patch);
         assert_eq!(normalize_patch_prefixes(""), "");
+    }
+}
+
+#[cfg(test)]
+mod prompt_path_tests {
+    use super::*;
+
+    #[test]
+    fn shapes_delta_paths_by_status() {
+        assert_eq!(
+            delta_prompt_path(Some("old.txt"), Some("new.txt")),
+            Some("old.txt -> new.txt".into())
+        );
+        assert_eq!(delta_prompt_path(Some("a.rs"), Some("a.rs")), Some("a.rs".into()));
+        assert_eq!(delta_prompt_path(None, Some("added.rs")), Some("added.rs".into()));
+        assert_eq!(delta_prompt_path(Some("gone.rs"), None), Some("gone.rs".into()));
+        assert_eq!(delta_prompt_path(None, None), None);
     }
 }

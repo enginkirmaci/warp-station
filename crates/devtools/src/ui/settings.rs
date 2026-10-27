@@ -43,6 +43,7 @@ pub struct SettingsPage {
     snap_it_auto_start: bool,
     // OpenCode
     enable_opencode: bool,
+    auto_allow: bool,
     default_model: Entity<InputState>,
     commit_model: Entity<InputState>,
     default_model_open: bool,
@@ -109,6 +110,7 @@ impl SettingsPage {
             enable_zcode: repos.enable_zcode,
             snap_it_auto_start: settings.snap_it.auto_start,
             enable_opencode: settings.opencode.enable_opencode,
+            auto_allow: settings.opencode.auto_allow_permissions,
             default_model: field(window, cx, &settings.opencode.default_model),
             commit_model: field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default()),
             default_model_open: false,
@@ -182,6 +184,7 @@ impl SettingsPage {
             self.enable_azure,
         );
         let snap_it_auto_start = self.snap_it_auto_start;
+        let auto_allow = self.auto_allow;
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
@@ -212,6 +215,7 @@ impl SettingsPage {
                 s.repos.enable_visual_studio = flags.5;
                 s.repos.enable_zcode = flags.6;
                 s.opencode.enable_opencode = flags.7;
+                s.opencode.auto_allow_permissions = auto_allow;
                 s.opencode.default_model = default_model;
                 s.opencode.commit_model = (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
                 s.repos.enable_git_hub = flags.8;
@@ -431,6 +435,10 @@ impl Render for SettingsPage {
                                     .child(self.card("OpenCode", cx, |this, cx, card| {
                                         card.child(switch_row("Enable OpenCode", this.enable_opencode, cx.listener(|this, _, _, cx| {
                                             this.enable_opencode = !this.enable_opencode;
+                                            cx.notify();
+                                        })))
+                                        .child(switch_row("Auto-allow permission requests", this.auto_allow, cx.listener(|this, _, _, cx| {
+                                            this.auto_allow = !this.auto_allow;
                                             cx.notify();
                                         })))
                                         .child(label("Default model"))
