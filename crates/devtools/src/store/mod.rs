@@ -23,8 +23,18 @@ pub struct Store {
     /// false = the mode's default "best-first" read, true = flipped. Seeded
     /// from the persisted direction when set, else the mode's default.
     pub sort_ascending: bool,
-    /// Row order for the table: indices into `repos` after filter+sort.
-    pub projected: Vec<usize>,
+    /// Session-only solo filter: while set, only that scan-root group's rows
+    /// are projected (the header's filter icon; Clear removes it).
+    pub group_filter: Option<String>,
+    /// Collapsible scan-root groups on/off; seeded from the persisted
+    /// setting (or the DEVTOOLS_GROUPS E2E hook), flipped by the Settings save.
+    pub group_by_root: bool,
+    /// Collapsed group keys (scan-root paths, or "other"); mirrored into
+    /// `ReposSettings::collapsed_groups` on every toggle.
+    pub collapsed_groups: Option<Vec<String>>,
+    /// The table's rows: scan-root group headers interleaved with repo
+    /// indices (flat repo rows when grouping is off).
+    pub projected: Vec<projection::ProjectedRow>,
     /// Bumped on every reproject; views use it to skip rescans when an
     /// unrelated field notified.
     projection_generation: u64,
@@ -149,6 +159,10 @@ impl Store {
                 .repos
                 .sort_ascending
                 .unwrap_or_else(|| app_settings.repos.sort_mode.default_ascending()),
+            group_filter: None,
+            group_by_root: std::env::var("DEVTOOLS_GROUPS").as_deref() == Ok("1")
+                || app_settings.repos.group_repos_by_root.unwrap_or(false),
+            collapsed_groups: app_settings.repos.collapsed_groups.clone(),
             projected: Vec::new(),
             projection_generation: 0,
             selected_repo: None,
@@ -987,9 +1001,11 @@ impl Store {
 
     // ---- list shaping ------------------------------------------------------
 
-    /// Clears the tag filter in one transition (the toolbar's Clear).
+    /// Clears the tag filter and the group solo filter in one transition
+    /// (the toolbar's Clear).
     pub fn clear_filters(&mut self, cx: &mut Context<Self>) {
         self.tag_filters.clear();
+        self.group_filter = None;
         self.reproject();
         cx.notify();
     }
@@ -1005,6 +1021,46 @@ impl Store {
         });
         self.reproject();
         cx.notify();
+    }
+
+    /// A group header's chevron: collapses/expands that scan-root section and
+    /// persists the key (absence-meaningful, like sort_ascending).
+    pub fn toggle_group_collapse(&mut self, key: &str, cx: &mut Context<Self>) {
+        let keys = self.collapsed_groups.get_or_insert_with(Vec::new);
+        match keys.iter().position(|k| k == key) {
+            Some(ix) => {
+                keys.remove(ix);
+            }
+            None => keys.push(key.to_string()),
+        }
+        if keys.is_empty() {
+            self.collapsed_groups = None;
+        }
+        self.update_settings(|s| s.repos.collapsed_groups = self.collapsed_groups.clone());
+        self.reproject();
+        cx.notify();
+    }
+
+    /// A group header's solo filter: shows only that group's rows; pressing
+    /// the same header's icon again clears it.
+    pub fn solo_group(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.group_filter = if self.group_filter.as_deref() == Some(key) {
+            None
+        } else {
+            Some(key.to_string())
+        };
+        self.reproject();
+        cx.notify();
+    }
+
+    /// The Settings save path: flips grouping and re-projects. No rescan —
+    /// the scan roots themselves did not change, only their presentation.
+    pub fn set_group_by_root(&mut self, on: bool) {
+        if self.group_by_root == on {
+            return;
+        }
+        self.group_by_root = on;
+        self.reproject();
     }
 
     /// Checks/unchecks one tag-filter chip (OR semantics across the set).
@@ -1116,21 +1172,51 @@ impl Store {
         self.reproject();
     }
 
+    /// The repo index a table row points at, None for group header rows.
+    pub fn repo_row(&self, row_ix: usize) -> Option<usize> {
+        match self.projected.get(row_ix) {
+            Some(projection::ProjectedRow::Repo(ix)) => Some(*ix),
+            _ => None,
+        }
+    }
+
+    /// True when the row renders a scan-root group header (never selectable).
+    pub fn row_is_group(&self, row_ix: usize) -> bool {
+        matches!(self.projected.get(row_ix), Some(projection::ProjectedRow::Group { .. }))
+    }
+
     fn reproject(&mut self) {
+        // locals first: the grouping borrows them, not the store, so the
+        // projection result can be assigned back without borrow fights
+        let app_settings = self.settings();
+        let solo = self.group_filter.clone();
+        let collapsed: std::collections::HashSet<String> = self
+            .collapsed_groups
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        let grouping = self.group_by_root.then(|| projection::Grouping {
+            roots: app_settings.repos.repo_scan_folders.as_deref().unwrap_or(&[]),
+            collapsed: &collapsed,
+            solo: solo.as_deref(),
+        });
         self.projected = projection::project(
             &self.repos,
             &self.tag_filters,
             self.sort_mode,
             self.sort_ascending,
             self.show_archived,
+            grouping.as_ref(),
         );
         self.projection_generation += 1;
         // the table's branch column hugs the widest branch in the projection;
-        // computing it here keeps the per-frame layout path O(1)
+        // computing it here keeps the per-frame layout path O(1) (header rows
+        // carry no branch, so they skip the scan)
         self.widest_branch_chars = self
             .projected
             .iter()
-            .filter_map(|&ix| self.repos.get(ix))
+            .filter_map(|row| self.repos.get(row.repo_index()?))
             .filter_map(|repo| repo.git_branch_name.as_deref())
             .filter(|branch| !branch.is_empty())
             .map(|branch| branch.chars().count())

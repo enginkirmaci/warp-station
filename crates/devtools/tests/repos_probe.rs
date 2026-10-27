@@ -4,6 +4,7 @@
 //! verified without a display.
 
 use devtools::store::Store;
+use devtools::store::projection::ProjectedRow;
 use devtools::ui::window::MainWindow;
 use devtools_core::repo_store::RepoEntry;
 use gpui::prelude::*;
@@ -34,6 +35,10 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
     let (net_tx, _net_rx) = async_channel::unbounded();
     cx.new(|cx| {
         let mut store = Store::new(cx, net_tx);
+        // pin the flat layout: the developer's live settings must never
+        // re-shape the probes' row math (the grouping probes seed their own
+        // scratch-settings store)
+        store.group_by_root = false;
         store.replace_repos(vec![
             entry("alpha", "/probe/alpha", &["favorites"]),
             entry("beta", "/probe/beta", &[]),
@@ -725,7 +730,9 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     let beta_row = cx.read_entity(&store, |s, _| {
         s.projected
             .iter()
-            .position(|&ix| s.repos[ix].name == "beta")
+            .position(|row| {
+                matches!(row, ProjectedRow::Repo(ix) if s.repos[*ix].name == "beta")
+            })
             .expect("the archived row joins the projection when shown")
     });
     assert_eq!(
@@ -939,7 +946,13 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
     assert_eq!(mode, RepoSortMode::Branch, "the branch header maps to the Branch mode");
     assert!(ascending, "Ascending lands as ascending");
     let order = cx.read_entity(&store, |s, _| {
-        s.projected.iter().map(|&i| s.repos[i].name.clone()).collect::<Vec<_>>()
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { .. } => panic!("no headers expected while grouping is off"),
+            })
+            .collect::<Vec<_>>()
     });
     assert_eq!(
         order,
@@ -1150,4 +1163,299 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
             "the previous column drops back to unsorted"
         );
     });
+}
+
+// ---- repo groups by scan root ----------------------------------------------
+
+/// Leaks a per-key selector for debug_bounds (which wants 'static).
+fn key_selector(prefix: &str, key: &str) -> &'static str {
+    Box::leak(format!("{prefix}{key}").into_boxed_str())
+}
+
+/// A scratch-settings store with grouping on: two scan roots, two repos under
+/// root A, one under root B, one under neither (the "Other" fallback).
+fn grouped_store(cx: &mut TestAppContext, probe: &str) -> gpui::Entity<Store> {
+    let scratch = std::env::temp_dir().join(format!("devtools-groups-{probe}-{}.json", std::process::id()));
+    std::fs::write(
+        &scratch,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"], "GroupReposByRoot": true}}"#,
+    )
+    .expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/roots/a/alpha", &[]),
+            entry("beta", "/roots/a/beta", &[]),
+            entry("gamma", "/roots/b/gamma", &[]),
+            entry("delta", "/elsewhere/delta", &[]),
+        ]);
+        store
+    })
+}
+
+/// The grouped table: header rows render keyed by their root with name and
+/// count selectors, the "Other" fallback sorts last, and repo rows keep the
+/// 48px pitch across the interleaved headers.
+#[gpui::test]
+fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = grouped_store(cx, "render");
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let sketch = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { key, count, .. } => format!("#{key}({count})"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        sketch,
+        vec![
+            "#/roots/a(2)", "alpha", "beta",
+            "#/roots/b(1)", "gamma",
+            "#other(1)", "delta",
+        ],
+        "headers interleave before their group's repos; the fallback group sorts last"
+    );
+
+    for key in ["/roots/a", "/roots/b", "other"] {
+        assert!(
+            cx.debug_bounds(key_selector("repos-group-header-", key)).is_some(),
+            "the {key} header row renders"
+        );
+        assert!(
+            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-chevron"))).is_some(),
+            "the {key} chevron renders"
+        );
+        assert!(
+            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-count"))).is_some(),
+            "the {key} count chip renders"
+        );
+        assert!(
+            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-solo"))).is_some(),
+            "the {key} solo filter renders"
+        );
+    }
+
+    // repo rows advance by the 48px row height across the interleaved
+    // headers (row 0 is the /roots/a header, rows 1-2 its repos)
+    let wrap1 = cx.debug_bounds("repos-td-wrap-1").expect("row 1 renders");
+    let wrap2 = cx.debug_bounds("repos-td-wrap-2").expect("row 2 renders");
+    let pitch = wrap2.origin.y - wrap1.origin.y;
+    assert!(
+        (pitch - gpui::px(48.)).abs() < gpui::px(2.),
+        "rows keep the 48px pitch across headers (got {pitch})"
+    );
+    // a header occupies the same 48px band: the cell wrapper leaves the
+    // kit's 4+4 padding free, like every repo row
+    let wrap0 = cx.debug_bounds("repos-td-wrap-0").expect("header row renders");
+    assert!(
+        (wrap0.size.height - gpui::px(40.)).abs() < gpui::px(2.),
+        "header cells fill the row minus the kit's padding (got {:?})",
+        wrap0.size.height
+    );
+
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-render-{}.json", std::process::id())));
+}
+
+/// The chevron collapses its group: the header stays with its count, the
+/// group's repo rows leave the projection, the state persists into the
+/// settings, and a second click restores the rows and clears the key.
+#[gpui::test]
+fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = grouped_store(cx, "collapse");
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let names = |store: &gpui::Entity<Store>, cx: &gpui::VisualTestContext| -> Vec<String> {
+        cx.read_entity(store, |s, _| {
+            s.projected
+                .iter()
+                .filter_map(|row| {
+                    let ix = row.repo_index()?;
+                    Some(s.repos[ix].name.clone())
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.projected.len()),
+        7,
+        "two headers + four repos before collapsing"
+    );
+
+    let chevron = cx
+        .debug_bounds("repos-group-header-/roots/a-chevron")
+        .expect("the /roots/a chevron renders");
+    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.projected.len()),
+        5,
+        "collapsing /roots/a drops exactly its two repo rows"
+    );
+    assert_eq!(
+        names(&store, cx),
+        vec!["gamma", "delta"],
+        "only the other groups' repos remain projected"
+    );
+    assert!(
+        cx.debug_bounds("repos-group-header-/roots/a").is_some(),
+        "the collapsed group keeps its header row"
+    );
+    assert!(
+        cx.read_entity(&store, |s, _| s.selected_repo.is_none()),
+        "a collapse never selects anything"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
+        Some(vec!["/roots/a".to_string()]),
+        "the collapsed key persists into the settings"
+    );
+
+    // a second click restores the rows and empties the persisted key
+    let chevron = cx
+        .debug_bounds("repos-group-header-/roots/a-chevron")
+        .expect("the chevron survives the collapse");
+    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 7);
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
+        None,
+        "expanding the last collapsed group clears the key list"
+    );
+
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-collapse-{}.json", std::process::id())));
+}
+
+/// The header's solo filter narrows the table to that one group (and lights
+/// the toolbar's Clear), and the Clear button restores the full projection.
+#[gpui::test]
+fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = grouped_store(cx, "solo");
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(cx.debug_bounds("clear-button").is_none(), "no Clear before a filter");
+
+    let solo = cx
+        .debug_bounds("repos-group-header-/roots/a-solo")
+        .expect("the /roots/a solo icon renders");
+    cx.simulate_click(solo.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.group_filter.clone()).as_deref(),
+        Some("/roots/a"),
+        "soloing sets the session group filter"
+    );
+    let sketch = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { key, .. } => format!("#{key}"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        sketch,
+        vec!["#/roots/a", "alpha", "beta"],
+        "only the soloed group's rows survive"
+    );
+    assert!(cx.debug_bounds("clear-button").is_some(), "the Clear button appears for a solo filter");
+
+    // Clear restores the full projection and the filter
+    let clear = cx.debug_bounds("clear-button").expect("Clear renders");
+    cx.simulate_click(clear.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(cx.read_entity(&store, |s, _| s.group_filter.is_none()));
+    assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 7);
+    assert!(cx.debug_bounds("clear-button").is_none(), "Clear retires once nothing is filtered");
+
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-solo-{}.json", std::process::id())));
+}
+
+/// Without the grouping setting the table stays flat: no header selectors
+/// anywhere and one row per repo.
+#[gpui::test]
+fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    // same scan roots, no GroupReposByRoot — the setting's absence means off
+    let scratch = std::env::temp_dir().join(format!("devtools-groups-off-{}.json", std::process::id()));
+    std::fs::write(&scratch, r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"]}}"#).expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/roots/a/alpha", &[]),
+            entry("beta", "/roots/a/beta", &[]),
+            entry("gamma", "/roots/b/gamma", &[]),
+            entry("delta", "/elsewhere/delta", &[]),
+        ]);
+        store
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.projected.len()),
+        4,
+        "one row per repo, no headers"
+    );
+    for key in ["/roots/a", "/roots/b", "other"] {
+        assert!(
+            cx.debug_bounds(key_selector("repos-group-header-", key)).is_none(),
+            "no header row renders for {key} while grouping is off"
+        );
+    }
+    assert!(
+        cx.debug_bounds("repos-name-cell-0").is_some(),
+        "row 0 is a repo row, not a header"
+    );
+
+    let _ = std::fs::remove_file(&scratch);
 }

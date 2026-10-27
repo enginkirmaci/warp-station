@@ -203,3 +203,79 @@ fn last_command(net_rx: &async_channel::Receiver<NetCommand>) -> Option<NetComma
     }
     last
 }
+
+/// The scanning card's "Group repos by scan root" switch: it renders seeded
+/// from the settings, a click flips it, and Save persists GroupReposByRoot
+/// into the scratch file — grouping is a projection toggle, so saving must
+/// not send a second rescan.
+#[gpui_kit::gpui::test]
+fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("devtools-group-switch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; set before the store reads settings;
+    // serialized against the sibling HOME probes by HOME_ENV_LOCK
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let scratch = home.join(".devtools").join("settings.json");
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
+        SettingsPage::new(store, window, cx)
+    });
+    let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        wcx.debug_bounds("settings-row-Group repos by scan root").is_some(),
+        "the grouping switch row renders in the scanning card"
+    );
+
+    // the Switch leads the row: a click near its start edge flips it
+    let row = wcx
+        .debug_bounds("settings-row-Group repos by scan root")
+        .expect("grouping switch row bounds");
+    wcx.simulate_click(
+        gpui::point(row.origin.x + gpui::px(20.), row.center().y),
+        gpui::Modifiers::default(),
+    );
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    let save = wcx.debug_bounds("settings-save").expect("save button");
+    wcx.simulate_click(save.center(), gpui::Modifiers::default());
+    wcx.run_until_parked();
+
+    let json = std::fs::read_to_string(&scratch).expect("saved settings");
+    assert!(
+        json.contains("\"GroupReposByRoot\": true"),
+        "the grouping toggle persisted (got {json})"
+    );
+
+    // grouping applies by reprojecting: the only Scan ever sent is the
+    // construction one
+    let mut scans = 0;
+    while let Ok(command) = net_rx.try_recv() {
+        if matches!(command, NetCommand::Scan { .. }) {
+            scans += 1;
+        }
+    }
+    assert_eq!(scans, 1, "saving the grouping toggle must not rescan");
+
+    let _ = std::fs::remove_dir_all(&home);
+}

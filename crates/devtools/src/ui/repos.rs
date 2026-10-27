@@ -4,6 +4,7 @@
 //! row list to keep in sync. Sorting is driven entirely by the table's
 //! sortable headers.
 
+use crate::store::projection::ProjectedRow;
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
@@ -92,6 +93,13 @@ impl ReposPage {
             if let TableEvent::SelectRow(row_ix) = event {
                 if suppressed_for_table.get() > 0 {
                     suppressed_for_table.set(suppressed_for_table.get() - 1);
+                    return;
+                }
+                // group header rows are inert: never selected, never open
+                // the bar (the kit reverts the transient highlight through
+                // clear_selection, which emits no SelectRow)
+                if table_for_store.read(cx).delegate().row_is_group(*row_ix, cx) {
+                    table_for_store.update(cx, |table, cx| table.clear_selection(cx));
                     return;
                 }
                 // archived rows are inert: never selected, never open the
@@ -397,7 +405,7 @@ impl ReposPage {
                 live.clone().map(|r| r.github_pr_count).sum::<u32>(),
                 live.map(|r| r.github_issue_count).sum::<u32>(),
                 store.settings().repos.enable_git_hub,
-                !store.tag_filters.is_empty(),
+                !store.tag_filters.is_empty() || store.group_filter.is_some(),
             )
         };
 
@@ -585,9 +593,10 @@ impl ReposPage {
             .child(tag_pills)
             .when(filters_active, |row| {
                 row.child(
-                    div()
-                        .id("clear-button")
-                        .cursor_pointer()
+                div()
+                    .id("clear-button")
+                    .debug_selector(|| "clear-button".into())
+                    .cursor_pointer()
                         .rounded_md()
                         .px_2()
                         .py_1()
@@ -858,11 +867,11 @@ impl ReposDelegate {
 
     fn repo_at(&self, row_ix: usize, cx: &App) -> Option<RepoEntry> {
         let store = self.store.read(cx);
-        store
-            .projected
-            .get(row_ix)
-            .and_then(|&ix| store.repos.get(ix))
-            .cloned()
+        store.repo_row(row_ix).and_then(|ix| store.repos.get(ix)).cloned()
+    }
+
+    fn row_is_group(&self, row_ix: usize, cx: &App) -> bool {
+        self.store.read(cx).row_is_group(row_ix)
     }
 
     fn folder_at(&self, row_ix: usize, cx: &App) -> Option<String> {
@@ -871,14 +880,18 @@ impl ReposDelegate {
     }
 
     /// Inverse of [`Self::folder_at`]: the visible row for a folder, used to
-    /// mirror the store's selection into the table highlight.
+    /// mirror the store's selection into the table highlight. A folder whose
+    /// group is collapsed projects no row — the caller clears the highlight.
     fn row_for_folder(&self, folder: &str, cx: &App) -> Option<usize> {
         let store = self.store.read(cx);
         let folder = std::path::Path::new(folder);
-        store
-            .projected
-            .iter()
-            .position(|&ix| store.repos.get(ix).is_some_and(|repo| repo.folder_path == folder))
+        store.projected.iter().position(|row| {
+            matches!(
+                row,
+                ProjectedRow::Repo(ix)
+                    if store.repos.get(*ix).is_some_and(|repo| repo.folder_path == folder)
+            )
+        })
     }
 
     /// The shared layout; rebuilt inline when the cached one is stale or
@@ -962,6 +975,45 @@ impl TableDelegate for ReposDelegate {
         self.store.read(cx).projected.len()
     }
 
+    /// Group header rows paint their own band: the kit's hover/selection
+    /// backgrounds sit under the cells, so an opaque full-row overlay pinned
+    /// above them keeps the header visually flat at any pointer position.
+    /// Repo rows keep the kit's default row chrome.
+    fn render_tr(
+        &mut self,
+        row_ix: usize,
+        _window: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let group_key = {
+            let store = self.store.read(cx);
+            match store.projected.get(row_ix) {
+                Some(ProjectedRow::Group { key, .. }) => Some(key.clone()),
+                _ => None,
+            }
+        };
+        let mut tr = div().id(("row", row_ix));
+        if let Some(key) = group_key {
+            let selector = format!("repos-group-header-{key}");
+            tr = tr
+                .relative()
+                // the hover-revealed solo icon inside the cells keys off this group
+                .group("repos-group-header")
+                .debug_selector(move || selector.clone())
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .bg(theme::CARD)
+                        .border_t_1()
+                        .border_color(theme::BORDER_LIGHT)
+                        .border_b_1()
+                        .border_color(theme::BORDER_LIGHT),
+                );
+        }
+        tr
+    }
+
     fn column(&self, col_ix: usize, cx: &App) -> Column {
         // fixed-width columns scale with the font factor so scaled text keeps
         // fitting; the name column absorbs whatever is left over
@@ -1040,11 +1092,18 @@ impl TableDelegate for ReposDelegate {
         let layout = self.layout(cx);
         let settings = layout.settings.clone();
         let store = self.store.read(cx);
-        let Some(repo) = store
-            .projected
-            .get(row_ix)
-            .and_then(|&ix| store.repos.get(ix))
-        else {
+        let Some(row) = store.projected.get(row_ix) else {
+            return div().into_any_element();
+        };
+        // a group header row renders the same band in every column: the
+        // chevron cell, the identity cell, then empties
+        if let ProjectedRow::Group { .. } = row {
+            let group = row.clone();
+            let store = self.store.clone();
+            let show_tooltips = settings.general.show_tooltips;
+            return group_header_cell(&group, row_ix, col_ix, &store, show_tooltips);
+        }
+        let Some(repo) = row.repo_index().and_then(|ix| store.repos.get(ix)) else {
             return div().into_any_element();
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
@@ -1346,6 +1405,151 @@ impl TableDelegate for ReposDelegate {
 /// and without the interactive wrapper (the row is inert except restore).
 fn faded(cell: gpui::AnyElement) -> gpui::AnyElement {
     div().opacity(0.55).child(cell).into_any_element()
+}
+
+/// The scan-root group header's cells: col 0 carries the collapse chevron,
+/// col 1 the identity row (folder glyph, group name with the full root as
+/// tooltip, repo count, hover-revealed solo filter), the rest empty — a
+/// header is one full-width band, not a row of values. Both buttons stop
+/// propagation so the row never routes a selection.
+fn group_header_cell(
+    row: &ProjectedRow,
+    row_ix: usize,
+    col_ix: usize,
+    store: &Entity<Store>,
+    show_tooltips: bool,
+) -> gpui::AnyElement {
+    let ProjectedRow::Group { key, name, count, collapsed } = row else {
+        return div().into_any_element();
+    };
+    let other = key == crate::store::projection::OTHER_GROUP_KEY;
+    let cell: gpui::AnyElement = match col_ix {
+        0 => {
+            let chevron = div()
+                .id(("group-chevron", row_ix as u64))
+                .debug_selector({
+                    let selector = format!("repos-group-header-{key}-chevron");
+                    move || selector.clone()
+                })
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(30.))
+                .on_click({
+                    let store = store.clone();
+                    let key = key.to_string();
+                    move |_, _, cx| {
+                        cx.stop_propagation();
+                        store.update(cx, |s, cx| s.toggle_group_collapse(&key, cx));
+                    }
+                })
+                .child(icon(
+                    if *collapsed {
+                        "icons/icon-chevron-right.svg"
+                    } else {
+                        "icons/icon-chevron-down.svg"
+                    },
+                    px(theme::icon_medium()),
+                    theme::TEXT_FAINT,
+                ));
+            crate::ui::with_tooltip(chevron, show_tooltips, if *collapsed {
+                "Expand group"
+            } else {
+                "Collapse group"
+            })
+            .into_any_element()
+        }
+        1 => {
+            let solo = div()
+                .id(("group-solo", row_ix as u64))
+                .debug_selector({
+                    let selector = format!("repos-group-header-{key}-solo");
+                    move || selector.clone()
+                })
+                .cursor_pointer()
+                .rounded_md()
+                .p_1p5()
+                .flex()
+                .items_center()
+                // hover-revealed like the changes rows' discard action
+                .opacity(0.)
+                .group_hover("repos-group-header", |s| s.opacity(1.))
+                .hover(|s| s.bg(theme::HOVER))
+                .on_click({
+                    let store = store.clone();
+                    let key = key.to_string();
+                    move |_, _, cx| {
+                        cx.stop_propagation();
+                        store.update(cx, |s, cx| s.solo_group(&key, cx));
+                    }
+                })
+                .child(icon(
+                    "icons/icon-search.svg",
+                    px(theme::icon_medium()),
+                    theme::TEXT_MUTED,
+                ));
+            let solo = crate::ui::with_tooltip(solo, show_tooltips, "Show only this group");
+            let name_label = crate::ui::with_tooltip(
+                div()
+                    .id(("group-name", row_ix as u64))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(theme::font_title() - 2.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::TEXT)
+                    .child(name.to_string()),
+                show_tooltips,
+                if other {
+                    "Repositories under no scan root".to_string()
+                } else {
+                    format!("Scan root {key}")
+                },
+            );
+            div()
+                .debug_selector({
+                    let selector = format!("repos-group-header-{key}-name");
+                    move || selector.clone()
+                })
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(icon(
+                    "icons/icon-folder.svg",
+                    px(theme::icon_medium()),
+                    theme::TEXT_FAINT,
+                ))
+                .child(name_label)
+                .child(
+                    div()
+                        .debug_selector({
+                            let selector = format!("repos-group-header-{key}-count");
+                            move || selector.clone()
+                        })
+                        .rounded_full()
+                        .bg(theme::CHIP)
+                        .px_1p5()
+                        .text_size(px(theme::font_small() - 1.))
+                        .text_color(theme::TEXT_MUTED)
+                        .child(format!("{count}")),
+                )
+                .child(div().flex_1())
+                .child(solo)
+                .into_any_element()
+        }
+        _ => div().into_any_element(),
+    };
+    div()
+        .debug_selector(move || format!("repos-td-wrap-{row_ix}"))
+        .h(px(theme::TABLE_ROW_H - 8.))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .child(cell)
+        .into_any_element()
 }
 
 /// Wraps a table cell so clicking it opens the bottom bar on one specific
@@ -1883,6 +2087,8 @@ mod tests {
         let (net_tx, _net_rx) = async_channel::unbounded();
         let store = cx.new(|cx| {
             let mut store = Store::new(cx, net_tx);
+            // pin the flat layout: the live settings must not re-shape the rows
+            store.group_by_root = false;
             store.replace_repos(vec![
                 entry("alpha", "/probe/alpha"),
                 entry("beta", "/probe/beta"),

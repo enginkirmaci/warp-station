@@ -33,6 +33,7 @@ pub struct SettingsPage {
     solution_file_pattern: Entity<InputState>,
     platform_folder_name: Entity<InputState>,
     max_scan_depth: Entity<InputState>,
+    group_by_root: bool,
     // Git
     branch_name_prefix: Entity<InputState>,
     auto_fetch_minutes: Option<u16>,
@@ -139,6 +140,7 @@ impl SettingsPage {
             solution_file_pattern: field(window, cx, &repos.solution_file_pattern),
             platform_folder_name: field(window, cx, &repos.platform_folder_name),
             max_scan_depth: field(window, cx, &repos.max_scan_depth.to_string()),
+            group_by_root: repos.group_repos_by_root.unwrap_or(false),
             branch_name_prefix: field(window, cx, &repos.branch_name_prefix),
             auto_fetch_minutes: repos.auto_fetch_minutes,
             vscode_executable: field(window, cx, &repos.vscode_executable),
@@ -238,6 +240,7 @@ impl SettingsPage {
         let warp_exe = Self::value(&self.warp_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let auto_fetch_minutes = self.auto_fetch_minutes;
+        let group_by_root = self.group_by_root;
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
         let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
@@ -257,6 +260,7 @@ impl SettingsPage {
                 s.repos.max_scan_depth = max_scan_depth;
                 s.repos.branch_name_prefix = branch_prefix;
                 s.repos.auto_fetch_minutes = auto_fetch_minutes;
+                s.repos.group_repos_by_root = Some(group_by_root);
                 s.repos.vscode_executable = vscode_exe;
                 s.repos.vscode_profile = vscode_profile;
                 s.repos.terminal_executable = terminal_exe;
@@ -282,6 +286,9 @@ impl SettingsPage {
             });
             // the interval may have changed: re-arm the periodic fetch
             store.refresh_auto_fetch_schedule();
+            // grouping only reshapes the table: re-project, never rescan —
+            // the scan roots themselves did not change
+            store.set_group_by_root(group_by_root);
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
             // tokens and the kit rem base resize together); every save
@@ -445,7 +452,7 @@ impl Render for SettingsPage {
                                         .child(text_size_row(this, cx))
                                         .child(label("Applied across the app as soon as it's saved."))
                                     }))
-                                    .child(self.card("Repository scanning", cx, |this, _cx, card| {
+                                    .child(self.card("Repository scanning", cx, |this, cx, card| {
                                         card.child(label("Scan folders (one per line)"))
                                             .child(Textarea::new(&this.scan_folders).bordered(true).small().h(px(240.)))
                                             .child(label("Excluded folders (one per line)"))
@@ -458,6 +465,11 @@ impl Render for SettingsPage {
                                                 field_row("Platform folder name", &this.platform_folder_name),
                                                 field_row("Max scan depth", &this.max_scan_depth),
                                             ))
+                                            .child(switch_row("Group repos by scan root", this.group_by_root, cx.listener(|this, _, _, cx| {
+                                                this.group_by_root = !this.group_by_root;
+                                                cx.notify();
+                                            })))
+                                            .child(label("Group the table under each scan folder — collapsing and filtering here never rescans."))
                                     }))
                                     .child(self.card("Git", cx, |this, cx, card| {
                                         card.child(field_row("Branch name prefix", &this.branch_name_prefix))
@@ -1083,7 +1095,10 @@ fn switch_row(
     checked: bool,
     on_click: impl Fn(&bool, &mut Window, &mut gpui::App) + 'static,
 ) -> gpui::AnyElement {
+    // a stable per-row selector so probes can reach the switch through its row
+    let selector = format!("settings-row-{label_text}");
     div()
+        .debug_selector(move || selector.clone())
         .flex()
         .flex_row()
         .items_center()
