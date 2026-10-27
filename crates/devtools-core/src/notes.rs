@@ -99,6 +99,54 @@ pub fn create_note(repo_notes_root: &Path, parent: &Path, name: &str) -> anyhow:
     Ok(path)
 }
 
+/// Saves pasted clipboard image bytes as `<folder>/assets/paste-<local
+/// datetime>-<4 hex>.<ext>` and returns the path relative to the note's
+/// folder for the markdown ref (forward slashes, so the link works on every
+/// platform). `File::create_new` makes the write exclusive: a same-second
+/// second paste retries with fresh randomness instead of clobbering.
+pub fn insert_image_asset(folder: &Path, ext: &str, bytes: &[u8]) -> std::io::Result<String> {
+    if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid image extension",
+        ));
+    }
+    use std::io::Write as _;
+    let assets = folder.join("assets");
+    std::fs::create_dir_all(&assets)?;
+    for _ in 0..8 {
+        let rand = paste_rand16();
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let name = format!("paste-{stamp}-{rand:04x}.{ext}");
+        match std::fs::File::create_new(assets.join(&name)) {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                return Ok(format!("assets/{name}"));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no unique asset name found",
+    ))
+}
+
+/// Four hex digits of per-call entropy — `RandomState` seeds are random per
+/// instance, so no `rand` dependency and same-second pastes still differ.
+fn paste_rand16() -> u16 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u32(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0),
+    );
+    hasher.finish() as u16
+}
+
 pub fn create_folder(repo_notes_root: &Path, parent: &Path, name: &str) -> anyhow::Result<PathBuf> {
     let folder_name = sanitize_entry_name(name, false)
         .ok_or_else(|| anyhow::anyhow!("The folder name is empty."))?;
@@ -737,6 +785,45 @@ mod tests {
             PathBuf::from(r"\\server\share\notes")
         );
         assert_eq!(plain_path(PathBuf::from("/home/e/notes")), PathBuf::from("/home/e/notes"));
+    }
+
+    #[test]
+    fn insert_image_asset_writes_distinct_files() {
+        const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+        let tmp = std::env::temp_dir().join(format!("dt-notes-asset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let folder = tmp.join("alpha");
+        std::fs::create_dir_all(&folder).unwrap();
+
+        let first = insert_image_asset(&folder, "png", PNG_MAGIC).unwrap();
+        // the ref is relative with forward slashes — a markdown link
+        assert!(
+            first.starts_with("assets/paste-") && first.ends_with(".png"),
+            "{first}"
+        );
+        assert!(!first.contains('\\'), "{first}");
+        let name = first
+            .trim_start_matches("assets/paste-")
+            .trim_end_matches(".png");
+        let parts: Vec<&str> = name.split('-').collect();
+        assert_eq!(parts.len(), 3, "date-time-rand: {first}");
+        assert_eq!(
+            (parts[0].len(), parts[1].len(), parts[2].len()),
+            (8, 6, 4),
+            "{first}"
+        );
+        assert!(parts[2].chars().all(|c| c.is_ascii_hexdigit()), "{first}");
+
+        let written = std::fs::read(folder.join(&first)).unwrap();
+        assert_eq!(written, PNG_MAGIC, "bytes land on disk unchanged");
+
+        let second = insert_image_asset(&folder, "png", b"other").unwrap();
+        assert_ne!(first, second, "same-second pastes must not collide");
+
+        assert!(insert_image_asset(&folder, "bad/ext", b"").is_err());
+        assert!(insert_image_asset(&folder, "", b"").is_err());
+        assert_eq!(std::fs::read_dir(folder.join("assets")).unwrap().count(), 2);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

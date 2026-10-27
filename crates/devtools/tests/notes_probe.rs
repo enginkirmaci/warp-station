@@ -56,6 +56,15 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Option<Bounds<P
     cx.debug_bounds(selector)
 }
 
+/// Same-binary gpui tests share one process and HOME is process-global, so
+/// the scenarios that seed their own notes tree serialize on this lock
+/// (poison-tolerant: one failure must not fail the rest).
+static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn hold_home() -> std::sync::MutexGuard<'static, ()> {
+    HOME_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
     let b = bounds(cx, selector)
         .unwrap_or_else(|| panic!("{selector} missing from the frame"));
@@ -70,6 +79,7 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
 
 #[gpui::test]
 fn notes_live_editor_tree_and_pinned_scope(cx: &mut TestAppContext) {
+    let _home = hold_home();
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -229,4 +239,184 @@ fn notes_live_editor_tree_and_pinned_scope(cx: &mut TestAppContext) {
     });
 
     let _ = std::fs::remove_dir_all(&home);
+}
+
+// ---- image paste ----------------------------------------------------------
+
+/// A valid 1x1 RGBA PNG (magic + IHDR + IDAT + IEND).
+const PNG_BYTES: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xfc, 0xcf, 0xc0, 0x50,
+    0x0f, 0x00, 0x04, 0x85, 0x01, 0x80, 0x84, 0xa9, 0x8c, 0x21, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+struct PasteProbe {
+    cx: VisualTestContext,
+    page: gpui::Entity<NotesPage>,
+    home: PathBuf,
+    /// holds the HOME lock for the whole scenario, not just the setup
+    _home: std::sync::MutexGuard<'static, ()>,
+}
+
+/// A window with the seeded alpha note open in the live editor, the editor
+/// focused. Each caller passes its own temp-dir prefix — same-binary tests
+/// share a process id, and one caller's cleanup must not wipe another's tree.
+fn paste_probe(cx: &mut TestAppContext, prefix: &str) -> PasteProbe {
+    let _home_guard = hold_home();
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("{prefix}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    seed_notes(&home);
+    // SAFETY: process-global env, set before Store::new; one scenario per test
+    unsafe { std::env::set_var("HOME", &home) };
+
+    let store = fake_store(cx);
+    // the first open pins the scope to alpha: the tree roots at its folder
+    cx.update(|cx| store.update(cx, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx)));
+    let mut page: Option<gpui::Entity<NotesPage>> = None;
+    let handle = cx.open_window(size(px(1000.), px(700.)), |window, cx| {
+        let store = store.clone();
+        page = Some(cx.entity());
+        NotesPage::new(store, window, cx)
+    });
+    let mut probe = PasteProbe {
+        cx: VisualTestContext::from_window(handle.into(), cx),
+        page: page.unwrap(),
+        home,
+        _home: _home_guard,
+    };
+    probe.cx.run_until_parked();
+    probe.cx.update(|window, cx| drop(window.draw(cx)));
+    click(&mut probe.cx, "note-item-note.md");
+    probe.cx.update(|window, cx| {
+        let editor = probe.page.read(cx).editor_handle().clone();
+        editor.update(cx, |state, cx| state.focus(window, cx));
+    });
+    probe.cx.run_until_parked();
+    probe
+}
+
+fn dispatch_paste(probe: &mut PasteProbe) {
+    probe
+        .cx
+        .update(|window, cx| window.dispatch_action(Box::new(gpui_kit::base::input::Paste), cx));
+    probe.cx.run_until_parked();
+    probe.cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+#[gpui::test]
+fn pasting_a_clipboard_image_saves_an_asset_and_inserts_a_ref(tcx: &mut TestAppContext) {
+    let mut probe = paste_probe(tcx, "devtools-notes-paste-img");
+    probe.cx.update(|_, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_image(&gpui::Image::from_bytes(
+            gpui::ImageFormat::Png,
+            PNG_BYTES.to_vec(),
+        )))
+    });
+    dispatch_paste(&mut probe);
+
+    probe.cx.update(|_, cx| {
+        let page = probe.page.read(cx);
+        let value = page.editor_value(cx);
+        assert!(
+            value.contains("![image](assets/paste-"),
+            "image paste inserts a relative markdown ref: {value:?}"
+        );
+        assert!(
+            value.starts_with("![image](assets/paste-"),
+            "the ref lands at the caret and is complete: {value:?}"
+        );
+        assert!(page.is_dirty(cx), "pasting marks the note dirty");
+    });
+
+    let assets = probe.home.join(".devtools/notes/alpha/assets");
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&assets)
+        .expect("the assets folder is created next to the note")
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(entries.len(), 1, "exactly one asset per paste: {entries:?}");
+    let path = entries.remove(0);
+    assert_eq!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some("png"),
+        "{}",
+        path.display()
+    );
+    assert!(
+        path.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("paste-"),
+        "{}",
+        path.display()
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        PNG_BYTES,
+        "bytes land on disk unchanged"
+    );
+
+    let _ = std::fs::remove_dir_all(&probe.home);
+}
+
+#[gpui::test]
+fn pasting_text_never_writes_an_asset(tcx: &mut TestAppContext) {
+    let mut probe = paste_probe(tcx, "devtools-notes-paste-text");
+    probe.cx.update(|_, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("pasted text".into()))
+    });
+    dispatch_paste(&mut probe);
+
+    probe.cx.update(|_, cx| {
+        let value = probe.page.read(cx).editor_value(cx);
+        assert!(
+            value.contains("pasted text"),
+            "text paste inserts as text: {value:?}"
+        );
+    });
+    assert!(
+        !probe.home.join(".devtools/notes/alpha/assets").exists(),
+        "text paste writes no asset folder"
+    );
+
+    let _ = std::fs::remove_dir_all(&probe.home);
+}
+
+#[gpui::test]
+fn a_mixed_clipboard_pastes_text_not_image(tcx: &mut TestAppContext) {
+    // Windows delivers text+image as ONE item with multiple entries; the
+    // text entry must win and no asset may be written
+    let mut probe = paste_probe(tcx, "devtools-notes-paste-mix");
+    probe.cx.update(|_, cx| {
+        let mut item = gpui::ClipboardItem::new_string("mixed text wins".into());
+        item.entries
+            .push(gpui::ClipboardEntry::Image(gpui::Image::from_bytes(
+                gpui::ImageFormat::Png,
+                PNG_BYTES.to_vec(),
+            )));
+        cx.write_to_clipboard(item)
+    });
+    dispatch_paste(&mut probe);
+
+    probe.cx.update(|_, cx| {
+        let value = probe.page.read(cx).editor_value(cx);
+        assert!(
+            value.contains("mixed text wins"),
+            "the text entry is pasted: {value:?}"
+        );
+        assert!(
+            !value.contains("![image]"),
+            "the image entry is ignored: {value:?}"
+        );
+    });
+    assert!(
+        !probe.home.join(".devtools/notes/alpha/assets").exists(),
+        "mixed paste writes no asset folder"
+    );
+
+    let _ = std::fs::remove_dir_all(&probe.home);
 }

@@ -14,8 +14,8 @@ use devtools_core::markdown_live;
 use devtools_core::notes as notes_core;
 use gpui::prelude::*;
 use gpui::{
-    div, px, relative, Context, Entity, FontWeight, MouseButton, SharedString, Window,
-    WindowControlArea,
+    App, Context, Entity, FontWeight, MouseButton, SharedString, WeakEntity, Window,
+    WindowControlArea, div, px, relative,
 };
 use gpui_kit::component::input::{
     Editor, EditorState, Input, InputEvent, InputState,
@@ -23,7 +23,7 @@ use gpui_kit::component::input::{
 use gpui_kit::component::Sizable as _;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 pub struct NotesPage {
@@ -390,10 +390,73 @@ impl NotesPage {
         }
     }
 
+    /// The paste hook on the live editor: a clipboard IMAGE becomes a file
+    /// saved next to the open note plus a relative markdown ref inserted at
+    /// the caret (the dirty marker flows from the usual buffer comparison).
+    /// Text entries win — Windows delivers text+image as one mixed item and
+    /// Wayland offers text alongside images — so a real text paste is never
+    /// hijacked, and returning `false` lets the editor's own text insertion
+    /// run (a no-op for image-only clipboards). A failed save still consumes
+    /// the paste: the user asked to paste an image, not to spill its bytes.
+    fn paste_from_clipboard(
+        page: &WeakEntity<Self>,
+        item: &gpui::ClipboardItem,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        if item.entries.iter().any(
+            |entry| matches!(entry, gpui::ClipboardEntry::String(text) if !text.text.is_empty()),
+        ) {
+            return false;
+        }
+        let Some(image) = item.entries.iter().find_map(|entry| match entry {
+            gpui::ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        }) else {
+            return false;
+        };
+        let Some(page) = page.upgrade() else { return false };
+        let Some(folder) = page
+            .read(cx)
+            .open_note
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(Path::to_path_buf)
+        else {
+            return false;
+        };
+        match notes_core::insert_image_asset(&folder, image.format.extension(), &image.bytes) {
+            Ok(relative) => {
+                let editor = page.read(cx).editor.clone();
+                editor.update(cx, |state, cx| {
+                    state.insert(format!("![image]({relative})\n"), window, cx);
+                });
+                true
+            }
+            Err(err) => {
+                page.update(cx, |page, cx| {
+                    page.notice(
+                        cx,
+                        crate::store::NoticeKind::Error,
+                        &format!("image paste failed: {err}"),
+                    )
+                });
+                true
+            }
+        }
+    }
+
     /// The editor's current buffer — for headless probes.
     #[doc(hidden)]
     pub fn editor_value(&self, cx: &gpui::App) -> String {
         self.editor.read(cx).value().to_string()
+    }
+
+    /// The dirty state of the open note — for headless probes.
+    #[doc(hidden)]
+    pub fn is_dirty(&self, cx: &gpui::App) -> bool {
+        self.open_note.is_some()
+            && self.editor.read(cx).value().as_ref() != self.saved_text.as_str()
     }
 
     /// The editor entity — for headless probes (caret, layout hit-testing).
@@ -1038,7 +1101,8 @@ impl NotesPage {
 
     /// The one editor element shared by the editing modes, in the UI font —
     /// the kit Editor defaults to mono, refined away here.
-    fn editor_element(&self) -> Editor {
+    fn editor_element(&self, cx: &Context<Self>) -> Editor {
+        let page = cx.weak_entity();
         Editor::new(&self.editor)
             .bordered(false)
             .appearance(false)
@@ -1046,6 +1110,7 @@ impl NotesPage {
             .font_family(SharedString::from(theme::ui_font()))
             .text_size(px(theme::font_body() + 1.))
             .line_height(relative(1.7))
+            .on_paste(move |item, window, cx| Self::paste_from_clipboard(&page, item, window, cx))
     }
 
     fn render_editor(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -1123,7 +1188,7 @@ impl NotesPage {
                     this.toggle_task_under_click(event, window, cx);
                 }),
             )
-            .child(self.editor_element())
+            .child(self.editor_element(cx))
             .into_any_element()
     }
 }
