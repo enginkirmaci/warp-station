@@ -12,25 +12,30 @@ pub const RUN_CAP: Duration = Duration::from_secs(150);
 // ---- prompt templates (user file → seed-once → built-in) ----------------------
 
 /// Appended to every filled prompt: the run must answer from the given
-/// input, not explore the repository on its own.
+/// input, not explore the repository on its own. Never part of the stored
+/// template body — the files hold the raw template only.
 const NO_TOOLS_SUFFIX: &str =
     "\n\nThe input above is complete — do not use any tools; reply with the final answer text directly.";
 
-fn load_template(file_name: &str, default: &str) -> String {
-    let path = crate::paths::AppPaths::opencode_dir().join(file_name);
-    if let Ok(text) = std::fs::read_to_string(&path) {
-        return text;
-    }
-    let _ = std::fs::create_dir_all(crate::paths::AppPaths::opencode_dir());
-    if std::fs::write(&path, default).is_ok() {
-        return default.to_string();
-    }
-    default.to_string()
+/// One user-editable prompt template: the overriding file under the opencode
+/// dir, the placeholders the builder fills in, and the built-in default body.
+pub struct PromptTemplate {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub file_name: &'static str,
+    pub placeholders: &'static [&'static str],
+    pub default: &'static str,
 }
 
-/// The commit-message wand's filled prompt (Conventional Commits generator).
-pub fn commit_message_prompt(file_list: &str, diff: &str, context: &str) -> String {
-    const DEFAULT: &str = r#"You are a git commit message generator. Given a diff (and optional context), output ONE commit message following Conventional Commits.
+/// Every wand prompt template in Settings-listed order — the single source
+/// of truth the three prompt builders load from.
+pub const PROMPT_TEMPLATES: &[PromptTemplate] = &[
+    PromptTemplate {
+        id: "commit-message",
+        title: "Commit message",
+        file_name: "commit-message.md",
+        placeholders: &["{file_list}", "{diff}", "{context}"],
+        default: r#"You are a git commit message generator. Given a diff (and optional context), output ONE commit message following Conventional Commits.
 
 FORMAT:
 <type>(<scope>): <subject>
@@ -57,17 +62,14 @@ Diff:
 
 Additional context (ticket/issue, manual notes — may be empty):
 {context}
-"#;
-    load_template("commit-message.md", DEFAULT)
-        .replace("{file_list}", file_list)
-        .replace("{diff}", diff)
-        .replace("{context}", context)
-        + NO_TOOLS_SUFFIX
-}
-
-/// The README wand's filled prompt.
-pub fn readme_prompt(repo_name: &str, file_tree: &str, context: &str) -> String {
-    const DEFAULT: &str = r###"You are a README.md generator. Given a repository's name and file tree (plus optional context), write a concise, professional README.md for the project.
+"#,
+    },
+    PromptTemplate {
+        id: "readme",
+        title: "README",
+        file_name: "readme.md",
+        placeholders: &["{repo_name}", "{file_tree}", "{context}"],
+        default: r###"You are a README.md generator. Given a repository's name and file tree (plus optional context), write a concise, professional README.md for the project.
 
 RULES:
 - Start with a single "# <project name>" heading and a one-paragraph description
@@ -84,17 +86,14 @@ File tree:
 
 Additional context (may be empty):
 {context}
-"###;
-    load_template("readme.md", DEFAULT)
-        .replace("{repo_name}", repo_name)
-        .replace("{file_tree}", file_tree)
-        .replace("{context}", context)
-        + NO_TOOLS_SUFFIX
-}
-
-/// The daily-summary wand's filled prompt.
-pub fn daily_summary_prompt(date_label: &str, repositories_block: &str) -> String {
-    const DEFAULT: &str = r##"You are a daily work-summary writer. Given several repositories' commits and still-uncommitted changes from a single day, write one short markdown report that tells the developer what they did that day across their projects and where each effort left off.
+"###,
+    },
+    PromptTemplate {
+        id: "daily-summary-all",
+        title: "Daily summary",
+        file_name: "daily-summary-all.md",
+        placeholders: &["{date}", "{repos}"],
+        default: r##"You are a daily work-summary writer. Given several repositories' commits and still-uncommitted changes from a single day, write one short markdown report that tells the developer what they did that day across their projects and where each effort left off.
 
 FORMAT:
 # Work summary, <date>
@@ -122,8 +121,84 @@ Day: {date}
 
 Repository activity:
 {repos}
-"##;
-    load_template("daily-summary-all.md", DEFAULT)
+"##,
+    },
+];
+
+fn template_by_id(id: &str) -> Option<&'static PromptTemplate> {
+    PROMPT_TEMPLATES.iter().find(|t| t.id == id)
+}
+
+/// The template's file under the opencode dir; None for unknown ids.
+pub fn template_path(id: &str) -> Option<std::path::PathBuf> {
+    template_by_id(id).map(|t| crate::paths::AppPaths::opencode_dir().join(t.file_name))
+}
+
+/// The stored raw template body; None for unknown ids or read failures.
+pub fn read_template(id: &str) -> Option<String> {
+    std::fs::read_to_string(template_path(id)?).ok()
+}
+
+/// Writes the raw template body (no suffix, no placeholder filling). The
+/// opencode dir exists from seeding but is (re)created defensively.
+pub fn write_template(id: &str, content: &str) -> Result<(), String> {
+    let path = template_path(id).ok_or_else(|| format!("unknown template id: {id}"))?;
+    std::fs::create_dir_all(crate::paths::AppPaths::opencode_dir())
+        .and_then(|_| std::fs::write(&path, content))
+        .map_err(|err| format!("{err}"))
+}
+
+/// Restores the built-in default body.
+pub fn reset_template(id: &str) -> Result<(), String> {
+    let default =
+        template_by_id(id).ok_or_else(|| format!("unknown template id: {id}"))?.default;
+    write_template(id, default)
+}
+
+/// True when the stored body differs from the built-in default; a missing
+/// file is not customized.
+pub fn is_customized(id: &str) -> bool {
+    template_by_id(id)
+        .zip(read_template(id))
+        .is_some_and(|(t, content)| content != t.default)
+}
+
+/// The seed-once read behind the builders: the user file when present, else
+/// the default written out for next time.
+fn load_template(id: &str) -> String {
+    let Some(tpl) = template_by_id(id) else { return String::new() };
+    let path = crate::paths::AppPaths::opencode_dir().join(tpl.file_name);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        return text;
+    }
+    let _ = std::fs::create_dir_all(crate::paths::AppPaths::opencode_dir());
+    if std::fs::write(&path, tpl.default).is_ok() {
+        return tpl.default.to_string();
+    }
+    tpl.default.to_string()
+}
+
+/// The commit-message wand's filled prompt (Conventional Commits generator).
+pub fn commit_message_prompt(file_list: &str, diff: &str, context: &str) -> String {
+    load_template("commit-message")
+        .replace("{file_list}", file_list)
+        .replace("{diff}", diff)
+        .replace("{context}", context)
+        + NO_TOOLS_SUFFIX
+}
+
+/// The README wand's filled prompt.
+pub fn readme_prompt(repo_name: &str, file_tree: &str, context: &str) -> String {
+    load_template("readme")
+        .replace("{repo_name}", repo_name)
+        .replace("{file_tree}", file_tree)
+        .replace("{context}", context)
+        + NO_TOOLS_SUFFIX
+}
+
+/// The daily-summary wand's filled prompt.
+pub fn daily_summary_prompt(date_label: &str, repositories_block: &str) -> String {
+    load_template("daily-summary-all")
         .replace("{date}", date_label)
         .replace("{repos}", repositories_block)
         + NO_TOOLS_SUFFIX
@@ -302,6 +377,11 @@ fn merge_default(models: &mut Vec<String>, default_model: &str) {
 mod tests {
     use super::*;
 
+    /// Serializes the two HOME-sensitive template tests against each other:
+    /// the builder test must never read a customized body the write/reset
+    /// test parked in a scratch HOME (and vice versa).
+    static TEMPLATE_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn default_model_floats_to_top() {
         let mut models = vec!["a/x".to_string(), "b/y".to_string()];
@@ -316,6 +396,7 @@ mod tests {
 
     #[test]
     fn templates_fill_placeholders() {
+        let _guard = TEMPLATE_HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prompt = commit_message_prompt("a.cs", "@@ -1 +1 @@", "tone: stuff");
         assert!(prompt.contains("Changed files: a.cs"));
         assert!(prompt.contains("@@ -1 +1 @@"));
@@ -332,5 +413,59 @@ mod tests {
         let summary = daily_summary_prompt("Oct 8", "- **repo**: things");
         assert!(summary.contains("Day: Oct 8"));
         assert!(summary.ends_with(NO_TOOLS_SUFFIX));
+    }
+
+    #[test]
+    fn registry_lists_the_three_builder_templates() {
+        assert_eq!(
+            PROMPT_TEMPLATES.iter().map(|t| t.id).collect::<Vec<_>>(),
+            ["commit-message", "readme", "daily-summary-all"]
+        );
+        // the registry's files are exactly the ones the builders load
+        assert!(template_path("commit-message").is_some_and(|p| p.ends_with("commit-message.md")));
+        assert!(template_path("readme").is_some_and(|p| p.ends_with("readme.md")));
+        assert!(template_path("daily-summary-all").is_some_and(|p| p.ends_with("daily-summary-all.md")));
+        assert!(template_path("unknown").is_none());
+        // every default documents its own placeholders
+        for template in PROMPT_TEMPLATES {
+            assert!(!template.placeholders.is_empty(), "{} lists placeholders", template.id);
+            for placeholder in template.placeholders {
+                assert!(
+                    template.default.contains(placeholder),
+                    "{} default misses {placeholder}",
+                    template.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn write_then_reset_round_trips_customization() {
+        let _guard = TEMPLATE_HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let home = tempfile::tempdir().expect("scratch home");
+        // SAFETY: process-global env, held only for this test's body; the
+        // lock keeps the sibling builder test from reading this HOME
+        let original = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", home.path()) };
+
+        assert!(!is_customized("readme"), "nothing written yet");
+        write_template("readme", "custom body {repo_name}").expect("write");
+        assert_eq!(read_template("readme").as_deref(), Some("custom body {repo_name}"));
+        assert!(is_customized("readme"));
+        reset_template("readme").expect("reset");
+        assert!(!is_customized("readme"));
+        assert_eq!(
+            read_template("readme").as_deref(),
+            template_by_id("readme").map(|t| t.default)
+        );
+        // unknown ids never touch the disk
+        assert!(write_template("unknown", "x").is_err());
+        assert!(reset_template("unknown").is_err());
+        assert!(!is_customized("unknown"));
+
+        match original {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
     }
 }

@@ -15,6 +15,23 @@ use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, MouseButton, SharedString, Window};
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::Sizable as _;
+use std::rc::Rc;
+
+/// One history row's display strings, precomputed when the history (or the
+/// day) changes so a render never re-derives them per row.
+struct HistoryRow {
+    /// Some(..) on the first commit of a day: the group header label.
+    day_label: Option<String>,
+    initials: String,
+    author: String,
+    rel: String,
+    short_hash: String,
+    subject: String,
+    hash: String,
+}
+
+/// The staged/unstaged split produced by `GitChangeSnapshot::change_groups`.
+type GroupedFiles = (Vec<GitChangedFile>, Vec<GitChangedFile>);
 
 pub struct ChangesView {
     pub store: Entity<Store>,
@@ -42,6 +59,12 @@ pub struct ChangesView {
     expanded_details: std::collections::HashSet<String>,
     /// The repo the view's local state belongs to; a mismatch resets it all.
     loaded_for: Option<String>,
+    /// Staged/unstaged groups, rebuilt only when the store's change snapshot
+    /// generation moves (any store notify otherwise re-cloned everything).
+    groups_cache: Option<(u64, Rc<GroupedFiles>)>,
+    /// Precomputed history row labels, keyed by history generation + today.
+    history_rows: Vec<HistoryRow>,
+    history_cache_key: (u64, chrono::NaiveDate),
 }
 
 impl ChangesView {
@@ -75,6 +98,9 @@ impl ChangesView {
             detail_patches: std::collections::HashMap::new(),
             expanded_details: std::collections::HashSet::new(),
             loaded_for: None,
+            groups_cache: None,
+            history_rows: Vec::new(),
+            history_cache_key: (0, chrono::NaiveDate::MIN),
         }
     }
 
@@ -121,7 +147,7 @@ impl ChangesView {
 
     /// Opens the history list, loading it once per selection.
     pub fn open_history(&mut self, cx: &mut Context<Self>) {
-        let needs_load = self.store.read(cx).history.is_empty();
+        let needs_load = self.store.read(cx).history().is_empty();
         self.history_open = true;
         self.drilled_commit = None;
         if needs_load
@@ -188,9 +214,11 @@ impl ChangesView {
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_repo_reset(window, cx);
-        // drain freshly loaded patches + the commit wand's draft
+        // drain freshly loaded patches + the commit wand's draft; patches are
+        // \r-stripped once here so the diff renderer never rewrites the text
+        // per render
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
-            self.patches.insert((path, staged), patch);
+            self.patches.insert((path, staged), patch.replace('\r', ""));
         }
         let mut auto_commit_text: Option<String> = None;
         if let Some(draft) = self.store.update(cx, |store, _| store.commit_message_draft.take()) {
@@ -205,13 +233,24 @@ impl Render for ChangesView {
             self.store.update(cx, |store, cx| store.run_git(GitAction::Commit(message), cx));
         }
         if let Some((key, patch)) = self.store.update(cx, |store, _| store.commit_file_patch.take()) {
-            self.detail_patches.insert(key, patch);
+            self.detail_patches.insert(key, patch.replace('\r', ""));
         }
 
-        let store = self.store.read(cx);
-        let snapshot = store.changes.clone().unwrap_or_default();
-        let (staged, unstaged) = snapshot.change_groups();
-        let busy = store.git_busy;
+        let (generation, busy) = {
+            let store = self.store.read(cx);
+            (store.changes_generation(), store.git_busy)
+        };
+        if self.groups_cache.as_ref().is_none_or(|(g, _)| *g != generation) {
+            let groups = self
+                .store
+                .read(cx)
+                .changes()
+                .cloned()
+                .unwrap_or_default()
+                .change_groups();
+            self.groups_cache = Some((generation, Rc::new(groups)));
+        }
+        let groups = self.groups_cache.as_ref().expect("groups cached").1.clone();
 
         // the .NET Changes tab: three raised cards — file list, commit box,
         // git rail — on the bar's dark surface
@@ -228,7 +267,7 @@ impl Render for ChangesView {
             .child(if self.history_open {
                 self.render_history(window, cx)
             } else {
-                self.render_file_list(staged, unstaged, window, cx)
+                self.render_file_list(&groups, window, cx)
             });
         div()
             .size_full()
@@ -246,11 +285,11 @@ impl Render for ChangesView {
 impl ChangesView {
     fn render_file_list(
         &mut self,
-        staged: Vec<GitChangedFile>,
-        unstaged: Vec<GitChangedFile>,
+        groups: &Rc<GroupedFiles>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let (staged, unstaged) = (&groups.0, &groups.1);
         let mut list = div()
             .id("changes-list")
             .flex_1()
@@ -294,7 +333,7 @@ impl ChangesView {
                 ],
                 self.store.clone(),
             ));
-            for file in &unstaged {
+            for file in unstaged {
                 list = list.child(self.render_row(file, false, window, cx));
             }
         }
@@ -312,7 +351,7 @@ impl ChangesView {
                 ],
                 self.store.clone(),
             ));
-            for file in &staged {
+            for file in staged {
                 list = list.child(self.render_row(file, true, window, cx));
             }
         }
@@ -462,18 +501,56 @@ impl ChangesView {
     }
 
     /// The history pane: day-grouped commit list with unpushed markers, and
-    /// the drilled-in commit detail with expandable per-file patches.
+    /// the drilled-in commit detail with expandable per-file patches. Row
+    /// labels are precomputed (see [`HistoryRow`]); only the element tree is
+    /// rebuilt per render.
     fn render_history(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let store = self.store.read(cx);
-        let unpushed = store.unpushed.clone();
-        let history = store.history.clone();
-        let details = store.commit_details.clone();
-
         if let Some(hash) = self.drilled_commit.clone() {
+            let details = self.store.read(cx).commit_details.clone();
             return self.render_commit_detail(hash, details, window, cx);
         }
 
-        if history.is_empty() {
+        let (unpushed, generation) = {
+            let store = self.store.read(cx);
+            (store.unpushed.clone(), store.history_generation())
+        };
+        let today = chrono::Local::now().date_naive();
+        if self.history_cache_key != (generation, today) {
+            let yesterday = today - chrono::Duration::days(1);
+            let mut current_day: Option<chrono::NaiveDate> = None;
+            self.history_rows = self
+                .store
+                .read(cx)
+                .history()
+                .iter()
+                .map(|commit| {
+                    let day = commit.date.date_naive();
+                    let day_label = if current_day != Some(day) {
+                        current_day = Some(day);
+                        Some(if day == today {
+                            "Today".to_string()
+                        } else if day == yesterday {
+                            "Yesterday".to_string()
+                        } else {
+                            day.format("%b %e").to_string()
+                        })
+                    } else {
+                        None
+                    };
+                    HistoryRow {
+                        day_label,
+                        initials: commit.initials(),
+                        author: commit.author.clone().unwrap_or_else(|| "Unknown".into()),
+                        rel: devtools_core::rel_time::format(commit.date),
+                        short_hash: commit.short_hash().to_string(),
+                        subject: commit.subject.clone(),
+                        hash: commit.hash.clone(),
+                    }
+                })
+                .collect();
+            self.history_cache_key = (generation, today);
+        }
+        if self.history_rows.is_empty() {
             return div()
                 .id("history-list")
                 .flex_1()
@@ -497,20 +574,8 @@ impl ChangesView {
             .flex_col()
             .px_2();
 
-        let today = chrono::Local::now().date_naive();
-        let yesterday = today - chrono::Duration::days(1);
-        let mut current_day: Option<chrono::NaiveDate> = None;
-        for commit in &history {
-            let day = commit.date.date_naive();
-            if current_day != Some(day) {
-                current_day = Some(day);
-                let label = if day == today {
-                    "Today".to_string()
-                } else if day == yesterday {
-                    "Yesterday".to_string()
-                } else {
-                    day.format("%b %e").to_string()
-                };
+        for row in &self.history_rows {
+            if let Some(label) = &row.day_label {
                 list = list.child(
                     div()
                         .py_1()
@@ -518,20 +583,15 @@ impl ChangesView {
                         .text_size(px(theme::font_small()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::TEXT_MUTED)
-                        .child(label),
+                        .child(label.clone()),
                 );
             }
             let unpushed_mark = unpushed
                 .as_ref()
-                .map(|set| set.contains(&commit.hash))
-                .unwrap_or(false);
-            let author_line = commit
-                .author
-                .clone()
-                .unwrap_or_else(|| "Unknown".into());
+                .is_some_and(|set| set.contains(&row.hash));
             list = list.child(
                 div()
-                    .id(SharedString::from(format!("commit-{}", commit.short_hash())))
+                    .id(SharedString::from(format!("commit-{}", row.short_hash)))
                     .cursor_pointer()
                     .flex()
                     .flex_row()
@@ -542,7 +602,7 @@ impl ChangesView {
                     .rounded_md()
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click({
-                        let hash = commit.hash.clone();
+                        let hash = row.hash.clone();
                         cx.listener(move |this, _, _, cx| this.drill_commit(&hash, cx))
                     })
                     .child(
@@ -556,7 +616,7 @@ impl ChangesView {
                             .justify_center()
                             .text_size(px(theme::font_small() - 3.))
                             .text_color(theme::TEXT_MUTED)
-                            .child(commit.initials()),
+                            .child(row.initials.clone()),
                     )
                     .child(
                         div()
@@ -571,16 +631,13 @@ impl ChangesView {
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
-                                    .child(commit.subject.clone()),
+                                    .child(row.subject.clone()),
                             )
                             .child(
                                 div()
                                     .text_size(px(theme::font_small() - 2.))
                                     .text_color(theme::TEXT_FAINT)
-                                    .child(format!(
-                                        "{author_line} • {}",
-                                        devtools_core::rel_time::format(commit.date)
-                                    )),
+                                    .child(format!("{} • {}", row.author, row.rel)),
                             ),
                     )
                     .when(unpushed_mark, |row| {
@@ -590,7 +647,7 @@ impl ChangesView {
                         // hash chip: clicking copies the full SHA without
                         // drilling in
                         div()
-                            .id(SharedString::from(format!("copy-sha-{}", commit.short_hash())))
+                            .id(SharedString::from(format!("copy-sha-{}", row.short_hash)))
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
@@ -600,8 +657,8 @@ impl ChangesView {
                             .hover(|s| s.text_color(theme::ACCENT))
                             .on_click({
                                 let store = self.store.clone();
-                                let full = commit.hash.clone();
-                                let short = commit.short_hash().to_string();
+                                let full = row.hash.clone();
+                                let short = row.short_hash.clone();
                                 move |_, _, cx| {
                                     cx.stop_propagation();
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full.clone()));
@@ -611,7 +668,7 @@ impl ChangesView {
                                     });
                                 }
                             })
-                            .child(commit.short_hash().to_string()),
+                            .child(row.short_hash.clone()),
                     ),
             );
         }
@@ -654,7 +711,7 @@ impl ChangesView {
         let history_meta = self
             .store
             .read(cx)
-            .history
+            .history()
             .iter()
             .find(|c| c.hash == details.hash || c.hash.starts_with(&details.hash[..details.hash.len().min(7)]))
             .map(|c| {

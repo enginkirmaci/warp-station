@@ -2,15 +2,21 @@
 //! switches, seeded from the live settings when the page opens. Save writes
 //! the whole graph atomically and live-applies (a scan-related change also
 //! kicks a rescan). The model pickers list the opencode catalog with a
-//! refresh button.
+//! refresh button, and the OpenCode card manages the wand prompt templates.
 
+use crate::net::TemplateOp;
 use crate::store::Store;
 use crate::theme;
+use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
+use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
+use gpui_kit::component::input::{
+    Editor, EditorState, Input, InputState, Textarea, TextareaState,
+};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::switch::Switch;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub struct SettingsPage {
     pub store: Entity<Store>,
@@ -51,6 +57,15 @@ pub struct SettingsPage {
     commit_model: Entity<InputState>,
     default_model_open: bool,
     commit_model_open: bool,
+    // The template being edited inline (registry id); None = the rows list.
+    editing_template: Option<&'static str>,
+    /// True once the open editor's TemplateLoaded landed and seeded the buffer.
+    template_editor_seeded: bool,
+    /// The embedded markdown editor for the open template.
+    template_editor: Entity<EditorState>,
+    /// The row whose Reset is armed (a second click confirms; arming another
+    /// row disarms this one).
+    reset_armed: Option<&'static str>,
     // Columns
     enable_github: bool,
     github_executable: Entity<InputState>,
@@ -78,6 +93,30 @@ impl SettingsPage {
         fn area(window: &mut Window, cx: &mut Context<SettingsPage>, value: &str) -> Entity<TextareaState> {
             cx.new(|cx| TextareaState::new(window, cx).default_value(value.to_string()))
         }
+
+        // the prompt-template editor mirrors the Notes live editor: markdown
+        // live highlighting with caret-driven marker fading
+        let template_caret = Rc::new(RefCell::new(Some(0..0)));
+        let highlighter_caret = template_caret.clone();
+        let template_editor = cx.new(|cx| {
+            let mut state = EditorState::new(window, cx)
+                .language(LIVE_LANGUAGE)
+                .line_number(false)
+                .folding(false)
+                .auto_close(false)
+                .smart_indent(false)
+                .placeholder("loading…");
+            state.set_highlighter_factory(live_highlighter_factory(highlighter_caret), cx);
+            state
+        });
+        let observe_caret = template_caret.clone();
+        cx.observe(&template_editor, move |_, editor, cx| {
+            *observe_caret.borrow_mut() = Some(editor.read(cx).selected_range());
+        })
+        .detach();
+        // settled TemplateIo ops land on the store; the template rows and
+        // the open editor redraw from them
+        cx.observe(&store, |_, _, cx| cx.notify()).detach();
 
         let page = Self {
             store: store.clone(),
@@ -121,6 +160,10 @@ impl SettingsPage {
             commit_model: field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default()),
             default_model_open: false,
             commit_model_open: false,
+            editing_template: None,
+            template_editor_seeded: false,
+            template_editor,
+            reset_armed: None,
             enable_github: repos.enable_git_hub,
             github_executable: field(window, cx, &repos.git_hub_executable),
             enable_azure: repos.enable_azure_dev_ops,
@@ -273,6 +316,17 @@ impl SettingsPage {
 
 impl Render for SettingsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        // the settled TemplateLoaded seeds the open editor here (set_value
+        // needs a Window, which the store observer does not carry)
+        if self.editing_template.is_some()
+            && !self.template_editor_seeded
+            && let Some((id, content, _)) = self.store.read(cx).template_loaded.clone()
+            && self.editing_template == Some(id.as_str())
+        {
+            self.template_editor_seeded = true;
+            self.template_editor
+                .update(cx, |state, cx| state.set_value(content.as_str(), window, cx));
+        }
         let just_saved = self
             .saved_note
             .map(|at| at.elapsed() < std::time::Duration::from_secs(2))
@@ -478,6 +532,8 @@ impl Render for SettingsPage {
                                             let field = this.commit_model.clone();
                                             this.model_picker(&field, PickerSlot::Commit, cx)
                                         })
+                                        .child(label("Prompt templates"))
+                                        .child(this.templates_section(cx))
                                     }))
                                     .child(self.card("Columns", cx, |this, cx, card| {
                                         card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {
@@ -625,6 +681,233 @@ impl SettingsPage {
             .into_any_element()
     }
 
+    // ---- prompt templates -------------------------------------------------
+
+    /// The card's template manager: one row per registry entry, or the
+    /// embedded editor while a template is open for editing.
+    fn templates_section(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        match self.editing_template {
+            Some(id) => self.template_editor_view(id, cx),
+            None => self.template_rows(cx),
+        }
+    }
+
+    /// One row per registry entry: title, the customized badge (stored body
+    /// differs from the built-in default), the placeholder chips, and the
+    /// Edit/Open/Reset actions.
+    fn template_rows(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let mut list = div().flex().flex_col().gap_2();
+        for template in devtools_core::opencode::PROMPT_TEMPLATES {
+            let id = template.id;
+            // read from disk each draw so externally-edited bodies badge on
+            // the next render; every TemplateIo settle re-notifies the store
+            let customized = devtools_core::opencode::is_customized(id);
+            let armed = self.reset_armed == Some(id);
+            let buttons = self.template_buttons(id, armed, cx);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("template-row-{id}")))
+                    .debug_selector(move || format!("template-row-{id}"))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::TEXT)
+                                    .child(template.title),
+                            )
+                            .when(customized, |row| {
+                                row.child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "template-customized-{id}"
+                                        )))
+                                        .debug_selector(move || format!("template-customized-{id}"))
+                                        .rounded_full()
+                                        .bg(theme::tint(theme::ACCENT))
+                                        .text_color(theme::ACCENT)
+                                        .text_size(px(theme::font_small() - 2.))
+                                        .px_1p5()
+                                        .child("customized"),
+                                )
+                            })
+                            .child(div().flex_1())
+                            .child(buttons),
+                    )
+                    .child(placeholder_chips(template.placeholders)),
+            );
+        }
+        list.into_any_element()
+    }
+
+    /// Edit swaps the card into the embedded editor, Open hands the file to
+    /// the system editor, and Reset is two-click armed (arming another row
+    /// replaces the arm).
+    fn template_buttons(
+        &mut self,
+        id: &'static str,
+        armed: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let this = cx.entity();
+        let reset_store = self.store.clone();
+        div()
+            .flex()
+            .flex_row()
+            .gap_1()
+            .child(template_action_button(
+                format!("template-edit-{id}"),
+                "Edit",
+                false,
+                cx.listener(move |this, _, window, cx| {
+                    this.editing_template = Some(id);
+                    this.template_editor_seeded = false;
+                    this.reset_armed = None;
+                    // blank the buffer so the previously-edited template
+                    // never flashes while the Read round-trip is in flight
+                    this.template_editor
+                        .update(cx, |state, cx| state.set_value("", window, cx));
+                    this.store.update(cx, |s, _| s.template_io(id, TemplateOp::Read));
+                    cx.notify();
+                }),
+            ))
+            .child(template_action_button(
+                format!("template-open-{id}"),
+                "Open",
+                false,
+                move |_, _, _| {
+                    // never hand the system editor a file that does not exist
+                    if let Some(template) =
+                        devtools_core::opencode::PROMPT_TEMPLATES.iter().find(|t| t.id == id)
+                        && devtools_core::opencode::read_template(id).is_none()
+                    {
+                        let _ = devtools_core::opencode::write_template(id, template.default);
+                    }
+                    if let Some(path) = devtools_core::opencode::template_path(id) {
+                        let _ =
+                            devtools_core::terminal::open_folder(&path.to_string_lossy());
+                    }
+                },
+            ))
+            .child(template_action_button(
+                format!("template-reset-{id}"),
+                "Reset",
+                armed,
+                move |_, _, cx| {
+                    if armed {
+                        reset_store.update(cx, |s, _| s.template_io(id, TemplateOp::Reset));
+                        this.update(cx, |this, cx| {
+                            this.reset_armed = None;
+                            cx.notify();
+                        });
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.reset_armed = Some(id);
+                            cx.notify();
+                        });
+                    }
+                },
+            ))
+            .into_any_element()
+    }
+
+    /// The embedded editor for one template. The body arrives via the store
+    /// (TemplateLoaded) and render seeds the buffer, so the editor shows a
+    /// loading label until the event lands.
+    fn template_editor_view(
+        &mut self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let template = devtools_core::opencode::PROMPT_TEMPLATES
+            .iter()
+            .find(|t| t.id == id)
+            .expect("editing_template ids come from the registry");
+        let title = template.title;
+        let editor = Editor::new(&self.template_editor)
+            .bordered(false)
+            .appearance(false)
+            .h_full()
+            .font_family(SharedString::from(theme::ui_font()))
+            .text_size(px(theme::font_body() + 1.))
+            .line_height(relative(1.7));
+        div()
+            .id(SharedString::from(format!("template-editor-{id}")))
+            .debug_selector(move || format!("template-editor-{id}"))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small()))
+                            .text_color(theme::TEXT)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small() - 1.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(if self.template_editor_seeded {
+                                "re-read by every wand run"
+                            } else {
+                                "loading…"
+                            }),
+                    )
+                    .child(div().flex_1())
+                    .child(template_action_button(
+                        format!("template-save-{id}"),
+                        "Save",
+                        false,
+                        cx.listener(move |this, _, _, cx| {
+                            let content = this.template_editor.read(cx).value().to_string();
+                            this.store
+                                .update(cx, |s, _| s.template_io(id, TemplateOp::Write(content)));
+                            this.store.update(cx, |s, cx| {
+                                s.notify_success(format!("{title} template saved"));
+                                cx.notify();
+                            });
+                            this.editing_template = None;
+                            this.template_editor_seeded = false;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(template_action_button(
+                        format!("template-cancel-{id}"),
+                        "Cancel",
+                        false,
+                        cx.listener(move |this, _, _, cx| {
+                            this.editing_template = None;
+                            this.template_editor_seeded = false;
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .child(
+                div()
+                    .h(px(320.))
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .p_2()
+                    .child(editor),
+            )
+            .child(placeholder_chips(template.placeholders))
+            .into_any_element()
+    }
+
     fn card(
         &mut self,
         title: &str,
@@ -674,6 +957,51 @@ fn label(text: &str) -> impl IntoElement + use<> {
         .text_size(px(theme::font_small()))
         .text_color(theme::TEXT_MUTED)
         .child(text.to_string())
+}
+
+/// A small bordered row action; the armed state turns red with "Confirm".
+fn template_action_button(
+    id: String,
+    label: &str,
+    armed: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    let text = if armed { "Confirm" } else { label };
+    let selector = id.clone();
+    div()
+        .id(SharedString::from(id))
+        .debug_selector(move || selector)
+        .cursor_pointer()
+        .rounded_md()
+        .border_1()
+        .border_color(if armed { theme::DANGER } else { theme::HAIRLINE })
+        .px_2()
+        .py_0p5()
+        .text_size(px(theme::font_small() - 1.))
+        .text_color(if armed { theme::DANGER } else { theme::TEXT_DIM })
+        .hover(|s| s.bg(theme::HOVER))
+        .on_click(on_click)
+        .child(text.to_string())
+        .into_any_element()
+}
+
+/// The template's fill-in placeholders as tiny mono chips.
+fn placeholder_chips(placeholders: &[&'static str]) -> impl IntoElement + use<> {
+    let mut row = div().flex().flex_row().flex_wrap().gap_1();
+    for placeholder in placeholders {
+        row = row.child(
+            div()
+                .rounded_md()
+                .bg(theme::CHIP)
+                .px_1p5()
+                .py_0p5()
+                .text_size(px(theme::font_small() - 2.))
+                .text_color(theme::TEXT_MUTED)
+                .font_family(SharedString::from(theme::code_font()))
+                .child(placeholder.to_string()),
+        );
+    }
+    row
 }
 
 /// Two fields (or switches) sharing one row, each half of the card width.

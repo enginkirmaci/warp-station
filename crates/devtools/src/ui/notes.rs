@@ -9,21 +9,20 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
-use devtools_core::markdown_live::{self, MarkdownLiveKind};
+use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
+use devtools_core::markdown_live;
 use devtools_core::notes as notes_core;
 use gpui::prelude::*;
 use gpui::{
-    div, hsla, px, relative, Context, Entity, FontStyle, FontWeight, HighlightStyle,
-    MouseButton, SharedString, StrikethroughStyle, UnderlineStyle, Window, WindowControlArea,
+    div, px, relative, Context, Entity, FontWeight, MouseButton, SharedString, Window,
+    WindowControlArea,
 };
 use gpui_kit::component::input::{
-    Editor, EditorState, FoldRange, HighlightStyleResolver, Input, InputEdit, InputEvent,
-    InputHighlighter, InputHighlighterFactory, InputState, Rope,
+    Editor, EditorState, Input, InputEvent, InputState,
 };
 use gpui_kit::component::Sizable as _;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -33,7 +32,9 @@ pub struct NotesPage {
     /// folder per repo), Some at one repo's notes folder. Repo row presses
     /// never touch it — only the rows' notes icon does.
     notes_scope: Option<String>,
-    tree: Vec<notes_core::NotesTreeItem>,
+    /// The loaded tree behind an Rc: every editor keystroke re-renders the
+    /// page, and the rebuild must not deep-clone the whole tree per frame.
+    tree: Rc<Vec<notes_core::NotesTreeItem>>,
     tree_loaded_for: Option<String>,
     expanded: std::collections::HashSet<PathBuf>,
     open_note: Option<PathBuf>,
@@ -44,6 +45,8 @@ pub struct NotesPage {
     saved_text: String,
     search: Entity<InputState>,
     search_hits: Vec<notes_core::NotesSearchHit>,
+    /// Debounce sequence; a keystroke invalidates any in-flight search.
+    search_generation: u32,
     /// The live markdown editor — the code-editor engine with the in-place
     /// markdown highlighter installed.
     editor: Entity<EditorState>,
@@ -112,7 +115,7 @@ impl NotesPage {
         Self {
             store,
             notes_scope,
-            tree: Vec::new(),
+            tree: Rc::new(Vec::new()),
             tree_loaded_for: None,
             expanded: std::collections::HashSet::new(),
             open_note: None,
@@ -120,6 +123,7 @@ impl NotesPage {
             saved_text: String::new(),
             search,
             search_hits: Vec::new(),
+            search_generation: 0,
             editor,
             armed_delete: None,
             create_open: false,
@@ -151,11 +155,11 @@ impl NotesPage {
     fn reload_tree(&mut self, cx: &mut Context<Self>) {
         if let Some(root) = self.notes_root(cx) {
             if self.tree_loaded_for.as_deref() != Some(root.as_os_str().to_str().unwrap_or("")) {
-                self.tree = notes_core::load_tree(&root);
+                self.tree = Rc::new(notes_core::load_tree(&root));
                 self.tree_loaded_for = root.as_os_str().to_str().map(str::to_string);
             }
         } else {
-            self.tree.clear();
+            self.tree = Rc::new(Vec::new());
             self.tree_loaded_for = None;
         }
     }
@@ -199,16 +203,35 @@ impl NotesPage {
         cx.notify();
     }
 
+    /// The sidebar search: the walk reads up to 2000 note files, so it is
+    /// debounced and pushed off the UI thread — a newer keystroke invalidates
+    /// whatever is still in flight.
     fn run_search(&mut self, term: String, cx: &mut Context<Self>) {
-        if term.trim().is_empty() {
+        self.search_generation += 1;
+        let generation = self.search_generation;
+        let term = term.trim().to_string();
+        if term.is_empty() {
             self.search_hits.clear();
             cx.notify();
             return;
         }
-        if let Some(root) = self.notes_root(cx) {
-            self.search_hits = notes_core::search(&root, &term);
-            cx.notify();
-        }
+        let Some(root) = self.notes_root(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(180))
+                .await;
+            let hits = cx
+                .background_executor()
+                .spawn(async move { notes_core::search(&root, &term) })
+                .await;
+            let _ = this.update(cx, |this: &mut NotesPage, cx| {
+                if this.search_generation == generation {
+                    this.search_hits = hits;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn create_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -234,7 +257,7 @@ impl NotesPage {
         }
         match notes_core::create_note(&root, &target, &name) {
             Ok(path) => {
-                self.tree = notes_core::load_tree(&root);
+                self.tree = Rc::new(notes_core::load_tree(&root));
                 self.create_open = false;
                 self.create_name.update(cx, |f, cx| f.set_value(String::new(), window, cx));
                 self.create_folder.update(cx, |f, cx| f.set_value(String::new(), window, cx));
@@ -265,7 +288,7 @@ impl NotesPage {
                         self.dirty.remove(&path);
                         self.open_note = None;
                         self.saved_text.clear();
-                        self.tree = notes_core::load_tree(&root);
+                        self.tree = Rc::new(notes_core::load_tree(&root));
                     }
                     Err(err) => self.notice(cx, crate::store::NoticeKind::Error, &format!("note delete failed: {err}")),
                 }
@@ -410,8 +433,11 @@ impl Render for NotesPage {
         if let Some(scope) = self.store.update(cx, |store, _| store.pending_notes_scope.take()) {
             self.apply_scope_request(scope);
         }
-        let editor_text = self.editor.read(cx).value().to_string();
-        let dirty = self.open_note.is_some() && editor_text != self.saved_text;
+        // value() hands out a SharedString (a refcount bump); the per-frame
+        // work below stays allocation-free on &str so a long note does not
+        // re-copy its whole text every keystroke
+        let editor_text = self.editor.read(cx).value();
+        let dirty = self.open_note.is_some() && editor_text.as_ref() != self.saved_text.as_str();
         let armed = self
             .armed_delete
             .as_ref()
@@ -586,11 +612,11 @@ impl NotesPage {
 
     /// The status strip: "N words · N chars · N lines" and "Ln x, Col y".
     fn render_status_bar(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let text = if self.open_note.is_some() { self.editor.read(cx).value().to_string() } else { String::new() };
+        let text = if self.open_note.is_some() { self.editor.read(cx).value() } else { SharedString::new("") };
         let words = text.split_whitespace().count();
         let chars = text.chars().count();
         let lines = text.lines().count();
-        let dirty = self.open_note.is_some() && text != self.saved_text;
+        let dirty = self.open_note.is_some() && text.as_ref() != self.saved_text.as_str();
         let (line, col) = if self.open_note.is_some() {
             let byte = self.editor.read(cx).selected_range().start;
             let prefix = &text[..byte.min(text.len())];
@@ -783,13 +809,15 @@ impl NotesPage {
             }
             tree = tree.child(hits);
         } else {
+            // Rc clone — the tree is shared with reload sites, never copied
+            let items = self.tree.clone();
             tree = tree.child(
                 div()
                     .id("notes-tree-scroll")
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .child(self.render_tree_items(&self.tree.clone(), 0, cx)),
+                    .child(self.render_tree_items(&items, 0, cx)),
             );
         }
         tree.into_any_element()
@@ -1097,206 +1125,5 @@ impl NotesPage {
             )
             .child(self.editor_element())
             .into_any_element()
-    }
-}
-
-// ---- the markdown live highlighter -------------------------------------------
-
-/// Language name that triggers the app markdown live styling.
-const LIVE_LANGUAGE: &str = "markdown";
-
-/// How far source markers fade when the cursor is on another line.
-const MARKER_FADE: f32 = 0.85;
-
-/// Builds the editor's highlighter factory: `markdown` gets the live engine,
-/// every other language stays unstyled. A free function so the closure
-/// coerces to the higher-ranked `dyn Fn(&str)` without inference trouble.
-fn live_highlighter_factory(caret: Rc<RefCell<Option<Range<usize>>>>) -> InputHighlighterFactory {
-    Rc::new(move |language: &str| {
-        (language == LIVE_LANGUAGE).then(|| {
-            Box::new(MarkdownLiveHighlighter::new(caret.clone())) as Box<dyn InputHighlighter>
-        })
-    })
-}
-
-/// The Notes live editor's syntax engine: maps the core parser's spans onto
-/// editor text styles, fading source markers on lines the caret is not on.
-struct MarkdownLiveHighlighter {
-    spans: Vec<markdown_live::MarkdownLiveSpan>,
-    line_starts: Vec<usize>,
-    len: usize,
-    /// The editor caret; the page keeps it current on every keystroke and
-    /// caret move, so each frame's layout fades against the live position.
-    caret: Rc<RefCell<Option<Range<usize>>>>,
-}
-
-impl MarkdownLiveHighlighter {
-    fn new(caret: Rc<RefCell<Option<Range<usize>>>>) -> Self {
-        Self { spans: Vec::new(), line_starts: Vec::new(), len: 0, caret }
-    }
-
-    fn style_for(kind: MarkdownLiveKind) -> HighlightStyle {
-        let mut style = HighlightStyle::default();
-        match kind {
-            MarkdownLiveKind::HeadingMarker => {
-                style.color = Some(theme::ACCENT.into());
-                style.font_weight = Some(FontWeight::SEMIBOLD);
-            }
-            MarkdownLiveKind::HeadingText => {
-                style.font_weight = Some(FontWeight::BOLD);
-            }
-            MarkdownLiveKind::Emphasis { bold, italic, strike } => {
-                if bold {
-                    style.font_weight = Some(FontWeight::BOLD);
-                }
-                if italic {
-                    style.font_style = Some(FontStyle::Italic);
-                }
-                if strike {
-                    style.strikethrough = Some(StrikethroughStyle {
-                        thickness: px(1.),
-                        color: Some(theme::TEXT_MUTED.into()),
-                    });
-                    style.color = Some(theme::TEXT_MUTED.into());
-                }
-            }
-            MarkdownLiveKind::InlineCode => {
-                style.background_color = Some(theme::CHIP.into());
-                style.color = Some(theme::GOLD_BRIGHT.into());
-            }
-            MarkdownLiveKind::CodeFence => {
-                style.background_color = Some(hsla(0., 0., 0., 0.16));
-                style.color = Some(theme::TEXT_FAINT.into());
-            }
-            MarkdownLiveKind::CodeBlock => {
-                style.background_color = Some(hsla(0., 0., 0., 0.16));
-            }
-            MarkdownLiveKind::LinkText => {
-                style.color = Some(theme::ACCENT.into());
-                style.underline = Some(UnderlineStyle {
-                    thickness: px(1.),
-                    color: Some(theme::ACCENT.into()),
-                    wavy: false,
-                });
-            }
-            MarkdownLiveKind::QuoteText => {
-                style.font_style = Some(FontStyle::Italic);
-                style.color = Some(theme::TEXT_DIM.into());
-            }
-            MarkdownLiveKind::TaskDone => {
-                style.color = Some(theme::SUCCESS_BRIGHT.into());
-            }
-            // everything quiet shares the faint ink
-            MarkdownLiveKind::Marker
-            | MarkdownLiveKind::LinkUrl
-            | MarkdownLiveKind::QuoteMarker
-            | MarkdownLiveKind::ListMarker
-            | MarkdownLiveKind::TaskOpen
-            | MarkdownLiveKind::HorizontalRule => {
-                style.color = Some(theme::TEXT_FAINT.into());
-            }
-            MarkdownLiveKind::Plain => {}
-        }
-        style
-    }
-
-    /// Which kinds are source syntax that disappears when not being edited.
-    /// Task boxes never fade — they are the click target for toggling.
-    fn fades(kind: MarkdownLiveKind) -> Option<f32> {
-        match kind {
-            MarkdownLiveKind::CodeFence
-            | MarkdownLiveKind::Marker
-            | MarkdownLiveKind::LinkUrl
-            | MarkdownLiveKind::HeadingMarker
-            | MarkdownLiveKind::ListMarker
-            | MarkdownLiveKind::QuoteMarker => Some(MARKER_FADE),
-            _ => None,
-        }
-    }
-
-    /// The line the caret is on, as a byte range.
-    fn caret_line(&self) -> Option<Range<usize>> {
-        let caret = self.caret.borrow().as_ref()?.start.min(self.len);
-        let idx = self.line_starts.partition_point(|&start| start <= caret).checked_sub(1)?;
-        let start = self.line_starts[idx];
-        let end = self.line_starts.get(idx + 1).copied().unwrap_or(self.len);
-        Some(start..end.max(start))
-    }
-}
-
-impl InputHighlighter for MarkdownLiveHighlighter {
-    fn language(&self) -> SharedString {
-        LIVE_LANGUAGE.into()
-    }
-
-    fn update(
-        &mut self,
-        _edit: Option<InputEdit>,
-        text: &Rope,
-        _folding: bool,
-        _window: &mut Window,
-        _cx: &mut Context<EditorState>,
-    ) {
-        // notes are small; a full reparse per edit keeps offsets trivially
-        // correct (and the engine re-drives this on every text change)
-        let text = text.to_string();
-        self.line_starts = std::iter::once(0)
-            .chain(text.match_indices('\n').map(|(i, _)| i + 1))
-            .collect();
-        self.len = text.len();
-        self.spans = markdown_live::parse(&text);
-    }
-
-    fn styles(
-        &self,
-        range: &Range<usize>,
-        _resolver: &dyn HighlightStyleResolver,
-    ) -> Vec<(Range<usize>, HighlightStyle)> {
-        let caret_line = self.caret_line();
-        let mut out: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
-        let push_run = |out: &mut Vec<(Range<usize>, HighlightStyle)>,
-                            start: usize,
-                            end: usize,
-                            kind: MarkdownLiveKind| {
-            let mut style = Self::style_for(kind);
-            if let Some(fade) = Self::fades(kind)
-                && caret_line.as_ref().is_some_and(|line| !(start < line.end && end > line.start))
-            {
-                style.fade_out = Some(fade);
-            }
-            // adjacent runs with one style shape as one
-            if let Some((last_range, last_style)) = out.last_mut()
-                && *last_style == style
-                && last_range.end == start
-            {
-                last_range.end = end;
-            } else {
-                out.push((start..end, style));
-            }
-        };
-        let mut pos = range.start;
-        for span in &self.spans {
-            if span.range.end <= range.start {
-                continue;
-            }
-            if span.range.start >= range.end {
-                break;
-            }
-            let start = span.range.start.max(range.start);
-            let end = span.range.end.min(range.end);
-            if start > pos {
-                push_run(&mut out, pos, start, MarkdownLiveKind::Plain);
-            }
-            push_run(&mut out, start, end, span.kind);
-            pos = end;
-        }
-        if pos < range.end {
-            push_run(&mut out, pos, range.end, MarkdownLiveKind::Plain);
-        }
-        out
-    }
-
-    fn fold_ranges(&self, _: &Rope) -> Vec<FoldRange> {
-        Vec::new()
     }
 }

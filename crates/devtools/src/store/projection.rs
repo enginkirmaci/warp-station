@@ -25,6 +25,18 @@ pub fn project(
         .map(|(ix, _)| ix)
         .collect();
 
+    // case-insensitive name order needs the lowercase form twice (the Name
+    // mode and the universal tiebreaker); precompute once instead of two
+    // allocations per comparison
+    let names_lower: Vec<String> = repos.iter().map(|repo| repo.name.to_lowercase()).collect();
+    let name_order = |ascending: bool, a: usize, b: usize| {
+        if ascending {
+            names_lower[a].cmp(&names_lower[b])
+        } else {
+            names_lower[b].cmp(&names_lower[a])
+        }
+    };
+
     rows.sort_by(|&a, &b| {
         let (ra, rb) = (&repos[a], &repos[b]);
         // favorites first; then the mode's order — `ascending` flips the
@@ -33,7 +45,7 @@ pub fn project(
         rb.is_favorite()
             .cmp(&ra.is_favorite())
             .then_with(|| match sort {
-                RepoSortMode::Name => order(ascending, &ra.name, &rb.name),
+                RepoSortMode::Name => name_order(ascending, a, b),
                 RepoSortMode::LastActivity => {
                     order_opt(ascending, ra.git_last_commit_at, rb.git_last_commit_at)
                 }
@@ -47,14 +59,9 @@ pub fn project(
                     rb.github_pr_count + rb.github_issue_count,
                 ),
             })
-            .then_with(|| ra.name.to_lowercase().cmp(&rb.name.to_lowercase()))
+            .then_with(|| names_lower[a].cmp(&names_lower[b]))
     });
     rows
-}
-
-fn order(ascending: bool, a: &str, b: &str) -> std::cmp::Ordering {
-    let (a, b) = (a.to_lowercase(), b.to_lowercase());
-    if ascending { a.cmp(&b) } else { b.cmp(&a) }
 }
 
 /// Options order by their value, but `None` sinks regardless of direction.

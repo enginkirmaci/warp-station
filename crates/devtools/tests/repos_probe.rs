@@ -448,7 +448,7 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
         // prime everything the switch must clear (repo A's state)
-        s.changes = None;
+        s.set_changes(None);
         s.branches = vec![GitBranchRef { name: "main".into(), kind: GitBranchKind::Local }];
         s.recent_commits = vec![devtools_core::model::GitCommitInfo {
             hash: "abc".into(),
@@ -685,15 +685,13 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
     let store = fake_store(cx);
     cx.update_entity(&store, |s: &mut Store, _| {
         s.repos.push(entry_with_branch("delta", "/probe/delta", "release/feature-x"));
-        s.projected.push(3); // the delegate reads the projection, not repos
+        // reproject also refreshes the widest-branch width the delegate reads
+        s.reproject_pub();
     });
 
     cx.update(|cx| {
         let available = gpui::px(1100.);
-        let delegate = devtools::ui::repos::ReposDelegate {
-            store: store.clone(),
-            available_width: std::rc::Rc::new(std::cell::Cell::new(available)),
-        };
+        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), available);
         use gpui_kit::component::table::TableDelegate as _;
 
         let count = delegate.columns_count(cx);
@@ -721,6 +719,7 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
                 repo.git_branch_name =
                     Some("release/an-extremely-long-branch-name-for-clamping".into());
             }
+            s.reproject_pub();
         });
         let branch = delegate.column(3, cx).width;
         assert_eq!(branch, gpui::px(240.), "branch width clamps at 240");
@@ -739,10 +738,7 @@ fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
         use gpui_kit::component::table::TableDelegate as _;
 
         for available in [674., 700., 760., 854., 960., 1100., 1234.] {
-            let delegate = devtools::ui::repos::ReposDelegate {
-                store: store.clone(),
-                available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(available))),
-            };
+            let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(available));
             let count = delegate.columns_count(cx);
             let widths: Vec<gpui::Pixels> =
                 (0..count).map(|ix| delegate.column(ix, cx).width).collect();
@@ -808,10 +804,7 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
 
     cx.update(|window, cx| {
-        let delegate = devtools::ui::repos::ReposDelegate {
-            store: store.clone(),
-            available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(1100.))),
-        };
+        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(1100.));
         let branch_ix = (0..delegate.columns_count(cx))
             .find(|&ix| delegate.column(ix, cx).key == "branch")
             .expect("the branch column is visible at 1100px");
@@ -1007,10 +1000,7 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
 
     cx.update(|cx| {
         let available = gpui::px(1100.);
-        let delegate = devtools::ui::repos::ReposDelegate {
-            store: store.clone(),
-            available_width: std::rc::Rc::new(std::cell::Cell::new(available)),
-        };
+        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), available);
         use gpui_kit::component::table::TableDelegate as _;
 
         // columns: star, name, shortcuts, branch, changes, …, last activity
@@ -1030,10 +1020,7 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
         s.sort_ascending = true;
     });
     cx.update(|cx| {
-        let delegate = devtools::ui::repos::ReposDelegate {
-            store: store.clone(),
-            available_width: std::rc::Rc::new(std::cell::Cell::new(gpui::px(1100.))),
-        };
+        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(1100.));
         use gpui_kit::component::table::TableDelegate as _;
 
         assert!(

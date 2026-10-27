@@ -531,9 +531,13 @@ impl MainWindow {
         }
         // the field is centered at 420px; the popup hangs from the same x
         let left = ((window.viewport_size().width.as_f32() - 420.) / 2.).max(0.);
-        let hits = self.store.read(cx).global_search.clone();
+        let (hits, pending) = {
+            let store = self.store.read(cx);
+            (store.global_search.clone(), store.global_search_pending)
+        };
         if hits.is_empty() {
-            // the popup shows a "No matches." footer while focused
+            // the popup shows a footer while focused; a hint beats a stale
+            // "No matches." during the debounced background search
             return Some(
                 div()
                     .id("search-popup")
@@ -551,7 +555,7 @@ impl MainWindow {
                     .p_2()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_FAINT)
-                    .child("No matches.")
+                    .child(if pending { "Searching…" } else { "No matches." })
                     .into_any_element(),
             );
         }

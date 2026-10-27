@@ -12,6 +12,8 @@ use gpui::{
 };
 use std::ops::Range;
 
+/// Renders a unified diff. Callers store the patch with `\r` already
+/// stripped (one pass at load), so this never rewrites the text per render.
 pub fn render_diff(text: &str, font_detail: f32, window: &mut Window) -> AnyElement {
     let text = text.trim_end_matches('\n');
     if text.is_empty() {
@@ -90,7 +92,7 @@ pub fn render_diff(text: &str, font_detail: f32, window: &mut Window) -> AnyElem
     let mut lang = Lang::Plain;
     let mut seen_hunk = false;
     let mut syn = SynState::default();
-    for raw in text.replace('\r', "").split('\n') {
+    for raw in text.split('\n') {
         if let Some((o, n)) = hunk_header(raw) {
             old = o;
             new = n;

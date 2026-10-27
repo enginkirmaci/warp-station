@@ -74,6 +74,8 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
     // the window root owns the focus at startup: the first typed character
     // must start a fresh term in the global search
     cx.simulate_input("a");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["alpha", "beta", "gamma"]);
     assert!(
@@ -84,6 +86,8 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
     // the field now owns the focus, so the rest of the word lands in it —
     // and is appended, not treated as another fresh term
     cx.simulate_input("lph");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["alpha"]);
 
@@ -106,12 +110,16 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
 
     // type-anywhere builds a term and hands the focus to the global field
     cx.simulate_input("bet");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["beta"]);
 
     // the field owns the focus now, so characters append to the term instead
     // of triggering another type-anywhere pass
     cx.simulate_input("x");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     draw(cx);
     assert_eq!(
         repo_hits(&store, cx),
@@ -123,6 +131,8 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
     // (appending would leave "betxa" matching nothing)
     cx.simulate_keystrokes("ctrl-f");
     cx.simulate_input("a");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     draw(cx);
     assert_eq!(
         repo_hits(&store, cx),

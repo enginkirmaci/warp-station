@@ -8,12 +8,14 @@ use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::icon;
 use gpui::prelude::*;
-use gpui::{div, px, relative, Context, Entity, FontWeight, Window};
+use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::base::text::TextView;
 
 pub struct OverviewView {
     pub store: Entity<Store>,
-    readme: Option<String>,
+    /// SharedString: every render hands the TextView a refcount, never a
+    /// full copy of the README.
+    readme: Option<SharedString>,
     readme_loaded_for: Option<String>,
 }
 
@@ -22,7 +24,7 @@ impl OverviewView {
         cx.observe(&store, |this, store, cx| {
             let selected = store.read(cx).selected_repo.clone();
             if selected != this.readme_loaded_for {
-                this.readme = selected.as_ref().and_then(|folder| read_readme(folder));
+                this.readme = selected.as_ref().and_then(|folder| read_readme(folder)).map(SharedString::from);
                 this.readme_loaded_for = selected.clone();
                 // details probe rides along with the pane's first open
                 if let Some(folder) = selected {
@@ -59,7 +61,10 @@ impl Render for OverviewView {
         };
         let opencode_on = self.store.read(cx).wand_available();
         let has_draft = draft.is_some();
-        let shown = draft.clone().or_else(|| self.readme.clone());
+        let shown: Option<SharedString> = draft
+            .as_ref()
+            .map(|d| SharedString::from(d.as_str()))
+            .or_else(|| self.readme.clone());
 
         let header = div()
             .id("readme-header")
@@ -126,7 +131,7 @@ impl Render for OverviewView {
                                 let path = std::path::Path::new(&folder).join("README.md");
                                 match std::fs::write(&path, format!("{draft}\n")) {
                                     Ok(()) => {
-                                        this.readme = Some(draft);
+                                        this.readme = Some(draft.into());
                                         tracing::info!("saved {}", path.display());
                                     }
                                     Err(err) => {
@@ -182,7 +187,7 @@ impl Render for OverviewView {
             .px_5()
             .py_4()
             .when(shown.is_some(), |pane| {
-                pane.child(render_markdown(shown.as_deref().unwrap_or("")))
+                pane.child(render_markdown(shown.clone().unwrap_or_default()))
             })
             .when(shown.is_none(), |pane| {
                 pane.child(
@@ -557,10 +562,7 @@ fn link_detail_row(label: &str, value: String) -> impl IntoElement + use<> {
         )
 }
 
-fn render_markdown(source: &str) -> impl IntoElement + use<> {
-    TextView::markdown(
-        gpui::ElementId::Name("readme".into()),
-        gpui::SharedString::from(source.to_string()),
-    )
-    .selectable(true)
+fn render_markdown(source: SharedString) -> impl IntoElement + use<> {
+    TextView::markdown(gpui::ElementId::Name("readme".into()), source)
+        .selectable(true)
 }

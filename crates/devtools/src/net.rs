@@ -71,6 +71,17 @@ pub enum NetCommand {
     /// Opens the native folder picker on the net thread (a native modal must
     /// not block the UI thread); the pick settles as [UiEvent::FolderPicked].
     BrowseFolder,
+    /// One prompt-template op from the Settings card; the settled state
+    /// returns as [UiEvent::TemplateLoaded] for every op.
+    TemplateIo { id: String, op: TemplateOp },
+}
+
+/// A prompt-template management op (Settings → OpenCode card).
+#[derive(Clone, Debug)]
+pub enum TemplateOp {
+    Read,
+    Write(String),
+    Reset,
 }
 
 /// Which generator a wand run is.
@@ -234,6 +245,9 @@ pub enum UiEvent {
     ClipboardHotkey { message: &'static str },
     /// The native folder picker closed; None = cancelled or unavailable.
     FolderPicked { path: Option<String> },
+    /// A prompt template's settled state after any TemplateIo op: the raw
+    /// body plus whether it differs from the built-in default.
+    TemplateLoaded { id: String, content: String, customized: bool },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -539,6 +553,33 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         .map(|folder| folder.to_string_lossy().to_string());
                     let _ = evt_tx.send_blocking(UiEvent::FolderPicked { path });
                 });
+            }
+            NetCommand::TemplateIo { id, op } => {
+                // unknown ids are ignored: no file, no event
+                if let Some(template) =
+                    devtools_core::opencode::PROMPT_TEMPLATES.iter().find(|t| t.id == id)
+                {
+                    match op {
+                        TemplateOp::Read => {}
+                        TemplateOp::Write(content) => {
+                            if let Err(err) = devtools_core::opencode::write_template(&id, &content)
+                            {
+                                tracing::warn!("template write failed: {err}");
+                            }
+                        }
+                        TemplateOp::Reset => {
+                            if let Err(err) = devtools_core::opencode::reset_template(&id) {
+                                tracing::warn!("template reset failed: {err}");
+                            }
+                        }
+                    }
+                    // every op answers with the settled on-disk state so the
+                    // rows' badges and the open editor refresh together
+                    let content = devtools_core::opencode::read_template(&id)
+                        .unwrap_or_else(|| template.default.to_string());
+                    let customized = devtools_core::opencode::is_customized(&id);
+                    let _ = evt_tx.send_blocking(UiEvent::TemplateLoaded { id, content, customized });
+                }
             }
             NetCommand::Wand { id, kind, folder, model, warp_exe } => {
                 let evt_tx = evt_tx.clone();

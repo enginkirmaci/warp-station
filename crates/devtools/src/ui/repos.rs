@@ -14,8 +14,43 @@ use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, Pixels, SharedString, Window};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::component::table::{Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+/// Everything a table frame needs that depends on width, settings or the
+/// projection: computed once per layout key change and shared with the
+/// delegate, so per-cell work stays O(1) instead of rescanning all repos.
+struct TableLayout {
+    /// The inputs this layout was derived from; a mismatch means stale.
+    key: LayoutKey,
+    cols: Vec<ColKind>,
+    metrics: LayoutMetrics,
+    name: Pixels,
+    settings: Rc<AppSettings>,
+}
+
+/// The inputs [`TableLayout`] is derived from; a change triggers one table
+/// refresh and one layout rebuild.
+#[derive(Clone, Copy, PartialEq)]
+struct LayoutKey {
+    width_bits: u64,
+    settings_version: u64,
+    widest_branch: usize,
+    sort_mode: u8,
+    sort_ascending: bool,
+}
+
+impl LayoutKey {
+    fn of(store: &Store, available: Pixels) -> Self {
+        Self {
+            width_bits: f32::from(available).to_bits() as u64,
+            settings_version: store.settings_version(),
+            widest_branch: store.widest_branch_chars,
+            sort_mode: store.sort_mode as u8,
+            sort_ascending: store.sort_ascending,
+        }
+    }
+}
 
 pub struct ReposPage {
     pub store: Entity<Store>,
@@ -25,9 +60,11 @@ pub struct ReposPage {
     /// delegate distributes it across the columns (the kit's table has no
     /// flex columns — its widths only re-prepare on `TableState::refresh`).
     available_width: Rc<Cell<Pixels>>,
-    /// Fingerprint of everything the column widths depend on (available
-    /// width, shortcut toggles, widest branch); a change triggers one refresh.
-    layout_fingerprint: Cell<u64>,
+    /// The last layout key; a change triggers one refresh.
+    layout_fingerprint: Cell<LayoutKey>,
+    /// The delegate's cached layout, rebuilt by render on key changes (see
+    /// [`TableLayout`]).
+    table_layout: Rc<RefCell<Option<Rc<TableLayout>>>>,
 }
 
 impl ReposPage {
@@ -40,16 +77,13 @@ impl ReposPage {
         // and let the subscription swallow exactly those events.
         let suppressed_select_rows = Rc::new(Cell::new(0usize));
         let available_width = Rc::new(Cell::new(px(1280.)));
+        let table_layout: Rc<RefCell<Option<Rc<TableLayout>>>> = Rc::new(RefCell::new(None));
         let table = cx.new(|cx| {
-            TableState::new(
-                ReposDelegate {
-                    store: store.clone(),
-                    available_width: available_width.clone(),
-                },
-                window,
-                cx,
-            )
-            .row_selectable(true)
+            let mut delegate = ReposDelegate::new(store.clone(), px(1280.));
+            // the page feeds its precomputed layout through the shared cell
+            delegate.layout = table_layout.clone();
+            delegate.available_width = available_width.clone();
+            TableState::new(delegate, window, cx).row_selectable(true)
         });
 
         let table_for_store = table.clone();
@@ -70,16 +104,32 @@ impl ReposPage {
         // Mirror selection made anywhere else (global search, notes button,
         // E2E hooks, close_bar) into the table's highlight. The table only
         // paints the store's selection this way — it has no external binding.
+        // The row scan is O(n): skip it unless the projection or the
+        // selection actually moved (warp frames, toasts and log lines notify
+        // constantly).
+        enum Sync {
+            Skip,
+            Row(Option<usize>),
+        }
         let table_for_observe = table.clone();
         let suppressed_for_observe = suppressed_select_rows.clone();
+        let last_sync: Rc<RefCell<(u64, String)>> = Rc::new(RefCell::new((0, String::new())));
         cx.observe(&store_for_observe, move |_, store, cx| {
             let wanted = {
                 let store = store.read(cx);
-                store.selected_repo.as_deref().and_then(|folder| {
-                    table_for_observe.read(cx).delegate().row_for_folder(folder, cx)
-                })
+                let key = (store.projection_generation(), store.selected_repo.clone().unwrap_or_default());
+                if key == *last_sync.borrow() {
+                    Sync::Skip
+                } else {
+                    *last_sync.borrow_mut() = key.clone();
+                    Sync::Row(store.selected_repo.as_deref().and_then(|folder| {
+                        table_for_observe.read(cx).delegate().row_for_folder(folder, cx)
+                    }))
+                }
             };
-            if wanted != table_for_observe.read(cx).selected_row() {
+            if let Sync::Row(wanted) = wanted
+                && wanted != table_for_observe.read(cx).selected_row()
+            {
                 match wanted {
                     Some(row_ix) => {
                         // the set_selected_row event is skipped by the
@@ -101,7 +151,14 @@ impl ReposPage {
             table,
             dialog: None,
             available_width,
-            layout_fingerprint: Cell::new(0),
+            layout_fingerprint: Cell::new(LayoutKey {
+                width_bits: 0,
+                settings_version: 0,
+                widest_branch: 0,
+                sort_mode: 0,
+                sort_ascending: false,
+            }),
+            table_layout,
         }
     }
 }
@@ -118,37 +175,10 @@ impl ReposPage {
         false
     }
 
-    /// Packs everything the column widths depend on into one u64: available
-    /// width, the shortcut-toggle flags, and the widest branch in the current
-    /// projection.
-    fn layout_fingerprint_value(&self, available: Pixels, cx: &Context<Self>) -> u64 {
-        let settings = self.store.read(cx).settings();
-        let mut fp = f32::from(available).to_bits() as u64;
-        let mut flag = |bit: u32, on: bool| {
-            if on {
-                fp ^= 1 << bit;
-            }
-        };
-        flag(1, settings.opencode.enable_opencode);
-        flag(2, settings.repos.enable_zcode);
-        flag(3, cfg!(windows) && settings.repos.enable_visual_studio);
-        flag(4, settings.repos.enable_vscode);
-        flag(5, settings.repos.enable_terminal);
-        flag(6, settings.repos.enable_git_hub);
-        flag(7, settings.repos.enable_azure_dev_ops);
-        flag(8, settings.warp_agent.enable_warp_agent);
-        // gates own the low byte; the branch width owns everything above it
-        fp ^= (widest_branch_chars(&self.store, cx) as u64) << 16;
-        // the kit's header sort glyphs live in the cached column groups, so a
-        // sort change needs the same one-shot refresh as a width change
-        {
-            let store = self.store.read(cx);
-            fp ^= (store.sort_mode as u8 as u64) << 16;
-            if store.sort_ascending {
-                fp ^= 1 << 24;
-            }
-        }
-        fp
+    /// Everything the column layout depends on; a change triggers one
+    /// refresh and one rebuild of the shared [`TableLayout`].
+    fn current_layout_key(&self, available: Pixels, cx: &Context<Self>) -> LayoutKey {
+        LayoutKey::of(self.store.read(cx), available)
     }
 
     /// Sends the Add-Repositories dialog's deep scan.
@@ -276,14 +306,26 @@ impl Render for ReposPage {
         }
         // Dynamic columns: the kit's table only re-prepares column widths on
         // refresh(), so feed it the real available width and refresh once per
-        // fingerprint change (window resize, shortcut toggles, widest branch).
+        // key change (window resize, settings, widest branch, sort). The same
+        // pass rebuilds the delegate's shared layout — its per-cell work then
+        // stays O(1) for the rest of the frame's lifetime.
         let available = window.viewport_size().width
             - px(32.) // the px_4 gutters around the table
             - px(14.); // vertical scrollbar + slack
-        let fingerprint = self.layout_fingerprint_value(available, cx);
-        if fingerprint != self.layout_fingerprint.get() {
-            self.layout_fingerprint.set(fingerprint);
+        let key = self.current_layout_key(available, cx);
+        if key != self.layout_fingerprint.get() {
+            self.layout_fingerprint.set(key);
             self.available_width.set(available);
+            let layout = {
+                let store = self.store.read(cx);
+                let settings = Rc::new(store.settings());
+                let branch = branch_column_width(&self.store, cx);
+                let cols = visible_columns(&settings, available, branch);
+                let metrics = layout_metrics(&settings, available, branch);
+                let name = name_width(&cols, &settings, available, metrics);
+                Rc::new(TableLayout { key, cols, metrics, name, settings })
+            };
+            *self.table_layout.borrow_mut() = Some(layout);
             self.table.update(cx, |state, cx| state.refresh(cx));
         }
         let mut page = div()
@@ -605,26 +647,11 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     px(buttons as f32 * 36.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
 }
 
-/// The widest branch name in the current projection, in characters — the
-/// branch column hugs it so long branch names get room and short ones don't
-/// waste 240px.
-fn widest_branch_chars(store: &Entity<Store>, cx: &App) -> usize {
-    let store = store.read(cx);
-    store
-        .projected
-        .iter()
-        .filter_map(|&ix| store.repos.get(ix))
-        .filter_map(|repo| repo.git_branch_name.as_deref())
-        .filter(|branch| !branch.is_empty())
-        .map(|branch| branch.chars().count())
-        .max()
-        .unwrap_or(6)
-}
-
 /// Branch column width from the widest branch pill: git glyph, pill padding,
-/// ~7.8px per character in the code font, clamped to sane bounds.
+/// ~7.8px per character in the code font, clamped to sane bounds. The widest
+/// branch is precomputed on reproject (Store::widest_branch_chars).
 fn branch_column_width(store: &Entity<Store>, cx: &App) -> Pixels {
-    let chars = widest_branch_chars(store, cx) as f32;
+    let chars = store.read(cx).widest_branch_chars as f32;
     px(56. + chars * 7.8).clamp(px(110.), px(240.))
 }
 
@@ -767,9 +794,20 @@ pub struct ReposDelegate {
     /// The table's available width, kept current by the page's render; see
     /// `ReposPage::available_width`.
     pub available_width: Rc<Cell<Pixels>>,
+    /// The page's cached column layout (see [`TableLayout`]); every per-cell
+    /// read goes through it instead of rescanning the store.
+    layout: Rc<RefCell<Option<Rc<TableLayout>>>>,
 }
 
 impl ReposDelegate {
+    pub fn new(store: Entity<Store>, available: Pixels) -> Self {
+        Self {
+            store,
+            available_width: Rc::new(Cell::new(available)),
+            layout: Rc::new(RefCell::new(None)),
+        }
+    }
+
     fn repo_at(&self, row_ix: usize, cx: &App) -> Option<RepoEntry> {
         let store = self.store.read(cx);
         store
@@ -788,29 +826,40 @@ impl ReposDelegate {
     /// mirror the store's selection into the table highlight.
     fn row_for_folder(&self, folder: &str, cx: &App) -> Option<usize> {
         let store = self.store.read(cx);
-        store.projected.iter().position(|&ix| {
-            store
-                .repos
-                .get(ix)
-                .is_some_and(|repo| repo.folder_path.to_string_lossy() == folder)
-        })
+        let folder = std::path::Path::new(folder);
+        store
+            .projected
+            .iter()
+            .position(|&ix| store.repos.get(ix).is_some_and(|repo| repo.folder_path == folder))
+    }
+
+    /// The shared layout; rebuilt inline when the cached one is stale or
+    /// absent (first frame, probes, or a key the page has not refreshed yet).
+    fn layout(&self, cx: &App) -> Rc<TableLayout> {
+        let key = LayoutKey::of(self.store.read(cx), self.available_width.get());
+        if let Some(layout) = self.layout.borrow().as_ref()
+            && layout.key == key
+        {
+            return layout.clone();
+        }
+        let settings = Rc::new(self.store.read(cx).settings());
+        let branch = branch_column_width(&self.store, cx);
+        let available = self.available_width.get();
+        let cols = visible_columns(&settings, available, branch);
+        let metrics = layout_metrics(&settings, available, branch);
+        let name = name_width(&cols, &settings, available, metrics);
+        let layout = Rc::new(TableLayout { key, cols, metrics, name, settings });
+        *self.layout.borrow_mut() = Some(layout.clone());
+        layout
     }
 
     /// Which column sits at an index given the current width and settings.
     fn kind(&self, col_ix: usize, cx: &App) -> ColKind {
-        let settings = self.store.read(cx).settings();
-        let branch = branch_column_width(&self.store, cx);
-        visible_columns(&settings, self.available_width.get(), branch)
+        self.layout(cx)
+            .cols
             .get(col_ix)
             .copied()
             .unwrap_or(ColKind::Shortcuts)
-    }
-
-    /// Whether the changes column is rendering its compact form (badge only).
-    fn compact_changes(&self, cx: &App) -> bool {
-        let settings = self.store.read(cx).settings();
-        let branch = branch_column_width(&self.store, cx);
-        layout_metrics(&settings, self.available_width.get(), branch).compact_changes
     }
 }
 
@@ -858,9 +907,7 @@ impl TableDelegate for ReposDelegate {
     }
 
     fn columns_count(&self, cx: &App) -> usize {
-        let settings = self.store.read(cx).settings();
-        let branch = branch_column_width(&self.store, cx);
-        visible_columns(&settings, self.available_width.get(), branch).len()
+        self.layout(cx).cols.len()
     }
 
     fn rows_count(&self, cx: &App) -> usize {
@@ -868,15 +915,10 @@ impl TableDelegate for ReposDelegate {
     }
 
     fn column(&self, col_ix: usize, cx: &App) -> Column {
-        let settings = self.store.read(cx).settings();
         // fixed-width columns scale with the font factor so scaled text keeps
         // fitting; the name column absorbs whatever is left over
+        let layout = self.layout(cx);
         let scale = theme::font_small() / 12.0;
-        let branch = branch_column_width(&self.store, cx);
-        let available = self.available_width.get();
-        let cols = visible_columns(&settings, available, branch);
-        let metrics = layout_metrics(&settings, available, branch);
-        let name = name_width(&cols, &settings, available, metrics);
         // the header's sort glyph and its click cycle (default → descending →
         // ascending) run off this state, so it must mirror the store, not
         // start blank every rebuild
@@ -892,13 +934,13 @@ impl TableDelegate for ReposDelegate {
                 ColumnSort::Default
             }
         };
-        match cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
+        match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
             ColKind::Star => {
                 Column::new("star", "").width(px(36.)).resizable(false).text_center()
             }
-            ColKind::Name => Column::new("name", "Repository").width(name).min_width(px(140.)).sort(kit_sort(RepoSortMode::Name)),
-            ColKind::Branch => Column::new("branch", "Branch").width(metrics.branch).resizable(false).sort(kit_sort(RepoSortMode::Branch)),
-            ColKind::Changes => Column::new("changes", "Changes").width(metrics.changes).resizable(false).sort(kit_sort(RepoSortMode::Changes)),
+            ColKind::Name => Column::new("name", "Repository").width(layout.name).min_width(px(140.)).sort(kit_sort(RepoSortMode::Name)),
+            ColKind::Branch => Column::new("branch", "Branch").width(layout.metrics.branch).resizable(false).sort(kit_sort(RepoSortMode::Branch)),
+            ColKind::Changes => Column::new("changes", "Changes").width(layout.metrics.changes).resizable(false).sort(kit_sort(RepoSortMode::Changes)),
             ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sort(kit_sort(RepoSortMode::GitHub)),
             ColKind::Azure => {
                 Column::new("azure", "Azure DevOps").width(px(120.) * scale).text_center().resizable(false)
@@ -908,7 +950,7 @@ impl TableDelegate for ReposDelegate {
             }
             ColKind::Shortcuts => {
                 // hugs its button row: the width follows the enabled launchers
-                Column::new("shortcuts", "").width(shortcuts_column_width(&settings)).resizable(false)
+                Column::new("shortcuts", "").width(shortcuts_column_width(&layout.settings)).resizable(false)
             }
         }
     }
@@ -947,14 +989,20 @@ impl TableDelegate for ReposDelegate {
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        let Some(repo) = self.repo_at(row_ix, cx) else {
+        let layout = self.layout(cx);
+        let settings = layout.settings.clone();
+        let store = self.store.read(cx);
+        let Some(repo) = store
+            .projected
+            .get(row_ix)
+            .and_then(|&ix| store.repos.get(ix))
+        else {
             return div().into_any_element();
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
-        let settings = self.store.read(cx).settings();
         let show_tooltips = settings.general.show_tooltips;
 
-        let cell: gpui::AnyElement = match self.kind(col_ix, cx) {
+        let cell: gpui::AnyElement = match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
             ColKind::Star => {
                 let favorite = repo.is_favorite();
                 let star = div()
@@ -1038,14 +1086,12 @@ impl TableDelegate for ReposDelegate {
                     .into_any_element()
             }
             ColKind::Shortcuts => {
-                let warp_running = self
-                    .store
-                    .read(cx)
+                let warp_running = store
                     .warp_running
                     .get(&folder)
                     .filter(|status| !status.running.is_empty())
                     .map(|status| status.running.join(", "));
-                shortcuts_cell(&repo, &settings, row_ix, &self.store, warp_running)
+                shortcuts_cell(repo, &settings, row_ix, &self.store, warp_running)
             }
             // branch pill and changes cell open the bar's Changes tab; the
             // GitHub/Azure cells route to their own tabs
@@ -1061,7 +1107,7 @@ impl TableDelegate for ReposDelegate {
                 &folder,
                 BottomBarTab::Changes,
                 &self.store,
-                changes_cell(&repo, self.compact_changes(cx)),
+                changes_cell(repo, layout.metrics.compact_changes),
             ),
             ColKind::Github => {
                 let tab = if repo.github_pr_count > 0 {
@@ -1071,9 +1117,9 @@ impl TableDelegate for ReposDelegate {
                 };
                 let has_content = repo.github_pr_count > 0 || repo.github_issue_count > 0;
                 if has_content {
-                    tab_cell(("open-gh", row_ix as u64), &folder, tab, &self.store, github_cell(&repo))
+                    tab_cell(("open-gh", row_ix as u64), &folder, tab, &self.store, github_cell(repo))
                 } else {
-                    github_cell(&repo)
+                    github_cell(repo)
                 }
             }
             ColKind::Azure => tab_cell(
@@ -1081,7 +1127,7 @@ impl TableDelegate for ReposDelegate {
                 &folder,
                 BottomBarTab::Azure,
                 &self.store,
-                azure_cell(&repo, &self.store, cx),
+                azure_cell(repo, &self.store, cx),
             ),
             ColKind::Activity => div()
                 .flex()

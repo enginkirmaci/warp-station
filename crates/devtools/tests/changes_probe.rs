@@ -47,7 +47,7 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
             github_issue_count: 0,
         }]);
         store.select_repo(Some(here.to_string_lossy().to_string()), cx);
-        store.changes = snapshot;
+        store.set_changes(snapshot);
         store.changes_loaded_for = Some(here.to_string_lossy().to_string());
         store.branches = branches;
         store.recent_commits = recent;
@@ -98,14 +98,14 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
             github_issue_count: 0,
         }]);
         store.select_repo(Some(here.to_string_lossy().to_string()), cx);
-        store.changes = devtools_core::git::read::change_snapshot(&here);
+        store.set_changes(devtools_core::git::read::change_snapshot(&here));
         store.changes_loaded_for = Some(here.to_string_lossy().to_string());
-        store.history = devtools_core::git::read::history_commits(&here, 30).unwrap_or_default();
+        store.set_history(devtools_core::git::read::history_commits(&here, 30).unwrap_or_default());
         store.unpushed = devtools_core::git::read::unpushed_hashes(&here);
         store
     });
     assert!(
-        cx.read_entity(&store, |s, _| s.history.len()) > 5,
+        cx.read_entity(&store, |s, _| s.history().len()) > 5,
         "probe repo should have history"
     );
 
@@ -122,7 +122,7 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
 
     // drill into the newest commit (details pre-seeded the way the net would)
     let head_hash = cx.read_entity(&store, |s, _| {
-        s.history.first().map(|c| c.hash.clone()).unwrap_or_default()
+        s.history().first().map(|c| c.hash.clone()).unwrap_or_default()
     });
     let details = devtools_core::git::read::commit_details(&here, &head_hash);
     view_handle.update(cx, |view, cx| view.drill_commit(&head_hash, cx));

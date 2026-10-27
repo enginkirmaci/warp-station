@@ -4,7 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{GitAction, NetCommand, UiEvent, WarpWorkspaceStatus, WandKind};
+use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WarpWorkspaceStatus, WandKind};
 use devtools_core::repo_store::{self, RepoEntry};
 use devtools_core::settings::{AppSettings, RepoSortMode, ReposSettings, SettingsService};
 use gpui::{App, Context};
@@ -22,6 +22,9 @@ pub struct Store {
     pub sort_ascending: bool,
     /// Row order for the table: indices into `repos` after filter+sort.
     pub projected: Vec<usize>,
+    /// Bumped on every reproject; views use it to skip rescans when an
+    /// unrelated field notified.
+    projection_generation: u64,
     /// Folder path of the repo the bottom bar is attached to.
     pub selected_repo: Option<String>,
     pub scanning: bool,
@@ -34,7 +37,10 @@ pub struct Store {
 
     // ---- bottom bar (the selected repo's workspace) ----
     pub selected_tab: BottomBarTab,
-    pub changes: Option<devtools_core::model::GitChangeSnapshot>,
+    changes: Option<devtools_core::model::GitChangeSnapshot>,
+    /// Bumped on every `changes` replacement; views cache derived lists
+    /// against it instead of re-cloning the snapshot each frame.
+    changes_generation: u64,
     pub changes_loaded_for: Option<String>,
     pub branches: Vec<devtools_core::model::GitBranchRef>,
     pub recent_commits: Vec<devtools_core::model::GitCommitInfo>,
@@ -43,11 +49,13 @@ pub struct Store {
     pub last_git_error: Option<String>,
     /// One freshly loaded change-row patch, drained by the Changes view.
     pub change_patch_result: Option<(String, bool, String)>,
-    pub history: Vec<devtools_core::model::GitCommitInfo>,
+    history: Vec<devtools_core::model::GitCommitInfo>,
+    history_generation: u64,
     /// GitHub activity per folder — feeds the PR/Issues tabs; the entry
-    /// counts on the repos table come from these snapshots.
-    pub github_by_folder: std::collections::HashMap<String, devtools_core::github::GitHubSnapshot>,
-    pub azure_by_folder: std::collections::HashMap<String, devtools_core::azure::AzureSnapshot>,
+    /// counts on the repos table come from these snapshots. Arc-shared so a
+    /// view render clones a pointer, not the whole snapshot.
+    pub github_by_folder: std::collections::HashMap<String, Arc<devtools_core::github::GitHubSnapshot>>,
+    pub azure_by_folder: std::collections::HashMap<String, Arc<devtools_core::azure::AzureSnapshot>>,
     pub github_details: Option<devtools_core::github::GitHubRepoDetails>,
 
     // ---- wand (warp-agent) state ----
@@ -62,6 +70,9 @@ pub struct Store {
     pub readme_draft: Option<String>,
     /// The model catalog (settings pickers + wands), cache-backed.
     pub models: Vec<String>,
+    /// The freshest settled prompt template (id, body, customized-vs-default)
+    /// from the net thread; the Settings page's editor drains it reactively.
+    pub template_loaded: Option<(String, String, bool)>,
     pub summary_busy: bool,
     /// A running warp-agent answered the door (status chip + row hints).
     pub warp_connected: bool,
@@ -96,7 +107,19 @@ pub struct Store {
     /// Bottom-panel height in logical px, shared by every tab (drag the top edge).
     pub bar_height: f32,
     /// Latest NuGet watch service snapshot (watching, count, activity log).
-    pub nuget: devtools_core::nuget::NugetSnapshot,
+    pub nuget: Arc<devtools_core::nuget::NugetSnapshot>,
+    /// Distinct tags across the list (filter chip row), recomputed on
+    /// reproject so the toolbar does not rescan every render.
+    tags_cache: Vec<String>,
+    /// Widest branch name in the projection, in characters — the table's
+    /// branch column width; recomputed on reproject.
+    pub widest_branch_chars: usize,
+    /// Debounce sequence for the global search; a keystroke invalidates any
+    /// in-flight background search.
+    search_generation: u32,
+    /// True while the debounced global search is running (the popup shows a
+    /// hint instead of a stale "No matches.").
+    pub global_search_pending: bool,
 }
 
 impl Store {
@@ -123,6 +146,7 @@ impl Store {
                 .sort_ascending
                 .unwrap_or_else(|| app_settings.repos.sort_mode.default_ascending()),
             projected: Vec::new(),
+            projection_generation: 0,
             selected_repo: None,
             bar_height: 440.0,
             scanning: false,
@@ -131,6 +155,7 @@ impl Store {
             folder_pick_result: None,
             selected_tab: BottomBarTab::Overview,
             changes: None,
+            changes_generation: 0,
             changes_loaded_for: None,
             branches: Vec::new(),
             recent_commits: Vec::new(),
@@ -139,6 +164,7 @@ impl Store {
             last_git_error: None,
             change_patch_result: None,
             history: Vec::new(),
+            history_generation: 0,
             github_by_folder: std::collections::HashMap::new(),
             azure_by_folder: std::collections::HashMap::new(),
             github_details: None,
@@ -148,6 +174,7 @@ impl Store {
             commit_message_draft: None,
             readme_draft: None,
             models: Vec::new(),
+            template_loaded: None,
             summary_busy: false,
             warp_connected: false,
             warp_running: std::collections::HashMap::new(),
@@ -162,7 +189,11 @@ impl Store {
             commit_file_patch: None,
             next_auto_fetch: None,
             save_generation: 0,
-            nuget: Default::default(),
+            nuget: Arc::new(Default::default()),
+            tags_cache: Vec::new(),
+            widest_branch_chars: 6,
+            search_generation: 0,
+            global_search_pending: false,
         };
         store.reproject();
         store.refresh_auto_fetch_schedule();
@@ -206,6 +237,44 @@ impl Store {
 
     pub fn settings(&self) -> AppSettings {
         self.settings.get()
+    }
+
+    pub fn settings_version(&self) -> u64 {
+        self.settings.version()
+    }
+
+    // ---- derived-cache change tokens + guarded snapshots ----
+
+    pub fn projection_generation(&self) -> u64 {
+        self.projection_generation
+    }
+
+    pub fn changes(&self) -> Option<&devtools_core::model::GitChangeSnapshot> {
+        self.changes.as_ref()
+    }
+
+    pub fn changes_generation(&self) -> u64 {
+        self.changes_generation
+    }
+
+    /// Replaces the change snapshot, bumping the generation views cache
+    /// against (the direct field is private for that reason).
+    pub fn set_changes(&mut self, snapshot: Option<devtools_core::model::GitChangeSnapshot>) {
+        self.changes = snapshot;
+        self.changes_generation += 1;
+    }
+
+    pub fn history(&self) -> &[devtools_core::model::GitCommitInfo] {
+        &self.history
+    }
+
+    pub fn history_generation(&self) -> u64 {
+        self.history_generation
+    }
+
+    pub fn set_history(&mut self, commits: Vec<devtools_core::model::GitCommitInfo>) {
+        self.history = commits;
+        self.history_generation += 1;
     }
 
     pub fn update_settings(&self, mutate: impl FnOnce(&mut AppSettings)) {
@@ -302,7 +371,7 @@ impl Store {
             }
             UiEvent::ChangesLoaded { folder, snapshot, branches, recent, unpushed } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
-                    self.changes = snapshot;
+                    self.set_changes(snapshot);
                     self.changes_loaded_for = Some(folder);
                     self.branches = branches;
                     if !recent.is_empty() {
@@ -320,14 +389,14 @@ impl Store {
             }
             UiEvent::HistoryLoaded { folder, commits, unpushed } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
-                    self.history = commits;
+                    self.set_history(commits);
                     self.unpushed = unpushed;
                 }
                 cx.notify();
             }
             UiEvent::AzureSettled { items } => {
                 for (folder, snapshot) in items {
-                    self.azure_by_folder.insert(folder, snapshot);
+                    self.azure_by_folder.insert(folder, Arc::new(snapshot));
                 }
                 self.reproject();
                 cx.notify();
@@ -342,7 +411,7 @@ impl Store {
                         entry.github_pr_count = snapshot.pulls.len() as u32;
                         entry.github_issue_count = snapshot.issues.len() as u32;
                     }
-                    self.github_by_folder.insert(folder, snapshot);
+                    self.github_by_folder.insert(folder, Arc::new(snapshot));
                 }
                 self.reproject();
                 cx.notify();
@@ -357,8 +426,12 @@ impl Store {
                 self.models = models;
                 cx.notify();
             }
+            UiEvent::TemplateLoaded { id, content, customized } => {
+                self.template_loaded = Some((id, content, customized));
+                cx.notify();
+            }
             UiEvent::Nuget(snapshot) => {
-                self.nuget = snapshot;
+                self.nuget = Arc::new(snapshot);
                 cx.notify();
             }
             UiEvent::ClipboardHotkey { message } => {
@@ -617,6 +690,12 @@ impl Store {
             self.models = devtools_core::opencode::cached_models(&settings.opencode.default_model);
             cx.notify();
         }
+    }
+
+    /// One prompt-template op from the Settings card; the settled state
+    /// returns as [UiEvent::TemplateLoaded].
+    pub fn template_io(&mut self, id: &str, op: TemplateOp) {
+        let _ = self.net.send_blocking(NetCommand::TemplateIo { id: id.to_string(), op });
     }
 
     /// Every one-shot wand (commit message, README, summary) runs on the
@@ -989,11 +1068,11 @@ impl Store {
     }
 
     fn reset_repo_workspace(&mut self) {
-        self.changes = None;
+        self.set_changes(None);
         self.changes_loaded_for = None;
         self.branches.clear();
         self.recent_commits.clear();
-        self.history.clear();
+        self.set_history(Vec::new());
         self.unpushed = None;
         self.last_git_error = None;
         self.commit_details = None;
@@ -1025,12 +1104,25 @@ impl Store {
 
     fn reproject(&mut self) {
         self.projected = projection::project(&self.repos, &self.tag_filters, self.sort_mode, self.sort_ascending);
+        self.projection_generation += 1;
+        // the table's branch column hugs the widest branch in the projection;
+        // computing it here keeps the per-frame layout path O(1)
+        self.widest_branch_chars = self
+            .projected
+            .iter()
+            .filter_map(|&ix| self.repos.get(ix))
+            .filter_map(|repo| repo.git_branch_name.as_deref())
+            .filter(|branch| !branch.is_empty())
+            .map(|branch| branch.chars().count())
+            .max()
+            .unwrap_or(6);
+        self.tags_cache = projection::all_tags(&self.repos);
     }
 
     /// Every distinct tag across the list, favorites and platform leading —
-    /// the filter chip row.
+    /// the filter chip row. Cached from the last reproject.
     pub fn all_tags(&self) -> Vec<String> {
-        projection::all_tags(&self.repos)
+        self.tags_cache.clone()
     }
 
     // ---- tag mutations (write-behind) ---------------------------------------
@@ -1077,8 +1169,7 @@ impl Store {
         let _ = self.net.send_blocking(NetCommand::LoadChanges { folder: path.clone() });
         if !self.history.is_empty() {
             let _ = self.net.send_blocking(NetCommand::LoadHistory { folder: path });
-        }
-        cx.notify();
+        }        cx.notify();
     }
 
     /// The bar kebab's "Remove from repositories": drops the repo's folder
@@ -1149,52 +1240,85 @@ pub enum GlobalSearchHit {
 impl Store {
     /// One global search: repo name/path matches plus capped note-content
     /// hits across every tracked repo's notes root (6 repos, 12 notes,
-    /// 40 files scanned per repo).
+    /// 40 files scanned per repo). The note walk reads files, so the work is
+    /// debounced and runs off the UI thread; a newer keystroke wins.
     pub fn run_global_search(&mut self, term: &str, cx: &mut Context<Self>) {
-        let term = term.trim();
+        self.search_generation += 1;
+        let generation = self.search_generation;
+        let term = term.trim().to_string();
         if term.is_empty() {
             self.global_search.clear();
+            self.global_search_pending = false;
             cx.notify();
             return;
         }
-        const REPO_CAP: usize = 6;
-        const NOTE_CAP: usize = 12;
-        let mut hits: Vec<GlobalSearchHit> = self
+        let repos: Vec<(String, String)> = self
             .repos
             .iter()
-            .filter(|repo| {
-                repo.name.to_lowercase().contains(&term.to_lowercase())
-                    || repo.folder_path.to_string_lossy().to_lowercase().contains(&term.to_lowercase())
-            })
-            .take(REPO_CAP)
-            .map(|repo| GlobalSearchHit::Repo {
-                name: repo.name.clone(),
-                folder: repo.folder_path.to_string_lossy().to_string(),
-            })
+            .map(|repo| (repo.name.clone(), repo.folder_path.to_string_lossy().to_string()))
             .collect();
+        let notes_root =
+            devtools_core::notes::resolve_store_root(&self.settings().general.notes_store_path);
+        self.global_search_pending = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(180))
+                .await;
+            let term_for_search = term.clone();
+            let hits = cx
+                .background_executor()
+                .spawn(async move { global_search_hits(&repos, &notes_root, &term_for_search) })
+                .await;
+            let _ = this.update(cx, |store: &mut Store, cx| {
+                if store.search_generation != generation {
+                    return;
+                }
+                store.global_search = hits;
+                store.global_search_pending = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
 
-        // note content: the settings' store root, per-repo subfolders
-        let settings = self.settings();
-        let root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
-        for repo in &self.repos {
+fn global_search_hits(
+    repos: &[(String, String)],
+    notes_root: &std::path::Path,
+    term: &str,
+) -> Vec<GlobalSearchHit> {
+    const REPO_CAP: usize = 6;
+    const NOTE_CAP: usize = 12;
+    let needle = term.to_lowercase();
+    let mut hits: Vec<GlobalSearchHit> = repos
+        .iter()
+        .filter(|(name, folder)| name.to_lowercase().contains(&needle) || folder.to_lowercase().contains(&needle))
+        .take(REPO_CAP)
+        .map(|(name, folder)| GlobalSearchHit::Repo {
+            name: name.clone(),
+            folder: folder.clone(),
+        })
+        .collect();
+
+    // note content: the settings' store root, per-repo subfolders
+    for (name, _) in repos {
+        if hits.len() >= REPO_CAP + NOTE_CAP {
+            break;
+        }
+        let notes_root = devtools_core::notes::repo_notes_root(notes_root, name);
+        for hit in devtools_core::notes::search_capped(&notes_root, term, 40) {
+            hits.push(GlobalSearchHit::Note {
+                title: hit.title,
+                excerpt: hit.excerpt,
+                path: hit.path,
+            });
             if hits.len() >= REPO_CAP + NOTE_CAP {
                 break;
             }
-            let notes_root = devtools_core::notes::repo_notes_root(&root, &repo.name);
-            for hit in devtools_core::notes::search_capped(&notes_root, term, 40) {
-                hits.push(GlobalSearchHit::Note {
-                    title: hit.title,
-                    excerpt: hit.excerpt,
-                    path: hit.path,
-                });
-                if hits.len() >= REPO_CAP + NOTE_CAP {
-                    break;
-                }
-            }
         }
-        self.global_search = hits;
-        cx.notify();
     }
+    hits
 }
 
 /// Capitalizes a git action label for toast texts ("stage all" → "Stage all").
