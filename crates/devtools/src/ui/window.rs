@@ -531,13 +531,19 @@ impl MainWindow {
         }
         // the field is centered at 420px; the popup hangs from the same x
         let left = ((window.viewport_size().width.as_f32() - 420.) / 2.).max(0.);
-        let (hits, pending) = {
+        let (hits, pending, code_hits, code_searching) = {
             let store = self.store.read(cx);
-            (store.global_search.clone(), store.global_search_pending)
+            (
+                store.global_search.clone(),
+                store.global_search_pending,
+                store.code_search_hits.clone(),
+                store.code_searching,
+            )
         };
-        if hits.is_empty() {
+        if hits.is_empty() && code_hits.is_empty() {
             // the popup shows a footer while focused; a hint beats a stale
-            // "No matches." during the debounced background search
+            // "No matches." during the debounced background search — either
+            // half of it (repo/note or the ripgrep sweep)
             return Some(
                 div()
                     .id("search-popup")
@@ -555,12 +561,20 @@ impl MainWindow {
                     .p_2()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_FAINT)
-                    .child(if pending { "Searching…" } else { "No matches." })
+                    .child(if pending || code_searching { "Searching…" } else { "No matches." })
                     .into_any_element(),
             );
         }
+        // one flat row budget shared by every kind: repo/note rows first,
+        // the ripgrep hits fill what is left
+        const POPUP_ROWS: usize = 12;
         let mut rows = div().flex().flex_col().gap_0p5();
-        for (index, hit) in hits.iter().take(12).enumerate() {
+        let mut shown = 0;
+        for (index, hit) in hits.iter().enumerate() {
+            if shown >= POPUP_ROWS {
+                break;
+            }
+            shown += 1;
             let (title, detail, kind_color) = match hit {
                 crate::store::GlobalSearchHit::Repo { name, folder } => {
                     (name.clone(), folder.clone(), theme::ACCENT)
@@ -570,9 +584,11 @@ impl MainWindow {
                 }
             };
             let hit_for_click = hit.clone();
+            let index_for_probe = index;
             rows = rows.child(
                 div()
                     .id(("search-hit", index as u64))
+                    .debug_selector(move || format!("search-hit-{index_for_probe}"))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -608,24 +624,134 @@ impl MainWindow {
                     ),
             );
         }
-        Some(
-            div()
-                .id("search-popup")
-                .debug_selector(|| "search-popup".into())
-                .absolute()
-                .top(px(40.))
-                .left(px(left))
-                .w(px(420.))
-                .occlude()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::HAIRLINE)
-                .bg(theme::POPUP)
-                .shadow_lg()
-                .p_1()
-                .child(rows)
-                .into_any_element(),
-        )
+        for (index, hit) in code_hits.iter().enumerate() {
+            if shown >= POPUP_ROWS {
+                break;
+            }
+            shown += 1;
+            let hit_for_click = hit.clone();
+            let file_name = hit
+                .abs_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| hit.rel_path.clone());
+            let dir = std::path::Path::new(&hit.rel_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // the excerpt splits around the match so the hit itself rides the
+            // accent; the offsets are byte offsets into the excerpt
+            let safe_end = hit.match_end.min(hit.excerpt.len());
+            let safe_start = hit.match_start.min(safe_end);
+            let (before, matched, after) = (
+                hit.excerpt[..safe_start].to_string(),
+                hit.excerpt[safe_start..safe_end].to_string(),
+                hit.excerpt[safe_end..].to_string(),
+            );
+            rows = rows.child(
+                div()
+                    .id(("search-code-hit", index as u64))
+                    .debug_selector(move || format!("search-code-hit-{index}"))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .overflow_hidden()
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate_code_hit(hit_for_click.clone(), window, cx);
+                    }))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(theme::font_small() - 1.))
+                            .text_color(theme::PURPLE_BRIGHT)
+                            .child("code"),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_1()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .child(
+                                        div()
+                                            .text_size(px(theme::font_small()))
+                                            .text_color(theme::TEXT_DIM)
+                                            .child(file_name),
+                                    )
+                                    .when(!dir.is_empty(), |title| {
+                                        title.child(
+                                            div()
+                                                .text_size(px(theme::font_small() - 2.))
+                                                .text_color(theme::TEXT_FAINT)
+                                                .child(dir),
+                                        )
+                                    }),
+                            )
+                            // inline styling = one row of separately styled
+                            // text segments; nowrap keeps the three pieces on
+                            // the excerpt's single line
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_size(px(theme::font_small() - 2.))
+                                    .child(div().text_color(theme::TEXT_FAINT).child(before))
+                                    .child(div().text_color(theme::ACCENT).child(matched))
+                                    .child(div().text_color(theme::TEXT_FAINT).child(after)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .ml_auto()
+                            .text_size(px(theme::font_small() - 2.))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(format!(":{}", hit.line)),
+                    ),
+            );
+        }
+        let mut popup = div()
+            .id("search-popup")
+            .debug_selector(|| "search-popup".into())
+            .absolute()
+            .top(px(40.))
+            .left(px(left))
+            .w(px(420.))
+            .occlude()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::POPUP)
+            .shadow_lg()
+            .p_1()
+            .child(rows);
+        if code_searching {
+            // the sweep trails the repo/note half; one quiet line, no spinner
+            popup = popup.child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .text_size(px(theme::font_small() - 2.))
+                    .text_color(theme::TEXT_FAINT)
+                    .child("searching code…"),
+            );
+        }
+        Some(popup.into_any_element())
     }
 
     fn activate_search_hit(
@@ -651,6 +777,31 @@ impl MainWindow {
                 });
                 self.open_notes_window(window, cx);
             }
+        }
+        self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
+        self.store.update(cx, |s, cx| s.run_global_search("", cx));
+        cx.notify();
+    }
+
+    /// A code hit opens the file at its line in VS Code (the configured
+    /// profile; fallback: the system default editor), then the popup clears
+    /// like every other activation. The launch is fire-and-forget — spawn
+    /// only, so a slow editor never holds the click.
+    fn activate_code_hit(
+        &mut self,
+        hit: devtools_core::code_search::CodeHit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let settings = self.store.read(cx).settings();
+        let plan = devtools_core::terminal::plan_code_open(
+            &hit.abs_path.to_string_lossy(),
+            hit.line,
+            &settings.repos.vscode_executable,
+            &settings.repos.vscode_profile,
+        );
+        if let Err(err) = devtools_core::terminal::open_code_plan(&plan) {
+            self.store.update(cx, |s, _| s.notify_error(format!("open failed: {err}")));
         }
         self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
         self.store.update(cx, |s, cx| s.run_global_search("", cx));

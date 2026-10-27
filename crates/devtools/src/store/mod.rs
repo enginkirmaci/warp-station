@@ -133,6 +133,14 @@ pub struct Store {
     /// True while the debounced global search is running (the popup shows a
     /// hint instead of a stale "No matches.").
     pub global_search_pending: bool,
+    /// Cross-repo ripgrep hits for the current search term (rendered after
+    /// the repo/note rows); empty when the term is short or the feature is off.
+    pub code_search_hits: Vec<devtools_core::code_search::CodeHit>,
+    /// Debounce sequence for the code-search sweep; a settled result applies
+    /// only while its generation is still the latest.
+    code_search_generation: u64,
+    /// True while a ripgrep sweep is in flight (the popup's searching hint).
+    pub code_searching: bool,
 }
 
 impl Store {
@@ -212,6 +220,9 @@ impl Store {
             widest_branch_chars: 6,
             search_generation: 0,
             global_search_pending: false,
+            code_search_hits: Vec::new(),
+            code_search_generation: 0,
+            code_searching: false,
         };
         store.reproject();
         store.refresh_auto_fetch_schedule();
@@ -456,6 +467,14 @@ impl Store {
             UiEvent::TemplateLoaded { id, content, customized } => {
                 self.template_loaded = Some((id, content, customized));
                 cx.notify();
+            }
+            UiEvent::CodeSearchSettled { generation, hits } => {
+                // a newer keystroke's sweep wins; stale results drop silently
+                if generation == self.code_search_generation {
+                    self.code_search_hits = hits;
+                    self.code_searching = false;
+                    cx.notify();
+                }
             }
             UiEvent::Nuget(snapshot) => {
                 self.nuget = Arc::new(snapshot);
@@ -1411,6 +1430,8 @@ impl Store {
         if term.is_empty() {
             self.global_search.clear();
             self.global_search_pending = false;
+            self.code_search_hits.clear();
+            self.code_searching = false;
             cx.notify();
             return;
         }
@@ -1441,10 +1462,62 @@ impl Store {
                 }
                 store.global_search = hits;
                 store.global_search_pending = false;
+                // the code sweep rides the same debounce: it dispatches once
+                // the repo/note half settled, for this exact term
+                store.dispatch_code_search(&term);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The code-search half of the global search: one ripgrep sweep over
+    /// every non-archived repo folder, run on the net thread. Terms under
+    /// three characters and the disabled setting skip it (a short term
+    /// matches too much code to be useful); a missing rg binary warns once
+    /// per settled term, like the gh pass. Each dispatch bumps the
+    /// generation its [UiEvent::CodeSearchSettled] must answer with. The
+    /// caller's `cx.notify()` covers the state changes made here.
+    fn dispatch_code_search(&mut self, term: &str) {
+        self.code_search_hits.clear();
+        let settings = self.settings();
+        if term.chars().count() < 3 || settings.repos.enable_code_search == Some(false) {
+            self.code_searching = false;
+            return;
+        }
+        let rg_setting = settings
+            .repos
+            .code_search_executable
+            .clone()
+            .unwrap_or_else(|| "rg".into());
+        let Some(rg_exe) = devtools_core::exe::locate(&rg_setting) else {
+            self.code_searching = false;
+            tracing::warn!(
+                "code search enabled but ripgrep could not be located ({rg_setting})"
+            );
+            return;
+        };
+        // captured now: the net thread holds no repo state, and archived
+        // repos stay out of the sweep (same capture-time filter as the hits)
+        let folders: Vec<std::path::PathBuf> = self
+            .repos
+            .iter()
+            .filter(|repo| !repo.is_archived())
+            .map(|repo| repo.folder_path.clone())
+            .collect();
+        if folders.is_empty() {
+            self.code_searching = false;
+            return;
+        }
+        self.code_search_generation += 1;
+        let generation = self.code_search_generation;
+        self.code_searching = true;
+        let _ = self.net.send_blocking(NetCommand::CodeSearch {
+            generation,
+            term: term.to_string(),
+            folders,
+            rg_exe,
+        });
     }
 }
 

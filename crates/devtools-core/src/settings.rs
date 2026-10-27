@@ -91,6 +91,11 @@ pub struct ReposSettings {
     /// Collapsed group keys (scan-root paths, or "other"); None = all
     /// expanded. Absence-meaningful like sort_ascending.
     pub collapsed_groups: Option<Vec<String>>,
+    /// Cross-repo ripgrep search in the titlebar popup; None = enabled —
+    /// the absence-tolerant opt-out, like auto_fetch_minutes.
+    pub enable_code_search: Option<bool>,
+    /// The ripgrep binary the code search runs through; None = "rg".
+    pub code_search_executable: Option<String>,
     pub max_scan_depth: i32,
     pub branch_name_prefix: String,
 }
@@ -123,6 +128,8 @@ impl Default for ReposSettings {
             auto_fetch_minutes: None,
             group_repos_by_root: None,
             collapsed_groups: None,
+            enable_code_search: None,
+            code_search_executable: None,
             max_scan_depth: 3,
             branch_name_prefix: "users/enginkirmaci".into(),
         }
@@ -433,6 +440,32 @@ mod tests {
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.group_repos_by_root, Some(true));
         assert_eq!(back.repos.collapsed_groups, on.repos.collapsed_groups);
+    }
+
+    #[test]
+    fn code_search_keys_round_trip_and_absent_means_enabled() {
+        // absence (legacy files) = the feature is on, through the default rg
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.repos.enable_code_search, None);
+        assert_ne!(legacy.repos.enable_code_search, Some(false));
+        assert_eq!(legacy.repos.code_search_executable.as_deref(), None);
+        assert_eq!(
+            legacy.repos.code_search_executable.clone().unwrap_or_else(|| "rg".into()),
+            "rg"
+        );
+        // an explicit opt-out and a custom binary persist and read back
+        let off: AppSettings = serde_json::from_str(
+            r#"{"Repos": {"EnableCodeSearch": false, "CodeSearchExecutable": "rgz"}}"#,
+        )
+        .unwrap();
+        assert_eq!(off.repos.enable_code_search, Some(false));
+        assert_eq!(off.repos.code_search_executable.as_deref(), Some("rgz"));
+        let json = serde_json::to_string_pretty(&off).unwrap();
+        assert!(json.contains("\"EnableCodeSearch\": false"));
+        assert!(json.contains("\"CodeSearchExecutable\": \"rgz\""));
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.repos.enable_code_search, Some(false));
+        assert_eq!(back.repos.code_search_executable.as_deref(), Some("rgz"));
     }
 
     #[test]

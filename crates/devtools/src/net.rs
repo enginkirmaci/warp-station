@@ -74,6 +74,9 @@ pub enum NetCommand {
     /// One prompt-template op from the Settings card; the settled state
     /// returns as [UiEvent::TemplateLoaded] for every op.
     TemplateIo { id: String, op: TemplateOp },
+    /// One cross-repo ripgrep sweep for the titlebar search popup; the hits
+    /// return as [UiEvent::CodeSearchSettled] with the dispatching generation.
+    CodeSearch { generation: u64, term: String, folders: Vec<PathBuf>, rg_exe: PathBuf },
 }
 
 /// A prompt-template management op (Settings → OpenCode card).
@@ -248,6 +251,9 @@ pub enum UiEvent {
     /// A prompt template's settled state after any TemplateIo op: the raw
     /// body plus whether it differs from the built-in default.
     TemplateLoaded { id: String, content: String, customized: bool },
+    /// The cross-repo code search settled; the store applies it only when the
+    /// generation is still the latest (a newer keystroke wins).
+    CodeSearchSettled { generation: u64, hits: Vec<devtools_core::code_search::CodeHit> },
 }
 
 pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
@@ -580,6 +586,21 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let customized = devtools_core::opencode::is_customized(&id);
                     let _ = evt_tx.send_blocking(UiEvent::TemplateLoaded { id, content, customized });
                 }
+            }
+            NetCommand::CodeSearch { generation, term, folders, rg_exe } => {
+                // spawned, not awaited: an 8s ripgrep sweep must not stall the
+                // net loop behind it
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let hits = devtools_core::code_search::run_code_search(
+                        &rg_exe,
+                        &folders,
+                        &term,
+                        devtools_core::code_search::CODE_SEARCH_CAP,
+                    )
+                    .await;
+                    let _ = evt_tx.send_blocking(UiEvent::CodeSearchSettled { generation, hits });
+                });
             }
             NetCommand::Wand { id, kind, folder, model, warp_exe } => {
                 let evt_tx = evt_tx.clone();

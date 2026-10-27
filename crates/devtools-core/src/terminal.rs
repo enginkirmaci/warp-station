@@ -4,7 +4,7 @@
 //! working-directory and -e argument shapes.
 
 use crate::exe;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Suppresses the console window a console-subsystem helper would flash when
 /// spawned by the GUI-subsystem exe (cmd /C start, .cmd/.bat shims). Never
@@ -122,6 +122,61 @@ pub fn open_in_vscode(folder: &str, vscode_executable: &str, profile: &str) -> R
         .spawn()
         .map(|_| ())
         .map_err(|err| format!("{}: {err}", path.display()))
+}
+
+/// The launch plan for one code-search hit: VS Code at the file+line when the
+/// configured executable resolves, else the system default editor. Pure, so
+/// probes can assert the decision without spawning anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CodeOpenPlan {
+    VsCode { executable: PathBuf, profile: String, file: String, line: u32 },
+    SystemDefault { file: String },
+}
+
+/// Decides how a code-search hit opens without launching anything: an empty
+/// configured name falls back to `code`, and an unresolvable one to the
+/// system default.
+pub fn plan_code_open(file: &str, line: u32, vscode_executable: &str, profile: &str) -> CodeOpenPlan {
+    let configured = if vscode_executable.trim().is_empty() { "code" } else { vscode_executable };
+    match exe::locate(configured) {
+        Some(executable) => CodeOpenPlan::VsCode {
+            executable,
+            profile: profile.trim().to_string(),
+            file: file.to_string(),
+            line,
+        },
+        None => CodeOpenPlan::SystemDefault { file: file.to_string() },
+    }
+}
+
+/// Executes a [CodeOpenPlan]: the VS Code launch carries `--profile` (only
+/// when set) and `--goto file:line`; the fallback opens the file with the
+/// desktop's default handler.
+pub fn open_code_plan(plan: &CodeOpenPlan) -> Result<(), String> {
+    match plan {
+        CodeOpenPlan::VsCode { executable, profile, file, line } => {
+            let mut command = std::process::Command::new(executable);
+            if !profile.is_empty() {
+                command.args(["--profile", profile]);
+            }
+            command.args(["--goto", &format!("{file}:{line}")]);
+            let lower = executable.to_string_lossy().to_lowercase();
+            if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+                hide_console(&mut command);
+            }
+            command
+                .spawn()
+                .map(|_| ())
+                .map_err(|err| format!("{}: {err}", executable.display()))
+        }
+        CodeOpenPlan::SystemDefault { file } => open_folder(file),
+    }
+}
+
+/// Opens a file at its 1-based line in VS Code (the configured profile), or
+/// with the system default editor when the executable does not resolve.
+pub fn open_in_vscode_at(file: &str, line: u32, vscode_executable: &str, profile: &str) -> Result<(), String> {
+    open_code_plan(&plan_code_open(file, line, vscode_executable, profile))
 }
 
 /// The configured terminal's base name, for shape lookup: split on either

@@ -279,3 +279,89 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
 
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// The External tools card's cross-repo code search pair: the switch renders
+/// (absent settings = enabled, the absence-tolerant opt-out), the ripgrep
+/// field seeds with the default, and Save persists the opt-out flag plus the
+/// typed executable name into the scratch file.
+#[gpui_kit::gpui::test]
+fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("devtools-code-search-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; set before the store reads settings;
+    // serialized against the sibling HOME probes by HOME_ENV_LOCK
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let scratch = home.join(".devtools").join("settings.json");
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
+        SettingsPage::new(store, window, cx)
+    });
+    let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        wcx.debug_bounds("settings-row-Cross-repo code search").is_some(),
+        "the code search switch row renders in the External tools card"
+    );
+    assert!(
+        wcx.debug_bounds("settings-field-ripgrep executable").is_some(),
+        "the ripgrep executable field row renders"
+    );
+
+    // the Switch leads the row: a click near its start edge flips it off
+    let row = wcx
+        .debug_bounds("settings-row-Cross-repo code search")
+        .expect("code search switch row bounds");
+    wcx.simulate_click(
+        gpui::point(row.origin.x + gpui::px(20.), row.center().y),
+        gpui::Modifiers::default(),
+    );
+    wcx.run_until_parked();
+
+    // the field seeds "rg"; select-all + type replaces it with a custom name
+    let field = wcx
+        .debug_bounds("settings-field-ripgrep executable")
+        .expect("ripgrep field bounds");
+    wcx.simulate_click(
+        gpui::point(field.center().x, field.origin.y + field.size.height - gpui::px(12.)),
+        gpui::Modifiers::default(),
+    );
+    wcx.run_until_parked();
+    wcx.simulate_keystrokes("ctrl-a");
+    wcx.simulate_input("rgz");
+    wcx.run_until_parked();
+
+    let save = wcx.debug_bounds("settings-save").expect("save button");
+    wcx.simulate_click(save.center(), gpui::Modifiers::default());
+    wcx.run_until_parked();
+
+    let json = std::fs::read_to_string(&scratch).expect("saved settings");
+    assert!(
+        json.contains("\"EnableCodeSearch\": false"),
+        "the opt-out persisted (got {json})"
+    );
+    assert!(
+        json.contains("\"CodeSearchExecutable\": \"rgz\""),
+        "the executable persisted (got {json})"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}

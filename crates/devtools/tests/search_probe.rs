@@ -5,6 +5,7 @@
 
 use devtools::store::{GlobalSearchHit, Store};
 use devtools::ui::window::MainWindow;
+use devtools_core::code_search::CodeHit;
 use devtools_core::repo_store::RepoEntry;
 use gpui::{prelude::*, TestAppContext};
 use std::path::PathBuf;
@@ -44,6 +45,18 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
 
 fn draw(cx: &mut gpui::VisualTestContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+fn code_hit(repo: &str, rel: &str, line: u32, excerpt: &str, start: usize, end: usize) -> CodeHit {
+    CodeHit {
+        repo: repo.into(),
+        rel_path: rel.into(),
+        line,
+        excerpt: excerpt.into(),
+        match_start: start,
+        match_end: end,
+        abs_path: PathBuf::from(format!("/probe/{repo}/{rel}")),
+    }
 }
 
 fn repo_hits(store: &gpui::Entity<Store>, cx: &gpui::TestAppContext) -> Vec<String> {
@@ -249,5 +262,119 @@ fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext
         "the window controls come after a separator ({:?} vs {:?})",
         settings,
         minimize
+    );
+}
+
+/// The popup's code section: ripgrep hits hand-set on the store render as
+/// "code" rows after the repo/note rows, under one shared 12-row budget.
+#[gpui::test]
+fn code_rows_render_below_repo_rows_under_the_shared_cap(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    draw(cx);
+
+    // a 3-character term (the code sweep's lower gate) that matches one repo;
+    // the debounced run also dispatches the ripgrep sweep when rg resolves
+    cx.simulate_input("alp");
+    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    draw(cx);
+    assert_eq!(repo_hits(&store, cx), ["alpha"]);
+
+    // hand-set the sweep's answer: 14 code hits so the shared cap bites
+    // (1 repo row + 11 code rows = 12), and settle the searching hint
+    let hits: Vec<CodeHit> = (0..14)
+        .map(|i| code_hit("alpha", &format!("src/file{i}.rs"), i + 1, "let needle = 1;", 4, 10))
+        .collect();
+    store.update(cx, |s, cx| {
+        s.code_search_hits = hits;
+        s.code_searching = false;
+        cx.notify();
+    });
+    draw(cx);
+
+    assert!(
+        cx.debug_bounds("search-hit-0").is_some(),
+        "the repo row still renders above the code rows"
+    );
+    for i in 0..11 {
+        // debug_bounds wants a 'static str; the loop is bounded so a leak is fine
+        let selector: &'static str = Box::leak(format!("search-code-hit-{i}").into_boxed_str());
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "code row {i} renders"
+        );
+    }
+    assert!(
+        cx.debug_bounds("search-code-hit-11").is_none(),
+        "the popup's 12-row budget caps the code section"
+    );
+}
+
+/// The generation guard: a settled sweep answers only its own dispatch. A
+/// stale generation (a newer keystroke superseded it) drops silently; the
+/// current one applies and settles the searching hint.
+#[gpui::test]
+fn stale_code_search_results_drop_and_current_apply(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let hits = vec![code_hit("alpha", "src/lib.rs", 7, "let needle = 1;", 4, 10)];
+
+    // the store's code generation starts at 0 and a sweep is in flight;
+    // anything other than 0 answering back is a superseded run
+    store.update(cx, |s, cx| {
+        s.code_searching = true;
+        cx.notify();
+    });
+    store.update(cx, |s, cx| {
+        s.on_net_event(devtools::net::UiEvent::CodeSearchSettled { generation: 9, hits: hits.clone() }, cx);
+    });
+    let (applied, searching) = cx.read_entity(&store, |s, _| (s.code_search_hits.is_empty(), s.code_searching));
+    assert!(applied, "a stale sweep must not land");
+    assert!(searching, "the in-flight hint survives a stale settle");
+
+    store.update(cx, |s, cx| {
+        s.on_net_event(devtools::net::UiEvent::CodeSearchSettled { generation: 0, hits: hits.clone() }, cx);
+    });
+    let (applied, searching) = cx.read_entity(&store, |s, _| (s.code_search_hits.len(), s.code_searching));
+    assert_eq!(applied, 1, "the current generation's sweep lands");
+    assert!(!searching, "applying the settle clears the searching hint");
+}
+
+/// The launch decision for an activated code hit is pure: a resolvable
+/// executable plans the VS Code `--goto` launch (profile included), an
+/// unresolvable one plans the system-default fallback. No spawn here.
+#[test]
+fn code_open_plan_picks_vscode_or_fallback() {
+    use devtools_core::terminal::{plan_code_open, CodeOpenPlan};
+
+    let missing = plan_code_open("/probe/alpha/src/lib.rs", 42, "devtools-definitely-missing-binary", "");
+    assert_eq!(
+        missing,
+        CodeOpenPlan::SystemDefault { file: "/probe/alpha/src/lib.rs".into() },
+        "an unresolvable executable falls back to the system default"
+    );
+
+    // an existing absolute path (this test binary) plans the VS Code launch
+    let exe = std::env::current_exe().expect("test binary path");
+    let plan = plan_code_open("/probe/alpha/src/lib.rs", 42, &exe.to_string_lossy(), "rust");
+    assert_eq!(
+        plan,
+        CodeOpenPlan::VsCode {
+            executable: exe,
+            profile: "rust".into(),
+            file: "/probe/alpha/src/lib.rs".into(),
+            line: 42,
+        },
+        "a resolvable executable plans the file:line launch with the profile"
     );
 }

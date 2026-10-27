@@ -44,6 +44,8 @@ pub struct SettingsPage {
     ide_executable: Entity<InputState>,
     opencode_executable: Entity<InputState>,
     zcode_executable: Entity<InputState>,
+    enable_code_search: bool,
+    code_search_executable: Entity<InputState>,
     enable_terminal: bool,
     enable_vscode: bool,
     enable_visual_studio: bool,
@@ -149,6 +151,12 @@ impl SettingsPage {
             ide_executable: field(window, cx, &repos.ide_executable),
             opencode_executable: field(window, cx, &repos.opencode_executable),
             zcode_executable: field(window, cx, &repos.zcode_executable),
+            enable_code_search: repos.enable_code_search.unwrap_or(true),
+            code_search_executable: field(
+                window,
+                cx,
+                &repos.code_search_executable.clone().unwrap_or_else(|| "rg".into()),
+            ),
             enable_terminal: repos.enable_terminal,
             enable_vscode: repos.enable_vscode,
             enable_visual_studio: repos.enable_visual_studio,
@@ -241,6 +249,8 @@ impl SettingsPage {
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let auto_fetch_minutes = self.auto_fetch_minutes;
         let group_by_root = self.group_by_root;
+        let code_search_enabled = self.enable_code_search;
+        let code_search_exe = Self::value(&self.code_search_executable, cx);
 
         let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
         let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
@@ -261,6 +271,10 @@ impl SettingsPage {
                 s.repos.branch_name_prefix = branch_prefix;
                 s.repos.auto_fetch_minutes = auto_fetch_minutes;
                 s.repos.group_repos_by_root = Some(group_by_root);
+                // enabled stays absent: absence IS the enabled state, so the
+                // only meaningful write is the opt-out
+                s.repos.enable_code_search = (!code_search_enabled).then_some(false);
+                s.repos.code_search_executable = (!code_search_exe.trim().is_empty()).then_some(code_search_exe);
                 s.repos.vscode_executable = vscode_exe;
                 s.repos.vscode_profile = vscode_profile;
                 s.repos.terminal_executable = terminal_exe;
@@ -515,6 +529,11 @@ impl Render for SettingsPage {
                                             field_row("OpenCode executable", &this.opencode_executable),
                                             field_row("ZCode executable", &this.zcode_executable),
                                         ))
+                                        .child(switch_row("Cross-repo code search", this.enable_code_search, cx.listener(|this, _, _, cx| {
+                                            this.enable_code_search = !this.enable_code_search;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("ripgrep executable", &this.code_search_executable))
                                         .when(cfg!(windows), |card| {
                                             card.child(two_col(
                                                 switch_row("Start SnapIt automatically (Windows)", this.snap_it_auto_start, cx.listener(|this, _, _, cx| {
@@ -1050,7 +1069,10 @@ fn icon_button(
 }
 
 fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement + use<> {
+    // a stable per-row selector so probes can reach the field through its row
+    let selector = format!("settings-field-{label_text}");
     div()
+        .debug_selector(move || selector.clone())
         .flex()
         .flex_col()
         .gap_1()
