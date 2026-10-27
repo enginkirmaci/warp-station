@@ -91,6 +91,7 @@ pub enum GitAction {
     Commit(String),
     Checkout(String),
     CreateBranch { name: String, start: Option<String>, checkout: bool },
+    DeleteBranch(String),
     Fetch,
     Pull,
     Push,
@@ -114,6 +115,7 @@ impl GitAction {
             GitAction::Commit(_) => "commit",
             GitAction::Checkout(_) => "checkout",
             GitAction::CreateBranch { .. } => "create branch",
+            GitAction::DeleteBranch(_) => "delete branch",
             GitAction::Fetch => "fetch",
             GitAction::Pull => "pull",
             GitAction::Push => "push",
@@ -127,6 +129,7 @@ impl GitAction {
     pub fn detail(&self) -> Option<String> {
         match self {
             GitAction::Checkout(target) | GitAction::Revert(target) => Some(target.clone()),
+            GitAction::DeleteBranch(name) => Some(name.clone()),
             GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => Some(name.clone()),
             _ => None,
         }
@@ -862,6 +865,10 @@ async fn run_git_action(folder: &Path, action: &GitAction) -> (bool, Option<Stri
         }
         GitAction::CreateBranch { name, start, checkout } => {
             let result = cli::create_branch(folder, name, start.as_deref(), *checkout).await;
+            (result.success, result.error, None)
+        }
+        GitAction::DeleteBranch(name) => {
+            let result = cli::delete_branch(folder, name).await;
             (result.success, result.error, None)
         }
         GitAction::Fetch => {

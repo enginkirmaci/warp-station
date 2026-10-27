@@ -126,6 +126,16 @@ pub async fn create_branch(
     }
 }
 
+/// `git branch -D`: reflog keeps the tip recoverable, so the two-click
+/// arm-confirm in the menu is the only guard it needs.
+pub async fn delete_branch(folder: &Path, branch: &str) -> GitSyncResult {
+    let args = vec!["branch".into(), "-D".into(), branch.into()];
+    match run_git(folder, &args, PROCESS_TIMEOUT, None).await {
+        Ok(r) => GitOutcome::from(&r).into_sync_result(),
+        Err(err) => GitSyncResult::err(Some(err.to_string())),
+    }
+}
+
 pub async fn clone(url: &str, parent_directory: &Path, repo_name: &str) -> GitSyncResult {
     // The working directory is the destination's PARENT — the one command that
     // runs outside any existing repo. A cancelled (killed) clone leaves a

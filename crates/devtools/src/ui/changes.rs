@@ -26,6 +26,8 @@ pub struct ChangesView {
     branch_filter: Entity<InputState>,
     new_branch_open: bool,
     new_branch_name: Entity<InputState>,
+    /// Branch whose trash icon was clicked once — the second click deletes.
+    branch_delete_armed: Option<String>,
     commit_message: Entity<TextareaState>,
     /// Set when the user pressed "Generate & Commit" with an empty box: the
     /// wand's draft lands here first, then commits automatically.
@@ -64,6 +66,7 @@ impl ChangesView {
             branch_filter,
             new_branch_open: false,
             new_branch_name,
+            branch_delete_armed: None,
             commit_message,
             auto_commit_after_draft: false,
             history_open: false,
@@ -87,6 +90,7 @@ impl ChangesView {
         self.patches.clear();
         self.branch_menu_open = false;
         self.new_branch_open = false;
+        self.branch_delete_armed = None;
         self.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
         let prefix = self.store.read(cx).settings().repos.branch_name_prefix.clone();
         let seed = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
@@ -107,6 +111,7 @@ impl ChangesView {
         if self.branch_menu_open {
             self.branch_menu_open = false;
             self.new_branch_open = false;
+            self.branch_delete_armed = None;
             cx.notify();
             true
         } else {
@@ -1150,6 +1155,7 @@ impl ChangesView {
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.branch_menu_open = !this.branch_menu_open;
                     this.new_branch_open = false;
+                    this.branch_delete_armed = None;
                     if this.branch_menu_open {
                         this.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
                     }
@@ -1325,6 +1331,7 @@ impl ChangesView {
 
     fn render_branch_menu(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let filter = self.branch_filter.read(cx).value().to_string().to_lowercase();
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         let current = self
             .store
             .read(cx)
@@ -1413,6 +1420,7 @@ impl ChangesView {
                                     // whole dropdown closes and resets
                                     this.branch_menu_open = false;
                                     this.new_branch_open = false;
+                                    this.branch_delete_armed = None;
                                     this.new_branch_name
                                         .update(cx, |f, cx| f.set_value("", window, cx));
                                     cx.notify();
@@ -1451,41 +1459,102 @@ impl ChangesView {
                 );
             }
             let is_current = branch_ref.name == current;
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("branch-row-{}", branch_ref.name)))
-                    .debug_selector(move || format!("branch-row-{}", branch_ref.name))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .text_size(px(theme::font_small()))
-                    .when(is_current, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
-                    .when(!is_current, |d| {
-                        d.text_color(if is_remote {
-                            theme::TEXT_FAINT
-                        } else {
-                            theme::TEXT_DIM
-                        })
+            // locals only, never the checked-out branch — git refuses the
+            // latter anyway, so the icon just isn't offered
+            let deletable = !is_remote && !is_current;
+            let armed = self.branch_delete_armed.as_deref() == Some(branch_ref.name.as_str());
+            let mut row = div()
+                .id(SharedString::from(format!("branch-row-{}", branch_ref.name)))
+                .debug_selector(move || format!("branch-row-{}", branch_ref.name))
+                .cursor_pointer()
+                .group("branch-row")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .rounded_md()
+                .px_2()
+                .py_1()
+                .text_size(px(theme::font_small()))
+                .when(is_current, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
+                .when(!is_current, |d| {
+                    d.text_color(if is_remote {
+                        theme::TEXT_FAINT
+                    } else {
+                        theme::TEXT_DIM
                     })
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let name = branch_ref.name.clone();
-                        cx.listener(move |this, _, window, cx| {
-                            this.store.update(cx, |s, cx| {
-                                s.run_git(GitAction::Checkout(name.clone()), cx)
-                            });
-                            // picking a branch closes the dropdown and resets
-                            // the filter, so the next open lists everything
-                            this.branch_menu_open = false;
-                            this.new_branch_open = false;
-                            this.branch_filter
-                                .update(cx, |f, cx| f.set_value("", window, cx));
-                            cx.notify();
-                        })
+                })
+                .hover(|s| s.bg(theme::HOVER))
+                .on_click({
+                    let name = branch_ref.name.clone();
+                    cx.listener(move |this, _, window, cx| {
+                        this.store.update(cx, |s, cx| {
+                            s.run_git(GitAction::Checkout(name.clone()), cx)
+                        });
+                        // picking a branch closes the dropdown and resets
+                        // the filter, so the next open lists everything
+                        this.branch_menu_open = false;
+                        this.new_branch_open = false;
+                        this.branch_delete_armed = None;
+                        this.branch_filter
+                            .update(cx, |f, cx| f.set_value("", window, cx));
+                        cx.notify();
                     })
-                    .child(branch_ref.name.clone()),
-            );
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(branch_ref.name.clone()),
+                );
+            if deletable {
+                row = row.child(
+                    crate::ui::with_tooltip(
+                        div()
+                            .id(SharedString::from(format!("branch-delete-{}", branch_ref.name)))
+                            .debug_selector(move || format!("branch-delete-{}", branch_ref.name))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .size(px(18.))
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .opacity(0.)
+                            .when(armed, |d| d.opacity(1.))
+                            .group_hover("branch-row", |s| s.opacity(1.))
+                            .hover(|s| s.bg(theme::tint(theme::DANGER)))
+                            .on_click({
+                                let name = branch_ref.name.clone();
+                                cx.listener(move |this, _, _, cx| {
+                                    // never the row's checkout
+                                    cx.stop_propagation();
+                                    if this.branch_delete_armed.as_deref() == Some(name.as_str()) {
+                                        this.branch_delete_armed = None;
+                                        this.branch_menu_open = false;
+                                        this.store.update(cx, |s, cx| {
+                                            s.run_git(
+                                                GitAction::DeleteBranch(name.clone()),
+                                                cx,
+                                            )
+                                        });
+                                    } else {
+                                        this.branch_delete_armed = Some(name.clone());
+                                    }
+                                    cx.notify();
+                                })
+                            })
+                            .child(icon(
+                                "icons/icon-trash.svg",
+                                px(theme::icon_small() - 2.),
+                                if armed { theme::DANGER } else { theme::TEXT_MUTED },
+                            )),
+                        show_tooltips,
+                        if armed { "Click again to delete" } else { "Delete branch" },
+                    ),
+                );
+            }
+            list = list.child(row);
             shown += 1;
         }
 

@@ -114,6 +114,36 @@ async fn branch_create_and_checkout() {
 }
 
 #[tokio::test]
+async fn branch_delete() {
+    let Some(dir) = scratch_repo("bd") else { return };
+
+    assert!(cli::create_branch(&dir, "keep", None, false).await.success);
+    assert!(cli::create_branch(&dir, "gone", None, false).await.success);
+
+    // deleting a plain local branch removes it from the list
+    let result = cli::delete_branch(&dir, "gone").await;
+    assert!(result.success, "{result:?}");
+    let names: Vec<String> = devtools_core::git::read::branches(&dir)
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(!names.contains(&"gone".to_string()), "{names:?}");
+    assert!(names.contains(&"keep".to_string()), "{names:?}");
+
+    // deleting the checked-out branch is refused by git, not a panic
+    let current = devtools_core::git::read::probe(&dir)
+        .unwrap()
+        .branch_name
+        .expect("scratch repo has a branch");
+    let refused = cli::delete_branch(&dir, &current).await;
+    assert!(!refused.success, "{refused:?}");
+    assert!(refused.error.as_deref().is_some_and(|e| e.starts_with("error:")));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn discard_staged_path_returns_to_head() {
     let Some(dir) = scratch_repo("dc") else { return };
 

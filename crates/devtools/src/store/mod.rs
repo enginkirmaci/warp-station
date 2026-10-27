@@ -485,6 +485,10 @@ impl Store {
                                 "Created {} in {name}",
                                 detail.as_deref().unwrap_or(&name)
                             ),
+                            ("delete branch", _) => format!(
+                                "Deleted {} in {name}",
+                                detail.as_deref().unwrap_or(&name)
+                            ),
                             ("revert", _) => format!("Reverted in {name}"),
                             _ => format!("{label} ok"),
                         },
