@@ -1118,7 +1118,7 @@ impl ChangesView {
         card.into_any_element()
     }
 
-    fn render_rail(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_rail(&mut self, busy: bool, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let store = self.store.read(cx);
         let branch = store
             .selected_entry()
@@ -1291,7 +1291,10 @@ impl ChangesView {
 
         // the open branch popup rides LAST so later-sibling paint order puts
         // it over the rail without a deferred wrapper
-        if let Some(popup) = self.branch_picker.update(cx, FilteredPicker::overlay_popup) {
+        if let Some(popup) =
+            self.branch_picker
+                .update(cx, |picker, cx| picker.overlay_popup(window, cx))
+        {
             rail = rail.child(popup);
         }
 

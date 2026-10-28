@@ -84,7 +84,8 @@ pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpu
 }
 
 /// Branch labels display at most this many characters before the head is
-/// trimmed; the repos branch column and the branch picker share the budget.
+/// trimmed; the repos branch column owns the budget, and the branch picker
+/// falls back to it once the full name outgrows the rail.
 pub const BRANCH_LABEL_CHARS: usize = 18;
 
 /// Long branch names shed whole leading path segments —
@@ -92,12 +93,6 @@ pub const BRANCH_LABEL_CHARS: usize = 18;
 /// segment alone exceeds the budget sheds characters, so the tail that
 /// disambiguates the branch stays visible.
 pub fn trim_branch_label(branch: &str, budget: usize) -> String {
-    let out = trim_branch_label_inner(branch, budget);
-    eprintln!("[trim] {branch:?} budget={budget} -> {out:?}");
-    out
-}
-
-fn trim_branch_label_inner(branch: &str, budget: usize) -> String {
     if branch.chars().count() <= budget {
         return branch.to_string();
     }

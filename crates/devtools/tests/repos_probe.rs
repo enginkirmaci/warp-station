@@ -517,7 +517,7 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
         cx.debug_bounds("branch-menu").is_some(),
         "the dropdown opens"
     );
-    let row = cx.debug_bounds(ROW).expect("the trimmed row renders under its full name");
+    let row = cx.debug_bounds(ROW).expect("the row renders under its full name");
     cx.simulate_click(row.center(), gpui::Modifiers::default());
     cx.run_until_parked();
 
@@ -534,6 +534,33 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
         Some(LONG),
         "picking the trimmed row checks out the full branch"
     );
+}
+
+/// The picker's label budget is the rail's real width, not the pill's column
+/// cap: a name that fits renders whole, an overflowing one sheds its head.
+#[gpui::test]
+fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        drop(window.draw(cx));
+        let fits = "users/enginkirmaci/test";
+        assert_eq!(
+            devtools::ui::filtered_picker::branch_label(fits, window),
+            fits,
+            "a name that fits the rail renders whole"
+        );
+        let long = "users/enginkirmaci/a-branch-name-far-too-long-for-the-rail";
+        let label = devtools::ui::filtered_picker::branch_label(long, window);
+        assert!(
+            label.starts_with('…'),
+            "an overflowing name sheds its head (got {label:?})"
+        );
+    });
 }
 
 /// The warp status bridge: pushes land per folder, and availability-loss

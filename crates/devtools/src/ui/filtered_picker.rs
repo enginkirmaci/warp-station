@@ -8,7 +8,8 @@ use crate::theme;
 use crate::ui::{icon, trim_branch_label, with_tooltip, BRANCH_LABEL_CHARS};
 use gpui::prelude::*;
 use gpui::{
-    App, Context, Entity, FontWeight, MouseButton, SharedString, Window, div, px, uniform_list,
+    App, Context, Entity, FontWeight, Hsla, MouseButton, SharedString, TextRun, Window, div, px,
+    uniform_list,
 };
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputState};
@@ -119,6 +120,32 @@ fn model_provider(model: &str) -> &str {
 
 fn model_name(model: &str) -> &str {
     model.split_once('/').map(|(_, name)| name).unwrap_or(model)
+}
+
+/// Width the rail leaves under the trigger's label; the pill's tighter
+/// budget exists to cap the table column and does not apply here.
+const LABEL_MAX_PX: f32 = 190.;
+
+/// The picker's branch label: the full name while its shaped width fits the
+/// rail, the head-trimmed pill label once it would overflow.
+pub fn branch_label(branch: &str, window: &Window) -> String {
+    let run = TextRun {
+        len: branch.len(),
+        font: gpui::font(theme::ui_font()),
+        color: Hsla::default(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let width = window
+        .text_system()
+        .layout_line(branch, px(theme::font_small()), &[run], None)
+        .width;
+    if width <= px(LABEL_MAX_PX) {
+        branch.to_string()
+    } else {
+        trim_branch_label(branch, BRANCH_LABEL_CHARS)
+    }
 }
 
 pub struct FilteredPicker {
@@ -266,7 +293,7 @@ impl FilteredPicker {
         }
     }
 
-    fn selected_info(&self, cx: &App) -> PickerSelection {
+    fn selected_info(&self, window: &Window, cx: &App) -> PickerSelection {
         match &self.source {
             PickerSource::Models {
                 field,
@@ -296,7 +323,7 @@ impl FilteredPicker {
                 let label = if selected.is_empty() {
                     "—".to_string()
                 } else {
-                    trim_branch_label(&selected, BRANCH_LABEL_CHARS)
+                    branch_label(&selected, window)
                 };
                 PickerSelection {
                     value: selected,
@@ -307,7 +334,7 @@ impl FilteredPicker {
         }
     }
 
-    fn rows(&self, cx: &App) -> Vec<PickerRow> {
+    fn rows(&self, window: &Window, cx: &App) -> Vec<PickerRow> {
         let filter = self.filter.read(cx).value().trim().to_lowercase();
         match &self.source {
             PickerSource::Models {
@@ -405,9 +432,9 @@ impl FilteredPicker {
                         id: format!("branch-row-{}", branch.name),
                         selector: format!("branch-row-{}", branch.name),
                         value: branch.name.clone(),
-                        // the full name stays the pick payload; only the
-                        // display label sheds its head
-                        label: trim_branch_label(&branch.name, BRANCH_LABEL_CHARS),
+                        // the full name stays the pick payload; the display
+                        // label sheds its head only when it would overflow
+                        label: branch_label(&branch.name, window),
                         selected: branch.name == current,
                         muted: is_remote,
                         trailing: deletable.then(|| RowAction::DeleteBranch {
@@ -764,8 +791,8 @@ impl FilteredPicker {
             .into_any_element()
     }
 
-    fn build_list(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let rows = self.rows(cx);
+    fn build_list(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let rows = self.rows(window, cx);
         let selected_accent = self.spec.selected_accent;
         let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         let list_id = self.list_id();
@@ -960,11 +987,15 @@ impl FilteredPicker {
     /// The branch popup as an overlay element for the host rail: ChangesView
     /// appends it AFTER the git actions so later-sibling paint order puts it
     /// on top (no deferred) and every hitbox registers in the normal pass.
-    pub fn overlay_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    pub fn overlay_popup(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         if !self.spec.overlay || !self.open {
             return None;
         }
-        let list = self.build_list(cx);
+        let list = self.build_list(window, cx);
         let panel = self.build_panel(list, cx);
         // anchored to the rail (the nearest positioned ancestor): covers the
         // trigger + actions, the old dropdown's geometry, without reflowing
@@ -982,7 +1013,7 @@ impl FilteredPicker {
 impl Render for FilteredPicker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_repo_reset(window, cx);
-        let selection = self.selected_info(cx);
+        let selection = self.selected_info(window, cx);
         let trigger_row = self.build_trigger_row(&selection, cx);
 
         // models mode: the popup is an in-flow child below the trigger. The
@@ -991,7 +1022,7 @@ impl Render for FilteredPicker {
         // actions without gpui::deferred, whose hitboxes misplace nested
         // interactive elements (the row trash) in real input.
         let popup = if !self.spec.overlay && self.open {
-            let list = self.build_list(cx);
+            let list = self.build_list(window, cx);
             Some(self.build_panel(list, cx))
         } else {
             None
