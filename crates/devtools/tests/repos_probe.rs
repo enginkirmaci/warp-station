@@ -545,6 +545,11 @@ fn table_rows_center_their_content(cx: &mut TestAppContext) {
     );
 }
 
+/// DEVTOOLS_AUTO_FETCH_SECS is process-global and Store construction reads
+/// it, so the auto-fetch probes take turns: a sibling's env window must not
+/// flip another probe's schedule mode.
+static AUTO_FETCH_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The periodic fetch scheduler: a due schedule sends exactly one FetchAll
 /// carrying only the repos with a remote, the selected repo's folder drops
 /// out while a git mutation runs there, and each fire re-arms the next due
@@ -554,10 +559,10 @@ fn table_rows_center_their_content(cx: &mut TestAppContext) {
 fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
 
+    let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
 
-    // SAFETY: process-global env; read wherever the schedule is computed, no
-    // sibling test in this binary arms a tick to consume it
+    // SAFETY: process-global env, held exclusively via AUTO_FETCH_ENV
     unsafe { std::env::set_var("DEVTOOLS_AUTO_FETCH_SECS", "1") };
 
     let scratch = std::env::temp_dir().join(format!("devtools-auto-fetch-store-{}.json", std::process::id()));
@@ -619,6 +624,154 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     }
 
     unsafe { std::env::remove_var("DEVTOOLS_AUTO_FETCH_SECS") };
+    let _ = std::fs::remove_file(&scratch);
+}
+
+/// The focus gate: with AutoFetchOnlyFocused on, a due schedule holds — no
+/// FetchAll and no re-arm — while no window is focused (this probe opens
+/// none), and flipping the option off lets the held pass fire immediately.
+#[gpui::test]
+fn auto_fetch_focus_gate_holds_the_pass_until_a_window_is_focused(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
+
+    let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
+    cx.update(gpui_kit::init);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-auto-fetch-focus-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &scratch,
+        r#"{"Repos": {"AutoFetchMinutes": 30, "AutoFetchOnlyFocused": true}}"#,
+    )
+    .expect("scratch settings");
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
+        store
+    });
+
+    // force the schedule due with the gate on and no focused window
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.next_auto_fetch = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+
+    while let Ok(command) = net_rx.try_recv() {
+        assert!(
+            !matches!(command, NetCommand::FetchAll { .. }),
+            "the gated pass must not fire while unfocused"
+        );
+    }
+    cx.read_entity(&store, |s, _| {
+        let due = s.next_auto_fetch.expect("the schedule stays armed");
+        assert!(due < std::time::Instant::now(), "a held pass is not re-armed");
+    });
+
+    // the gate turning off releases the held pass on the next tick
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| settings.repos.auto_fetch_only_focused = None);
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+    let mut fetched: Option<Vec<PathBuf>> = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::FetchAll { folders } = command {
+            fetched = Some(folders);
+        }
+    }
+    assert_eq!(
+        fetched.expect("releasing the gate fires the held pass"),
+        vec![PathBuf::from("/probe/alpha")]
+    );
+    cx.read_entity(&store, |s, _| {
+        assert!(
+            s.next_auto_fetch.expect("each fire re-arms") > std::time::Instant::now(),
+            "the fired pass re-arms into the future"
+        );
+    });
+
+    let _ = std::fs::remove_file(&scratch);
+}
+
+/// Fetch-off + focus-gate-on is a one-shot: construction arms an immediate
+/// pass that waits for the first scan to land repos, fires exactly once, and
+/// clears the schedule instead of re-arming.
+#[gpui::test]
+fn auto_fetch_gate_alone_fetches_once(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
+
+    let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
+    cx.update(gpui_kit::init);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-auto-fetch-once-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&scratch, r#"{"Repos": {"AutoFetchOnlyFocused": true}}"#).expect("scratch settings");
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    // a focused window: the one-shot is focus-gated like any other pass
+    let (_view, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    assert!(
+        cx.read_entity(&store, |s, _| s.next_auto_fetch.is_some()),
+        "construction arms the one-shot"
+    );
+
+    // the empty hold: the one-shot must not be consumed before any scan has
+    // landed repos (a fresh install starts with an empty table)
+    cx.update_entity(&store, |s: &mut Store, _| s.replace_repos(vec![]));
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+    while let Ok(command) = net_rx.try_recv() {
+        assert!(
+            !matches!(command, NetCommand::FetchAll { .. }),
+            "an empty table must not consume the one-shot"
+        );
+    }
+    cx.read_entity(&store, |s, _| {
+        assert!(s.next_auto_fetch.is_some(), "the one-shot stays armed");
+    });
+
+    // repos land, the pass fires once and the schedule clears
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+    let mut fetched: Option<Vec<PathBuf>> = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::FetchAll { folders } = command {
+            fetched = Some(folders);
+        }
+    }
+    assert_eq!(
+        fetched.expect("the one-shot fires once repos exist"),
+        vec![PathBuf::from("/probe/alpha")]
+    );
+    cx.read_entity(&store, |s, _| {
+        assert!(s.next_auto_fetch.is_none(), "the one-shot does not re-arm");
+    });
+
+    cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
+    while let Ok(command) = net_rx.try_recv() {
+        assert!(
+            !matches!(command, NetCommand::FetchAll { .. }),
+            "no second pass after the one-shot"
+        );
+    }
+
     let _ = std::fs::remove_file(&scratch);
 }
 

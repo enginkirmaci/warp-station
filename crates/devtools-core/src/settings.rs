@@ -83,6 +83,11 @@ pub struct ReposSettings {
     /// Background `git fetch --prune` interval; None = off. Absence-meaningful
     /// like sort_ascending.
     pub auto_fetch_minutes: Option<u16>,
+    /// The periodic fetch runs only while some DevTools window is focused;
+    /// with auto_fetch_minutes off, the gate instead arms a single fetch at
+    /// launch. None/false = fetch regardless. Absence-meaningful like
+    /// auto_fetch_minutes.
+    pub auto_fetch_only_focused: Option<bool>,
     /// Collapsible scan-root groups in the repos table; None/false = the flat
     /// list. Absence-meaningful like sort_ascending.
     pub group_repos_by_root: Option<bool>,
@@ -126,6 +131,7 @@ impl Default for ReposSettings {
             sort_mode: RepoSortMode::Name,
             sort_ascending: None,
             auto_fetch_minutes: None,
+            auto_fetch_only_focused: None,
             group_repos_by_root: None,
             group_root_depth: None,
             collapsed_groups: None,
@@ -409,6 +415,7 @@ mod tests {
         // absence (legacy files) = off
         let legacy: AppSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.repos.auto_fetch_minutes, None);
+        assert_eq!(legacy.repos.auto_fetch_only_focused, None);
         // an explicit interval persists and reads back
         let on: AppSettings =
             serde_json::from_str(r#"{"Repos": {"AutoFetchMinutes": 30}}"#).unwrap();
@@ -417,6 +424,20 @@ mod tests {
         assert!(json.contains("\"AutoFetchMinutes\": 30"));
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.auto_fetch_minutes, Some(30));
+    }
+
+    #[test]
+    fn auto_fetch_focus_gate_round_trips_and_absent_means_fetch_always() {
+        // absence (legacy files) = fetch regardless of focus
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.repos.auto_fetch_only_focused, None);
+        let gated: AppSettings =
+            serde_json::from_str(r#"{"Repos": {"AutoFetchOnlyFocused": true}}"#).unwrap();
+        assert_eq!(gated.repos.auto_fetch_only_focused, Some(true));
+        let json = serde_json::to_string_pretty(&gated).unwrap();
+        assert!(json.contains("\"AutoFetchOnlyFocused\": true"));
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.repos.auto_fetch_only_focused, Some(true));
     }
 
     #[test]

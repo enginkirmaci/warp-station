@@ -38,6 +38,7 @@ pub struct SettingsPage {
     // Git
     branch_name_prefix: Entity<InputState>,
     auto_fetch_minutes: Option<u16>,
+    auto_fetch_only_focused: bool,
     // External tools
     vscode_executable: Entity<InputState>,
     vscode_profile: Entity<InputState>,
@@ -145,6 +146,7 @@ impl SettingsPage {
             group_depth: repos.group_root_depth.unwrap_or(1).clamp(1, 4) as usize,
             branch_name_prefix: field(window, cx, &repos.branch_name_prefix),
             auto_fetch_minutes: repos.auto_fetch_minutes,
+            auto_fetch_only_focused: repos.auto_fetch_only_focused.unwrap_or(false),
             vscode_executable: field(window, cx, &repos.vscode_executable),
             vscode_profile: field(window, cx, &repos.vscode_profile),
             terminal_executable: field(window, cx, &repos.terminal_executable),
@@ -244,6 +246,8 @@ impl SettingsPage {
         let warp_exe = Self::value(&self.warp_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let auto_fetch_minutes = self.auto_fetch_minutes;
+        // absence = fetch always; the only meaningful write is the opt-in
+        let auto_fetch_only_focused = self.auto_fetch_only_focused;
         let group_by_root = self.group_by_root;
         let group_depth = self.group_depth;
         let code_search_enabled = self.enable_code_search;
@@ -267,6 +271,7 @@ impl SettingsPage {
                 s.repos.max_scan_depth = max_scan_depth;
                 s.repos.branch_name_prefix = branch_prefix;
                 s.repos.auto_fetch_minutes = auto_fetch_minutes;
+                s.repos.auto_fetch_only_focused = auto_fetch_only_focused.then_some(true);
                 s.repos.group_repos_by_root = Some(group_by_root);
                 s.repos.group_root_depth = Some(group_depth as u8);
                 // enabled stays absent: absence IS the enabled state, so the
@@ -489,6 +494,11 @@ impl Render for SettingsPage {
                                     .child(self.card("Git", cx, |this, cx, card| {
                                         card.child(field_row("Branch name prefix", &this.branch_name_prefix))
                                             .child(auto_fetch_row(this, cx))
+                                            .child(switch_row("Only fetch while active", this.auto_fetch_only_focused, cx.listener(|this, _, _, cx| {
+                                                this.auto_fetch_only_focused = !this.auto_fetch_only_focused;
+                                                cx.notify();
+                                            })))
+                                            .child(label("With an interval set, pauses the fetch while no window has focus; with Auto fetch off, fetches once on launch."))
                                     })),
                             )
                             .child(

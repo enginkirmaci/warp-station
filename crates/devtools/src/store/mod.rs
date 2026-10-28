@@ -987,26 +987,55 @@ impl Store {
     }
 
     /// Re-arms the periodic fetch from the current settings; call wherever a
-    /// settings load or save can change the interval.
+    /// settings load or save can change the interval. Fetch-off + focus-gate-on
+    /// arms a single immediate pass instead (one fetch, held for focus).
     pub fn refresh_auto_fetch_schedule(&mut self) {
-        self.next_auto_fetch = Self::auto_fetch_interval(&self.settings().repos)
-            .map(|interval| std::time::Instant::now() + interval);
+        let repos = &self.settings().repos;
+        self.next_auto_fetch = if let Some(interval) = Self::auto_fetch_interval(repos) {
+            Some(std::time::Instant::now() + interval)
+        } else if repos.auto_fetch_only_focused.unwrap_or(false) {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+    }
+
+    /// Whether any open window is the focused one. The notes window counts,
+    /// so the user reading notes still counts as "looking at DevTools".
+    fn any_window_focused(cx: &mut App) -> bool {
+        cx.windows().into_iter().any(|handle| {
+            handle
+                .update(cx, |_, window, _| window.is_window_active())
+                .unwrap_or(false)
+        })
     }
 
     /// The tick's check: when the schedule is due, fetch every repo with a
     /// remote — except the selected repo's folder while a git mutation runs
-    /// there (index.lock conflict avoidance) — then re-arm immediately; the
-    /// interval is minutes, so waiting for completion buys nothing.
-    pub fn check_auto_fetch(&mut self, _cx: &mut Context<Self>) {
+    /// there (index.lock conflict avoidance) — then re-arm into the future
+    /// (an interval) or clear (the launch one-shot).
+    pub fn check_auto_fetch(&mut self, cx: &mut Context<Self>) {
         let Some(due) = self.next_auto_fetch else { return };
         if std::time::Instant::now() < due {
             return;
         }
         // the setting may have been turned off since this was armed
-        let Some(interval) = Self::auto_fetch_interval(&self.settings().repos) else {
+        let interval = Self::auto_fetch_interval(&self.settings().repos);
+        let gated = self.settings().repos.auto_fetch_only_focused.unwrap_or(false);
+        if interval.is_none() && !gated {
             self.next_auto_fetch = None;
             return;
-        };
+        }
+        // the focus gate holds the pass — and the schedule — until a
+        // window regains focus; no re-arm, so focusing fires it right away
+        if gated && !Self::any_window_focused(cx) {
+            return;
+        }
+        // the launch one-shot waits for the first scan to land repos;
+        // otherwise it is consumed by an empty table and never fetches
+        if interval.is_none() && self.repos.is_empty() {
+            return;
+        }
         let busy_folder = self.git_busy.then(|| self.selected_repo.clone()).flatten();
         let folders: Vec<std::path::PathBuf> = self
             .repos
@@ -1019,7 +1048,8 @@ impl Store {
                     .is_none_or(|busy| folder.to_string_lossy() != *busy)
             })
             .collect();
-        self.next_auto_fetch = Some(std::time::Instant::now() + interval);
+        // an interval re-arms into the future; the one-shot clears instead
+        self.next_auto_fetch = interval.map(|i| std::time::Instant::now() + i);
         if !folders.is_empty() {
             let _ = self.net.send_blocking(NetCommand::FetchAll { folders });
         }
