@@ -34,6 +34,10 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
     let (net_tx, _net_rx) = async_channel::unbounded();
     cx.new(|cx| {
         let mut store = Store::new(cx, net_tx);
+        // pin the flat layout: the developer's live settings must never
+        // re-shape the probes' row math (the grouping probes seed their own
+        // scratch-settings store)
+        store.group_by_root = false;
         store.replace_repos(vec![
             entry("alpha", "/probe/alpha"),
             entry("beta", "/probe/beta"),

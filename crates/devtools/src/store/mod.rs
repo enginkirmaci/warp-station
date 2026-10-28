@@ -29,6 +29,10 @@ pub struct Store {
     /// Collapsible scan-root groups on/off; seeded from the persisted
     /// setting (or the DEVTOOLS_GROUPS E2E hook), flipped by the Settings save.
     pub group_by_root: bool,
+    /// Folder levels the group headers sit at under each scan root
+    /// (1 = the roots themselves); seeded from the persisted setting,
+    /// flipped by the Settings save.
+    pub group_depth: usize,
     /// Collapsed group keys (scan-root paths, or "other"); mirrored into
     /// `ReposSettings::collapsed_groups` on every toggle.
     pub collapsed_groups: Option<Vec<String>>,
@@ -170,6 +174,7 @@ impl Store {
             group_filter: None,
             group_by_root: std::env::var("DEVTOOLS_GROUPS").as_deref() == Ok("1")
                 || app_settings.repos.group_repos_by_root.unwrap_or(false),
+            group_depth: app_settings.repos.group_root_depth.unwrap_or(1).clamp(1, 4) as usize,
             collapsed_groups: app_settings.repos.collapsed_groups.clone(),
             projected: Vec::new(),
             projection_generation: 0,
@@ -1099,6 +1104,19 @@ impl Store {
         self.reproject();
     }
 
+    /// The Settings save path: moves the group headers to another folder
+    /// level under each root and re-projects. No rescan, like the toggle —
+    /// presentation only, so stale persisted collapse keys (from another
+    /// depth) simply stop matching and their groups start expanded.
+    pub fn set_group_depth(&mut self, depth: usize) {
+        let depth = depth.clamp(1, 4);
+        if self.group_depth == depth {
+            return;
+        }
+        self.group_depth = depth;
+        self.reproject();
+    }
+
     /// Checks/unchecks one tag-filter chip (OR semantics across the set).
     pub fn toggle_tag_filter(&mut self, tag: &str, cx: &mut Context<Self>) {
         match self.tag_filters.iter().position(|t| t.eq_ignore_ascii_case(tag)) {
@@ -1234,6 +1252,7 @@ impl Store {
             .collect();
         let grouping = self.group_by_root.then(|| projection::Grouping {
             roots: app_settings.repos.repo_scan_folders.as_deref().unwrap_or(&[]),
+            depth: self.group_depth,
             collapsed: &collapsed,
             solo: solo.as_deref(),
         });

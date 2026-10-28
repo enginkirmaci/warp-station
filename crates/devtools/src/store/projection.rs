@@ -40,6 +40,9 @@ impl ProjectedRow {
 /// historical flat list (repo rows only, no headers).
 pub struct Grouping<'a> {
     pub roots: &'a [String],
+    /// Folder levels the headers sit at under each root (1 = the roots
+    /// themselves); deeper repos fold into their ancestor's bucket.
+    pub depth: usize,
     pub collapsed: &'a std::collections::HashSet<String>,
     /// When set, only this group's repos are projected (the header's
     /// solo-filter icon; the toolbar's Clear removes it).
@@ -72,7 +75,11 @@ pub fn project(
     let solo = grouping.solo;
     let mut groups: Vec<(String, String, Vec<usize>)> = Vec::new();
     for &ix in &sorted {
-        let (key, name) = assign_group(&repos[ix].folder_path.to_string_lossy(), grouping.roots);
+        let (key, name) = assign_group(
+            &repos[ix].folder_path.to_string_lossy(),
+            grouping.roots,
+            grouping.depth,
+        );
         if solo.is_some_and(|solo| !keys_match(solo, &key)) {
             continue;
         }
@@ -85,20 +92,22 @@ pub fn project(
         }
     }
 
-    // "other" sorts last regardless of the roots' order; root buckets sort
-    // by key so the projection stays deterministic even when the settings
-    // file lists the roots unsorted.
+    // buckets sort by key so the projection stays deterministic even when
+    // the settings file lists the roots unsorted
     groups.sort_by_key(|(key, _, _)| key.to_lowercase());
-    let other = groups
-        .iter()
-        .position(|(key, _, _)| key == OTHER_GROUP_KEY)
-        .map(|ix| groups.remove(ix));
+    // the Archive pill's "listed bottom": buckets holding only archived
+    // repos sink below buckets with any live one. Stable, so the key order
+    // holds inside each region and "other" still trails its own region —
+    // and a no-op while the pill is off, since archived repos then leave
+    // the projection entirely (a mixed group stays put; its archived rows
+    // already sink within it via the shared sort comparator).
+    groups.sort_by_key(|(key, _, bucket)| (
+        bucket.iter().all(|&ix| repos[ix].is_archived()),
+        key == OTHER_GROUP_KEY,
+    ));
     let mut rows = Vec::new();
     for (key, name, bucket) in &groups {
         push_group(&mut rows, key, name, bucket, grouping.collapsed);
-    }
-    if let Some((key, name, bucket)) = other {
-        push_group(&mut rows, &key, &name, &bucket, grouping.collapsed);
     }
     rows
 }
@@ -134,8 +143,10 @@ fn keys_match(a: &str, b: &str) -> bool {
 
 /// Longest-prefix assignment: a repo lands under the deepest root that
 /// contains its folder (roots may themselves be repo folders), so nested
-/// roots are deterministic. No match → the "other" fallback group.
-fn assign_group(folder: &str, roots: &[String]) -> (String, String) {
+/// roots are deterministic. No match → the "other" fallback group. At
+/// depth > 1 the matched root's key extends down the folder's relative
+/// path, so headers sit at intermediate folder levels.
+fn assign_group(folder: &str, roots: &[String], depth: usize) -> (String, String) {
     let mut best: Option<&String> = None;
     for root in roots {
         if !is_under(folder, root) {
@@ -153,8 +164,40 @@ fn assign_group(folder: &str, roots: &[String]) -> (String, String) {
         }
     }
     match best {
+        Some(root) if depth > 1 => {
+            let key = extended_group_key(folder, root, depth);
+            let name = last_path_segment(&key);
+            (key, name)
+        }
         Some(root) => (root.clone(), last_path_segment(root)),
         None => (OTHER_GROUP_KEY.to_string(), OTHER_GROUP_NAME.to_string()),
+    }
+}
+
+/// The depth > 1 group key: the matched root plus the first depth-1
+/// components of the folder's remainder below it. Slicing mirrors
+/// `is_under` (whose compare is case-insensitive on Windows), so a
+/// case-differing prefix still splits at the root's byte length.
+fn extended_group_key(folder: &str, root: &str, depth: usize) -> String {
+    let root = root.trim_end_matches(['/', '\\']);
+    let folder = folder.trim_end_matches(['/', '\\']);
+    if root.is_empty() || same_folder_text(folder, root) {
+        return root.to_string();
+    }
+    let rest = match folder.get(root.len()..) {
+        Some(rest) if rest.starts_with(['/', '\\']) => &rest[1..],
+        _ => return root.to_string(),
+    };
+    let key = rest
+        .split(['/', '\\'])
+        .filter(|component| !component.is_empty())
+        .take(depth - 1)
+        .collect::<Vec<_>>()
+        .join("/");
+    if key.is_empty() {
+        root.to_string()
+    } else {
+        format!("{root}/{key}")
     }
 }
 
@@ -355,7 +398,15 @@ mod tests {
     }
 
     fn grouping<'a>(roots: &'a [String], collapsed: &'a std::collections::HashSet<String>) -> Grouping<'a> {
-        Grouping { roots, collapsed, solo: None }
+        grouping_at(roots, collapsed, 1)
+    }
+
+    fn grouping_at<'a>(
+        roots: &'a [String],
+        collapsed: &'a std::collections::HashSet<String>,
+        depth: usize,
+    ) -> Grouping<'a> {
+        Grouping { roots, depth, collapsed, solo: None }
     }
 
     #[test]
@@ -690,11 +741,65 @@ mod tests {
     }
 
     #[test]
+    fn archived_only_groups_sink_below_live_ones_when_shown() {
+        let mut all = grouped_repos();
+        all[0].tags.push("archived".into()); // alpha archives → /roots/a all-archived
+        all[1].tags.push("archived".into()); // so does beta
+        all[3].tags.push("archived".into()); // and delta, making "other" all-archived too
+        let roots = vec!["/roots/a".to_string(), "/roots/b".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(&all, &[], RepoSortMode::Name, true, true, Some(&grouping(&roots, &collapsed)));
+        assert_eq!(
+            sketch(&rows, &all),
+            vec![
+                "#/roots/b(1)", "gamma",
+                "#/roots/a(2)", "alpha", "beta",
+                "#other(1)", "delta",
+            ],
+            "the all-archived group sinks below the live one despite sorting first; 'other' still trails the archived region"
+        );
+    }
+
+    #[test]
+    fn a_mixed_group_stays_in_place_with_its_archived_rows_last() {
+        let mut all = grouped_repos();
+        all[1].tags.push("archived".into()); // only beta archives; /roots/a keeps a live repo
+        let roots = vec!["/roots/a".to_string(), "/roots/b".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(&all, &[], RepoSortMode::Name, true, true, Some(&grouping(&roots, &collapsed)));
+        assert_eq!(
+            sketch(&rows, &all),
+            vec![
+                "#/roots/a(2)", "alpha", "beta",
+                "#/roots/b(1)", "gamma",
+                "#other(1)", "delta",
+            ],
+            "a group with any live repo holds its alphabetical place; the archived row sinks within it"
+        );
+    }
+
+    #[test]
+    fn with_archived_hidden_the_sink_is_vacuous() {
+        let mut all = grouped_repos();
+        all[0].tags.push("archived".into());
+        all[1].tags.push("archived".into());
+        all[3].tags.push("archived".into());
+        let roots = vec!["/roots/a".to_string(), "/roots/b".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/roots/b(1)", "gamma"],
+            "pill off: archived repos leave the projection, so no region reorder and no ghost headers"
+        );
+    }
+
+    #[test]
     fn solo_filter_keeps_only_that_group() {
         let all = grouped_repos();
         let roots = vec!["/roots/a".to_string(), "/roots/b".to_string()];
         let collapsed = std::collections::HashSet::new();
-        let solo = Grouping { roots: &roots, collapsed: &collapsed, solo: Some("/roots/a") };
+        let solo = Grouping { roots: &roots, depth: 1, collapsed: &collapsed, solo: Some("/roots/a") };
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&solo));
         assert_eq!(
             sketch(&rows, &all),
@@ -702,7 +807,7 @@ mod tests {
             "soloing one group hides the other groups entirely"
         );
 
-        let solo_other = Grouping { roots: &roots, collapsed: &collapsed, solo: Some("other") };
+        let solo_other = Grouping { roots: &roots, depth: 1, collapsed: &collapsed, solo: Some("other") };
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&solo_other));
         assert_eq!(sketch(&rows, &all), vec!["#other(1)", "delta"]);
     }
@@ -716,5 +821,103 @@ mod tests {
         let collapsed = std::collections::HashSet::new();
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
         assert_eq!(sketch(&rows, &all), vec!["#/repos/alpha(1)", "alpha"]);
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 3)),
+        );
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/repos/alpha(1)", "alpha"],
+            "a repo sitting exactly on its root keeps the root key at any depth"
+        );
+    }
+
+    #[test]
+    fn depth_two_buckets_by_the_first_subfolder() {
+        let all = vec![
+            repo("alpha", "/roots/a/work/alpha", &[]),
+            repo("beta", "/roots/a/work/beta", &[]),
+            repo("gamma", "/roots/a/side/gamma", &[]),
+        ];
+        let roots = vec!["/roots/a".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 2)),
+        );
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/roots/a/side(1)", "gamma", "#/roots/a/work(2)", "alpha", "beta"],
+            "headers move one level under the root; keys sort, repos keep the flat order"
+        );
+        let ProjectedRow::Group { name, .. } = &rows[2] else {
+            panic!("expected a group header");
+        };
+        assert_eq!(name, "work", "the header names itself after the subfolder");
+    }
+
+    #[test]
+    fn deeper_than_depth_folds_into_its_ancestor() {
+        let all = vec![
+            repo("alpha", "/roots/a/work/deep/alpha", &[]),
+            repo("beta", "/roots/a/work/beta", &[]),
+        ];
+        let roots = vec!["/roots/a".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 2)),
+        );
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/roots/a/work(2)", "alpha", "beta"],
+            "repos past the configured depth group under their ancestor's header"
+        );
+    }
+
+    #[test]
+    fn depth_one_matches_the_root_level_projection() {
+        let all = vec![repo("alpha", "/work/rust/alpha", &[]), repo("beta", "/work/go/beta", &[])];
+        let roots = vec!["/work".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
+        let deeper = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 1)),
+        );
+        assert_eq!(sketch(&rows, &all), sketch(&deeper, &all));
+        assert_eq!(sketch(&rows, &all), vec!["#/work(2)", "alpha", "beta"]);
+    }
+
+    #[test]
+    fn depth_extends_over_backslash_paths() {
+        let all = vec![repo("alpha", "C:\\dev\\work\\alpha", &[])];
+        let roots = vec!["C:\\dev".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 2)),
+        );
+        assert_eq!(sketch(&rows, &all), vec!["#C:\\dev/work(1)", "alpha"]);
     }
 }

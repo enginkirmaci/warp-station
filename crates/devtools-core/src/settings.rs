@@ -88,6 +88,10 @@ pub struct ReposSettings {
     /// Collapsible scan-root groups in the repos table; None/false = the flat
     /// list. Absence-meaningful like sort_ascending.
     pub group_repos_by_root: Option<bool>,
+    /// Folder levels the grouping headers sit at under each scan root
+    /// (1 = the roots themselves); None = 1. Absence-meaningful like
+    /// sort_ascending.
+    pub group_root_depth: Option<u8>,
     /// Collapsed group keys (scan-root paths, or "other"); None = all
     /// expanded. Absence-meaningful like sort_ascending.
     pub collapsed_groups: Option<Vec<String>>,
@@ -127,6 +131,7 @@ impl Default for ReposSettings {
             sort_ascending: None,
             auto_fetch_minutes: None,
             group_repos_by_root: None,
+            group_root_depth: None,
             collapsed_groups: None,
             enable_code_search: None,
             code_search_executable: None,
@@ -423,22 +428,26 @@ mod tests {
         // absence (legacy files) = flat list, nothing collapsed
         let legacy: AppSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.repos.group_repos_by_root, None);
+        assert_eq!(legacy.repos.group_root_depth, None);
         assert_eq!(legacy.repos.collapsed_groups, None);
         // an explicit grouping toggle and collapsed keys persist and read back
         let on: AppSettings = serde_json::from_str(
-            r#"{"Repos": {"GroupReposByRoot": true, "CollapsedGroups": ["/work/rust", "other"]}}"#,
+            r#"{"Repos": {"GroupReposByRoot": true, "GroupRootDepth": 2, "CollapsedGroups": ["/work/rust", "other"]}}"#,
         )
         .unwrap();
         assert_eq!(on.repos.group_repos_by_root, Some(true));
+        assert_eq!(on.repos.group_root_depth, Some(2));
         assert_eq!(
             on.repos.collapsed_groups,
             Some(vec!["/work/rust".to_string(), "other".to_string()])
         );
         let json = serde_json::to_string_pretty(&on).unwrap();
         assert!(json.contains("\"GroupReposByRoot\": true"));
+        assert!(json.contains("\"GroupRootDepth\": 2"));
         assert!(json.contains("\"CollapsedGroups\""));
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.group_repos_by_root, Some(true));
+        assert_eq!(back.repos.group_root_depth, Some(2));
         assert_eq!(back.repos.collapsed_groups, on.repos.collapsed_groups);
     }
 

@@ -34,6 +34,7 @@ pub struct SettingsPage {
     platform_folder_name: Entity<InputState>,
     max_scan_depth: Entity<InputState>,
     group_by_root: bool,
+    group_depth: usize,
     // Git
     branch_name_prefix: Entity<InputState>,
     auto_fetch_minutes: Option<u16>,
@@ -143,6 +144,7 @@ impl SettingsPage {
             platform_folder_name: field(window, cx, &repos.platform_folder_name),
             max_scan_depth: field(window, cx, &repos.max_scan_depth.to_string()),
             group_by_root: repos.group_repos_by_root.unwrap_or(false),
+            group_depth: repos.group_root_depth.unwrap_or(1).clamp(1, 4) as usize,
             branch_name_prefix: field(window, cx, &repos.branch_name_prefix),
             auto_fetch_minutes: repos.auto_fetch_minutes,
             vscode_executable: field(window, cx, &repos.vscode_executable),
@@ -249,6 +251,7 @@ impl SettingsPage {
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let auto_fetch_minutes = self.auto_fetch_minutes;
         let group_by_root = self.group_by_root;
+        let group_depth = self.group_depth;
         let code_search_enabled = self.enable_code_search;
         let code_search_exe = Self::value(&self.code_search_executable, cx);
 
@@ -271,6 +274,7 @@ impl SettingsPage {
                 s.repos.branch_name_prefix = branch_prefix;
                 s.repos.auto_fetch_minutes = auto_fetch_minutes;
                 s.repos.group_repos_by_root = Some(group_by_root);
+                s.repos.group_root_depth = Some(group_depth as u8);
                 // enabled stays absent: absence IS the enabled state, so the
                 // only meaningful write is the opt-out
                 s.repos.enable_code_search = (!code_search_enabled).then_some(false);
@@ -303,6 +307,7 @@ impl SettingsPage {
             // grouping only reshapes the table: re-project, never rescan —
             // the scan roots themselves did not change
             store.set_group_by_root(group_by_root);
+            store.set_group_depth(group_depth);
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
             // tokens and the kit rem base resize together); every save
@@ -484,6 +489,10 @@ impl Render for SettingsPage {
                                                 cx.notify();
                                             })))
                                             .child(label("Group the table under each scan folder — collapsing and filtering here never rescans."))
+                                            .when(this.group_by_root, |card| {
+                                                card.child(group_depth_row(this, cx))
+                                                    .child(label("Headers sit this many folder levels under each scan folder; deeper repos fold into their ancestor's group."))
+                                            })
                                     }))
                                     .child(self.card("Git", cx, |this, cx, card| {
                                         card.child(field_row("Branch name prefix", &this.branch_name_prefix))
@@ -1153,6 +1162,42 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
                     cx.notify();
                 }))
                 .child(name),
+        );
+    }
+    row.into_any_element()
+}
+
+/// The group-depth picker: 1/2/3/4 segmented buttons; 1 = the scan roots
+/// themselves. Only rendered while grouping is on.
+fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
+    let mut row = div()
+        .id("group-depth-row")
+        .debug_selector(|| "group-depth-row".into())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(label("Group depth"));
+    for level in 1..=4usize {
+        let id = SharedString::from(format!("group-depth-{level}"));
+        let selected = this.group_depth == level;
+        row = row.child(
+            div()
+                .id(id.clone())
+                .debug_selector(move || id.to_string())
+                .cursor_pointer()
+                .rounded_md()
+                .px_3()
+                .py_1()
+                .text_size(px(theme::font_small()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
+                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.group_depth = level;
+                    cx.notify();
+                }))
+                .child(level.to_string()),
         );
     }
     row.into_any_element()

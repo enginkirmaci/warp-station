@@ -1473,6 +1473,109 @@ fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
     let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-collapse-{}.json", std::process::id())));
 }
 
+/// Depth-2 grouping: headers sit at the first subfolder under each root
+/// (seeded GroupRootDepth), the root-level header is gone, the chevron
+/// persists the extended key, and set_group_depth live-moves the headers
+/// back to the roots without a rescan.
+#[gpui::test]
+fn depth_two_headers_sit_under_the_root_and_persist(cx: &mut TestAppContext) {
+    use devtools::net::NetCommand;
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let scratch = std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id()));
+    std::fs::write(
+        &scratch,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a"], "GroupReposByRoot": true, "GroupRootDepth": 2}}"#,
+    )
+    .expect("scratch settings");
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/roots/a/work/alpha", &[]),
+            entry("beta", "/roots/a/work/beta", &[]),
+            entry("gamma", "/roots/a/side/gamma", &[]),
+        ]);
+        store
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let sketch = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { key, count, .. } => format!("#{key}({count})"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        sketch,
+        vec![
+            "#/roots/a/side(1)", "gamma",
+            "#/roots/a/work(2)", "alpha", "beta",
+        ],
+        "depth-2 headers sit at the first subfolder; keys sort, repos keep the flat order"
+    );
+    assert!(
+        cx.debug_bounds("repos-group-header-/roots/a").is_none(),
+        "the root-level header disappears at depth 2"
+    );
+    assert!(
+        cx.debug_bounds("repos-group-header-/roots/a/work").is_some(),
+        "the subfolder header renders"
+    );
+
+    let chevron = cx
+        .debug_bounds("repos-group-header-/roots/a/work-chevron")
+        .expect("the subfolder chevron renders");
+    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
+        Some(vec!["/roots/a/work".to_string()]),
+        "the extended key persists like a root key"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, _| s.set_group_depth(1));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    let sketch = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { key, count, .. } => format!("#{key}({count})"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        sketch,
+        vec!["#/roots/a(3)", "alpha", "beta", "gamma"],
+        "depth 1 re-buckets everything under the root header"
+    );
+
+    let mut scans = 0;
+    while let Ok(command) = net_rx.try_recv() {
+        if matches!(command, NetCommand::Scan { .. }) {
+            scans += 1;
+        }
+    }
+    assert_eq!(scans, 1, "the depth move must not rescan");
+
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id())));
+}
+
 /// The header's solo filter narrows the table to that one group (and lights
 /// the toolbar's Clear), and the Clear button restores the full projection.
 #[gpui::test]
