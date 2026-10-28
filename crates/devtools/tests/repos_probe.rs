@@ -1294,11 +1294,13 @@ fn key_selector(prefix: &str, key: &str) -> &'static str {
 
 /// A scratch-settings store with grouping on: two scan roots, two repos under
 /// root A, one under root B, one under neither (the "Other" fallback).
+/// Depth 2 is seeded because sibling-folder roots only render as their own
+/// headers from depth 2 — the depth-1 default merges them under /roots.
 fn grouped_store(cx: &mut TestAppContext, probe: &str) -> gpui::Entity<Store> {
     let scratch = std::env::temp_dir().join(format!("devtools-groups-{probe}-{}.json", std::process::id()));
     std::fs::write(
         &scratch,
-        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"], "GroupReposByRoot": true}}"#,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"], "GroupReposByRoot": true, "GroupRootDepth": 2}}"#,
     )
     .expect("scratch settings");
     let (net_tx, _net_rx) = async_channel::unbounded();

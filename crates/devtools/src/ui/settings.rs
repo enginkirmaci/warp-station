@@ -44,13 +44,11 @@ pub struct SettingsPage {
     terminal_executable: Entity<InputState>,
     ide_executable: Entity<InputState>,
     opencode_executable: Entity<InputState>,
-    zcode_executable: Entity<InputState>,
     enable_code_search: bool,
     code_search_executable: Entity<InputState>,
     enable_terminal: bool,
     enable_vscode: bool,
     enable_visual_studio: bool,
-    enable_zcode: bool,
     snap_it_auto_start: bool,
     keep_awake_enabled: bool,
     // OpenCode
@@ -152,7 +150,6 @@ impl SettingsPage {
             terminal_executable: field(window, cx, &repos.terminal_executable),
             ide_executable: field(window, cx, &repos.ide_executable),
             opencode_executable: field(window, cx, &repos.opencode_executable),
-            zcode_executable: field(window, cx, &repos.zcode_executable),
             enable_code_search: repos.enable_code_search.unwrap_or(true),
             code_search_executable: field(
                 window,
@@ -162,7 +159,6 @@ impl SettingsPage {
             enable_terminal: repos.enable_terminal,
             enable_vscode: repos.enable_vscode,
             enable_visual_studio: repos.enable_visual_studio,
-            enable_zcode: repos.enable_zcode,
             snap_it_auto_start: settings.snap_it.auto_start,
             keep_awake_enabled: settings.keep_awake.enabled,
             enable_opencode: settings.opencode.enable_opencode,
@@ -222,10 +218,9 @@ impl SettingsPage {
             Self::value(&self.vscode_profile, cx),
             Self::value(&self.terminal_executable, cx),
         );
-        let (ide_exe, opencode_exe, zcode_exe) = (
+        let (ide_exe, opencode_exe) = (
             Self::value(&self.ide_executable, cx),
             Self::value(&self.opencode_executable, cx),
-            Self::value(&self.zcode_executable, cx),
         );
         let (default_model, github_exe) = (
             Self::value(&self.default_model, cx),
@@ -239,7 +234,6 @@ impl SettingsPage {
             self.enable_terminal,
             self.enable_vscode,
             self.enable_visual_studio,
-            self.enable_zcode,
             self.enable_opencode,
             self.enable_github,
             self.enable_azure,
@@ -284,19 +278,17 @@ impl SettingsPage {
                 s.repos.terminal_executable = terminal_exe;
                 s.repos.ide_executable = ide_exe;
                 s.repos.opencode_executable = opencode_exe;
-                s.repos.zcode_executable = zcode_exe;
                 s.repos.enable_terminal = flags.3;
                 s.repos.enable_vscode = flags.4;
                 s.repos.enable_visual_studio = flags.5;
-                s.repos.enable_zcode = flags.6;
-                s.opencode.enable_opencode = flags.7;
+                s.opencode.enable_opencode = flags.6;
                 s.warp_agent.enable_warp_agent = warp_enabled;
                 s.warp_agent.executable = warp_exe;
                 s.opencode.default_model = default_model;
                 s.opencode.commit_model = (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
-                s.repos.enable_git_hub = flags.8;
+                s.repos.enable_git_hub = flags.7;
                 s.repos.git_hub_executable = github_exe;
-                s.repos.enable_azure_dev_ops = flags.9;
+                s.repos.enable_azure_dev_ops = flags.8;
                 s.repos.azure_dev_ops_pat = azure_pat;
                 s.repos.azure_dev_ops_url = azure_url;
                 s.snap_it.auto_start = snap_it_auto_start;
@@ -488,10 +480,10 @@ impl Render for SettingsPage {
                                                 this.group_by_root = !this.group_by_root;
                                                 cx.notify();
                                             })))
-                                            .child(label("Group the table under each scan folder — collapsing and filtering here never rescans."))
+                                            .child(label("Group the table under the scan folders' shared folder — collapsing and filtering here never rescans."))
                                             .when(this.group_by_root, |card| {
                                                 card.child(group_depth_row(this, cx))
-                                                    .child(label("Headers sit this many folder levels under each scan folder; deeper repos fold into their ancestor's group."))
+                                                    .child(label("Headers sit this many folder levels under the scan folders' shared folder; deeper repos fold into their ancestor's group. Scan folders sharing no folder group individually."))
                                             })
                                     }))
                                     .child(self.card("Git", cx, |this, cx, card| {
@@ -516,16 +508,10 @@ impl Render for SettingsPage {
                                                 cx.notify();
                                             })),
                                         ))
-                                        .child(two_col(
-                                            switch_row("Enable Terminal", this.enable_terminal, cx.listener(|this, _, _, cx| {
-                                                this.enable_terminal = !this.enable_terminal;
-                                                cx.notify();
-                                            })),
-                                            switch_row("Enable ZCode", this.enable_zcode, cx.listener(|this, _, _, cx| {
-                                                this.enable_zcode = !this.enable_zcode;
-                                                cx.notify();
-                                            })),
-                                        ))
+                                        .child(switch_row("Enable Terminal", this.enable_terminal, cx.listener(|this, _, _, cx| {
+                                            this.enable_terminal = !this.enable_terminal;
+                                            cx.notify();
+                                        })))
                                         .child(two_col(
                                             field_row("VS Code executable", &this.vscode_executable),
                                             field_row("VS Code profile", &this.vscode_profile),
@@ -534,10 +520,7 @@ impl Render for SettingsPage {
                                             field_row("Terminal executable", &this.terminal_executable),
                                             field_row("IDE executable", &this.ide_executable),
                                         ))
-                                        .child(two_col(
-                                            field_row("OpenCode executable", &this.opencode_executable),
-                                            field_row("ZCode executable", &this.zcode_executable),
-                                        ))
+                                        .child(field_row("OpenCode executable", &this.opencode_executable))
                                         .child(switch_row("Cross-repo code search", this.enable_code_search, cx.listener(|this, _, _, cx| {
                                             this.enable_code_search = !this.enable_code_search;
                                             cx.notify();
@@ -1167,8 +1150,8 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
     row.into_any_element()
 }
 
-/// The group-depth picker: 1/2/3/4 segmented buttons; 1 = the scan roots
-/// themselves. Only rendered while grouping is on.
+/// The group-depth picker: 1/2/3/4 segmented buttons; 1 = the scan roots'
+/// shared folder. Only rendered while grouping is on.
 fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     let mut row = div()
         .id("group-depth-row")

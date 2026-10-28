@@ -11,3 +11,4 @@ src/Tools.SnapIt/obj/
 
 # Packaging artifacts
 packaging/windows/out/
+packaging/linux/out/

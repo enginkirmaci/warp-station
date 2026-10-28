@@ -189,8 +189,10 @@ mod tests {
 
     /// Two fake repos with nested files and realistic text. Returns the root
     /// the repos live under.
-    fn fixture() -> PathBuf {
-        let root = std::env::temp_dir().join(format!("devtools-code-search-{}", std::process::id()));
+    fn fixture(name: &str) -> PathBuf {
+        // the name keeps parallel tests out of each other's remove_dir_all
+        let root =
+            std::env::temp_dir().join(format!("devtools-code-search-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("alpha/src")).unwrap();
         fs::create_dir_all(root.join("beta/docs")).unwrap();
@@ -219,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn finds_matches_across_repos_with_case_insensitive_fixed_strings() {
-        let root = fixture();
+        let root = fixture("case-insensitive");
         let hits = search(&root, "NEEDLE", 12).await;
         if hits.is_empty() {
             return; // rg missing — skipped above
@@ -245,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn cap_bounds_the_hit_list() {
-        let root = fixture();
+        let root = fixture("cap");
         let hits = search(&root, "needle", 3).await;
         if hits.is_empty() {
             return;
@@ -256,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn long_lines_window_the_excerpt_around_the_match() {
-        let root = fixture();
+        let root = fixture("long-lines");
         let filler = "x".repeat(400);
         fs::create_dir_all(root.join("alpha")).unwrap();
         fs::write(
@@ -303,7 +305,9 @@ mod tests {
             return;
         };
         assert!(run_code_search(&rg, &[], "term", 12).await.is_empty());
-        assert!(run_code_search(&rg, &folders(&fixture()), "   ", 12).await.is_empty());
+        assert!(
+            run_code_search(&rg, &folders(&fixture("empty-inputs")), "   ", 12).await.is_empty()
+        );
         // a folder that does not exist: rg errors, the sweep still settles empty
         assert!(run_code_search(&rg, &[PathBuf::from("/definitely/not/here")], "term", 12).await.is_empty());
     }

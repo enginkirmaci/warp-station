@@ -13,8 +13,8 @@ use devtools_core::settings::RepoSortMode;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectedRow {
     Group {
-        /// Stable identity for collapse/solo state: the scan-root path, or
-        /// "other" for repos under no root.
+        /// Stable identity for collapse/solo state: the group's folder path
+        /// (shared trunk, lone root, or "other" for repos under no root).
         key: String,
         /// Display name: the root's last path segment ("Other" for other).
         name: String,
@@ -40,8 +40,9 @@ impl ProjectedRow {
 /// historical flat list (repo rows only, no headers).
 pub struct Grouping<'a> {
     pub roots: &'a [String],
-    /// Folder levels the headers sit at under each root (1 = the roots
-    /// themselves); deeper repos fold into their ancestor's bucket.
+    /// Folder levels the headers sit at under the roots' shared trunk
+    /// (1 = the trunk itself; roots sharing no folder group individually);
+    /// deeper repos fold into their ancestor's bucket.
     pub depth: usize,
     pub collapsed: &'a std::collections::HashSet<String>,
     /// When set, only this group's repos are projected (the header's
@@ -141,52 +142,88 @@ fn keys_match(a: &str, b: &str) -> bool {
     a == b
 }
 
-/// Longest-prefix assignment: a repo lands under the deepest root that
-/// contains its folder (roots may themselves be repo folders), so nested
-/// roots are deterministic. No match → the "other" fallback group. At
-/// depth > 1 the matched root's key extends down the folder's relative
-/// path, so headers sit at intermediate folder levels.
+/// A repo groups only when some root contains its folder (roots may
+/// themselves be repo folders); no match → the "other" fallback group. The
+/// header key hangs off the roots' shared trunk, `depth` folder levels
+/// below it, so sibling roots under one parent merge into that parent's
+/// group at depth 1. When the roots share no folder, grouping stays
+/// per-root and the header sits on the matched root itself.
 fn assign_group(folder: &str, roots: &[String], depth: usize) -> (String, String) {
-    let mut best: Option<&String> = None;
-    for root in roots {
-        if !is_under(folder, root) {
-            continue;
-        }
-        let longer = match best {
-            None => true,
-            Some(current) => {
-                root.trim_end_matches(['/', '\\']).chars().count()
-                    > current.trim_end_matches(['/', '\\']).chars().count()
-            }
-        };
-        if longer {
-            best = Some(root);
-        }
-    }
-    match best {
-        Some(root) if depth > 1 => {
-            let key = extended_group_key(folder, root, depth);
-            let name = last_path_segment(&key);
-            (key, name)
-        }
-        Some(root) => (root.clone(), last_path_segment(root)),
-        None => (OTHER_GROUP_KEY.to_string(), OTHER_GROUP_NAME.to_string()),
-    }
+    let Some(matched) = roots.iter().find(|root| is_under(folder, root)) else {
+        return (OTHER_GROUP_KEY.to_string(), OTHER_GROUP_NAME.to_string());
+    };
+    let base = shared_trunk(roots).unwrap_or_else(|| (*matched).clone());
+    let key = extended_group_key(folder, &base, depth);
+    let name = last_path_segment(&key);
+    (key, name)
 }
 
-/// The depth > 1 group key: the matched root plus the first depth-1
+/// The folder every scan root sits under — the shared trunk the depth
+/// picker counts from. Sliced out of the first root at a component
+/// boundary, so the trunk keeps the roots' own separators. None when the
+/// roots share nothing above the filesystem root (disjoint trees group
+/// per-root).
+fn shared_trunk(roots: &[String]) -> Option<String> {
+    let trimmed: Vec<&str> = roots
+        .iter()
+        .map(|root| root.trim_end_matches(['/', '\\']))
+        .filter(|root| !root.is_empty())
+        .collect();
+    let first = *trimmed.first()?;
+    if trimmed.len() == 1 {
+        return Some(first.to_string());
+    }
+    fn components(path: &str) -> Vec<&str> {
+        path.split(['/', '\\']).filter(|c| !c.is_empty()).collect()
+    }
+    let mut shared: Vec<&str> = components(first);
+    for other in &trimmed[1..] {
+        let comps = components(other);
+        let mut keep = 0;
+        while keep < shared.len() && keep < comps.len() && same_folder_text(shared[keep], comps[keep]) {
+            keep += 1;
+        }
+        shared.truncate(keep);
+        if shared.is_empty() {
+            return None;
+        }
+    }
+    Some(first[..component_prefix_len(first, shared.len())].to_string())
+}
+
+/// Byte length of `path`'s first `count` non-empty components (separators
+/// included), so the trunk is a literal prefix of the root text.
+fn component_prefix_len(path: &str, count: usize) -> usize {
+    let bytes = path.as_bytes();
+    let mut seen = 0usize;
+    let mut start = 0usize;
+    for ix in 0..=bytes.len() {
+        if ix == bytes.len() || bytes[ix] == b'/' || bytes[ix] == b'\\' {
+            if ix > start {
+                seen += 1;
+                if seen == count {
+                    return ix;
+                }
+            }
+            start = ix + 1;
+        }
+    }
+    bytes.len()
+}
+
+/// The group key: the trunk (or a lone root) plus the first depth-1
 /// components of the folder's remainder below it. Slicing mirrors
 /// `is_under` (whose compare is case-insensitive on Windows), so a
-/// case-differing prefix still splits at the root's byte length.
-fn extended_group_key(folder: &str, root: &str, depth: usize) -> String {
-    let root = root.trim_end_matches(['/', '\\']);
+/// case-differing prefix still splits at the base's byte length.
+fn extended_group_key(folder: &str, base: &str, depth: usize) -> String {
+    let base = base.trim_end_matches(['/', '\\']);
     let folder = folder.trim_end_matches(['/', '\\']);
-    if root.is_empty() || same_folder_text(folder, root) {
-        return root.to_string();
+    if base.is_empty() || same_folder_text(folder, base) {
+        return base.to_string();
     }
-    let rest = match folder.get(root.len()..) {
+    let rest = match folder.get(base.len()..) {
         Some(rest) if rest.starts_with(['/', '\\']) => &rest[1..],
-        _ => return root.to_string(),
+        _ => return base.to_string(),
     };
     let key = rest
         .split(['/', '\\'])
@@ -195,9 +232,9 @@ fn extended_group_key(folder: &str, root: &str, depth: usize) -> String {
         .collect::<Vec<_>>()
         .join("/");
     if key.is_empty() {
-        root.to_string()
+        base.to_string()
     } else {
-        format!("{root}/{key}")
+        format!("{base}/{key}")
     }
 }
 
@@ -397,8 +434,11 @@ mod tests {
             .collect()
     }
 
+    /// The default grouping for the /roots fixtures. Sibling-folder roots
+    /// render as their own headers only from depth 2 — depth 1 merges them
+    /// under their shared trunk (/roots).
     fn grouping<'a>(roots: &'a [String], collapsed: &'a std::collections::HashSet<String>) -> Grouping<'a> {
-        grouping_at(roots, collapsed, 1)
+        grouping_at(roots, collapsed, 2)
     }
 
     fn grouping_at<'a>(
@@ -621,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn repos_group_by_longest_matching_root() {
+    fn nested_roots_split_only_where_depth_reaches() {
         let all = vec![
             repo("alpha", "/work/alpha", &[]),
             repo("beta", "/work/rust/beta", &[]),
@@ -629,16 +669,29 @@ mod tests {
         ];
         let roots = vec!["/work".to_string(), "/work/rust".to_string()];
         let collapsed = std::collections::HashSet::new();
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 1)),
+        );
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/work(3)", "alpha", "beta", "gamma"],
+            "the roots share /work, so depth 1 hangs every repo under it regardless of which root matched"
+        );
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
         assert_eq!(
             sketch(&rows, &all),
-            vec!["#/work(1)", "alpha", "#/work/rust(2)", "beta", "gamma"],
-            "the deeper root claims the nested repos; headers interleave in root order"
+            vec!["#/work/alpha(1)", "alpha", "#/work/rust(2)", "beta", "gamma"],
+            "depth 2 splits the trunk by first subfolder; the deeper root's repos land together"
         );
         let ProjectedRow::Group { name, count, collapsed: open, .. } = &rows[2] else {
             panic!("expected a group header");
         };
-        assert_eq!(name, "rust", "the header names itself after the root's last segment");
+        assert_eq!(name, "rust", "the header names itself after the subfolder");
         assert_eq!(*count, 2);
         assert!(!open, "groups start expanded");
     }
@@ -799,7 +852,7 @@ mod tests {
         let all = grouped_repos();
         let roots = vec!["/roots/a".to_string(), "/roots/b".to_string()];
         let collapsed = std::collections::HashSet::new();
-        let solo = Grouping { roots: &roots, depth: 1, collapsed: &collapsed, solo: Some("/roots/a") };
+        let solo = Grouping { roots: &roots, depth: 2, collapsed: &collapsed, solo: Some("/roots/a") };
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&solo));
         assert_eq!(
             sketch(&rows, &all),
@@ -807,7 +860,7 @@ mod tests {
             "soloing one group hides the other groups entirely"
         );
 
-        let solo_other = Grouping { roots: &roots, depth: 1, collapsed: &collapsed, solo: Some("other") };
+        let solo_other = Grouping { roots: &roots, depth: 2, collapsed: &collapsed, solo: Some("other") };
         let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&solo_other));
         assert_eq!(sketch(&rows, &all), vec!["#other(1)", "delta"]);
     }
@@ -892,8 +945,8 @@ mod tests {
         let all = vec![repo("alpha", "/work/rust/alpha", &[]), repo("beta", "/work/go/beta", &[])];
         let roots = vec!["/work".to_string()];
         let collapsed = std::collections::HashSet::new();
-        let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
-        let deeper = project(
+        // a lone root is its own trunk, so depth 1 keeps the root-level header
+        let rows = project(
             &all,
             &[],
             RepoSortMode::Name,
@@ -901,8 +954,64 @@ mod tests {
             false,
             Some(&grouping_at(&roots, &collapsed, 1)),
         );
-        assert_eq!(sketch(&rows, &all), sketch(&deeper, &all));
         assert_eq!(sketch(&rows, &all), vec!["#/work(2)", "alpha", "beta"]);
+    }
+
+    #[test]
+    fn leaf_roots_under_one_parent_merge_into_it_at_depth_one() {
+        // the adopt/add flow seeds one root per repo folder; depth 1 should
+        // hang them all under the folder they share
+        let all = vec![
+            repo("alpha", "/home/e/Developments/DevTools", &[]),
+            repo("beta", "/home/e/Developments/lumux", &[]),
+            repo("gamma", "/home/e/Developments/test/lumux", &[]),
+        ];
+        let roots = vec![
+            "/home/e/Developments/DevTools".to_string(),
+            "/home/e/Developments/lumux".to_string(),
+            "/home/e/Developments/test/lumux".to_string(),
+        ];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(
+            &all,
+            &[],
+            RepoSortMode::Name,
+            true,
+            false,
+            Some(&grouping_at(&roots, &collapsed, 1)),
+        );
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/home/e/Developments(3)", "alpha", "beta", "gamma"],
+        );
+        let ProjectedRow::Group { name, .. } = &rows[0] else {
+            panic!("expected a group header");
+        };
+        assert_eq!(name, "Developments", "the header names itself after the shared folder");
+
+        let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
+        assert_eq!(
+            sketch(&rows, &all),
+            vec![
+                "#/home/e/Developments/DevTools(1)", "alpha",
+                "#/home/e/Developments/lumux(1)", "beta",
+                "#/home/e/Developments/test(1)", "gamma",
+            ],
+            "depth 2 splits the trunk by first subfolder; the nested repo folds into test"
+        );
+    }
+
+    #[test]
+    fn disjoint_roots_fall_back_to_per_root_headers() {
+        let all = vec![repo("alpha", "/work/x", &[]), repo("beta", "/mnt/y", &[])];
+        let roots = vec!["/work/x".to_string(), "/mnt/y".to_string()];
+        let collapsed = std::collections::HashSet::new();
+        let rows = project(&all, &[], RepoSortMode::Name, true, false, Some(&grouping(&roots, &collapsed)));
+        assert_eq!(
+            sketch(&rows, &all),
+            vec!["#/mnt/y(1)", "beta", "#/work/x(1)", "alpha"],
+            "roots sharing no folder keep one header per root at any depth"
+        );
     }
 
     #[test]

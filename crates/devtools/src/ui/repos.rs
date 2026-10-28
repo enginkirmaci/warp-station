@@ -686,9 +686,6 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     if settings.repos.enable_vscode {
         buttons += 1;
     }
-    if settings.repos.enable_zcode {
-        buttons += 1;
-    }
     if cfg!(windows) && settings.repos.enable_visual_studio {
         buttons += 1;
     }
@@ -1010,6 +1007,11 @@ impl TableDelegate for ReposDelegate {
                         .border_b_1()
                         .border_color(theme::BORDER_LIGHT),
                 );
+        } else {
+            // repo rows register the hover group the activity cell's
+            // archive/restore action reveals under — on the row, so hovering
+            // anywhere on it counts, not just that one cell
+            tr = tr.group("repo-row");
         }
         tr
     }
@@ -1109,6 +1111,11 @@ impl TableDelegate for ReposDelegate {
         let folder = repo.folder_path.to_string_lossy().to_string();
         let show_tooltips = settings.general.show_tooltips;
         let archived = repo.is_archived();
+        let warp_running = store
+            .warp_running
+            .get(&folder)
+            .filter(|status| !status.running.is_empty())
+            .map(|status| status.running.join(", "));
 
         let cell: gpui::AnyElement = match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
             ColKind::Star => {
@@ -1138,46 +1145,41 @@ impl TableDelegate for ReposDelegate {
                             px(theme::icon_medium()),
                             if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
                         ));
-                    crate::ui::with_tooltip(
-                        star,
-                        show_tooltips,
-                        if favorite { "Remove from favorites" } else { "Add to favorites" },
-                    )
-                    .into_any_element()
+                    let mut cell = div()
+                        .relative()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(crate::ui::with_tooltip(
+                            star,
+                            show_tooltips,
+                            if favorite { "Remove from favorites" } else { "Add to favorites" },
+                        ));
+                    // warp-agent presence: a leading dot instead of the old
+                    // sparkle logo in the shortcuts cell
+                    if let Some(titles) = warp_running {
+                        let dot = div()
+                            .id(SharedString::from(format!("warp-running-{row_ix}")))
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .bottom_0()
+                            .flex()
+                            .items_center()
+                            .child(div().rounded_full().size(px(7.)).bg(theme::SUCCESS_BRIGHT));
+                        cell = cell.child(crate::ui::with_tooltip(
+                            dot,
+                            show_tooltips,
+                            SharedString::from(format!("warp-agent is running: {titles}")),
+                        ));
+                    }
+                    cell.into_any_element()
                 }
             }
             ColKind::Name => {
                 if archived {
-                    // limp identity plus the hover-revealed restore action —
-                    // the only live control on the row
-                    let store = self.store.clone();
-                    let folder_restore = folder.clone();
-                    let restore_name = repo.name.clone();
-                    let restore = div()
-                        .id(("restore", row_ix))
-                        .debug_selector(move || format!("repos-restore-{row_ix}"))
-                        .cursor_pointer()
-                        .flex_shrink_0()
-                        .rounded_md()
-                        .p_1p5()
-                        .flex()
-                        .items_center()
-                        .opacity(0.)
-                        .group_hover("archived-row", |s| s.opacity(1.))
-                        .hover(|s| s.bg(theme::HOVER))
-                        .on_click(move |_, _, cx| {
-                            cx.stop_propagation();
-                            store.update(cx, |s, cx| {
-                                s.set_repo_archived(&folder_restore, false, cx);
-                                s.notify_success(format!("Restored {restore_name}"));
-                                cx.notify();
-                            });
-                        })
-                        .child(icon(
-                            "icons/icon-undo.svg",
-                            px(theme::icon_medium()),
-                            theme::TEXT_MUTED,
-                        ));
+                    // limp identity; the hover-revealed restore lives in the
+                    // activity cell, at the row's end
                     div()
                         .debug_selector(move || format!("repos-name-cell-{row_ix}"))
                         .flex()
@@ -1196,7 +1198,6 @@ impl TableDelegate for ReposDelegate {
                                 .text_ellipsis()
                                 .child(repo.name.clone()),
                         )
-                        .child(restore)
                         .into_any_element()
                 } else {
                     let store = self.store.clone();
@@ -1255,12 +1256,7 @@ impl TableDelegate for ReposDelegate {
                 if archived {
                     div().into_any_element()
                 } else {
-                    let warp_running = store
-                        .warp_running
-                        .get(&folder)
-                        .filter(|status| !status.running.is_empty())
-                        .map(|status| status.running.join(", "));
-                    shortcuts_cell(repo, &settings, row_ix, &self.store, warp_running)
+                    shortcuts_cell(repo, &settings, row_ix, &self.store)
                 }
             }
             // branch pill and changes cell open the bar's Changes tab; the
@@ -1327,21 +1323,85 @@ impl TableDelegate for ReposDelegate {
                 }
             }
             ColKind::Activity => {
-                let cell = div()
+                // the row's end carries its one archive control: hovering
+                // the row swaps the last-activity value for it (archive on
+                // live rows, restore on archived ones)
+                let store = self.store.clone();
+                let action_folder = folder.clone();
+                let action_name = repo.name.clone();
+                let action = div()
+                    .id(("archive-toggle", row_ix))
+                    .debug_selector(move || {
+                        if archived {
+                            format!("repos-restore-{row_ix}")
+                        } else {
+                            format!("repos-archive-toggle-{row_ix}")
+                        }
+                    })
+                    .cursor_pointer()
+                    .rounded_md()
+                    .p_1p5()
                     .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .group_hover("repo-row", |s| s.opacity(1.))
+                    .hover(|s| s.bg(theme::HOVER))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        store.update(cx, |s, cx| {
+                            if archived {
+                                s.set_repo_archived(&action_folder, false, cx);
+                                s.notify_success(format!("Restored {action_name}"));
+                            } else {
+                                s.set_repo_archived(&action_folder, true, cx);
+                                s.notify_success(format!("Archived {action_name}"));
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .child(icon(
+                        if archived {
+                            "icons/icon-undo.svg"
+                        } else {
+                            "icons/icon-package.svg"
+                        },
+                        px(theme::icon_medium()),
+                        theme::TEXT_MUTED,
+                    ));
+                let action = crate::ui::with_tooltip(
+                    action,
+                    show_tooltips,
+                    if archived {
+                        "Unarchive repository"
+                    } else {
+                        "Archive repository"
+                    },
+                );
+                div()
+                    .relative()
+                    .flex()
+                    .items_center()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
                     .child(
-                        repo.git_last_commit_at
-                            .map(devtools_core::rel_time::format)
-                            .unwrap_or_else(|| "—".into()),
+                        div()
+                            .opacity(if archived { 0.55 } else { 1. })
+                            .group_hover("repo-row", |s| s.opacity(0.))
+                            .child(
+                                repo.git_last_commit_at
+                                    .map(devtools_core::rel_time::format)
+                                    .unwrap_or_else(|| "—".into()),
+                            ),
                     )
-                    .into_any_element();
-                if archived {
-                    faded(cell)
-                } else {
-                    cell
-                }
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .child(action),
+                    )
+                    .into_any_element()
             }
         };
 
@@ -1350,18 +1410,16 @@ impl TableDelegate for ReposDelegate {
         // cell centers inside an explicit flex column instead. The height
         // must leave the kit's own 4+4 cell padding free — at the full row
         // height the column overflows 8px and content rides ~4px low.
-        // Archived rows also register the hover group the restore icon
-        // reveals under.
-        let mut wrap = div()
+        // The hover group lives on the row (render_tr), not the cell: hover
+        // anywhere on the row must reach the activity cell's action.
+        div()
             .debug_selector(move || format!("repos-td-wrap-{row_ix}"))
             .h(px(theme::TABLE_ROW_H - 8.))
             .flex()
             .flex_col()
-            .justify_center();
-        if archived {
-            wrap = wrap.group("archived-row");
-        }
-        wrap.child(cell).into_any_element()
+            .justify_center()
+            .child(cell)
+            .into_any_element()
     }
 
     fn render_empty(
@@ -1461,20 +1519,22 @@ fn group_header_cell(
             .into_any_element()
         }
         1 => {
-            let solo = div()
+            // the folder icon doubles as the "show only this group" button:
+            // hovering anywhere on the header row swaps it to the search
+            // action in place (the reveal group is the row's, render_tr)
+            let solo_swap = div()
                 .id(("group-solo", row_ix as u64))
                 .debug_selector({
                     let selector = format!("repos-group-header-{key}-solo");
                     move || selector.clone()
                 })
+                .relative()
                 .cursor_pointer()
-                .rounded_md()
-                .p_1p5()
                 .flex()
                 .items_center()
-                // hover-revealed like the changes rows' discard action
-                .opacity(0.)
-                .group_hover("repos-group-header", |s| s.opacity(1.))
+                .justify_center()
+                .size(px(theme::icon_medium()))
+                .rounded_md()
                 .hover(|s| s.bg(theme::HOVER))
                 .on_click({
                     let store = store.clone();
@@ -1484,12 +1544,24 @@ fn group_header_cell(
                         store.update(cx, |s, cx| s.solo_group(&key, cx));
                     }
                 })
-                .child(icon(
-                    "icons/icon-search.svg",
-                    px(theme::icon_medium()),
-                    theme::TEXT_MUTED,
-                ));
-            let solo = crate::ui::with_tooltip(solo, show_tooltips, "Show only this group");
+                .child(
+                    icon("icons/icon-folder.svg", px(theme::icon_medium()), theme::TEXT_FAINT)
+                        .group_hover("repos-group-header", |s| s.opacity(0.)),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            icon("icons/icon-search.svg", px(theme::icon_medium()), theme::TEXT_MUTED)
+                                .opacity(0.)
+                                .group_hover("repos-group-header", |s| s.opacity(1.)),
+                        ),
+                );
+            let solo_swap = crate::ui::with_tooltip(solo_swap, show_tooltips, "Show only this group");
             let name_label = crate::ui::with_tooltip(
                 div()
                     .id(("group-name", row_ix as u64))
@@ -1517,11 +1589,7 @@ fn group_header_cell(
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(icon(
-                    "icons/icon-folder.svg",
-                    px(theme::icon_medium()),
-                    theme::TEXT_FAINT,
-                ))
+                .child(solo_swap)
                 .child(name_label)
                 .child(
                     div()
@@ -1536,8 +1604,6 @@ fn group_header_cell(
                         .text_color(theme::TEXT_MUTED)
                         .child(format!("{count}")),
                 )
-                .child(div().flex_1())
-                .child(solo)
                 .into_any_element()
         }
         _ => div().into_any_element(),
@@ -1783,33 +1849,18 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
 }
 
 /// Per-row buttons: bordered squares, launch order
-/// [zcode][solution][vscode][folder][terminal]. Purely visibility switches from
+/// [opencode][solution][vscode][folder][terminal]. Purely visibility switches from
 /// settings — a configured-but-missing executable reports at launch time.
 fn shortcuts_cell(
     repo: &RepoEntry,
     settings: &AppSettings,
     row_ix: usize,
     store: &Entity<Store>,
-    warp_running: Option<String>,
 ) -> gpui::AnyElement {
     use devtools_core::terminal;
     let folder = repo.folder_path.to_string_lossy().to_string();
     let show_tooltips = settings.general.show_tooltips;
     let mut row = div().flex().flex_row().items_center().gap_1p5();
-
-    // a live warp-agent turn in this repo's workspace: leading sparkle
-    if let Some(titles) = warp_running {
-        let element = div()
-            .id(SharedString::from(format!("warp-running-{row_ix}")))
-            .flex()
-            .items_center()
-            .child(icon("icons/icon-agent-sparkle.svg", px(theme::icon_small()), theme::SUCCESS_BRIGHT));
-        row = row.child(crate::ui::with_tooltip(
-            element,
-            show_tooltips,
-            SharedString::from(format!("warp-agent is running: {titles}")),
-        ));
-    }
 
     // the agent door: opens the repo as a warp-agent workspace (added when
     // missing, launched when closed)
@@ -1914,20 +1965,6 @@ fn shortcuts_cell(
         );
     }
 
-    if settings.repos.enable_zcode {
-        row = row.child(button(
-            format!("open-zcode-{row_ix}"),
-            "icons/icon-zcode.svg",
-            theme::TEXT_MUTED,
-            "Open in ZCode",
-            Box::new({
-                let folder = folder.clone();
-                let term = settings.repos.terminal_executable.clone();
-                let zcode = settings.repos.zcode_executable.clone();
-                move || terminal::launch_in_terminal(&folder, &zcode, &term)
-            }),
-        ));
-    }
     // Open-solution slot: Visual Studio exists only on Windows, so the whole
     // slot — button or empty reservation — drops on other platforms; the
     // reservation keeps repos without a solution aligned with the rest.
@@ -2028,7 +2065,6 @@ mod tests {
         let mut settings = AppSettings::default();
         settings.repos.enable_terminal = launchers.contains(&"terminal");
         settings.repos.enable_vscode = launchers.contains(&"vscode");
-        settings.repos.enable_zcode = launchers.contains(&"zcode");
         settings.repos.enable_visual_studio = launchers.contains(&"sln");
         settings.opencode.enable_opencode = launchers.contains(&"opencode");
         settings.warp_agent.enable_warp_agent = launchers.contains(&"warp");
@@ -2041,13 +2077,11 @@ mod tests {
         assert_eq!(shortcuts_column_width(&settings_with(&[])), px(44.));
         // folder + terminal: two buttons + one gap
         assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(86.));
-        // full linux set: warp door, opencode button + divider, zcode, vscode,
-        // folder, terminal = 6 buttons + divider = 7 children -> 6 gaps +
+        // full linux set: warp door, opencode button + divider, vscode,
+        // folder, terminal = 5 buttons + divider = 6 children -> 5 gaps +
         // divider (1px + mx_1 = 9); the solution slot only joins on Windows
-        let full = shortcuts_column_width(&settings_with(&[
-            "terminal", "vscode", "zcode", "opencode", "warp",
-        ]));
-        assert_eq!(full, px(6. * 36. + 6. * 6. + 9. + 8.));
+        let full = shortcuts_column_width(&settings_with(&["terminal", "vscode", "opencode", "warp"]));
+        assert_eq!(full, px(5. * 36. + 5. * 6. + 9. + 8.));
     }
 
     /// Selection can originate outside a row click (global search, the notes

@@ -1,5 +1,5 @@
 //! Opening things at a repo: folders and solutions through the desktop, VS
-//! Code with the configured profile, and a command (zcode, opencode, a shell)
+//! Code with the configured profile, and a command (opencode, a shell)
 //! inside the configured terminal emulator — each emulator has its own
 //! working-directory and -e argument shapes.
 
@@ -232,7 +232,7 @@ fn probed_terminals() -> &'static [&'static str] {
     &["alacritty", "ghostty", "foot", "kitty", "wezterm", "gnome-terminal", "konsole", "xterm"]
 }
 
-/// Runs a command (zcode, opencode, …) inside a terminal at the folder.
+/// Runs a command (opencode, a shell, …) inside a terminal at the folder.
 pub fn launch_in_terminal(folder: &str, command: &str, terminal_executable: &str) -> Result<(), String> {
     launch_argv_in_terminal(folder, &[command.to_string()], terminal_executable)
 }
