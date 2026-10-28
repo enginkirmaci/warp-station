@@ -918,12 +918,18 @@ fn status_chip(
         .into_any_element()
 }
 
-/// An empty stretch of titlebar that moves the window when dragged.
+/// A stretch of titlebar that moves the window when dragged. It may stay
+/// empty (the spacer around the search field) or carry the brand — the
+/// windows-only status chips widen the side columns until the spacers
+/// collapse to zero, so the app mark/name must double as a drag surface.
 fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .debug_selector(move || id.to_string())
         .flex_1()
         .h_full()
+        .flex()
+        .items_center()
         // Windows drags via the hit-test path (this hitbox answers HTCAPTION);
         // start_window_move is a no-op there. Linux keeps the explicit move.
         .window_control_area(WindowControlArea::Drag)
@@ -1246,24 +1252,30 @@ impl MainWindow {
                     .flex()
                     .items_center()
                     .gap_1()
+                    // the mark + name are the visible grab handle; the flex_1
+                    // drag region also absorbs the column's empty tail
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(28.))
-                            .child(icon(
-                                "icons/icon-logo-mark.svg",
-                                px(theme::icon_large()),
-                                theme::ACCENT,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::font_title()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::TEXT)
-                            .child("Dev Tools"),
+                        titlebar_drag("titlebar-drag-brand")
+                            .gap_1()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .size(px(28.))
+                                    .child(icon(
+                                        "icons/icon-logo-mark.svg",
+                                        px(theme::icon_large()),
+                                        theme::ACCENT,
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_title()))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::TEXT)
+                                    .child("Dev Tools"),
+                            ),
                     )
                     // hairline between the app name and the tools that follow
                     .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))

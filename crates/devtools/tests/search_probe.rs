@@ -216,6 +216,52 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
     );
 }
 
+/// The brand column must be a drag surface, not just the empty spacers beside
+/// the search field. On Windows the SnapIt/Awake chips widen both side columns
+/// until those flex spacers collapse to zero at the default window size, which
+/// left the window with no titlebar drag region at all. The mark + name sit
+/// inside a drag region that also absorbs the column's empty tail.
+#[gpui::test]
+fn titlebar_brand_is_a_drag_surface(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-titlebar-drag-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let store_handle = store.clone();
+    let handle = cx.open_window(gpui::size(gpui::px(1280.), gpui::px(820.)), |window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    wcx.run_until_parked();
+    draw(&mut wcx);
+    let _ = std::fs::remove_file(&scratch);
+
+    let brand = wcx.debug_bounds("titlebar-brand").expect("brand column");
+    let drag = wcx
+        .debug_bounds("titlebar-drag-brand")
+        .expect("brand drag surface");
+    assert!(
+        drag.size.width > gpui::px(100.),
+        "the mark + name must carry a real drag region (got {drag:?})"
+    );
+    assert!(
+        drag.origin.x >= brand.origin.x
+            && drag.origin.x + drag.size.width <= brand.origin.x + brand.size.width,
+        "the drag surface stays inside the brand column ({drag:?} vs {brand:?})"
+    );
+}
+
 /// The titlebar's right section reads left to right: status chips (NuGet,
 /// SnapIt on Windows), a separator, the Tools+Settings pill, another
 /// separator, then the window controls.
