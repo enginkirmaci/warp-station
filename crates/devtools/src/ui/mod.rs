@@ -83,6 +83,38 @@ pub fn icon(path: &str, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> gpu
         .text_color(color.into())
 }
 
+/// Branch labels display at most this many characters before the head is
+/// trimmed; the repos branch column and the branch picker share the budget.
+pub const BRANCH_LABEL_CHARS: usize = 18;
+
+/// Long branch names shed whole leading path segments —
+/// `users/enginkirmaci/test` → `…enginkirmaci/test` — and a name whose last
+/// segment alone exceeds the budget sheds characters, so the tail that
+/// disambiguates the branch stays visible.
+pub fn trim_branch_label(branch: &str, budget: usize) -> String {
+    let out = trim_branch_label_inner(branch, budget);
+    eprintln!("[trim] {branch:?} budget={budget} -> {out:?}");
+    out
+}
+
+fn trim_branch_label_inner(branch: &str, budget: usize) -> String {
+    if branch.chars().count() <= budget {
+        return branch.to_string();
+    }
+    let mut tail = branch;
+    while let Some((_, rest)) = tail.split_once('/') {
+        tail = rest;
+        if rest.chars().count() < budget {
+            return format!("…{rest}");
+        }
+    }
+    let keep = budget.saturating_sub(1);
+    let skipped = tail.chars().count() - keep;
+    let mut label: String = tail.chars().skip(skipped).collect();
+    label.insert(0, '…');
+    label
+}
+
 /// The close hook every drawer shares: the host window routes its own
 /// close path in via `with_on_close`.
 pub type DrawerCloseHandler = std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>;
@@ -151,4 +183,35 @@ pub fn drawer_header(
         .border_color(theme::BORDER_LIGHT)
         .child(header)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_branches_pass_through() {
+        assert_eq!(trim_branch_label("main", BRANCH_LABEL_CHARS), "main");
+        assert_eq!(trim_branch_label("users/enginkirma", BRANCH_LABEL_CHARS), "users/enginkirma");
+    }
+
+    #[test]
+    fn long_branches_shed_whole_segments() {
+        assert_eq!(
+            trim_branch_label("users/enginkirmaci/test", BRANCH_LABEL_CHARS),
+            "…enginkirmaci/test"
+        );
+        assert_eq!(
+            trim_branch_label("feature/one/two/three/four", BRANCH_LABEL_CHARS),
+            "…two/three/four"
+        );
+    }
+
+    #[test]
+    fn oversized_last_segment_sheds_characters() {
+        assert_eq!(
+            trim_branch_label("a-very-long-branch-name-without-slashes", 10),
+            "…t-slashes"
+        );
+    }
 }

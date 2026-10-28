@@ -435,6 +435,107 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
     );
 }
 
+/// Long branch names render head-trimmed: the repos pill is narrower than
+/// the untrimmed name's own ink in the same font, the picker lists the row
+/// under its full name, and picking the trimmed row checks out the full
+/// branch — only the display sheds its head.
+#[gpui::test]
+fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    const LONG: &str = "users/enginkirmaci/test";
+    const PILL: &str = "branch-pill-users/enginkirmaci/test";
+    const ROW: &str = "branch-row-users/enginkirmaci/test";
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    // the receiver stays live so the checkout can be read off the channel;
+    // startup status probes may queue their own commands first, hence the
+    // scan for the Checkout below
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        let mut alpha = entry("alpha", "/probe/alpha", &[]);
+        alpha.git_branch_name = Some(LONG.into());
+        store.replace_repos(vec![alpha, entry("beta", "/probe/beta", &[])]);
+        store
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the pill sheds its head: narrower than the full name's ink plus the
+    // pill chrome (icon + gap + px_2), whatever font the probes shape with
+    let pill = cx.debug_bounds(PILL).expect("the long branch pill renders");
+    let untrimmed = cx.update(|window, _| {
+        let run = gpui::TextRun {
+            len: LONG.len(),
+            font: gpui::font(devtools::theme::code_font()),
+            color: gpui::Hsla::default(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        window
+            .text_system()
+            .layout_line(LONG, gpui::px(devtools::theme::font_small()), &[run], None)
+            .width
+    });
+    let chrome = gpui::px(devtools::theme::icon_small() - 2. + 4. + 16.);
+    eprintln!("DEBUG pill={} untrimmed={} chrome={}", pill.size.width, untrimmed, chrome);
+    assert!(
+        pill.size.width < untrimmed + chrome,
+        "the pill trims its head ({} vs untrimmed {} + chrome)",
+        pill.size.width,
+        untrimmed
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.branches = vec![
+            GitBranchRef { name: LONG.into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "origin/users/enginkirmaci/test".into(), kind: GitBranchKind::Remote },
+        ];
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let button = cx
+        .debug_bounds("branch-button")
+        .expect("the branch selector renders in the rail");
+    cx.simulate_click(button.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown opens"
+    );
+    let row = cx.debug_bounds(ROW).expect("the trimmed row renders under its full name");
+    cx.simulate_click(row.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+
+    let mut checkout = None;
+    while let Ok(cmd) = net_rx.try_recv() {
+        if let devtools::net::NetCommand::Git { action, .. } = cmd
+            && let devtools::net::GitAction::Checkout(name) = action
+        {
+            checkout = Some(name);
+        }
+    }
+    assert_eq!(
+        checkout.as_deref(),
+        Some(LONG),
+        "picking the trimmed row checks out the full branch"
+    );
+}
+
 /// The warp status bridge: pushes land per folder, and availability-loss
 /// clears them — the row hints follow warp-agent down with it.
 #[gpui::test]
@@ -1120,7 +1221,12 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
             s.reproject_pub();
         });
         let branch = delegate.column(3, cx).width;
-        assert_eq!(branch, gpui::px(240.), "branch width clamps at 240");
+        let budget = devtools::ui::BRANCH_LABEL_CHARS as f32;
+        assert_eq!(
+            branch,
+            gpui::px(56. + budget * 7.8),
+            "branch width clamps at the trimmed label budget"
+        );
     });
 }
 

@@ -1291,7 +1291,7 @@ impl ChangesView {
 
         // the open branch popup rides LAST so later-sibling paint order puts
         // it over the rail without a deferred wrapper
-        if let Some(popup) = self.branch_picker.update(cx, FilteredPicker::branch_popup) {
+        if let Some(popup) = self.branch_picker.update(cx, FilteredPicker::overlay_popup) {
             rail = rail.child(popup);
         }
 

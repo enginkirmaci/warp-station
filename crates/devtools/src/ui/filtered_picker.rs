@@ -1,71 +1,120 @@
-//! The filtered picker: a select-style trigger over a filtered list. Three
-//! slots share one implementation — the two OpenCode model slots on the
-//! Settings page (virtualized rows over the catalog) and the Changes tab's
-//! branch selector — and filter typing repaints only the picker.
+//! The filtered picker: a shared select-style trigger over a filtered list.
+//! The Settings model slots and the Changes tab's branch selector use the same
+//! trigger, panel and row rendering; only their source data and actions differ.
 
 use crate::net::GitAction;
 use crate::store::Store;
 use crate::theme;
-use crate::ui::{icon, with_tooltip};
+use crate::ui::{icon, trim_branch_label, with_tooltip, BRANCH_LABEL_CHARS};
 use gpui::prelude::*;
 use gpui::{
-    div, px, uniform_list, App, Context, Entity, FontWeight, MouseButton, SharedString, Window,
+    App, Context, Entity, FontWeight, MouseButton, SharedString, Window, div, px, uniform_list,
 };
-use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputState};
 
 const ROW_HEIGHT: f32 = 28.;
-const MODEL_VISIBLE_ROWS: usize = 10;
-/// Branch rows scroll after this many; also the old dropdown's max-h (~220px).
-const BRANCH_VISIBLE_ROWS: usize = 8;
-/// The old dropdown's render cap — the filter reaches anything past it.
-const BRANCH_ROW_CAP: usize = 30;
 
-/// What the picker lists. The Settings model slots write the pick into a
-/// text field; the branch selector checks the picked branch out.
+/// The look and layout choices a picker source contributes to the shared shell.
+#[derive(Clone, Copy)]
+struct PickerSpec {
+    filter_placeholder: &'static str,
+    trigger_icon: Option<&'static str>,
+    provider_badge: bool,
+    refresh: bool,
+    stop_trigger_mousedown: bool,
+    visible_rows: usize,
+    selected_accent: bool,
+    new_branch: bool,
+    overlay: bool,
+}
+
+const MODEL_PICKER: PickerSpec = PickerSpec {
+    filter_placeholder: "Filter models",
+    trigger_icon: None,
+    provider_badge: true,
+    refresh: true,
+    stop_trigger_mousedown: false,
+    visible_rows: 10,
+    selected_accent: false,
+    new_branch: false,
+    overlay: false,
+};
+
+const BRANCH_PICKER: PickerSpec = PickerSpec {
+    filter_placeholder: "Filter branches",
+    trigger_icon: Some("icons/icon-source-branch.svg"),
+    provider_badge: false,
+    refresh: false,
+    stop_trigger_mousedown: true,
+    visible_rows: 8,
+    selected_accent: true,
+    new_branch: true,
+    overlay: true,
+};
+
+/// The ephemeral state a branch picker carries; model pickers have none.
+struct BranchState {
+    new_branch_name: Entity<InputState>,
+    delete_armed: Option<String>,
+    new_branch_open: bool,
+    /// The repo the ephemeral branch state belongs to; a mismatch resets it.
+    loaded_for: Option<String>,
+}
+
+/// What the picker lists. The Settings model slots write the pick into a text
+/// field; the branch selector checks the picked branch out.
 enum PickerSource {
     Models {
         field: Entity<InputState>,
         default_label: &'static str,
     },
-    Branches,
+    Branches(BranchState),
+}
+
+struct PickerSelection {
+    value: String,
+    label: String,
+    badge: Option<String>,
 }
 
 struct PickerItem {
-    /// Model id or branch name: the pick payload and the element identity.
+    /// Element identity.
+    id: String,
+    /// Debug selector used by the headless probes.
+    selector: String,
+    /// Model id or branch name: the pick payload.
     value: String,
     label: String,
     selected: bool,
-    /// Branch mode: a remote-tracking row (faint, never deletable).
-    remote: bool,
-    /// Branch mode: a local non-current row — carries the armed trash.
-    deletable: bool,
+    /// Branch mode: a remote-tracking row (faint).
+    muted: bool,
+    /// Branch mode: the armed trash action.
+    trailing: Option<RowAction>,
+}
+
+enum RowAction {
+    DeleteBranch { armed: bool },
 }
 
 enum PickerRow {
     Group {
         id: String,
         label: String,
-        selector: Option<&'static str>,
+        selector: Option<String>,
     },
     Item(PickerItem),
-    Message(String),
-}
-
-/// Everything the row builders need, gathered once per render so the
-/// virtualized row processor closes over one small struct.
-struct RowCtx {
-    branch: bool,
-    key: &'static str,
-    field: Option<Entity<InputState>>,
-    store: Entity<Store>,
-    show_tooltips: bool,
-    /// Branch whose trash was clicked once (branch mode only).
-    armed: Option<String>,
+    Message {
+        id: String,
+        label: String,
+    },
 }
 
 fn model_provider(model: &str) -> &str {
-    model.split_once('/').map(|(provider, _)| provider).unwrap_or("")
+    model
+        .split_once('/')
+        .map(|(provider, _)| provider)
+        .unwrap_or("")
 }
 
 fn model_name(model: &str) -> &str {
@@ -73,17 +122,12 @@ fn model_name(model: &str) -> &str {
 }
 
 pub struct FilteredPicker {
+    spec: PickerSpec,
     source: PickerSource,
     filter: Entity<InputState>,
     store: Entity<Store>,
     key: &'static str,
     open: bool,
-    /// Branch whose trash was clicked once — the second click deletes.
-    branch_delete_armed: Option<String>,
-    new_branch_open: bool,
-    new_branch_name: Option<Entity<InputState>>,
-    /// The repo the ephemeral branch state belongs to; a mismatch resets it.
-    loaded_for: Option<String>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -97,13 +141,17 @@ impl FilteredPicker {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter models"));
+        let filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder(MODEL_PICKER.filter_placeholder));
         Self::build(
-            PickerSource::Models { field, default_label },
+            PickerSource::Models {
+                field,
+                default_label,
+            },
+            MODEL_PICKER,
             store,
             key,
             filter,
-            None,
             cx,
         )
     }
@@ -111,44 +159,61 @@ impl FilteredPicker {
     /// The Changes-tab branch selector: a pick checks the branch out; locals
     /// carry the delete trash and the popup carries the new-branch form.
     pub fn branches(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches"));
+        let filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder(BRANCH_PICKER.filter_placeholder));
         let new_branch_name = cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
         Self::build(
-            PickerSource::Branches,
+            PickerSource::Branches(BranchState {
+                new_branch_name,
+                delete_armed: None,
+                new_branch_open: false,
+                loaded_for: None,
+            }),
+            BRANCH_PICKER,
             store,
             "Branch",
             filter,
-            Some(new_branch_name),
             cx,
         )
     }
 
     fn build(
         source: PickerSource,
+        spec: PickerSpec,
         store: Entity<Store>,
         key: &'static str,
         filter: Entity<InputState>,
-        new_branch_name: Option<Entity<InputState>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let sub_filter = cx.observe(&filter, |_, _, cx| cx.notify());
         let sub_store = cx.observe(&store, |_, _, cx| cx.notify());
+        let mut subscriptions = vec![sub_filter, sub_store];
+        if let PickerSource::Models { field, .. } = &source {
+            subscriptions.push(cx.observe(field, |_, _, cx| cx.notify()));
+        }
         Self {
+            spec,
             source,
             filter,
             store,
             key,
             open: false,
-            branch_delete_armed: None,
-            new_branch_open: false,
-            new_branch_name,
-            loaded_for: None,
-            _subscriptions: vec![sub_filter, sub_store],
+            _subscriptions: subscriptions,
         }
     }
 
-    fn is_branch(&self) -> bool {
-        matches!(self.source, PickerSource::Branches)
+    fn new_branch_field(&self) -> Option<Entity<InputState>> {
+        match &self.source {
+            PickerSource::Branches(state) => Some(state.new_branch_name.clone()),
+            PickerSource::Models { .. } => None,
+        }
+    }
+
+    fn clear_ephemeral(&mut self) {
+        if let PickerSource::Branches(state) = &mut self.source {
+            state.delete_armed = None;
+            state.new_branch_open = false;
+        }
     }
 
     /// Closes the popup and clears the ephemeral branch state. The branch
@@ -159,33 +224,96 @@ impl FilteredPicker {
             return false;
         }
         self.open = false;
-        self.new_branch_open = false;
-        self.branch_delete_armed = None;
+        self.clear_ephemeral();
         cx.notify();
         true
+    }
+
+    fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_ephemeral();
+        self.open = !self.open;
+        if self.open {
+            let filter = self.filter.clone();
+            filter.update(cx, |state, cx| {
+                state.set_value("", window, cx);
+                state.focus(window, cx);
+            });
+        }
+        cx.notify();
     }
 
     /// One-time reset when the selected repo changed: the popup must never
     /// show the previous repo's branch list, filter or form.
     fn sync_repo_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.is_branch() {
-            return;
-        }
         let repo = self.store.read(cx).selected_repo.clone();
-        if self.loaded_for == repo {
-            return;
+        let reset = match &mut self.source {
+            PickerSource::Branches(state) => {
+                if state.loaded_for == repo {
+                    false
+                } else {
+                    state.loaded_for = repo;
+                    state.delete_armed = None;
+                    state.new_branch_open = false;
+                    true
+                }
+            }
+            PickerSource::Models { .. } => false,
+        };
+        if reset {
+            self.open = false;
+            let filter = self.filter.clone();
+            filter.update(cx, |f, cx| f.set_value("", window, cx));
         }
-        self.loaded_for = repo;
-        self.open = false;
-        self.branch_delete_armed = None;
-        self.new_branch_open = false;
-        self.filter.update(cx, |f, cx| f.set_value("", window, cx));
+    }
+
+    fn selected_info(&self, cx: &App) -> PickerSelection {
+        match &self.source {
+            PickerSource::Models {
+                field,
+                default_label,
+            } => {
+                let selected = field.read(cx).value().trim().to_string();
+                let label = if selected.is_empty() {
+                    default_label.to_string()
+                } else {
+                    model_name(&selected).to_string()
+                };
+                let provider = model_provider(&selected);
+                let badge = (!provider.is_empty()).then(|| provider.to_string());
+                PickerSelection {
+                    value: selected,
+                    label,
+                    badge,
+                }
+            }
+            PickerSource::Branches(_) => {
+                let selected = self
+                    .store
+                    .read(cx)
+                    .selected_entry()
+                    .and_then(|e| e.git_branch_name.clone())
+                    .unwrap_or_default();
+                let label = if selected.is_empty() {
+                    "—".to_string()
+                } else {
+                    trim_branch_label(&selected, BRANCH_LABEL_CHARS)
+                };
+                PickerSelection {
+                    value: selected,
+                    label,
+                    badge: None,
+                }
+            }
+        }
     }
 
     fn rows(&self, cx: &App) -> Vec<PickerRow> {
         let filter = self.filter.read(cx).value().trim().to_lowercase();
         match &self.source {
-            PickerSource::Models { field, default_label } => {
+            PickerSource::Models {
+                field,
+                default_label,
+            } => {
                 let selected = field.read(cx).value().trim().to_string();
                 let mut models: Vec<String> = self
                     .store
@@ -210,16 +338,19 @@ impl FilteredPicker {
 
                 let mut rows = Vec::with_capacity(models.len() + 4);
                 rows.push(PickerRow::Item(PickerItem {
+                    id: format!("model-{}-", self.key),
+                    selector: format!("model-row-{}-", self.key),
                     value: String::new(),
                     label: default_label.to_string(),
                     selected: selected.is_empty(),
-                    remote: false,
-                    deletable: false,
+                    muted: false,
+                    trailing: None,
                 }));
                 if models.is_empty() {
-                    rows.push(PickerRow::Message(
-                        "No models found. Start warp-agent, then refresh.".to_string(),
-                    ));
+                    rows.push(PickerRow::Message {
+                        id: format!("model-message-{}", self.key),
+                        label: "No models found. Start warp-agent, then refresh.".to_string(),
+                    });
                 } else {
                     let mut last_provider = String::new();
                     for model in models {
@@ -233,17 +364,19 @@ impl FilteredPicker {
                             last_provider = provider;
                         }
                         rows.push(PickerRow::Item(PickerItem {
+                            id: format!("model-{}-{}", self.key, model),
+                            selector: format!("model-row-{}-{}", self.key, model),
                             value: model.clone(),
                             label: model_name(&model).to_string(),
                             selected: model.eq_ignore_ascii_case(&selected),
-                            remote: false,
-                            deletable: false,
+                            muted: false,
+                            trailing: None,
                         }));
                     }
                 }
                 rows
             }
-            PickerSource::Branches => {
+            PickerSource::Branches(state) => {
                 let store = self.store.read(cx);
                 let current = store
                     .selected_entry()
@@ -264,26 +397,78 @@ impl FilteredPicker {
                         rows.push(PickerRow::Group {
                             id: "branch-group-remote".into(),
                             label: "Remote".into(),
-                            selector: Some("branch-group-remote"),
+                            selector: Some("branch-group-remote".into()),
                         });
                     }
+                    let deletable = !is_remote && branch.name != current;
                     rows.push(PickerRow::Item(PickerItem {
+                        id: format!("branch-row-{}", branch.name),
+                        selector: format!("branch-row-{}", branch.name),
                         value: branch.name.clone(),
-                        label: branch.name.clone(),
+                        // the full name stays the pick payload; only the
+                        // display label sheds its head
+                        label: trim_branch_label(&branch.name, BRANCH_LABEL_CHARS),
                         selected: branch.name == current,
-                        remote: is_remote,
-                        // locals only, never the checked-out branch — git
-                        // refuses the latter anyway, so no trash is offered
-                        deletable: !is_remote && branch.name != current,
+                        muted: is_remote,
+                        trailing: deletable.then(|| RowAction::DeleteBranch {
+                            armed: state.delete_armed.as_deref() == Some(branch.name.as_str()),
+                        }),
                     }));
                 }
-                rows.truncate(BRANCH_ROW_CAP);
                 rows
             }
         }
     }
 
-    fn group_row(id: &str, label: &str, selector: Option<&'static str>) -> gpui::AnyElement {
+    fn root_id(&self) -> String {
+        if self.spec.overlay {
+            format!("branch-picker-{}", self.key)
+        } else {
+            format!("model-picker-{}", self.key)
+        }
+    }
+
+    fn trigger_id(&self) -> String {
+        if self.spec.overlay {
+            "branch-button".to_string()
+        } else {
+            format!("model-trigger-{}", self.key)
+        }
+    }
+
+    fn panel_id(&self) -> String {
+        if self.spec.overlay {
+            "branch-menu".to_string()
+        } else {
+            format!("picker-list-{}", self.key)
+        }
+    }
+
+    fn panel_selector(&self) -> String {
+        if self.spec.overlay {
+            "branch-menu".to_string()
+        } else {
+            format!("model-panel-{}", self.key)
+        }
+    }
+
+    fn filter_selector(&self) -> String {
+        if self.spec.overlay {
+            "branch-filter".to_string()
+        } else {
+            format!("model-filter-{}", self.key)
+        }
+    }
+
+    fn list_id(&self) -> String {
+        if self.spec.overlay {
+            "branch-list".to_string()
+        } else {
+            format!("model-list-{}", self.key)
+        }
+    }
+
+    fn group_row(id: &str, label: &str, selector: Option<&str>) -> gpui::AnyElement {
         let mut row = div()
             .id(SharedString::from(id.to_string()))
             .w_full()
@@ -295,19 +480,15 @@ impl FilteredPicker {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme::TEXT_FAINT);
         if let Some(selector) = selector {
-            row = row.debug_selector(move || selector.to_string());
+            let selector = selector.to_string();
+            row = row.debug_selector(move || selector.clone());
         }
         row.child(label.to_string()).into_any_element()
     }
 
-    fn message_row(ctx: &RowCtx, label: &str) -> gpui::AnyElement {
-        let id = if ctx.branch {
-            "branch-message".to_string()
-        } else {
-            format!("model-message-{}", ctx.key)
-        };
+    fn message_row(id: &str, label: &str) -> gpui::AnyElement {
         div()
-            .id(SharedString::from(id))
+            .id(SharedString::from(id.to_string()))
             .w_full()
             .h(px(ROW_HEIGHT))
             .px_2()
@@ -319,30 +500,29 @@ impl FilteredPicker {
             .into_any_element()
     }
 
-    fn item_row(ctx: &RowCtx, item: &PickerItem, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let (id, selector, color, weight) = if ctx.branch {
-            let selector = format!("branch-row-{}", item.value);
-            let color = if item.selected {
-                theme::ACCENT
-            } else if item.remote {
-                theme::TEXT_FAINT
-            } else {
-                theme::TEXT_DIM
-            };
-            let weight = if item.selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL };
-            (selector.clone(), selector, color, weight)
+    fn item_row(
+        item: &PickerItem,
+        selected_accent: bool,
+        show_tooltips: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let color = if item.selected && selected_accent {
+            theme::ACCENT
+        } else if item.muted {
+            theme::TEXT_FAINT
+        } else if selected_accent {
+            theme::TEXT_DIM
         } else {
-            (
-                format!("model-{}-{}", ctx.key, item.value),
-                format!("model-row-{}-{}", ctx.key, item.value),
-                theme::TEXT,
-                FontWeight::NORMAL,
-            )
+            theme::TEXT
+        };
+        let weight = if item.selected && selected_accent {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
         };
         let value = item.value.clone();
-        let field = ctx.field.clone();
-        let store = ctx.store.clone();
-        let branch = ctx.branch;
+        let id = item.id.clone();
+        let selector = item.selector.clone();
         let mut row = div()
             .id(SharedString::from(id))
             .debug_selector(move || selector.clone())
@@ -353,24 +533,12 @@ impl FilteredPicker {
             .px_2()
             .flex()
             .items_center()
-            .when(ctx.branch, |r| r.gap_1().group("branch-row"))
-            .when(!ctx.branch, |r| r.gap_2())
+            .when(selected_accent, |r| r.gap_1().group("branch-row"))
+            .when(!selected_accent, |r| r.gap_2())
             .when(item.selected, |r| r.bg(theme::HOVER))
             .hover(|r| r.bg(theme::HOVER))
             .on_click(cx.listener(move |this, _, window, cx| {
-                if branch {
-                    store.update(cx, |s, cx| {
-                        s.run_git(GitAction::Checkout(value.clone()), cx)
-                    });
-                    // picking a branch closes the dropdown and resets the
-                    // filter, so the next open lists everything
-                    this.filter.update(cx, |f, cx| f.set_value("", window, cx));
-                    this.dismiss(cx);
-                } else if let Some(field) = field.clone() {
-                    field.update(cx, |state, cx| state.set_value(value.as_str(), window, cx));
-                    this.open = false;
-                    cx.notify();
-                }
+                this.pick(value.clone(), window, cx);
             }))
             .child(
                 div()
@@ -394,15 +562,21 @@ impl FilteredPicker {
                     .font_weight(weight)
                     .child(item.label.clone()),
             );
-        if item.deletable {
-            let armed = ctx.armed.as_deref() == Some(item.value.as_str());
+        if let Some(RowAction::DeleteBranch { armed }) = &item.trailing {
+            let armed = *armed;
             let name = item.value.clone();
-            let tooltip = if armed { "Click again to delete" } else { "Delete branch" };
+            let tooltip = if armed {
+                "Click again to delete"
+            } else {
+                "Delete branch"
+            };
             let value = item.value.clone();
+            let selector = format!("branch-delete-{value}");
+            let id = selector.clone();
             row = row.child(with_tooltip(
                 div()
-                    .id(SharedString::from(format!("branch-delete-{value}")))
-                    .debug_selector(move || format!("branch-delete-{value}"))
+                    .id(SharedString::from(id))
+                    .debug_selector(move || selector.clone())
                     .cursor_pointer()
                     .rounded_md()
                     .size(px(18.))
@@ -414,130 +588,98 @@ impl FilteredPicker {
                     .when(armed, |d| d.opacity(1.))
                     .group_hover("branch-row", |s| s.opacity(1.))
                     .hover(|s| s.bg(theme::tint(theme::DANGER)))
-                    .on_click({
-                        let name = name.clone();
-                        cx.listener(move |this, _, _, cx| {
-                            // never the row's checkout
-                            cx.stop_propagation();
-                            if this.branch_delete_armed.as_deref() == Some(name.as_str()) {
-                                this.branch_delete_armed = None;
-                                this.store.update(cx, |s, cx| {
-                                    s.run_git(GitAction::DeleteBranch(name.clone()), cx)
-                                });
-                                this.dismiss(cx);
-                            } else {
-                                this.branch_delete_armed = Some(name.clone());
-                            }
-                            cx.notify();
-                        })
-                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // never the row's checkout
+                        cx.stop_propagation();
+                        this.activate_trailing(name.clone(), cx);
+                    }))
                     .child(icon(
                         "icons/icon-trash.svg",
                         px(theme::icon_small() - 2.),
-                        if armed { theme::DANGER } else { theme::TEXT_MUTED },
+                        if armed {
+                            theme::DANGER
+                        } else {
+                            theme::TEXT_MUTED
+                        },
                     )),
-                ctx.show_tooltips,
+                show_tooltips,
                 tooltip,
             ));
         }
         row.into_any_element()
     }
 
-    fn branch_trigger(&self, label: &str, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        div()
-            .id("branch-button")
-            .debug_selector(|| "branch-button".into())
-            .w_full()
-            .cursor_pointer()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::INPUT)
-            .pl_2()
-            .pr_1()
-            .py_1()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .hover(|s| s.border_color(theme::ACCENT))
-            // the window's outside-click dismissal must not see the toggle
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.branch_delete_armed = None;
-                this.new_branch_open = false;
-                this.open = !this.open;
-                if this.open {
-                    this.filter.update(cx, |f, cx| {
-                        f.set_value("", window, cx);
-                        f.focus(window, cx);
-                    });
-                }
-                cx.notify();
-            }))
-            .child(icon(
-                "icons/icon-source-branch.svg",
-                px(theme::icon_small()),
-                theme::TEXT_MUTED,
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(theme::font_body()))
-                    .text_color(theme::TEXT_DIM)
-                    .child(label.to_string()),
-            )
-            .child(
-                div()
-                    .rounded_md()
-                    .bg(theme::CARD)
-                    .p_1()
-                    .flex()
-                    .child(icon(
-                        "icons/icon-chevron-down.svg",
-                        px(theme::icon_small() - 2.),
-                        theme::TEXT_MUTED,
-                    )),
-            )
+    fn pick(&mut self, value: String, window: &mut Window, cx: &mut Context<Self>) {
+        if let PickerSource::Models { field, .. } = &self.source {
+            let field = field.clone();
+            field.update(cx, |state, cx| state.set_value(value.as_str(), window, cx));
+            self.open = false;
+            cx.notify();
+        } else {
+            self.store
+                .update(cx, |s, cx| s.run_git(GitAction::Checkout(value), cx));
+            // picking a branch closes the dropdown and resets the filter, so
+            // the next open lists everything
+            let filter = self.filter.clone();
+            filter.update(cx, |f, cx| f.set_value("", window, cx));
+            self.dismiss(cx);
+        }
     }
 
-    fn model_trigger(
+    fn activate_trailing(&mut self, name: String, cx: &mut Context<Self>) {
+        let confirmed = match &mut self.source {
+            PickerSource::Branches(state) => {
+                if state.delete_armed.as_deref() == Some(name.as_str()) {
+                    state.delete_armed = None;
+                    true
+                } else {
+                    state.delete_armed = Some(name.clone());
+                    false
+                }
+            }
+            PickerSource::Models { .. } => return,
+        };
+        if confirmed {
+            let store = self.store.clone();
+            store.update(cx, |s, cx| s.run_git(GitAction::DeleteBranch(name), cx));
+            self.dismiss(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn build_trigger(
         &self,
-        key: &'static str,
-        label: &str,
-        provider: &str,
-        has_selection: bool,
+        selection: &PickerSelection,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        div()
-            .id(SharedString::from(format!("model-trigger-{key}")))
-            .debug_selector(move || format!("model-trigger-{key}"))
+        let trigger_id = self.trigger_id();
+        let selector = trigger_id.clone();
+        let mut trigger = div()
+            .id(SharedString::from(trigger_id))
+            .debug_selector(move || selector.clone())
             .flex_1()
             .min_w_0()
             .cursor_pointer()
             .rounded_md()
             .border_1()
-            .border_color(if self.open { theme::ACCENT } else { theme::HAIRLINE })
+            .border_color(if self.open {
+                theme::ACCENT
+            } else {
+                theme::HAIRLINE
+            })
             .bg(theme::INPUT)
             .px_2()
             .py_1()
             .flex()
             .items_center()
             .gap_2()
-            .hover(|s| s.border_color(theme::TEXT_MUTED))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.open = !this.open;
-                if this.open {
-                    let filter = this.filter.clone();
-                    filter.update(cx, |state, cx| {
-                        state.set_value("", window, cx);
-                        state.focus(window, cx);
-                    });
-                }
-                cx.notify();
-            }))
+            .hover(|s| s.border_color(theme::TEXT_MUTED));
+        if self.spec.stop_trigger_mousedown {
+            trigger = trigger.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        }
+        trigger = trigger
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_open(window, cx)))
             .child(
                 div()
                     .flex_1()
@@ -545,8 +687,11 @@ impl FilteredPicker {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .when(!provider.is_empty(), |row| {
-                        row.child(
+                    .when_some(self.spec.trigger_icon, |row, icon_path| {
+                        row.child(icon(icon_path, px(theme::icon_small()), theme::TEXT_MUTED))
+                    })
+                    .when(self.spec.provider_badge, |row| match &selection.badge {
+                        Some(badge) if !badge.is_empty() => row.child(
                             div()
                                 .px_1p5()
                                 .py_0p5()
@@ -554,22 +699,28 @@ impl FilteredPicker {
                                 .bg(theme::CHIP)
                                 .text_size(px(theme::font_small() - 1.))
                                 .text_color(theme::TEXT_MUTED)
-                                .child(provider.to_string()),
-                        )
+                                .child(badge.clone()),
+                        ),
+                        _ => row,
                     })
                     .child(
                         div()
                             .truncate()
                             .text_size(px(theme::font_small()))
-                            .text_color(if has_selection { theme::TEXT } else { theme::TEXT_MUTED })
-                            .child(label.to_string()),
+                            .text_color(if selection.value.is_empty() {
+                                theme::TEXT_MUTED
+                            } else {
+                                theme::TEXT
+                            })
+                            .child(selection.label.clone()),
                     ),
             )
             .child(icon(
                 "icons/icon-chevron-down.svg",
                 px(theme::icon_small()),
                 theme::TEXT_MUTED,
-            ))
+            ));
+        trigger
     }
 
     fn refresh_button(&self) -> gpui::Stateful<gpui::Div> {
@@ -597,6 +748,52 @@ impl FilteredPicker {
             ))
     }
 
+    fn build_trigger_row(
+        &self,
+        selection: &PickerSelection,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .child(self.build_trigger(selection, cx))
+            .when(self.spec.refresh, |row| row.child(self.refresh_button()))
+            .into_any_element()
+    }
+
+    fn build_list(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let rows = self.rows(cx);
+        let selected_accent = self.spec.selected_accent;
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
+        let list_id = self.list_id();
+        let list_height = rows.len().min(self.spec.visible_rows) as f32 * ROW_HEIGHT;
+        uniform_list(
+            SharedString::from(list_id),
+            rows.len(),
+            cx.processor(move |_this, range: std::ops::Range<usize>, _window, cx| {
+                range
+                    .map(|ix| match &rows[ix] {
+                        PickerRow::Group {
+                            id,
+                            label,
+                            selector,
+                        } => Self::group_row(id, label, selector.as_deref()),
+                        PickerRow::Item(item) => {
+                            Self::item_row(item, selected_accent, show_tooltips, cx)
+                        }
+                        PickerRow::Message { id, label } => Self::message_row(id, label),
+                    })
+                    .collect()
+            }),
+        )
+        .w_full()
+        .h(px(list_height))
+        .into_any_element()
+    }
+
     fn new_branch_footer(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         div()
             .id("new-branch-row")
@@ -609,25 +806,36 @@ impl FilteredPicker {
             .text_color(theme::ACCENT)
             .hover(|s| s.bg(theme::HOVER))
             .on_click(cx.listener(|this, _, window, cx| {
-                this.branch_delete_armed = None;
                 // the form always opens seeded with the repo's prefix and
                 // focused, ready to type the branch name
-                if let Some(name) = this.new_branch_name.clone() {
-                    let prefix = this.store.read(cx).settings().repos.branch_name_prefix.clone();
-                    let seed = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
+                if let Some(name) = this.new_branch_field() {
+                    let prefix = this
+                        .store
+                        .read(cx)
+                        .settings()
+                        .repos
+                        .branch_name_prefix
+                        .clone();
+                    let seed = if prefix.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{prefix}/")
+                    };
                     name.update(cx, |state, cx| {
                         state.set_value(seed.as_str(), window, cx);
                         state.focus(window, cx);
                     });
                 }
-                this.new_branch_open = true;
+                if let PickerSource::Branches(state) = &mut this.source {
+                    state.delete_armed = None;
+                    state.new_branch_open = true;
+                }
                 cx.notify();
             }))
             .child("+ New branch…")
     }
 
     fn new_branch_actions(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let name_state = self.new_branch_name.clone();
         div()
             .flex()
             .flex_row()
@@ -646,7 +854,9 @@ impl FilteredPicker {
                     .border_color(theme::HAIRLINE)
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.new_branch_open = false;
+                        if let PickerSource::Branches(state) = &mut this.source {
+                            state.new_branch_open = false;
+                        }
                         cx.notify();
                     }))
                     .child("Cancel"),
@@ -664,15 +874,21 @@ impl FilteredPicker {
                     .bg(theme::ACCENT)
                     .text_color(theme::ON_ACCENT)
                     .hover(|s| s.opacity(0.9))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        let Some(name_state) = name_state.clone() else { return };
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        let Some(name_state) = this.new_branch_field() else {
+                            return;
+                        };
                         let name = name_state.read(cx).value().trim().to_string();
                         if name.is_empty() {
                             return;
                         }
                         this.store.update(cx, |s, cx| {
                             s.run_git(
-                                GitAction::CreateBranch { name, start: None, checkout: true },
+                                GitAction::CreateBranch {
+                                    name,
+                                    start: None,
+                                    checkout: true,
+                                },
                                 cx,
                             )
                         });
@@ -686,183 +902,38 @@ impl FilteredPicker {
             )
             .into_any_element()
     }
-}
-
-impl Render for FilteredPicker {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let branch_mode = self.is_branch();
-        if branch_mode {
-            self.sync_repo_reset(window, cx);
-        }
-        let key = self.key;
-        let (selected, selected_label, selected_provider) = self.selected_info(cx);
-
-        let trigger_row = if branch_mode {
-            div().child(self.branch_trigger(&selected_label, cx))
-        } else {
-            div()
-                .flex()
-                .flex_row()
-                .gap_1()
-                .child(self.model_trigger(
-                    key,
-                    &selected_label,
-                    &selected_provider,
-                    !selected.is_empty(),
-                    cx,
-                ))
-                .child(self.refresh_button())
-        };
-
-        // models mode: the popup is an in-flow child below the trigger. The
-        // branch popup is NOT rendered here — ChangesView appends it as the
-        // rail's LAST child (branch_popup) so it paints over the rail's
-        // actions without gpui::deferred, whose hitboxes misplace nested
-        // interactive elements (the row trash) in real input.
-        let popup = if !branch_mode && self.open {
-            let list = self.build_list(key, cx);
-            self.build_panel(key, list, cx).into_any_element()
-        } else {
-            div().into_any_element()
-        };
-
-        div()
-            .id(SharedString::from(if branch_mode {
-                format!("branch-picker-{key}")
-            } else {
-                format!("model-picker-{key}")
-            }))
-            .when(!branch_mode, |p| p.relative())
-            .flex()
-            .flex_col()
-            .gap_1()
-            .when(branch_mode, |p| p.w_full())
-            .when(self.open && !branch_mode, |picker| {
-                picker.on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                    this.open = false;
-                    cx.notify();
-                }))
-            })
-            .child(trigger_row)
-            .when(self.open && !branch_mode, |picker| picker.child(popup))
-    }
-}
-
-impl FilteredPicker {
-    fn selected_info(&self, cx: &App) -> (String, String, String) {
-        match &self.source {
-            PickerSource::Models { field, default_label } => {
-                let selected = field.read(cx).value().trim().to_string();
-                let label = if selected.is_empty() {
-                    default_label.to_string()
-                } else {
-                    model_name(&selected).to_string()
-                };
-                let provider = model_provider(&selected).to_string();
-                (selected, label, provider)
-            }
-            PickerSource::Branches => {
-                let selected = self
-                    .store
-                    .read(cx)
-                    .selected_entry()
-                    .and_then(|e| e.git_branch_name.clone())
-                    .unwrap_or_default();
-                let label = if selected.is_empty() { "—".to_string() } else { selected.clone() };
-                (selected, label, String::new())
-            }
-        }
-    }
-
-    fn build_list(&mut self, key: &'static str, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let branch_mode = self.is_branch();
-        let rows = self.rows(cx);
-        let row_ctx = RowCtx {
-            branch: branch_mode,
-            key,
-            field: match &self.source {
-                PickerSource::Models { field, .. } => Some(field.clone()),
-                PickerSource::Branches => None,
-            },
-            store: self.store.clone(),
-            show_tooltips: self.store.read(cx).settings().general.show_tooltips,
-            armed: self.branch_delete_armed.clone(),
-        };
-        // the models list is virtualized; the branch list renders as a plain
-        // scrollable stack capped in rows() — the old dropdown's behavior
-        if branch_mode {
-            let mut stack = div()
-                .id("branch-list")
-                .w_full()
-                .max_h(px(BRANCH_VISIBLE_ROWS as f32 * ROW_HEIGHT))
-                .overflow_y_scroll()
-                .flex()
-                .flex_col()
-                .gap_0p5();
-            for row in &rows {
-                stack = stack.child(match row {
-                    PickerRow::Group { id, label, selector } => {
-                        Self::group_row(id, label, *selector)
-                    }
-                    PickerRow::Item(item) => Self::item_row(&row_ctx, item, cx),
-                    PickerRow::Message(message) => Self::message_row(&row_ctx, message),
-                });
-            }
-            stack.into_any_element()
-        } else {
-            let list_height = rows.len().min(MODEL_VISIBLE_ROWS) as f32 * ROW_HEIGHT;
-            uniform_list(
-                SharedString::from(format!("model-list-{key}")),
-                rows.len(),
-                cx.processor(move |_this, range: std::ops::Range<usize>, _window, cx| {
-                    range
-                        .map(|ix| match &rows[ix] {
-                            PickerRow::Group { id, label, selector } => {
-                                Self::group_row(id, label, *selector)
-                            }
-                            PickerRow::Item(item) => Self::item_row(&row_ctx, item, cx),
-                            PickerRow::Message(message) => Self::message_row(&row_ctx, message),
-                        })
-                        .collect()
-                }),
-            )
-            .w_full()
-            .h(px(list_height))
-            .into_any_element()
-        }
-    }
 
     fn build_panel(
         &mut self,
-        key: &'static str,
         list: gpui::AnyElement,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let branch_mode = self.is_branch();
-        let mut panel = if branch_mode {
-            div()
-                .id("branch-menu")
-                .debug_selector(|| "branch-menu".into())
-                // presses inside the popup (filter field, scrollbar, rows)
-                // must not reach the window's outside-click dismissal
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .occlude()
-        } else {
-            div()
-                .id(SharedString::from(format!("picker-list-{key}")))
-                .debug_selector(move || format!("model-panel-{key}"))
-        };
-        panel = panel
-            .when(branch_mode, |p| p.rounded_lg().shadow_lg().p_2().gap_2())
-            .when(!branch_mode, |p| p.rounded_md().shadow_md().p_1().gap_1())
+        let panel_id = self.panel_id();
+        let panel_selector = self.panel_selector();
+        let overlay = self.spec.overlay;
+        let mut panel = div()
+            .id(SharedString::from(panel_id))
+            .debug_selector(move || panel_selector.clone())
+            .rounded_md()
+            .shadow_md()
+            .p_1()
+            .gap_1()
             .border_1()
             .border_color(theme::HAIRLINE)
             .bg(theme::POPUP)
             .flex()
             .flex_col();
-        let new_branch_form = branch_mode && self.new_branch_open;
-        if new_branch_form {
-            let name = self.new_branch_name.clone().expect("branch mode carries the form field");
+        if overlay {
+            panel = panel
+                // presses inside the popup (filter field, scrollbar, rows)
+                // must not reach the window's outside-click dismissal
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .occlude();
+        }
+        if matches!(&self.source, PickerSource::Branches(state) if state.new_branch_open) {
+            let name = self
+                .new_branch_field()
+                .expect("branch mode carries the form field");
             panel
                 .child(
                     div()
@@ -871,21 +942,15 @@ impl FilteredPicker {
                 )
                 .child(self.new_branch_actions(cx))
         } else {
-            let mut content = if branch_mode {
-                panel.child(
+            let filter_selector = self.filter_selector();
+            let mut content = panel
+                .child(
                     div()
-                        .debug_selector(|| "branch-filter".into())
+                        .debug_selector(move || filter_selector.clone())
                         .child(Input::new(&self.filter).small()),
                 )
-            } else {
-                panel.child(
-                    div()
-                        .debug_selector(move || format!("model-filter-{key}"))
-                        .child(Input::new(&self.filter).small()),
-                )
-            };
-            content = content.child(list);
-            if branch_mode {
+                .child(list);
+            if self.spec.new_branch {
                 content = content.child(self.new_branch_footer(cx));
             }
             content
@@ -895,13 +960,12 @@ impl FilteredPicker {
     /// The branch popup as an overlay element for the host rail: ChangesView
     /// appends it AFTER the git actions so later-sibling paint order puts it
     /// on top (no deferred) and every hitbox registers in the normal pass.
-    pub fn branch_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        if !self.is_branch() || !self.open {
+    pub fn overlay_popup(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.spec.overlay || !self.open {
             return None;
         }
-        let key = self.key;
-        let list = self.build_list(key, cx);
-        let panel = self.build_panel(key, list, cx);
+        let list = self.build_list(cx);
+        let panel = self.build_panel(list, cx);
         // anchored to the rail (the nearest positioned ancestor): covers the
         // trigger + actions, the old dropdown's geometry, without reflowing
         Some(
@@ -912,5 +976,41 @@ impl FilteredPicker {
                 .right(px(8.))
                 .into_any_element(),
         )
+    }
+}
+
+impl Render for FilteredPicker {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_repo_reset(window, cx);
+        let selection = self.selected_info(cx);
+        let trigger_row = self.build_trigger_row(&selection, cx);
+
+        // models mode: the popup is an in-flow child below the trigger. The
+        // branch popup is NOT rendered here — ChangesView appends it as the
+        // rail's LAST child (overlay_popup) so it paints over the rail's
+        // actions without gpui::deferred, whose hitboxes misplace nested
+        // interactive elements (the row trash) in real input.
+        let popup = if !self.spec.overlay && self.open {
+            let list = self.build_list(cx);
+            Some(self.build_panel(list, cx))
+        } else {
+            None
+        };
+
+        let root_id = self.root_id();
+        div()
+            .id(SharedString::from(root_id))
+            .when(!self.spec.overlay, |p| p.relative())
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .when(!self.spec.overlay && self.open, |picker| {
+                picker.on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.dismiss(cx);
+                }))
+            })
+            .child(trigger_row)
+            .children(popup)
     }
 }

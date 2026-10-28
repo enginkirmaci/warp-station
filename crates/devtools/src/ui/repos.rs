@@ -702,11 +702,12 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
 }
 
 /// Branch column width from the widest branch pill: git glyph, pill padding,
-/// ~7.8px per character in the code font, clamped to sane bounds. The widest
-/// branch is precomputed on reproject (Store::widest_branch_chars).
+/// ~7.8px per character in the code font. Labels longer than
+/// BRANCH_LABEL_CHARS render trimmed, so the widest label sets the width.
 fn branch_column_width(store: &Entity<Store>, cx: &App) -> Pixels {
-    let chars = store.read(cx).widest_branch_chars as f32;
-    px(56. + chars * 7.8).clamp(px(110.), px(240.))
+    let chars =
+        (store.read(cx).widest_branch_chars as f32).min(crate::ui::BRANCH_LABEL_CHARS as f32);
+    px(56. + chars * 7.8).max(px(110.))
 }
 
 // ---- the table --------------------------------------------------------------
@@ -1655,7 +1656,9 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
     } else {
         theme::TEXT_MUTED
     };
+    let pill_selector = format!("branch-pill-{branch}");
     div()
+        .debug_selector(move || pill_selector.clone())
         .rounded_md()
         .bg(theme::tint(color))
         .px_2()
@@ -1668,7 +1671,7 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .font_family(gpui::SharedString::from(theme::code_font()))
         .text_color(color)
         .child(icon("icons/icon-source-branch.svg", px(theme::icon_small() - 2.), color))
-        .child(branch.to_string())
+        .child(crate::ui::trim_branch_label(branch, crate::ui::BRANCH_LABEL_CHARS))
         .into_any_element()
 }
 
