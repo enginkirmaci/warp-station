@@ -1,7 +1,7 @@
-//! Start/stop the Windows SnapIt companion (Tools.SnapIt.exe) that ships next
-//! to the app. The companion is a long-lived process that snaps dragged
-//! windows into zone layouts; it watches this process (--parent) and exits
-//! when DevTools dies.
+//! Start/stop the SnapIt companion that snaps dragged windows into zone
+//! layouts; it watches this process (--parent) and exits when DevTools dies.
+//! The binary is the packaged Tools.SnapIt.exe next to the app unless a
+//! configured executable (settings, like the warp-agent one) resolves.
 
 #[cfg(windows)]
 use std::path::PathBuf;
@@ -16,8 +16,14 @@ const COMPANION_EXE: &str = "Tools.SnapIt.exe";
 #[cfg(windows)]
 static CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
+/// The configured executable when set (absolute path or bare name), else the
+/// packaged companion next to the app.
 #[cfg(windows)]
-fn companion_path() -> Option<PathBuf> {
+fn companion_path(configured: &str) -> Option<PathBuf> {
+    let configured = configured.trim();
+    if !configured.is_empty() {
+        return crate::exe::locate(configured);
+    }
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     let path = dir.join(COMPANION_EXE);
     path.is_file().then_some(path)
@@ -35,14 +41,21 @@ pub fn is_running() -> bool {
 }
 
 #[cfg(windows)]
-pub fn start() -> Result<(), String> {
+pub fn start(configured: &str) -> Result<(), String> {
     let mut slot = CHILD.lock().map_err(|_| "SnapIt state poisoned".to_string())?;
     if let Some(child) = slot.as_mut() {
         if matches!(child.try_wait(), Ok(None)) {
             return Ok(());
         }
     }
-    let path = companion_path().ok_or_else(|| format!("{COMPANION_EXE} not found next to the app"))?;
+    let configured = configured.trim();
+    let path = companion_path(configured).ok_or_else(|| {
+        if configured.is_empty() {
+            format!("{COMPANION_EXE} not found next to the app")
+        } else {
+            format!("SnapIt executable not found: {configured}")
+        }
+    })?;
 
     let mut command = Command::new(&path);
     command.arg("--parent").arg(std::process::id().to_string());
@@ -71,7 +84,7 @@ pub fn is_running() -> bool {
 }
 
 #[cfg(not(windows))]
-pub fn start() -> Result<(), String> {
+pub fn start(_configured: &str) -> Result<(), String> {
     Err("SnapIt is Windows-only".to_string())
 }
 

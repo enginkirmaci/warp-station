@@ -336,6 +336,10 @@ pub fn cached_models(default_model: &str) -> Vec<String> {
         .ok()
         .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_default();
+    models.retain(|model| {
+        let model = model.trim();
+        !model.is_empty() && !model.starts_with('(')
+    });
     merge_default(&mut models, default_model);
     models
 }
@@ -346,7 +350,13 @@ pub fn store_models_cache(models: &[String], default_model: &str) {
     if models.is_empty() {
         return;
     }
-    let mut merged: Vec<String> = models.to_vec();
+    let mut merged: Vec<String> = models
+        .iter()
+        .filter_map(|model| {
+            let model = model.trim();
+            (!model.is_empty() && !model.starts_with('(')).then(|| model.to_string())
+        })
+        .collect();
     merged.dedup();
     merge_default(&mut merged, default_model);
     let path = models_cache_path();

@@ -149,7 +149,10 @@ pub struct Store {
 
 impl Store {
     pub fn new(_cx: &App, net: async_channel::Sender<NetCommand>) -> Self {
-        Self::with_settings(net, Arc::new(SettingsService::open()))
+        let mut store = Self::with_settings(net, Arc::new(SettingsService::open()));
+        let default_model = store.settings().opencode.default_model;
+        store.models = devtools_core::opencode::cached_models(&default_model);
+        store
     }
 
     /// The probe seam: probes pass a scratch-backed service so a settings
@@ -387,7 +390,7 @@ impl Store {
                 self.kick_azure_pass(&folders);
                 cx.notify();
             }
-            UiEvent::StatusSettled { probes } => {
+            UiEvent::StatusSettled { probes, after_fetch } => {
                 for probe in &probes {
                     if let Some(entry) = self
                         .repos
@@ -396,6 +399,17 @@ impl Store {
                     {
                         repo_store::apply_status_probe(entry, probe);
                     }
+                }
+                // a fetch pass ends here: the selected repo's open workspace
+                // re-reads so the bar's file list and branches show the
+                // post-fetch state without a manual reselect
+                if after_fetch
+                    && let Some(selected) = self.selected_repo.clone()
+                    && probes.iter().any(|p| p.folder_path == selected)
+                {
+                    let _ = self.net.send_blocking(NetCommand::LoadChanges {
+                        folder: std::path::PathBuf::from(selected),
+                    });
                 }
                 self.reproject();
                 cx.notify();
@@ -730,12 +744,12 @@ impl Store {
         cx.notify();
     }
 
-    /// Loads the model catalog through the door (cache-backed when offline).
+    /// Loads the model catalog through the door (cache-backed when offline;
+    /// never launches warp-agent).
     pub fn load_models(&mut self, cx: &mut Context<Self>) {
         let settings = self.settings();
-        if let Some(exe) = self.warp_ready() {
+        if self.warp_ready().is_some() {
             let _ = self.net.send_blocking(NetCommand::LoadModels {
-                warp_exe: exe.to_string_lossy().to_string(),
                 default_model: settings.opencode.default_model.clone(),
             });
         } else {

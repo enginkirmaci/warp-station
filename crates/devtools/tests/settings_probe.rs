@@ -26,6 +26,94 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     assert!(cx.update(|_, _| devtools_core::settings::SettingsService::open().get().repos.max_scan_depth) >= 1);
 }
 
+/// The OpenCode model picker: the pseudo "(server default)" entry the catalog
+/// door forwards is hidden, the in-dropdown filter narrows the list, a row
+/// click selects and closes, and a click outside the picker dismisses it.
+#[gpui_kit::gpui::test]
+fn model_picker_filters_and_dismisses(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("devtools-model-picker-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; serialized against the sibling HOME probes
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let scratch = home.join(".devtools").join("settings.json");
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(3000.)), |window, cx| {
+        SettingsPage::new(store.clone(), window, cx)
+    });
+    let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    wcx.run_until_parked();
+    store.update(&mut wcx, |s, _| {
+        let mut models = vec!["(server default)".to_string()];
+        models.extend((0..200).map(|ix| format!("opencode/model-{ix:03}")));
+        models.push("opencode/alpha".into());
+        models.push("other/beta".into());
+        s.models = models;
+    });
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    click(&mut wcx, "model-trigger-Default");
+    assert!(wcx.debug_bounds("model-panel-Default").is_some(), "the picker opens");
+    assert!(wcx.debug_bounds("model-filter-Default").is_some(), "the filter renders inside the picker");
+    assert!(wcx.debug_bounds("model-row-Default-opencode/alpha").is_some());
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/model-199").is_none(),
+        "the virtualized list only lays out visible rows"
+    );
+    assert!(
+        wcx.debug_bounds("model-row-Default-(server default)").is_none(),
+        "the catalog sentinel never becomes a row"
+    );
+
+    click(&mut wcx, "model-filter-Default");
+    wcx.simulate_input("beta");
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+    assert!(wcx.debug_bounds("model-row-Default-other/beta").is_some(), "the filter keeps a match");
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/alpha").is_none(),
+        "the filter drops non-matches"
+    );
+
+    click(&mut wcx, "model-row-Default-other/beta");
+    assert!(wcx.debug_bounds("model-panel-Default").is_none(), "a pick closes the picker");
+
+    click(&mut wcx, "model-trigger-Default");
+    assert!(wcx.debug_bounds("model-row-Default-opencode/alpha").is_some(), "reopening clears the filter");
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/model-199").is_none(),
+        "the virtualized list still only lays out visible rows"
+    );
+    wcx.simulate_click(
+        gpui::Point {
+            x: gpui::px(10.),
+            y: gpui::px(10.),
+        },
+        gpui::Modifiers::default(),
+    );
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+    assert!(wcx.debug_bounds("model-panel-Default").is_none(), "an outside click dismisses the picker");
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// The Git card's auto-fetch picker: four segmented options render seeded from
 /// the settings, and picking 30m + Save persists AutoFetchMinutes to the
 /// settings file on disk. The store is scratch-backed; the probe also runs

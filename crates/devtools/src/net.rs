@@ -47,7 +47,8 @@ pub enum NetCommand {
     /// warp-agent over its door (launching it when merely closed).
     Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, warp_exe: String },
     /// The opencode model catalog through the warp-agent door (+ cache).
-    LoadModels { warp_exe: String, default_model: String },
+    /// Passive: a closed door falls back to the cache, never a launch.
+    LoadModels { default_model: String },
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
@@ -197,7 +198,9 @@ fn parse_warp_status(workspaces: &serde_json::Value) -> Vec<(String, WarpWorkspa
 
 pub enum UiEvent {
     ScanSettled { repos: Vec<RepoEntry>, removed: Vec<String> },
-    StatusSettled { probes: Vec<StatusProbe> },
+    /// `after_fetch` marks the pass a FetchAll ends with, so the store can
+    /// re-read the selected repo's open workspace from the post-fetch state.
+    StatusSettled { probes: Vec<StatusProbe>, after_fetch: bool },
     DeepScanSettled { root: String, found: Vec<devtools_core::scan::ScannedRepo> },
     CloneSettled { url: String, parent_dir: String, name: String, result: devtools_core::model::GitSyncResult },
     ChangesLoaded {
@@ -393,7 +396,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             }
             NetCommand::ProbeAll { folders } => {
                 let probes = probe_pass(folders).await;
-                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes, after_fetch: false });
             }
             NetCommand::FetchAll { folders } => {
                 devtools_core::refresh::throttled_pass(folders.clone(), 3, |folder| async move {
@@ -410,7 +413,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 // the settled probes refresh the ahead/behind badges through
                 // the same burst-apply the manual passes use
                 let probes = probe_pass(folders).await;
-                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes, after_fetch: true });
             }
             NetCommand::DeepScan { root, depth, settings } => {
                 let scan_root = PathBuf::from(root.clone());
@@ -531,8 +534,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let _ = evt_tx.send_blocking(UiEvent::SummaryDone { wand_id: id, result: outcome });
                 });
             }
-            NetCommand::LoadModels { warp_exe, default_model } => {
-                let models = match devtools_core::warp::connect_or_launch(std::path::Path::new(&warp_exe), None).await {
+            NetCommand::LoadModels { default_model } => {
+                // passive on purpose: loading the catalog must never launch
+                // warp-agent (this runs at app start); only runs launch it
+                let models = match devtools_core::warp::Client::connect().await {
                     Ok(mut client) => match client.models().await {
                         Ok(models) => {
                             devtools_core::opencode::store_models_cache(&models, &default_model);
@@ -802,6 +807,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 });
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
                     probes: probe_pass(vec![folder]).await,
+                    after_fetch: false,
                 });
             }
         }

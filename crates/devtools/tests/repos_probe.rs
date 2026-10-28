@@ -779,6 +779,88 @@ fn px_col() -> gpui::Pixels {
     gpui::px(120.)
 }
 
+/// Drains the store's net channel for LoadChanges requests.
+fn load_changes_folders(net_rx: &async_channel::Receiver<devtools::net::NetCommand>) -> Vec<String> {
+    let mut folders = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let devtools::net::NetCommand::LoadChanges { folder } = command {
+            folders.push(folder.to_string_lossy().to_string());
+        }
+    }
+    folders
+}
+
+/// A fetch pass's settled probes re-load the selected repo's workspace (the
+/// bar's file list, branches and unpushed) without a manual reselect; plain
+/// probe passes and passes not covering the selection leave it alone.
+#[gpui::test]
+fn fetch_settled_reloads_the_selected_workspace(cx: &mut TestAppContext) {
+    use devtools_core::repo_store::StatusProbe;
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
+        store
+    });
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.selected_repo = Some("/probe/alpha".into());
+    });
+    // drain the construction kicks
+    assert!(load_changes_folders(&net_rx).is_empty());
+
+    let probe = |folder: &str| StatusProbe {
+        folder_path: folder.to_string(),
+        ..Default::default()
+    };
+
+    // the fetch pass covering the selection reloads the open workspace
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            devtools::net::UiEvent::StatusSettled {
+                probes: vec![probe("/probe/alpha")],
+                after_fetch: true,
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/alpha".to_string()],
+        "the fetch pass re-loads the selected repo's workspace"
+    );
+
+    // a plain probe pass (launch, scan settle) does not
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            devtools::net::UiEvent::StatusSettled {
+                probes: vec![probe("/probe/alpha")],
+                after_fetch: false,
+            },
+            cx,
+        );
+    });
+    assert!(
+        load_changes_folders(&net_rx).is_empty(),
+        "a non-fetch pass must not re-load the workspace"
+    );
+
+    // a fetch pass that skipped the selection (busy exclusion) does not either
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            devtools::net::UiEvent::StatusSettled {
+                probes: vec![probe("/probe/other")],
+                after_fetch: true,
+            },
+            cx,
+        );
+    });
+    assert!(
+        load_changes_folders(&net_rx).is_empty(),
+        "a fetch pass not covering the selection must not re-load the workspace"
+    );
+}
+
 /// Leaks a per-row selector for debug_bounds (which wants 'static).
 fn row_selector(prefix: &str, row: usize) -> &'static str {
     Box::leak(format!("{prefix}{row}").into_boxed_str())

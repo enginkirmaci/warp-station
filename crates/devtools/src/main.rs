@@ -36,9 +36,12 @@ fn main() {
 
             // the companion watches this process (--parent) and exits when DevTools dies
             #[cfg(windows)]
-            if store.read(cx).settings().snap_it.auto_start {
-                if let Err(err) = devtools_core::snapit::start() {
-                    tracing::warn!("SnapIt auto-start failed: {err}");
+            {
+                let snap_it = store.read(cx).settings().snap_it;
+                if snap_it.auto_start {
+                    if let Err(err) = devtools_core::snapit::start(&snap_it.executable) {
+                        tracing::warn!("SnapIt auto-start failed: {err}");
+                    }
                 }
             }
 

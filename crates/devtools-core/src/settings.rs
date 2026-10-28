@@ -229,8 +229,12 @@ pub struct ClipboardPasswordSettings {
 #[serde(rename_all = "PascalCase", default)]
 #[derive(Default)]
 pub struct SnapItSettings {
-    /// Spawns the Windows SnapIt companion (Tools.SnapIt.exe) at app launch.
+    /// Spawns the SnapIt companion at app launch.
     pub auto_start: bool,
+    /// The companion binary to launch; empty = the packaged Tools.SnapIt.exe
+    /// next to the app. A bare name resolves through PATH and the user
+    /// install dirs, like the warp-agent executable.
+    pub executable: String,
 }
 
 
@@ -492,6 +496,20 @@ mod tests {
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repos.enable_code_search, Some(false));
         assert_eq!(back.repos.code_search_executable.as_deref(), Some("rgz"));
+    }
+
+    #[test]
+    fn snap_it_executable_round_trips_and_absent_means_packaged_companion() {
+        // absence (legacy files) = the packaged side-by-side companion
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.snap_it.executable, "");
+        let custom: AppSettings =
+            serde_json::from_str(r#"{"SnapIt": {"Executable": "snapit"}}"#).unwrap();
+        assert_eq!(custom.snap_it.executable, "snapit");
+        let json = serde_json::to_string_pretty(&custom).unwrap();
+        assert!(json.contains("\"Executable\": \"snapit\""));
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.snap_it.executable, "snapit");
     }
 
     #[test]

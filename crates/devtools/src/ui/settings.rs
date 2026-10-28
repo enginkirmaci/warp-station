@@ -1,13 +1,14 @@
 //! The Settings page: every settings section as a card of labeled inputs and
 //! switches, seeded from the live settings when the page opens. Save writes
 //! the whole graph atomically and live-applies (a scan-related change also
-//! kicks a rescan). The model pickers list the opencode catalog with a
+//! kicks a rescan). The filtered model pickers list the opencode catalog with a
 //! refresh button, and the OpenCode card manages the wand prompt templates.
 
 use crate::net::TemplateOp;
 use crate::store::Store;
 use crate::theme;
 use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
+use crate::ui::filtered_picker::FilteredPicker;
 use gpui::prelude::*;
 use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::component::input::{
@@ -51,6 +52,7 @@ pub struct SettingsPage {
     enable_vscode: bool,
     enable_visual_studio: bool,
     snap_it_auto_start: bool,
+    snap_it_executable: Entity<InputState>,
     keep_awake_enabled: bool,
     // OpenCode
     enable_opencode: bool,
@@ -58,8 +60,8 @@ pub struct SettingsPage {
     warp_executable: Entity<InputState>,
     default_model: Entity<InputState>,
     commit_model: Entity<InputState>,
-    default_model_open: bool,
-    commit_model_open: bool,
+    default_model_picker: Entity<FilteredPicker>,
+    commit_model_picker: Entity<FilteredPicker>,
     // The template being edited inline (registry id); None = the rows list.
     editing_template: Option<&'static str>,
     /// True once the open editor's TemplateLoaded landed and seeded the buffer.
@@ -121,6 +123,19 @@ impl SettingsPage {
         // the open editor redraw from them
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
 
+        let default_model = field(window, cx, &settings.opencode.default_model);
+        let commit_model = field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default());
+        let default_model_picker = {
+            let field = default_model.clone();
+            let store = store.clone();
+            cx.new(|cx| FilteredPicker::new(field, store, "Default", "OpenCode default", window, cx))
+        };
+        let commit_model_picker = {
+            let field = commit_model.clone();
+            let store = store.clone();
+            cx.new(|cx| FilteredPicker::new(field, store, "Commit", "Use default model", window, cx))
+        };
+
         let page = Self {
             store: store.clone(),
             notes_store_path: cx.new(|cx| {
@@ -162,14 +177,15 @@ impl SettingsPage {
             enable_vscode: repos.enable_vscode,
             enable_visual_studio: repos.enable_visual_studio,
             snap_it_auto_start: settings.snap_it.auto_start,
+            snap_it_executable: field(window, cx, &settings.snap_it.executable),
             keep_awake_enabled: settings.keep_awake.enabled,
             enable_opencode: settings.opencode.enable_opencode,
             warp_enabled: settings.warp_agent.enable_warp_agent,
             warp_executable: field(window, cx, &settings.warp_agent.executable),
-            default_model: field(window, cx, &settings.opencode.default_model),
-            commit_model: field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default()),
-            default_model_open: false,
-            commit_model_open: false,
+            default_model,
+            commit_model,
+            default_model_picker,
+            commit_model_picker,
             editing_template: None,
             template_editor_seeded: false,
             template_editor,
@@ -241,6 +257,7 @@ impl SettingsPage {
             self.enable_azure,
         );
         let snap_it_auto_start = self.snap_it_auto_start;
+        let snap_it_exe = Self::value(&self.snap_it_executable, cx);
         let keep_awake_enabled = self.keep_awake_enabled;
         let warp_enabled = self.warp_enabled;
         let warp_exe = Self::value(&self.warp_executable, cx);
@@ -297,6 +314,7 @@ impl SettingsPage {
                 s.repos.azure_dev_ops_pat = azure_pat;
                 s.repos.azure_dev_ops_url = azure_url;
                 s.snap_it.auto_start = snap_it_auto_start;
+                s.snap_it.executable = snap_it_exe;
                 s.keep_awake.enabled = keep_awake_enabled;
             });
             // the interval may have changed: re-arm the periodic fetch
@@ -386,20 +404,34 @@ impl Render for SettingsPage {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(icon_button(
-                                "settings-back",
-                                "icons/icon-arrow-left.svg",
-                                theme::TEXT,
-                                cx.listener(|this, _, _, cx| {
-                                    this.back_requested = true;
-                                    cx.notify();
-                                }),
-                            ))
                             .child(
                                 div()
-                                    .text_size(px(theme::font_title() + 2.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child("Settings"),
+                                    .id("settings-back")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .px_1()
+                                    .py_1()
+                                    .ml(px(-4.))
+                                    .hover(|s| s.bg(theme::HOVER))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.back_requested = true;
+                                        cx.notify();
+                                    }))
+                                    .child(crate::ui::icon(
+                                        "icons/icon-arrow-left.svg",
+                                        px(theme::icon_medium()),
+                                        theme::TEXT,
+                                    ))
+                                    .child(
+                                        div()
+                                            .text_size(px(theme::font_title() + 2.))
+                                            .font_weight(FontWeight::BOLD)
+                                            .child("Settings"),
+                                    ),
                             )
                             .child(div().flex_1())
                             .when(just_saved, |row| {
@@ -544,6 +576,7 @@ impl Render for SettingsPage {
                                                 })),
                                                 snapit_run_control(cx),
                                             ))
+                                            .child(field_row("SnapIt executable", &this.snap_it_executable))
                                             .child(switch_row("Keep system and display awake (Windows)", this.keep_awake_enabled, cx.listener(|this, _, _, cx| {
                                                 this.keep_awake_enabled = !this.keep_awake_enabled;
                                                 cx.notify();
@@ -561,15 +594,9 @@ impl Render for SettingsPage {
                                         })))
                                         .child(field_row("warp-agent executable", &this.warp_executable))
                                         .child(label("Default model"))
-                                        .child({
-                                            let field = this.default_model.clone();
-                                            this.model_picker(&field, PickerSlot::Default, cx)
-                                        })
+                                        .child(this.default_model_picker.clone())
                                         .child(label("Commit model (wand)"))
-                                        .child({
-                                            let field = this.commit_model.clone();
-                                            this.model_picker(&field, PickerSlot::Commit, cx)
-                                        })
+                                        .child(this.commit_model_picker.clone())
                                         .child(label("Prompt templates"))
                                         .child(this.templates_section(cx))
                                     }))
@@ -592,133 +619,7 @@ impl Render for SettingsPage {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum PickerSlot {
-    Default,
-    Commit,
-}
-
 impl SettingsPage {
-    fn model_picker(
-        &mut self,
-        field: &Entity<InputState>,
-        slot: PickerSlot,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let open = match slot {
-            PickerSlot::Default => self.default_model_open,
-            PickerSlot::Commit => self.commit_model_open,
-        };
-        let filter = field.read(cx).value().to_string().to_lowercase();
-        let models = self.store.read(cx).models.clone();
-
-        let mut list = div().flex().flex_col().gap_0p5().max_h(px(180.)).overflow_hidden();
-        let mut shown = 0;
-        for model in &models {
-            if !filter.is_empty() && !model.to_lowercase().contains(&filter) {
-                continue;
-            }
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("model-{model}")))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(theme::font_small()))
-                    .text_color(theme::TEXT_DIM)
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click({
-                        let model = model.clone();
-                        let field = field.clone();
-                        move |_, window, cx| {
-                            field.update(cx, |state, cx| state.set_value(model.as_str(), window, cx));
-                        }
-                    })
-                    .child(model.clone()),
-            );
-            shown += 1;
-            if shown > 20 {
-                break;
-            }
-        }
-
-        div()
-            .relative()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .child(div().flex_1().child(Input::new(field).small()))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("picker-toggle-{:?}", slot)))
-                            .cursor_pointer()
-                            .rounded_md()
-                            .px_2()
-                            .py_1()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::TEXT_MUTED)
-                            .border_1()
-                            .border_color(theme::HAIRLINE)
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                match slot {
-                                    PickerSlot::Default => this.default_model_open = !this.default_model_open,
-                                    PickerSlot::Commit => this.commit_model_open = !this.commit_model_open,
-                                }
-                                cx.notify();
-                            }))
-                            .child(crate::ui::icon(
-                                if open { "icons/icon-chevron-down.svg" } else { "icons/icon-chevron-right.svg" },
-                                px(theme::icon_small()),
-                                theme::TEXT_MUTED,
-                            )),
-                    )
-                    .child({
-                        let store = self.store.clone();
-                        div()
-                            .id(SharedString::from(format!("picker-refresh-{:?}", slot)))
-                            .cursor_pointer()
-                            .rounded_md()
-                            .px_2()
-                            .py_1()
-                            .flex()
-                            .items_center()
-                            .text_size(px(theme::font_small()))
-                            .text_color(theme::TEXT_MUTED)
-                            .border_1()
-                            .border_color(theme::HAIRLINE)
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(move |_, _, cx| {
-                                store.update(cx, |s, cx| s.load_models(cx));
-                            })
-                            .child(crate::ui::icon(
-                                "icons/icon-refresh.svg",
-                                px(theme::icon_small()),
-                                theme::TEXT_MUTED,
-                            ))
-                    }),
-            )
-            .when(open, |picker| {
-                picker.child(
-                    div()
-                        .id(SharedString::from(format!("picker-list-{:?}", slot)))
-                        .rounded_md()
-                        .border_1()
-                        .border_color(theme::HAIRLINE)
-                        .bg(theme::POPUP)
-                        .p_1()
-                        .child(list),
-                )
-            })
-            .into_any_element()
-    }
-
     // ---- prompt templates -------------------------------------------------
 
     /// The card's template manager: one row per registry entry, or the
@@ -1053,23 +954,6 @@ fn two_col(a: impl IntoElement, b: impl IntoElement) -> gpui::AnyElement {
         .into_any_element()
 }
 
-fn icon_button(
-    id: &'static str,
-    icon_path: &'static str,
-    color: impl Into<gpui::Hsla>,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> gpui::AnyElement {
-    div()
-        .id(id)
-        .cursor_pointer()
-        .rounded_md()
-        .p_1()
-        .hover(|s| s.bg(theme::HOVER))
-        .on_click(on_click)
-        .child(crate::ui::icon(icon_path, px(theme::icon_medium()), color))
-        .into_any_element()
-}
-
 fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement + use<> {
     // a stable per-row selector so probes can reach the field through its row
     let selector = format!("settings-field-{label_text}");
@@ -1097,10 +981,13 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .text_color(if running { theme::DANGER } else { theme::SUCCESS_BRIGHT })
         .hover(|s| s.bg(theme::HOVER))
         .on_click(cx.listener(|this, _, _, cx| {
+            // the live field value, so a new binary can be tried without
+            // saving the page first
+            let exe = SettingsPage::value(&this.snap_it_executable, cx);
             let result = if devtools_core::snapit::is_running() {
                 devtools_core::snapit::stop()
             } else {
-                devtools_core::snapit::start()
+                devtools_core::snapit::start(&exe)
             };
             if let Err(err) = result {
                 this.store.update(cx, |s, cx| {

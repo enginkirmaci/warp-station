@@ -1054,10 +1054,11 @@ impl MainWindow {
                     },
                     show_tooltips,
                     move |_, _, cx| {
+                        let exe = store.read(cx).settings().snap_it.executable;
                         let result = if devtools_core::snapit::is_running() {
                             devtools_core::snapit::stop()
                         } else {
-                            devtools_core::snapit::start()
+                            devtools_core::snapit::start(&exe)
                         };
                         if let Err(err) = result {
                             store.update(cx, |s, cx| {

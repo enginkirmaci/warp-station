@@ -430,7 +430,6 @@ impl ChangesView {
                             .gap_0p5()
                             .opacity(0.)
                             .group_hover("file-row", |s| s.opacity(1.))
-                            .child(row_action_button(file, staged, self.store.clone()))
                             .child(
                                 div()
                                     .id(SharedString::from(format!("discard-{staged}-{}", file.path)))
@@ -455,7 +454,8 @@ impl ChangesView {
                                         }
                                     })
                                     .child(icon("icons/icon-undo.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
-                            ),
+                            )
+                            .child(row_action_button(file, staged, self.store.clone())),
                     )
                     .when_some(
                         file.additions.map(|a| (a, file.deletions)),
@@ -1190,7 +1190,10 @@ impl ChangesView {
                     this.new_branch_open = false;
                     this.branch_delete_armed = None;
                     if this.branch_menu_open {
-                        this.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
+                        this.branch_filter.update(cx, |f, cx| {
+                            f.set_value("", window, cx);
+                            f.focus(window, cx);
+                        });
                     }
                     cx.notify();
                 }))

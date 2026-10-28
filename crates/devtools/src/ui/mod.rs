@@ -8,6 +8,7 @@ pub mod dialogs;
 pub mod diff;
 pub mod formatters;
 pub mod markdown_editor;
+pub mod filtered_picker;
 pub mod notes;
 pub mod nuget;
 pub mod overview;
