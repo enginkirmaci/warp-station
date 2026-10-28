@@ -869,6 +869,7 @@ pub(crate) fn window_button(
         .id(id)
         .debug_selector(move || id.into())
         .cursor_pointer()
+        .flex_shrink_0()
         .size(px(26.))
         .rounded_md()
         .flex()
@@ -896,6 +897,7 @@ fn status_chip(
         .id(id)
         .debug_selector(move || id.into())
         .cursor_pointer()
+        .flex_shrink_0()
         .rounded_md()
         .h(px(26.))
         .px_2()
@@ -931,16 +933,33 @@ fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
 }
 
 /// Both titlebar side columns share this width so the centered search field
-/// sits at the window's true center. It fits the wider side on either
-/// platform: the app name + notes + summary group on the left, and the
-/// status chips + tool pill + window controls on the right (the SnapIt and
-/// Awake chips join the NuGet one on Windows only).
-fn titlebar_side_w() -> f32 {
-    if cfg!(windows) {
-        352.0
-    } else {
-        252.0
+/// sits at the window's true center. The right side is the wider one — status
+/// chips + tool pill + window controls — so the width is computed from what
+/// the settings actually enable; the old fixed guess sat below the real
+/// content and the flex row crushed the window controls into a fraction of
+/// their pitch.
+fn titlebar_side_w(show_nuget: bool, show_warp: bool, show_windows_chips: bool) -> f32 {
+    // status chip: px_2 padding, 8px dot, gap, ~6.5px per label character
+    let chip = |label: &str| 30.0 + label.chars().count() as f32 * 6.5;
+    let mut widths = Vec::new();
+    if show_nuget {
+        widths.push(chip("NuGet"));
     }
+    if show_windows_chips {
+        widths.push(chip("SnapIt"));
+        widths.push(chip("Awake"));
+    }
+    if show_warp {
+        widths.push(chip("warp"));
+    }
+    if !widths.is_empty() {
+        widths.push(9.0); // the hairline divider: w 1 + mx_1
+    }
+    widths.push(58.0); // the tool pill: p_0p5 + two 26px buttons + gap_0p5
+    widths.push(9.0);
+    widths.push(78.0); // minimize / maximize / close at 26px each
+    let gaps = (widths.len() - 1) as f32 * 4.0; // the row's gap_1
+    (widths.iter().sum::<f32>() + gaps + 10.0).max(252.0)
 }
 
 impl MainWindow {
@@ -950,12 +969,28 @@ impl MainWindow {
         let nuget_enabled = settings.nuget_local.enable_nuget;
         let warp_enabled = settings.warp_agent.enable_warp_agent;
         let nuget_watching = self.store.read(cx).nuget.watching;
+        // the status chips fold away first when the window cannot fit the
+        // full titlebar — the tool pill and the window controls never do
+        let mut show_nuget = nuget_enabled;
+        let mut show_warp = warp_enabled;
+        let mut show_windows_chips = cfg!(windows);
+        let viewport_w = window.viewport_size().width.as_f32();
+        let full_side = titlebar_side_w(show_nuget, show_warp, show_windows_chips);
+        if full_side * 2.0 + 160.0 /* search min width */ + 64.0 /* gutters, gaps, slack */
+            > viewport_w
+        {
+            show_nuget = false;
+            show_warp = false;
+            show_windows_chips = false;
+        }
+        let side_w = titlebar_side_w(show_nuget, show_warp, show_windows_chips);
         // the two tool buttons share one inset pill; the window controls
         // stay flat on the titlebar so the two groups read differently
         let utility_group = div()
             .flex()
             .items_center()
             .gap_0p5()
+            .flex_shrink_0()
             .rounded_md()
             .bg(theme::POPUP)
             .p_0p5();
@@ -963,7 +998,8 @@ impl MainWindow {
         // centered search truly centered
         let right_group = div()
             .debug_selector(|| "titlebar-right".into())
-            .w(px(titlebar_side_w()))
+            .w(px(side_w))
+            .flex_shrink_0()
             .flex()
             .items_center()
             .justify_end()
@@ -972,7 +1008,7 @@ impl MainWindow {
             // watch runs; SnapIt red when stopped, green when running — and
             // Windows-only, like the tool itself. Keep awake is Windows-only
             // too: green while it holds the machine awake, muted when off.
-            .when(nuget_enabled, |d| {
+            .when(show_nuget, |d| {
                 let store = self.store.clone();
                 d.child(status_chip(
                     "nuget-status",
@@ -1000,7 +1036,7 @@ impl MainWindow {
                     },
                 ))
             })
-            .when(cfg!(windows), |d| {
+            .when(show_windows_chips, |d| {
                 let running = devtools_core::snapit::is_running();
                 let store = self.store.clone();
                 d.child(status_chip(
@@ -1035,7 +1071,7 @@ impl MainWindow {
             })
             // warp-agent door: green while a running instance answers, muted
             // when away; click opens (or launches) it on the General workspace
-            .when(warp_enabled, |d| {
+            .when(show_warp, |d| {
                 let connected = self.store.read(cx).warp_connected;
                 let store = self.store.clone();
                 d.child(status_chip(
@@ -1053,7 +1089,7 @@ impl MainWindow {
                     },
                 ))
             })
-            .when(cfg!(windows), |d| {
+            .when(show_windows_chips, |d| {
                 let awake = devtools_core::keepawake::is_enabled();
                 let store = self.store.clone();
                 d.child(status_chip(
@@ -1090,7 +1126,7 @@ impl MainWindow {
             })
             // the chips group separates from the tool pill only when a chip
             // actually rendered
-            .when(nuget_enabled || warp_enabled || cfg!(windows), |d| {
+            .when(show_nuget || show_warp || show_windows_chips, |d| {
                 d.child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             })
             .child(
@@ -1205,7 +1241,7 @@ impl MainWindow {
                 // and the summary pill ride next to the app name
                 div()
                     .debug_selector(|| "titlebar-brand".into())
-                    .w(px(titlebar_side_w()))
+                    .w(px(side_w))
                     .flex()
                     .items_center()
                     .gap_1()

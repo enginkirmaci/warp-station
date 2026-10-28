@@ -1054,6 +1054,126 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     );
 }
 
+/// The Add dialog's commit must persist the new folders as scan roots: the
+/// listing scan rebuilds the list from the roots and drops everything else,
+/// so an add that only lands in the repo cache is erased by the next rescan
+/// (startup, Refresh).
+#[gpui::test]
+fn register_repos_persists_new_folders_as_scan_roots(cx: &mut TestAppContext) {
+    let home = std::env::temp_dir().join(format!("devtools-register-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; other tests in this binary tolerate a
+    // default-settings store, so a racing HOME read is harmless
+    unsafe { std::env::set_var("HOME", &home) };
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
+    });
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.register_repos(
+            &[
+                scanned("repo-x", "/probe/scan/repo-x"),
+                scanned("alpha", "/probe/alpha"),
+            ],
+            cx,
+        )
+    });
+
+    let (roots, names) = cx.read_entity(&store, |s, _| {
+        (
+            s.settings().repos.repo_scan_folders.clone(),
+            s.repos.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+        )
+    });
+    assert_eq!(
+        names,
+        vec!["alpha", "repo-x"],
+        "the add lands in the live list"
+    );
+    assert_eq!(
+        roots,
+        Some(vec!["/probe/scan/repo-x".to_string()]),
+        "the new folder joins the persisted scan roots; known folders stay untouched"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The titlebar's window controls keep their designed 26px boxes and 30px
+/// pitch: the right group's width is computed from the enabled chips, and the
+/// old fixed guess sat below the real content, so the flex row crushed the
+/// minimize/maximize/close cluster to a fraction of its pitch.
+#[gpui::test]
+fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    // a missing scratch file = default settings = NuGet + warp chips on, the
+    // widest right-group the Linux build can render
+    let scratch =
+        std::env::temp_dir().join(format!("devtools-probe-titlebar-{}.json", std::process::id()));
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the chips must actually render, or this probe exercises the compact
+    // layout and proves nothing about the overflow
+    assert!(cx.debug_bounds("nuget-status").is_some(), "NuGet chip renders");
+    assert!(cx.debug_bounds("warp-status").is_some(), "warp chip renders");
+
+    let right = cx.debug_bounds("titlebar-right").expect("right group renders");
+    let nuget = cx.debug_bounds("nuget-status").expect("NuGet bounds");
+    let minimize = cx.debug_bounds("minimize-window").expect("minimize renders");
+    let zoom = cx.debug_bounds("zoom").expect("maximize renders");
+    let close = cx.debug_bounds("close-window").expect("close renders");
+    // the computed width must actually hold the content: a too-small box
+    // spills the chips out of its start edge and collapses the row's gaps
+    assert!(
+        nuget.origin.x >= right.origin.x - gpui::px(0.5),
+        "the chips fit inside the right group (chip at {:?}, group at {:?})",
+        nuget.origin.x,
+        right.origin.x
+    );
+    for (name, bounds) in [("minimize", minimize), ("zoom", zoom), ("close", close)] {
+        assert!(
+            (bounds.size.width - gpui::px(26.)).abs() < gpui::px(0.5),
+            "{name} keeps its 26px box (got {:?})",
+            bounds.size.width
+        );
+    }
+    // adjacent caption buttons: glyph centers one 26px box apart — under the
+    // old fixed width the overflow squeezed the boxes themselves below this
+    let pitch = |a: gpui::Bounds<gpui::Pixels>, b: gpui::Bounds<gpui::Pixels>| {
+        (b.center().x - a.center().x).abs()
+    };
+    assert!(
+        (pitch(minimize, zoom) - gpui::px(26.)).abs() < gpui::px(1.),
+        "minimize/maximize sit box-to-box (got {:?})",
+        pitch(minimize, zoom)
+    );
+    assert!(
+        (pitch(zoom, close) - gpui::px(26.)).abs() < gpui::px(1.),
+        "maximize/close sit box-to-box (got {:?})",
+        pitch(zoom, close)
+    );
+
+    let _ = std::fs::remove_file(&scratch);
+}
+
 /// The Clone dialog: the destination is editable and feeds validation — an
 /// empty destination holds the dialog open with the inline error, a valid
 /// one lets the commit flip the button to its busy label.

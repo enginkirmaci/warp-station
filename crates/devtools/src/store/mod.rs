@@ -873,6 +873,23 @@ impl Store {
             .collect();
         self.repos = merged;
         self.reproject();
+        // the listing scan rebuilds this list from the persisted scan roots
+        // and drops everything else, so the new folders must join the roots
+        // (roots are repo folders, like adopt_clone's) or the next rescan —
+        // startup, Refresh — erases the add; the cache save below only
+        // carries tags and git status across that scan
+        if !new_folders.is_empty() {
+            self.update_settings(|s| {
+                let roots = s.repos.repo_scan_folders.get_or_insert_default();
+                for folder in &new_folders {
+                    let folder = folder.to_string_lossy().to_string();
+                    if !roots.iter().any(|f| devtools_core::paths::same_folder_text(f, &folder)) {
+                        roots.push(folder);
+                    }
+                }
+                roots.sort();
+            });
+        }
         if let Err(err) = repo_store::save_cache(&repo_store::cache_path(), &self.repos) {
             tracing::warn!("could not save repo cache: {err}");
         }
