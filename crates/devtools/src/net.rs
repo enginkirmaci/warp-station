@@ -60,8 +60,6 @@ pub enum NetCommand {
     },
     /// Opens a repo as a warp-agent workspace (added when missing).
     WarpOpen { folder: PathBuf, warp_exe: String },
-    /// Hands a prompt to warp-agent as a new chat's composer prefill.
-    WarpAsk { folder: PathBuf, warp_exe: String },
     /// NuGet Local watch controls; the config is captured from settings at
     /// press time (the service holds no settings handle).
     NugetStart { config: devtools_core::nuget::NugetConfig },
@@ -665,38 +663,6 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .await
                     {
                         Ok(mut client) => client.open_workspace(&folder).await.map_err(|err| format!("{err:#}")),
-                        Err(err) => Err(format!("{err:#}")),
-                    };
-                    let _ = evt_tx.send_blocking(UiEvent::WarpOpened {
-                        folder: folder.to_string_lossy().to_string(),
-                        error: result.err(),
-                    });
-                });
-            }
-            NetCommand::WarpAsk { folder, warp_exe } => {
-                let evt_tx = evt_tx.clone();
-                tokio::spawn(async move {
-                    // the handoff rides the same commit-context prompt the
-                    // wand uses, as the new chat's composer prefill
-                    let prefill = tokio::task::spawn_blocking({
-                        let folder = folder.clone();
-                        move || build_wand_prompt(WandKind::Commit, &folder)
-                    })
-                    .await
-                    .unwrap_or_default();
-                    let result = match devtools_core::warp::connect_or_launch(
-                        std::path::Path::new(&warp_exe),
-                        Some(&folder),
-                    )
-                    .await
-                    {
-                        Ok(mut client) => {
-                            let workspace = folder.to_string_lossy().to_string();
-                            client
-                                .new_chat(&workspace, &prefill, false, None)
-                                .await
-                                .map_err(|err| format!("{err:#}"))
-                        }
                         Err(err) => Err(format!("{err:#}")),
                     };
                     let _ = evt_tx.send_blocking(UiEvent::WarpOpened {

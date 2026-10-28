@@ -1026,31 +1026,7 @@ impl ChangesView {
                             } else {
                                 "Ctrl+Enter to commit"
                             }),
-                    )
-                    // handoff: the same commit context as a new warp-agent
-                    // chat, prefilled for an interactive run
-                    .when(wand_on, |header| {
-                        let store = self.store.clone();
-                        header.child(
-                            div()
-                                .id("ask-agent")
-                                .debug_selector(|| "ask-agent".into())
-                                .cursor_pointer()
-                                .rounded_md()
-                                .p_1()
-                                .flex()
-                                .hover(|s| s.bg(theme::HOVER))
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    store.update(cx, |s, cx| s.ask_warp_about_changes(cx));
-                                })
-                                .child(icon(
-                                    "icons/icon-agent-sparkle.svg",
-                                    px(theme::icon_small()),
-                                    theme::ACCENT,
-                                )),
-                        )
-                    }),
+                    ),
             )
             .child(
                 div()

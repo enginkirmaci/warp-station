@@ -395,48 +395,6 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
     assert!(cx.read_entity(&store, |s, _| s.warp_running.is_empty()));
 }
 
-/// The Changes-tab handoff leaves as a WarpAsk command carrying the repo's
-/// folder. The store is backed by a scratch settings file pointing the
-/// integration at an existing executable, so the gate passes.
-#[gpui::test]
-fn ask_agent_hands_off_through_the_door(cx: &mut TestAppContext) {
-    use devtools::net::NetCommand;
-
-    cx.update(gpui_kit::init);
-
-    let exe = std::env::current_exe().expect("test binary path");
-    let json = format!(
-        r#"{{"OpenCode": {{"EnableOpenCode": true}}, "WarpAgent": {{"EnableWarpAgent": true, "Executable": "{}"}}}}"#,
-        exe.display().to_string().replace('\\', "\\\\")
-    );
-    let scratch = std::env::temp_dir().join(format!("devtools-probe-warp-{}.json", std::process::id()));
-    std::fs::write(&scratch, json).expect("scratch settings");
-
-    let (net_tx, net_rx) = async_channel::unbounded();
-    let store = cx.new(|_cx| {
-        Store::with_settings(
-            net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
-        )
-    });
-    cx.update_entity(&store, |s: &mut Store, _| {
-        s.selected_repo = Some("/repos/a".into());
-    });
-    cx.update_entity(&store, |s, cx| s.ask_warp_about_changes(cx));
-    cx.run_until_parked();
-
-    let mut handed_off = false;
-    while let Ok(command) = net_rx.try_recv() {
-        if let NetCommand::WarpAsk { folder, .. } = command {
-            assert_eq!(folder, std::path::PathBuf::from("/repos/a"));
-            handed_off = true;
-        }
-    }
-    assert!(handed_off, "the handoff command went out");
-
-    let _ = std::fs::remove_file(&scratch);
-}
-
 /// Switching repos resets the whole per-repo workspace: snapshot, branches,
 /// history, drafts, wand state and the busy flags — the bar never shows the
 /// previous repo's detail.

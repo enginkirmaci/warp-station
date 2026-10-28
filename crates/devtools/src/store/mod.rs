@@ -821,21 +821,6 @@ impl Store {
         cx.notify();
     }
 
-    /// Hands the repo's commit context to warp-agent as a new chat prefill.
-    pub fn ask_warp_about_changes(&mut self, cx: &mut Context<Self>) {
-        let Some(folder) = self.selected_repo.clone() else { return };
-        let Some(exe) = self.warp_ready() else {
-            self.notify_error("warp-agent is not available");
-            cx.notify();
-            return;
-        };
-        let _ = self.net.send_blocking(NetCommand::WarpAsk {
-            folder: std::path::PathBuf::from(folder),
-            warp_exe: exe.to_string_lossy().to_string(),
-        });
-        cx.notify();
-    }
-
     /// Sends one mutation for the selected repo and marks the rail busy; the
     /// net thread settles the reload.
     pub fn run_git(&mut self, action: GitAction, cx: &mut Context<Self>) {
