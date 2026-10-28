@@ -107,8 +107,8 @@ fn parse_match_event(line: &str, folders: &[PathBuf]) -> Option<CodeHit> {
     let line_number = u32::try_from(data.get("line_number")?.as_u64()?).ok()?;
     let line_text = data.pointer("/lines/text")?.as_str()?;
     let submatch = data.pointer("/submatches/0")?;
-    let match_start = usize::try_from(submatch.get("match_start")?.as_u64()?).ok()?;
-    let match_end = usize::try_from(submatch.get("match_end")?.as_u64()?).ok()?;
+    let match_start = usize::try_from(submatch.get("start")?.as_u64()?).ok()?;
+    let match_end = usize::try_from(submatch.get("end")?.as_u64()?).ok()?;
 
     // repo attribution: the hit belongs to the first searched folder that
     // contains it; a path under none of them is an rg quirk — skip it
@@ -211,21 +211,21 @@ mod tests {
         vec![root.join("alpha"), root.join("beta")]
     }
 
-    async fn search(root: &Path, term: &str, cap: usize) -> Vec<CodeHit> {
-        let Some(rg) = crate::exe::locate("rg") else {
-            println!("skipping code-search test: rg not found on PATH");
-            return Vec::new();
-        };
-        run_code_search(&rg, &folders(root), term, cap).await
+    /// `None` skips the test (rg missing); `Some(empty)` is a real failure —
+    /// the fixture is guaranteed to match, so empty means the sweep or its
+    /// parsing broke.
+    async fn search(root: &Path, term: &str, cap: usize) -> Option<Vec<CodeHit>> {
+        let rg = crate::exe::locate("rg")?;
+        Some(run_code_search(&rg, &folders(root), term, cap).await)
     }
 
     #[tokio::test]
     async fn finds_matches_across_repos_with_case_insensitive_fixed_strings() {
         let root = fixture("case-insensitive");
-        let hits = search(&root, "NEEDLE", 12).await;
-        if hits.is_empty() {
-            return; // rg missing — skipped above
-        }
+        let Some(hits) = search(&root, "NEEDLE", 12).await else {
+            println!("skipping code-search test: rg not found on PATH");
+            return;
+        };
         // alpha/src/lib.rs caps at 2 lines (needle_finder + NEEDLE comment);
         // README, guide.md and main.py add one line each
         assert_eq!(hits.len(), 5, "one rg pass covers every repo: {hits:?}");
@@ -248,10 +248,10 @@ mod tests {
     #[tokio::test]
     async fn cap_bounds_the_hit_list() {
         let root = fixture("cap");
-        let hits = search(&root, "needle", 3).await;
-        if hits.is_empty() {
+        let Some(hits) = search(&root, "needle", 3).await else {
+            println!("skipping code-search test: rg not found on PATH");
             return;
-        }
+        };
         assert_eq!(hits.len(), 3, "the cap stops collection early");
         let _ = fs::remove_dir_all(&root);
     }
@@ -266,10 +266,10 @@ mod tests {
             format!("{filler} needle {filler}\n"),
         )
         .unwrap();
-        let hits = search(&root, "needle", 12).await;
-        if hits.is_empty() {
+        let Some(hits) = search(&root, "needle", 12).await else {
+            println!("skipping code-search test: rg not found on PATH");
             return;
-        }
+        };
         let wide = hits.iter().find(|h| h.rel_path == "wide.txt").expect("the wide line");
         assert!(wide.excerpt.len() < 200, "excerpt windowed, got {} bytes", wide.excerpt.len());
         let matched = &wide.excerpt[wide.match_start..wide.match_end];
