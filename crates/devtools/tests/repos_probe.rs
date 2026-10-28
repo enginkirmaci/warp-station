@@ -354,6 +354,87 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     );
 }
 
+/// The FilteredPicker branch dropdown: opening overlays the rail without
+/// reflowing it, the auto-focused filter narrows the rows (dropping the
+/// Remote group when no remote matches), and picking a match checks it out.
+#[gpui::test]
+fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.branches = vec![
+            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "origin/main".into(), kind: GitBranchKind::Remote },
+        ];
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let rail_fetch = cx.debug_bounds("rail-Fetch").expect("the git actions render");
+    let button = cx
+        .debug_bounds("branch-button")
+        .expect("the branch selector renders in the rail");
+    cx.simulate_click(button.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown opens"
+    );
+    let rail_fetch_open = cx.debug_bounds("rail-Fetch").expect("the git actions stay");
+    assert_eq!(
+        rail_fetch.origin, rail_fetch_open.origin,
+        "opening the popup overlays the rail, never reflowing it"
+    );
+
+    // the filter is focused on open: typing narrows straight away, and the
+    // Remote group label vanishes when no remote matches
+    cx.simulate_input("feat");
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-row-feature").is_some(),
+        "the filter keeps a match"
+    );
+    assert!(
+        cx.debug_bounds("branch-row-main").is_none(),
+        "the filter drops non-matches"
+    );
+    assert!(
+        cx.debug_bounds("branch-group-remote").is_none(),
+        "the Remote label only renders before a matching remote"
+    );
+
+    // picking the match checks it out and closes the dropdown
+    let row = cx
+        .debug_bounds("branch-row-feature")
+        .expect("the matched row renders");
+    cx.simulate_click(row.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "picking a branch closes the dropdown"
+    );
+    assert!(
+        cx.read_entity(&store, |s, _| s.git_busy),
+        "the checkout went out"
+    );
+}
+
 /// The warp status bridge: pushes land per folder, and availability-loss
 /// clears them — the row hints follow warp-agent down with it.
 #[gpui::test]

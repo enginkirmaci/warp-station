@@ -43,6 +43,9 @@ pub struct MainWindow {
     nuget_drawer: Option<Entity<NugetDrawer>>,
     clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
     tools_menu_open: bool,
+    /// A left press landed on the titlebar background; the first move turns
+    /// it into a window drag (Linux/macOS — Windows uses the HTCAPTION path).
+    titlebar_should_move: bool,
     /// Window-level focus for the app shortcuts. The window body is not made
     /// of text fields, so without this root handle Escape/Ctrl+K only fire
     /// after an input has been clicked.
@@ -92,6 +95,7 @@ impl MainWindow {
             clipboard_drawer: None,
             // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
             tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
+            titlebar_should_move: false,
             focus_handle,
         };
         // keep the root focus handle live so Escape / Ctrl+K work before the
@@ -376,6 +380,7 @@ impl MainWindow {
         };
         let mut menu = div()
             .id("tools-menu")
+            .debug_selector(|| "tools-menu".into())
             .absolute()
             .top(px(theme::TITLEBAR_H + 4.))
             // right edge of the menu = right edge of the tools button: 8px
@@ -869,6 +874,10 @@ pub(crate) fn window_button(
         .id(id)
         .debug_selector(move || id.into())
         .cursor_pointer()
+        // the titlebar underneath is one big drag region; a control both
+        // occludes it from the Windows hit test and stops the press from
+        // reaching the drag handler, so a click stays a click
+        .occlude()
         .flex_shrink_0()
         .size(px(26.))
         .rounded_md()
@@ -876,6 +885,7 @@ pub(crate) fn window_button(
         .items_center()
         .justify_center()
         .hover(move |s| s.bg(hover_bg))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
         .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
@@ -897,6 +907,7 @@ fn status_chip(
         .id(id)
         .debug_selector(move || id.into())
         .cursor_pointer()
+        .occlude()
         .flex_shrink_0()
         .rounded_md()
         .h(px(26.))
@@ -907,6 +918,7 @@ fn status_chip(
         .gap_1p5()
         .hover(|s| s.bg(theme::HOVER))
         .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
         .child(div().size(px(8.)).rounded_full().bg(dot_color))
         .child(
@@ -916,26 +928,6 @@ fn status_chip(
                 .child(label),
         )
         .into_any_element()
-}
-
-/// A stretch of titlebar that moves the window when dragged. It may stay
-/// empty (the spacer around the search field) or carry the brand — the
-/// windows-only status chips widen the side columns until the spacers
-/// collapse to zero, so the app mark/name must double as a drag surface.
-fn titlebar_drag(id: &'static str) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .debug_selector(move || id.to_string())
-        .flex_1()
-        .h_full()
-        .flex()
-        .items_center()
-        // Windows drags via the hit-test path (this hitbox answers HTCAPTION);
-        // start_window_move is a no-op there. Linux keeps the explicit move.
-        .window_control_area(WindowControlArea::Drag)
-        .on_mouse_down(MouseButton::Left, |_, window, _| {
-            window.start_window_move();
-        })
 }
 
 /// Both titlebar side columns share this width so the centered search field
@@ -1143,6 +1135,7 @@ impl MainWindow {
                             .id("tools-toggle")
                             .debug_selector(|| "tools-toggle".into())
                             .cursor_pointer()
+                            .occlude()
                             .rounded_md()
                             .size(px(26.))
                             .flex()
@@ -1150,6 +1143,7 @@ impl MainWindow {
                             .justify_center()
                             .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
                             .hover(|s| s.bg(theme::HOVER))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.tools_menu_open = !this.tools_menu_open;
                                 cx.notify();
@@ -1171,6 +1165,7 @@ impl MainWindow {
                             .id("settings-toggle")
                             .debug_selector(|| "settings-toggle".into())
                             .cursor_pointer()
+                            .occlude()
                             .rounded_md()
                             .size(px(26.))
                             .flex()
@@ -1178,6 +1173,7 @@ impl MainWindow {
                             .justify_center()
                             .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
                             .hover(|s| s.bg(theme::HOVER))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
                                 cx.notify();
@@ -1239,9 +1235,33 @@ impl MainWindow {
             .bg(theme::STRONG_BACKGROUND)
             .border_b_1()
             .border_color(theme::BORDER_LIGHT)
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+            .debug_selector(|| "titlebar-drag".into())
+            // the whole bar drags, not just the strips beside the search:
+            // Windows turns this hitbox into HTCAPTION, and the buttons and
+            // search field above it occlude/stop the press so they stay
+            // clickable. Linux/macOS start the move on the first motion so a
+            // plain click (and the headless probes) never enters a drag.
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                 gpui_kit::base::GlobalState::suppress_text_selection(cx);
-            })
+                this.titlebar_should_move = true;
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
+                this.titlebar_should_move = false;
+            }))
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
+                if this.titlebar_should_move {
+                    this.titlebar_should_move = false;
+                    // a missed mouse-up (the OS move loop swallowed it)
+                    // must not turn a later hover into a drag
+                    if event.pressed_button == Some(MouseButton::Left) {
+                        window.start_window_move();
+                    }
+                }
+            }))
+            .on_mouse_down_out(cx.listener(|this, _, _, _| {
+                this.titlebar_should_move = false;
+            }))
             .child(
                 // fixed side column: matching the right action group's width
                 // keeps the centered search truly centered; the notes toggle
@@ -1252,30 +1272,24 @@ impl MainWindow {
                     .flex()
                     .items_center()
                     .gap_1()
-                    // the mark + name are the visible grab handle; the flex_1
-                    // drag region also absorbs the column's empty tail
                     .child(
-                        titlebar_drag("titlebar-drag-brand")
-                            .gap_1()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(28.))
-                                    .child(icon(
-                                        "icons/icon-logo-mark.svg",
-                                        px(theme::icon_large()),
-                                        theme::ACCENT,
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(theme::font_title()))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::TEXT)
-                                    .child("Dev Tools"),
-                            ),
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(px(28.))
+                            .child(icon(
+                                "icons/icon-logo-mark.svg",
+                                px(theme::icon_large()),
+                                theme::ACCENT,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_title()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .child("Dev Tools"),
                     )
                     // hairline between the app name and the tools that follow
                     .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
@@ -1283,6 +1297,7 @@ impl MainWindow {
                         div()
                             .id("notes-toggle")
                             .cursor_pointer()
+                            .occlude()
                             .rounded_md()
                             .size(px(26.))
                             .flex()
@@ -1290,6 +1305,7 @@ impl MainWindow {
                             .justify_center()
                             .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
                             .hover(|s| s.bg(theme::HOVER))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_notes_window(window, cx);
                             }))
@@ -1306,13 +1322,18 @@ impl MainWindow {
                         left.child(summary_button(&self.store, self.store.read(cx).summary_busy))
                     }),
             )
-            // equal drag spacers on both sides of the search field
-            .child(titlebar_drag("titlebar-drag-left"))
+            // equal spacers on both sides of the search field
+            .child(div().flex_1().h_full())
             .child(
                 div()
+                    // the input is a control island inside the drag region:
+                    // occlude it for the Windows hit test and keep its press
+                    // from starting a window move on Linux
+                    .occlude()
                     .w(px(420.))
                     .min_w(px(160.))
                     .flex_shrink_1()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         Input::new(&self.global_search)
                             .small()
@@ -1337,7 +1358,7 @@ impl MainWindow {
                             ),
                     ),
             )
-            .child(titlebar_drag("titlebar-drag-right"))
+            .child(div().flex_1().h_full())
             .child(right_group)
             .into_any_element()
     }

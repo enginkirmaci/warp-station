@@ -216,13 +216,14 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
     );
 }
 
-/// The brand column must be a drag surface, not just the empty spacers beside
-/// the search field. On Windows the SnapIt/Awake chips widen both side columns
-/// until those flex spacers collapse to zero at the default window size, which
-/// left the window with no titlebar drag region at all. The mark + name sit
-/// inside a drag region that also absorbs the column's empty tail.
+/// The whole titlebar must be a drag surface, not just the brand or the
+/// spacer strips beside the search field. On Windows the SnapIt/Awake chips
+/// widen both side columns until those flex spacers collapse to zero at the
+/// default window size, which left the window with no titlebar drag region.
+/// One full-width hitbox now covers the bar; the search field and buttons
+/// occlude it, so they stay clickable.
 #[gpui::test]
-fn titlebar_brand_is_a_drag_surface(cx: &mut TestAppContext) {
+fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -247,19 +248,26 @@ fn titlebar_brand_is_a_drag_surface(cx: &mut TestAppContext) {
     draw(&mut wcx);
     let _ = std::fs::remove_file(&scratch);
 
-    let brand = wcx.debug_bounds("titlebar-brand").expect("brand column");
-    let drag = wcx
-        .debug_bounds("titlebar-drag-brand")
-        .expect("brand drag surface");
-    assert!(
-        drag.size.width > gpui::px(100.),
-        "the mark + name must carry a real drag region (got {drag:?})"
-    );
-    assert!(
-        drag.origin.x >= brand.origin.x
-            && drag.origin.x + drag.size.width <= brand.origin.x + brand.size.width,
-        "the drag surface stays inside the brand column ({drag:?} vs {brand:?})"
-    );
+    let bar = wcx
+        .debug_bounds("titlebar-drag")
+        .expect("titlebar drag surface");
+    assert_eq!(bar.origin, gpui::point(gpui::px(0.), gpui::px(0.)));
+    assert_eq!(bar.size.width, gpui::px(1280.));
+    assert_eq!(bar.size.height, gpui::px(devtools::theme::TITLEBAR_H));
+    // the controls ride above the drag hitbox and stay where they were
+    for selector in [
+        "titlebar-brand",
+        "titlebar-right",
+        "tools-toggle",
+        "settings-toggle",
+    ] {
+        let bounds = wcx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} renders"));
+        assert!(
+            bounds.origin.x >= bar.origin.x
+                && bounds.origin.x + bounds.size.width <= bar.origin.x + bar.size.width,
+            "{selector} sits inside the drag surface"
+        );
+    }
 }
 
 /// The titlebar's right section reads left to right: status chips (NuGet,
@@ -312,6 +320,15 @@ fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext
         "the window controls come after a separator ({:?} vs {:?})",
         settings,
         minimize
+    );
+
+    // a control above the full-bar drag region still takes its click
+    cx.simulate_click(tools.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    draw(cx);
+    assert!(
+        cx.debug_bounds("tools-menu").is_some(),
+        "the tools button opens its menu through the drag region"
     );
 }
 

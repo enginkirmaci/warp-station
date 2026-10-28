@@ -9,12 +9,12 @@
 use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
 use crate::theme;
+use crate::ui::filtered_picker::FilteredPicker;
 use crate::ui::icon;
 use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, MouseButton, SharedString, Window};
-use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
-use gpui_kit::component::Sizable as _;
+use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui_kit::component::input::{Textarea, TextareaState};
 use std::rc::Rc;
 
 /// One history row's display strings, precomputed when the history (or the
@@ -39,12 +39,8 @@ pub struct ChangesView {
     /// first expand.
     expanded: std::collections::HashSet<(String, bool)>,
     patches: std::collections::HashMap<(String, bool), String>,
-    branch_menu_open: bool,
-    branch_filter: Entity<InputState>,
-    new_branch_open: bool,
-    new_branch_name: Entity<InputState>,
-    /// Branch whose trash icon was clicked once — the second click deletes.
-    branch_delete_armed: Option<String>,
+    /// The branch selector: the shared FilteredPicker in branch mode.
+    branch_picker: Entity<FilteredPicker>,
     commit_message: Entity<TextareaState>,
     /// Set when the user pressed "Generate & Commit" with an empty box: the
     /// wand's draft lands here first, then commits automatically.
@@ -69,14 +65,11 @@ pub struct ChangesView {
 
 impl ChangesView {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let branch_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches"));
-        let new_branch_name = cx.new(|cx| {
-            let prefix = store.read(cx).settings().repos.branch_name_prefix.clone();
-            let initial = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
-            InputState::new(window, cx)
-                .placeholder("branch name")
-                .default_value(initial)
-        });
+        let branch_picker = cx.new(|cx| FilteredPicker::branches(store.clone(), window, cx));
+        // the picker's open popup is appended by render_rail as the rail's
+        // last child, so picker-internal changes (filter typing, arming,
+        // dismissal) must repaint this view too
+        cx.observe(&branch_picker, |_, _, cx| cx.notify()).detach();
         let commit_message = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("Describe your changes…")
         });
@@ -85,11 +78,7 @@ impl ChangesView {
             store,
             expanded: std::collections::HashSet::new(),
             patches: std::collections::HashMap::new(),
-            branch_menu_open: false,
-            branch_filter,
-            new_branch_open: false,
-            new_branch_name,
-            branch_delete_armed: None,
+            branch_picker,
             commit_message,
             auto_commit_after_draft: false,
             history_open: false,
@@ -114,13 +103,7 @@ impl ChangesView {
         self.loaded_for = repo;
         self.expanded.clear();
         self.patches.clear();
-        self.branch_menu_open = false;
-        self.new_branch_open = false;
-        self.branch_delete_armed = None;
-        self.branch_filter.update(cx, |f, cx| f.set_value("", window, cx));
-        let prefix = self.store.read(cx).settings().repos.branch_name_prefix.clone();
-        let seed = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
-        self.new_branch_name.update(cx, |f, cx| f.set_value(seed.as_str(), window, cx));
+        self.branch_picker.update(cx, FilteredPicker::dismiss);
         self.commit_message.update(cx, |f, cx| f.set_value("", window, cx));
         self.auto_commit_after_draft = false;
         self.history_open = false;
@@ -130,19 +113,10 @@ impl ChangesView {
         self.expanded_details.clear();
     }
 
-    /// Closes the branch dropdown (and its new-branch form) from an outside
-    /// click or Escape. Returns whether it was actually open so the bar can
-    /// stop propagating.
+    /// Closes the branch picker from an outside click or Escape. Returns
+    /// whether it was actually open so the bar can stop propagating.
     pub fn dismiss_branch_menu(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.branch_menu_open {
-            self.branch_menu_open = false;
-            self.new_branch_open = false;
-            self.branch_delete_armed = None;
-            cx.notify();
-            true
-        } else {
-            false
-        }
+        self.branch_picker.update(cx, FilteredPicker::dismiss)
     }
 
     /// Opens the history list, loading it once per selection.
@@ -1146,12 +1120,13 @@ impl ChangesView {
 
     fn render_rail(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let store = self.store.read(cx);
-        let entry = store.selected_entry().cloned();
-        let branch = entry.as_ref().and_then(|e| e.git_branch_name.clone());
-        let has_remote = entry.as_ref().map(|e| e.git_has_remote).unwrap_or(false);
-        let published = entry.as_ref().map(|e| e.git_branch_published).unwrap_or(false);
-        let to_push = entry.as_ref().map(|e| e.git_to_push_count).unwrap_or(0);
-        let to_pull = entry.as_ref().map(|e| e.git_to_pull_count).unwrap_or(0);
+        let branch = store
+            .selected_entry()
+            .and_then(|e| e.git_branch_name.clone());
+        let has_remote = store.selected_entry().map(|e| e.git_has_remote).unwrap_or(false);
+        let published = store.selected_entry().map(|e| e.git_branch_published).unwrap_or(false);
+        let to_push = store.selected_entry().map(|e| e.git_to_push_count).unwrap_or(0);
+        let to_pull = store.selected_entry().map(|e| e.git_to_pull_count).unwrap_or(0);
 
         let mut rail = div()
             .w(px(280.))
@@ -1164,56 +1139,10 @@ impl ChangesView {
             .flex_col()
             .relative();
 
-        // branch selector button; the mouse-down stops propagation so the
-        // window's outside-click dismissal never sees it and the button
-        // keeps its open/close toggle
-        rail = rail.child(
-            div()
-                .id("branch-button")
-                .debug_selector(|| "branch-button".into())
-                .cursor_pointer()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::HAIRLINE)
-                .bg(theme::INPUT)
-                .pl_2()
-                .pr_1()
-                .py_1()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .hover(|s| s.border_color(theme::ACCENT))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.branch_menu_open = !this.branch_menu_open;
-                    this.new_branch_open = false;
-                    this.branch_delete_armed = None;
-                    if this.branch_menu_open {
-                        this.branch_filter.update(cx, |f, cx| {
-                            f.set_value("", window, cx);
-                            f.focus(window, cx);
-                        });
-                    }
-                    cx.notify();
-                }))
-                .child(icon("icons/icon-source-branch.svg", px(theme::icon_small()), theme::TEXT_MUTED))
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(theme::font_body()))
-                        .text_color(theme::TEXT_DIM)
-                        .child(branch.clone().unwrap_or_else(|| "—".into())),
-                )
-                .child(
-                    div()
-                        .rounded_md()
-                        .bg(theme::CARD)
-                        .p_1()
-                        .flex()
-                        .child(icon("icons/icon-chevron-down.svg", px(theme::icon_small() - 2.), theme::TEXT_MUTED)),
-                ),
-        );
+        // the branch selector is the shared FilteredPicker in branch mode;
+        // its open popup defers painting over the rail's later children and
+        // dismissal flows through the window's outside-click/Escape chain
+        rail = rail.child(self.branch_picker.clone());
         rail = rail.child(divider());
 
         // git rail: the .NET vertical icon list — Fetch/Pull/Push above a
@@ -1227,6 +1156,7 @@ impl ChangesView {
                           click: Option<RailAction>| {
             let mut row = div()
                 .id(SharedString::from(format!("rail-{label}")))
+                .debug_selector(move || format!("rail-{label}"))
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
@@ -1359,280 +1289,13 @@ impl ChangesView {
         );
         rail = rail.child(action_list);
 
-        if self.branch_menu_open {
-            rail = rail.child(self.render_branch_menu(cx));
+        // the open branch popup rides LAST so later-sibling paint order puts
+        // it over the rail without a deferred wrapper
+        if let Some(popup) = self.branch_picker.update(cx, FilteredPicker::branch_popup) {
+            rail = rail.child(popup);
         }
+
         rail.into_any_element()
-    }
-
-    fn render_branch_menu(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let filter = self.branch_filter.read(cx).value().to_string().to_lowercase();
-        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
-        let current = self
-            .store
-            .read(cx)
-            .selected_entry()
-            .and_then(|e| e.git_branch_name.clone())
-            .unwrap_or_default();
-
-        if self.new_branch_open {
-            return div()
-                .id("branch-menu")
-                .debug_selector(|| "branch-menu".into())
-                .absolute()
-                .top(px(-4.))
-                .left(px(8.))
-                .right(px(8.))
-                .occlude()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::HAIRLINE)
-                .bg(theme::POPUP)
-                .shadow_lg()
-                .p_2()
-                .flex()
-                .flex_col()
-                .gap_2()
-                // presses inside the card must not reach the window's
-                // outside-click dismissal
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(Input::new(&self.new_branch_name).small())
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("new-branch-cancel")
-                                .cursor_pointer()
-                                .rounded_md()
-                                .px_2()
-                                .py_1()
-                                .text_size(px(theme::font_small()))
-                                .text_color(theme::TEXT_DIM)
-                                .border_1()
-                                .border_color(theme::HAIRLINE)
-                                .hover(|s| s.bg(theme::HOVER))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.new_branch_open = false;
-                                    cx.notify();
-                                }))
-                                .child("Cancel"),
-                        )
-                        .child({
-                            div()
-                                .id("new-branch-create")
-                                .cursor_pointer()
-                                .rounded_md()
-                                .px_2()
-                                .py_1()
-                                .text_size(px(theme::font_small()))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .bg(theme::ACCENT)
-                                .text_color(theme::ON_ACCENT)
-                                .hover(|s| s.opacity(0.9))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    let name = this
-                                        .new_branch_name
-                                        .read(cx)
-                                        .value()
-                                        .trim()
-                                        .to_string();
-                                    if name.is_empty() {
-                                        return;
-                                    }
-                                    this.store.update(cx, |s, cx| {
-                                        s.run_git(
-                                            GitAction::CreateBranch {
-                                                name,
-                                                start: None,
-                                                checkout: true,
-                                            },
-                                            cx,
-                                        )
-                                    });
-                                    // a created branch is a selection: the
-                                    // whole dropdown closes and resets
-                                    this.branch_menu_open = false;
-                                    this.new_branch_open = false;
-                                    this.branch_delete_armed = None;
-                                    this.new_branch_name
-                                        .update(cx, |f, cx| f.set_value("", window, cx));
-                                    cx.notify();
-                                }))
-                                .child("Create")
-                        }),
-                )
-                .into_any_element();
-        }
-
-        let mut list = div().flex().flex_col().gap_0p5();
-        let mut shown = 0;
-        let mut remotes_labeled = false;
-        for branch_ref in &self.store.read(cx).branches {
-            if !filter.is_empty() && !branch_ref.name.to_lowercase().contains(&filter) {
-                continue;
-            }
-            if shown > 30 {
-                break;
-            }
-            let is_remote = branch_ref.kind == devtools_core::model::GitBranchKind::Remote;
-            // the .NET menu's inert group label: locals first, then the
-            // "Remote" group (re-emerges before the first matching remote
-            // while filtering)
-            if is_remote && !remotes_labeled {
-                remotes_labeled = true;
-                list = list.child(
-                    div()
-                        .debug_selector(|| "branch-group-remote".into())
-                        .px_2()
-                        .pt_2()
-                        .pb_0p5()
-                        .text_size(px(theme::font_small() - 1.))
-                        .text_color(theme::TEXT_FAINT)
-                        .child("Remote"),
-                );
-            }
-            let is_current = branch_ref.name == current;
-            // locals only, never the checked-out branch — git refuses the
-            // latter anyway, so the icon just isn't offered
-            let deletable = !is_remote && !is_current;
-            let armed = self.branch_delete_armed.as_deref() == Some(branch_ref.name.as_str());
-            let mut row = div()
-                .id(SharedString::from(format!("branch-row-{}", branch_ref.name)))
-                .debug_selector(move || format!("branch-row-{}", branch_ref.name))
-                .cursor_pointer()
-                .group("branch-row")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_1()
-                .rounded_md()
-                .px_2()
-                .py_1()
-                .text_size(px(theme::font_small()))
-                .when(is_current, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
-                .when(!is_current, |d| {
-                    d.text_color(if is_remote {
-                        theme::TEXT_FAINT
-                    } else {
-                        theme::TEXT_DIM
-                    })
-                })
-                .hover(|s| s.bg(theme::HOVER))
-                .on_click({
-                    let name = branch_ref.name.clone();
-                    cx.listener(move |this, _, window, cx| {
-                        this.store.update(cx, |s, cx| {
-                            s.run_git(GitAction::Checkout(name.clone()), cx)
-                        });
-                        // picking a branch closes the dropdown and resets
-                        // the filter, so the next open lists everything
-                        this.branch_menu_open = false;
-                        this.new_branch_open = false;
-                        this.branch_delete_armed = None;
-                        this.branch_filter
-                            .update(cx, |f, cx| f.set_value("", window, cx));
-                        cx.notify();
-                    })
-                })
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(branch_ref.name.clone()),
-                );
-            if deletable {
-                row = row.child(
-                    crate::ui::with_tooltip(
-                        div()
-                            .id(SharedString::from(format!("branch-delete-{}", branch_ref.name)))
-                            .debug_selector(move || format!("branch-delete-{}", branch_ref.name))
-                            .cursor_pointer()
-                            .rounded_md()
-                            .size(px(18.))
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .opacity(0.)
-                            .when(armed, |d| d.opacity(1.))
-                            .group_hover("branch-row", |s| s.opacity(1.))
-                            .hover(|s| s.bg(theme::tint(theme::DANGER)))
-                            .on_click({
-                                let name = branch_ref.name.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    // never the row's checkout
-                                    cx.stop_propagation();
-                                    if this.branch_delete_armed.as_deref() == Some(name.as_str()) {
-                                        this.branch_delete_armed = None;
-                                        this.branch_menu_open = false;
-                                        this.store.update(cx, |s, cx| {
-                                            s.run_git(
-                                                GitAction::DeleteBranch(name.clone()),
-                                                cx,
-                                            )
-                                        });
-                                    } else {
-                                        this.branch_delete_armed = Some(name.clone());
-                                    }
-                                    cx.notify();
-                                })
-                            })
-                            .child(icon(
-                                "icons/icon-trash.svg",
-                                px(theme::icon_small() - 2.),
-                                if armed { theme::DANGER } else { theme::TEXT_MUTED },
-                            )),
-                        show_tooltips,
-                        if armed { "Click again to delete" } else { "Delete branch" },
-                    ),
-                );
-            }
-            list = list.child(row);
-            shown += 1;
-        }
-
-        div()
-            .id("branch-menu")
-            .debug_selector(|| "branch-menu".into())
-            .absolute()
-            .top(px(-4.))
-            .left(px(8.))
-            .right(px(8.))
-            .occlude()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::POPUP)
-            .shadow_lg()
-            .p_2()
-            .flex()
-            .flex_col()
-            .gap_2()
-            // presses inside the card (filter field, scrollbar, rows) must
-            // not reach the window's outside-click dismissal
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(Input::new(&self.branch_filter).small())
-            .child(div().id("branch-list").flex_1().min_h_0().max_h(px(220.)).overflow_y_scroll().child(list))
-            .child(
-                div()
-                    .id("new-branch-row")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .text_size(px(theme::font_small()))
-                    .text_color(theme::ACCENT)
-                    .hover(|s| s.bg(theme::HOVER))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.new_branch_open = true;
-                        cx.notify();
-                    }))
-                    .child("+ New branch…"),
-            )
-            .into_any_element()
     }
 }
 

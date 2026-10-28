@@ -56,6 +56,9 @@ pub struct NotesPage {
     create_open: bool,
     create_name: Entity<InputState>,
     create_folder: Entity<InputState>,
+    /// A left press landed on the titlebar background; the first move turns
+    /// it into a window drag (Linux/macOS — Windows uses the HTCAPTION path).
+    titlebar_should_move: bool,
 }
 
 impl NotesPage {
@@ -129,6 +132,7 @@ impl NotesPage {
             create_open: false,
             create_name,
             create_folder,
+            titlebar_should_move: false,
         }
     }
 
@@ -585,9 +589,29 @@ impl NotesPage {
             .items_center()
             .px_2()
             .gap_1()
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+            // the whole bar drags; the window buttons occlude it from the
+            // Windows hit test and stop the press so they stay clickable
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                 gpui_kit::base::GlobalState::suppress_text_selection(cx);
-            })
+                this.titlebar_should_move = true;
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
+                this.titlebar_should_move = false;
+            }))
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
+                if this.titlebar_should_move {
+                    this.titlebar_should_move = false;
+                    // a missed mouse-up (the OS move loop swallowed it)
+                    // must not turn a later hover into a drag
+                    if event.pressed_button == Some(MouseButton::Left) {
+                        window.start_window_move();
+                    }
+                }
+            }))
+            .on_mouse_down_out(cx.listener(|this, _, _, _| {
+                this.titlebar_should_move = false;
+            }))
             .child(icon(
                 "icons/icon-note.svg",
                 px(theme::icon_medium()),
@@ -625,18 +649,7 @@ impl NotesPage {
                     }),
                 ))
             })
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    // Windows drags via the hit-test path (this hitbox answers
-                    // HTCAPTION); start_window_move is a no-op there. Linux
-                    // keeps the explicit move call.
-                    .window_control_area(WindowControlArea::Drag)
-                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    }),
-            )
+            .child(div().flex_1().h_full())
             .child(crate::ui::window::window_button(
                 "notes-minimize",
                 "icons/icon-window-minimize.svg",

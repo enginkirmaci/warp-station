@@ -12,7 +12,7 @@ use crate::ui::icon;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, Pixels, SharedString, Window};
+use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Pixels, SharedString, Window};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::component::table::{Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState};
 use std::cell::{Cell, RefCell};
@@ -2031,6 +2031,8 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
         .id("summary-button")
         .debug_selector(|| "summary-button".into())
         .cursor_pointer()
+        // the pill rides in the titlebar's drag region
+        .occlude()
         .rounded_md()
         .h(px(30.))
         .px_2p5()
@@ -2042,6 +2044,7 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
         .bg(theme::CHIP)
         .hover(|s| s.opacity(0.9))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click({
             let store = handle.clone();
             move |_, _, cx| {
