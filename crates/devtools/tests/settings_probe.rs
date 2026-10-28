@@ -26,11 +26,11 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     assert!(cx.update(|_, _| devtools_core::settings::SettingsService::open().get().repos.max_scan_depth) >= 1);
 }
 
-/// The OpenCode model picker: the pseudo "(server default)" entry the catalog
+/// The OpenCode filtered picker: the pseudo "(server default)" entry the catalog
 /// door forwards is hidden, the in-dropdown filter narrows the list, a row
 /// click selects and closes, and a click outside the picker dismisses it.
 #[gpui_kit::gpui::test]
-fn model_picker_filters_and_dismisses(cx: &mut TestAppContext) {
+fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);

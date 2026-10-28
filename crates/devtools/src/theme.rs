@@ -63,8 +63,11 @@ pub fn apply_kit_theme(cx: &mut App) {
     use gpui_kit::component::{Theme, ThemeMode};
 
     resolve_fonts(cx);
+    // A mode flip inside the color-edit closure makes the kit reload the
+    // registered theme's colors AFTER the closure (Theme::update docs),
+    // wiping every override — flip first, then edit.
+    Theme::update(cx, |t| t.mode = ThemeMode::Dark);
     Theme::update(cx, |t| {
-        t.mode = ThemeMode::Dark;
         t.background = BACKGROUND.into();
         t.foreground = TEXT.into();
         t.primary = ACCENT.into();
