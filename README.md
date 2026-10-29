@@ -39,14 +39,14 @@ warp-agent, and the AI features never need the opencode binary.
 - Windows (build on a Windows box — GPUI has no Linux→Windows cross build):
   `packaging/windows/build.ps1` stages the runnable files under
   `packaging/windows/out`: `devtools.exe`, the self-contained single-file
-  `Tools.SnapIt.exe` companion, the alternative Rust `snapit.exe` companion,
-  and SnapIt's default settings. The app icon is embedded into the exe by
-  `build.rs` from `packaging/windows/devtools.ico`.
+  `Tools.SnapIt.exe` companion, and SnapIt's default settings. The app icon is
+  embedded into the exe by `build.rs` from `packaging/windows/devtools.ico`.
 
 ## SnapIt Rust port
 
-`crates/snapit` is a separate, standalone Rust implementation of the Windows
-zone snapper. It reads the same `~/.devtools/snapit` settings/layouts as
-`src/Tools.SnapIt`, but does not replace it: DevTools still launches
-`Tools.SnapIt.exe`, and `snapit.exe` is staged alongside it for manual use.
-See `crates/snapit/README.md`.
+The Rust port of the Windows zone snapper lives in its own repo,
+[enginkirmaci/warp-snapit](https://github.com/enginkirmaci/warp-snapit). It
+reads the same `~/.devtools/snapit` settings/layouts as `src/Tools.SnapIt`,
+but does not replace it: DevTools still launches `Tools.SnapIt.exe`, and the
+Rust `snapit.exe` is distributed through [warp-suite](https://github.com/enginkirmaci/warp-suite)
+releases (`SnapIt.Executable` in the settings points it at the exe).

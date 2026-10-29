@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/devtools", "crates/devtools-core", "crates/snapit"]
+members = ["crates/devtools", "crates/devtools-core"]
 
 [workspace.package]
 version = "0.1.0"

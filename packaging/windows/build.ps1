@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 # Builds DevTools for Windows and stages the runnable files in out\:
-# devtools.exe, Tools.SnapIt.exe (self-contained single file), snapit.exe
-# (Rust port of the SnapIt companion) and SnapIt's default settings. No zip,
-# no installer - out\ is the deliverable.
+# devtools.exe, Tools.SnapIt.exe (self-contained single file) and SnapIt's
+# default settings. No zip, no installer - out\ is the deliverable.
 # Run from a Windows machine - GPUI has no Linux->Windows cross build.
 # Requires the .NET 10 SDK on PATH (builds the SnapIt companion) and the Rust
-# toolchain (builds both devtools and snapit).
+# toolchain (builds devtools). The Rust snapit port lives in its own repo
+# (warp-snapit) and is not built here.
 $ErrorActionPreference = 'Stop'
 
 $here   = $PSScriptRoot
@@ -18,7 +18,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 
 Push-Location $repo
 try {
-    cargo build --release -p devtools -p snapit
+    cargo build --release -p devtools
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
     # cargo may place artifacts off-repo (e.g. CARGO_TARGET_DIR on a fast
     # local drive while the repo lives on a network share)
@@ -30,14 +30,10 @@ try {
 $exe = Join-Path $targetDir 'release\devtools.exe'
 if (-not (Test-Path $exe)) { throw "release exe not found: $exe" }
 
-$snapitExe = Join-Path $targetDir 'release\snapit.exe'
-if (-not (Test-Path $snapitExe)) { throw "release exe not found: $snapitExe" }
-
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 Get-ChildItem $outDir -Force | Remove-Item -Recurse -Force
 
 Copy-Item $exe (Join-Path $outDir 'devtools.exe')
-Copy-Item $snapitExe (Join-Path $outDir 'snapit.exe')
 
 # SnapIt companion: self-contained single-file publish - one exe with no
 # runtime install and no loose native dlls (they self-extract at startup).

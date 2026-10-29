@@ -33,9 +33,8 @@ Source: "out\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; SnapIt companion (Windows-only): self-contained single-file exe, no loose
 ; dlls. Seed defaults install only when missing so user edits survive upgrades.
 Source: "out\Tools.SnapIt.exe"; DestDir: "{app}"; Flags: ignoreversion
-; Optional Rust port of the SnapIt companion. DevTools still launches the
-; .NET companion by default; snapit.exe can be started manually.
-Source: "out\snapit.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The Rust port of the SnapIt companion lives in its own repo (warp-snapit)
+; and ships via warp-suite releases; point the SnapIt.Executable setting at it.
 Source: "out\settings\snapit\Settings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "out\settings\snapit\ExcludedApplicationSettings.json"; DestDir: "{app}\settings\snapit"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "out\settings\snapit\layouts\*.json"; DestDir: "{app}\settings\snapit\layouts"; Flags: onlyifdoesntexist uninsneveruninstall
