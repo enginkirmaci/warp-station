@@ -354,6 +354,84 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     );
 }
 
+/// The row trash pins to the row's right edge: hugging the label it lands
+/// mid-row, where the hover-faded button intercepts the click meant for the
+/// branch name.
+#[gpui::test]
+fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.branches = vec![
+            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
+            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+        ];
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let button = cx
+        .debug_bounds("branch-button")
+        .expect("the branch selector renders in the rail");
+    cx.simulate_click(button.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let row = cx.debug_bounds("branch-row-feature").expect("the row renders");
+    let trash = cx
+        .debug_bounds("branch-delete-feature")
+        .expect("the deletable row carries the trash");
+    let inset = row.right() - trash.right();
+    assert!(
+        (6.0..=10.0).contains(&inset.as_f32()),
+        "the trash hugs the row's right edge (inset {inset:?}, row {:?})",
+        row.size
+    );
+}
+
+/// The rail action's pending-work pill pins to the row's right edge instead
+/// of hugging the label.
+#[gpui::test]
+fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let store_handle = store.clone();
+    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
+        MainWindow::new(store_handle.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let row = cx.debug_bounds("rail-Push").expect("the Push action renders");
+    let badge = cx
+        .debug_bounds("rail-badge-Push")
+        .expect("the pending-push pill renders");
+    let inset = row.right() - badge.right();
+    assert!(
+        (6.0..=10.0).contains(&inset.as_f32()),
+        "the pill hugs the row's right edge (inset {inset:?}, row {:?})",
+        row.size
+    );
+}
+
 /// The FilteredPicker branch dropdown: opening overlays the rail without
 /// reflowing it, the auto-focused filter narrows the rows (dropping the
 /// Remote group when no remote matches), and picking a match checks it out.

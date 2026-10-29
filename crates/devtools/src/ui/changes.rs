@@ -1202,12 +1202,16 @@ impl ChangesView {
                 theme::TEXT_FAINT
             };
             row.child(icon(icon_path, px(theme::icon_small()), icon_color))
-                .child(label)
+                // fills the row so a pending-work pill pins to the right edge
+                // instead of hugging the label
+                .child(div().flex_1().min_w_0().child(label))
                 .when_some(badge.filter(|_| enabled), |row, (count, color)| {
                     // the table row's pending-work pill, on the action that
                     // resolves it
+                    let selector = format!("rail-badge-{label}");
                     row.child(
                         div()
+                            .debug_selector(move || selector.clone())
                             .rounded_md()
                             .bg(theme::tint(color))
                             .px_1p5()

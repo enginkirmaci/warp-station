@@ -583,7 +583,12 @@ impl FilteredPicker {
                     }),
             )
             .child(
+                // fills the row so a trailing action pins to the right edge —
+                // hugging the label puts the invisible trash mid-row, under
+                // the click meant for the branch name
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .truncate()
                     .text_size(px(theme::font_small()))
                     .text_color(color)
