@@ -17,8 +17,9 @@ pub const RUN_CAP: Duration = Duration::from_secs(150);
 const NO_TOOLS_SUFFIX: &str =
     "\n\nThe input above is complete — do not use any tools; reply with the final answer text directly.";
 
-/// One user-editable prompt template: the overriding file under the opencode
-/// dir, the placeholders the builder fills in, and the built-in default body.
+/// One user-editable prompt template: the overriding file under the
+/// assistant folder, the placeholders the builder fills in, and the built-in
+/// default body.
 pub struct PromptTemplate {
     pub id: &'static str,
     pub title: &'static str,
@@ -129,9 +130,9 @@ fn template_by_id(id: &str) -> Option<&'static PromptTemplate> {
     PROMPT_TEMPLATES.iter().find(|t| t.id == id)
 }
 
-/// The template's file under the opencode dir; None for unknown ids.
+/// The template's file under the assistant folder; None for unknown ids.
 pub fn template_path(id: &str) -> Option<std::path::PathBuf> {
-    template_by_id(id).map(|t| crate::paths::AppPaths::opencode_dir().join(t.file_name))
+    template_by_id(id).map(|t| crate::paths::AppPaths::assistant_dir().join(t.file_name))
 }
 
 /// The stored raw template body; None for unknown ids or read failures.
@@ -140,10 +141,10 @@ pub fn read_template(id: &str) -> Option<String> {
 }
 
 /// Writes the raw template body (no suffix, no placeholder filling). The
-/// opencode dir exists from seeding but is (re)created defensively.
+/// assistant folder exists from seeding but is (re)created defensively.
 pub fn write_template(id: &str, content: &str) -> Result<(), String> {
     let path = template_path(id).ok_or_else(|| format!("unknown template id: {id}"))?;
-    std::fs::create_dir_all(crate::paths::AppPaths::opencode_dir())
+    std::fs::create_dir_all(crate::paths::AppPaths::assistant_dir())
         .and_then(|_| std::fs::write(&path, content))
         .map_err(|err| format!("{err}"))
 }
@@ -167,11 +168,11 @@ pub fn is_customized(id: &str) -> bool {
 /// the default written out for next time.
 fn load_template(id: &str) -> String {
     let Some(tpl) = template_by_id(id) else { return String::new() };
-    let path = crate::paths::AppPaths::opencode_dir().join(tpl.file_name);
+    let path = crate::paths::AppPaths::assistant_dir().join(tpl.file_name);
     if let Ok(text) = std::fs::read_to_string(&path) {
         return text;
     }
-    let _ = std::fs::create_dir_all(crate::paths::AppPaths::opencode_dir());
+    let _ = std::fs::create_dir_all(crate::paths::AppPaths::assistant_dir());
     if std::fs::write(&path, tpl.default).is_ok() {
         return tpl.default.to_string();
     }
@@ -323,10 +324,10 @@ pub fn format_repositories_block(
     out.trim_end().to_string()
 }
 
-// ---- model catalog (the warp-agent door is the source; this is the cache) -----
+// ---- model catalog (the door is the source; the data root keeps the cache) ---
 
 fn models_cache_path() -> std::path::PathBuf {
-    crate::paths::AppPaths::opencode_dir().join("models.cache.json")
+    crate::paths::AppPaths::models_cache_file()
 }
 
 /// The cached catalog (no door round-trip); the configured default lands on

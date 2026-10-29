@@ -9,8 +9,10 @@ cargo run            # debug run
 cargo test           # unit + live git parity + headless UI probes
 ```
 
-User data lives in `~/.devtools` (settings, repos cache, notes, opencode
-prompts).
+User data lives in `~/.devtools` (settings, repos cache, notes, `assistant/`
+with the prompt templates, and `models.cache.json` for the model catalog). An
+old `opencode/` folder — or a stray `ai/` from a development build — is split
+into those on startup.
 
 ## warp-agent integration
 
@@ -22,6 +24,12 @@ features off; a merely closed one is launched on demand. Wand runs happen as
 visible warp-agent chats in the repo's workspace (added when missing), the
 daily summary runs in warp-agent's General workspace, and tool-permission
 asks are answered in warp-agent's own UI.
+
+The two switches are independent: **Enable warp-agent** arms the whole AI
+surface (wands, summary, model catalog), while **Enable OpenCode** only shows
+the repo row's OpenCode button, which launches the `opencode` CLI itself in a
+terminal (`opencode --model <default>`) — that launch never goes through
+warp-agent, and the AI features never need the opencode binary.
 
 ## Package
 

@@ -60,7 +60,7 @@ impl Render for OverviewView {
             state.wand_busy == Some(WandKind::Readme)
                 && state.wand_repo.as_deref() == state.selected_repo.as_deref()
         };
-        let opencode_on = self.store.read(cx).wand_available();
+        let ai_available = self.store.read(cx).wand_available();
         let has_draft = draft.is_some();
         let shown: Option<SharedString> = draft
             .as_ref()
@@ -152,7 +152,7 @@ impl Render for OverviewView {
                         .child("Save"),
                 )
             })
-            .when(!wand_active && shown.is_some() && opencode_on, |row| {
+            .when(!wand_active && shown.is_some() && ai_available, |row| {
                 row.child({
                     let store = self.store.clone();
                     div()
@@ -220,7 +220,7 @@ impl Render for OverviewView {
                                 .text_color(theme::TEXT_FAINT)
                                 .child("Create a README.md in the repository root to see it here."),
                         )
-                        .when(opencode_on && !wand_active, |column| {
+                        .when(ai_available && !wand_active, |column| {
                             column.child(
                                 div()
                                     .id("readme-empty-wand")

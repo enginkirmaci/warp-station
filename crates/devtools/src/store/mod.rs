@@ -687,10 +687,13 @@ impl Store {
     }
 
     /// Resolves the warp-agent binary when the AI surface is enabled; None =
-    /// the features are off (not installed or toggled off).
+    /// the features are off (not installed or toggled off). The warp-agent
+    /// switch stands alone: runs go through its door, so the OpenCode CLI
+    /// switch — which only arms the repo row's launch button — never gates
+    /// them.
     fn warp_ready(&self) -> Option<std::path::PathBuf> {
         let settings = self.settings();
-        if !settings.opencode.enable_opencode || !settings.warp_agent.enable_warp_agent {
+        if !ai_enabled(&settings) {
             return None;
         }
         devtools_core::exe::locate(&settings.warp_agent.executable)
@@ -702,11 +705,6 @@ impl Store {
             return;
         }
         let settings = self.settings();
-        if !settings.opencode.enable_opencode {
-            self.notify_error("OpenCode is disabled in settings");
-            cx.notify();
-            return;
-        }
         if !settings.warp_agent.enable_warp_agent {
             self.notify_error("warp-agent integration is disabled in settings");
             cx.notify();
@@ -785,11 +783,6 @@ impl Store {
         }
         let Some(folder) = self.selected_repo.clone() else { return };
         let settings = self.settings();
-        if !settings.opencode.enable_opencode {
-            self.notify_error("Could not generate — OpenCode is disabled in settings");
-            cx.notify();
-            return;
-        }
         if !settings.warp_agent.enable_warp_agent {
             self.notify_error("Could not generate — warp-agent integration is disabled in settings");
             cx.notify();
@@ -1705,5 +1698,34 @@ impl BottomBarTab {
         .into_iter()
         .find(|tab| tab.label().eq_ignore_ascii_case(text.trim()))
         .unwrap_or(BottomBarTab::Overview)
+    }
+}
+
+/// The AI surface's own switch: warp-agent alone. Kept apart from the OpenCode
+/// CLI switch, which only arms the repo row's launch button — the runs
+/// themselves happen in warp-agent, never in the opencode binary.
+fn ai_enabled(settings: &AppSettings) -> bool {
+    settings.warp_agent.enable_warp_agent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two switches are independent: turning the OpenCode CLI off must
+    /// leave the AI surface alone, and warp-agent off must alone turn it off.
+    #[test]
+    fn ai_surface_follows_warp_agent_only() {
+        let mut settings = AppSettings::default();
+        settings.opencode.enable_opencode = false;
+        settings.warp_agent.enable_warp_agent = true;
+        assert!(
+            ai_enabled(&settings),
+            "the OpenCode CLI switch must not gate AI features"
+        );
+
+        settings.opencode.enable_opencode = true;
+        settings.warp_agent.enable_warp_agent = false;
+        assert!(!ai_enabled(&settings), "warp-agent off turns the AI surface off");
     }
 }

@@ -78,7 +78,7 @@ pub enum NetCommand {
     CodeSearch { generation: u64, term: String, folders: Vec<PathBuf>, rg_exe: PathBuf },
 }
 
-/// A prompt-template management op (Settings → OpenCode card).
+/// A prompt-template management op (Settings → AI features card).
 #[derive(Clone, Debug)]
 pub enum TemplateOp {
     Read,

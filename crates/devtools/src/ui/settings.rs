@@ -2,7 +2,7 @@
 //! switches, seeded from the live settings when the page opens. Save writes
 //! the whole graph atomically and live-applies (a scan-related change also
 //! kicks a rescan). The filtered model pickers list the opencode catalog with a
-//! refresh button, and the OpenCode card manages the wand prompt templates.
+//! refresh button, and the AI features card manages the wand prompt templates.
 
 use crate::net::TemplateOp;
 use crate::store::Store;
@@ -46,7 +46,6 @@ pub struct SettingsPage {
     vscode_profile: Entity<InputState>,
     terminal_executable: Entity<InputState>,
     ide_executable: Entity<InputState>,
-    opencode_executable: Entity<InputState>,
     enable_code_search: bool,
     code_search_executable: Entity<InputState>,
     enable_terminal: bool,
@@ -55,8 +54,10 @@ pub struct SettingsPage {
     snap_it_auto_start: bool,
     snap_it_executable: Entity<InputState>,
     keep_awake_enabled: bool,
-    // OpenCode
+    // OpenCode CLI (the repo row's launch button)
     enable_opencode: bool,
+    opencode_executable: Entity<InputState>,
+    // AI features (warp-agent)
     warp_enabled: bool,
     warp_executable: Entity<InputState>,
     default_model: Entity<InputState>,
@@ -565,7 +566,6 @@ impl Render for SettingsPage {
                                             field_row("Terminal executable", &this.terminal_executable),
                                             field_row("IDE executable", &this.ide_executable),
                                         ))
-                                        .child(field_row("OpenCode executable", &this.opencode_executable))
                                         .child(switch_row("Cross-repo code search", this.enable_code_search, cx.listener(|this, _, _, cx| {
                                             this.enable_code_search = !this.enable_code_search;
                                             cx.notify();
@@ -591,7 +591,11 @@ impl Render for SettingsPage {
                                             this.enable_opencode = !this.enable_opencode;
                                             cx.notify();
                                         })))
-                                        .child(switch_row("Run AI features in warp-agent", this.warp_enabled, cx.listener(|this, _, _, cx| {
+                                        .child(field_row("OpenCode executable", &this.opencode_executable))
+                                        .child(label("Shows the repo row's OpenCode button: it launches this CLI in a terminal with the default model below. Independent of warp-agent."))
+                                    }))
+                                    .child(self.card("AI features (warp-agent)", cx, |this, cx, card| {
+                                        card.child(switch_row("Enable warp-agent", this.warp_enabled, cx.listener(|this, _, _, cx| {
                                             this.warp_enabled = !this.warp_enabled;
                                             cx.notify();
                                         })))
@@ -602,6 +606,7 @@ impl Render for SettingsPage {
                                         .child(this.commit_model_picker.clone())
                                         .child(label("Prompt templates"))
                                         .child(this.templates_section(cx))
+                                        .child(label("The wands, the daily summary and the model catalog run over warp-agent's door."))
                                     }))
                                     .child(self.card("Columns", cx, |this, cx, card| {
                                         card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {

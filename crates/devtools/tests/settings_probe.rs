@@ -175,7 +175,7 @@ fn auto_fetch_row_picks_and_persists(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// The OpenCode card's prompt-template manager. Templates live under the
+/// The AI features card's prompt-template manager. Templates live under the
 /// scratch HOME: the three rows render un-customized, a body modified
 /// straight on disk badges after the page re-opens, Edit round-trips
 /// TemplateIo Read and swaps in the editor (a TemplateLoaded hand-set on the
@@ -216,8 +216,8 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
     assert!(wcx.debug_bounds("template-customized-readme").is_none());
 
     // a body modified straight on disk badges once a fresh page re-opens
-    std::fs::create_dir_all(home.join(".devtools").join("opencode")).unwrap();
-    std::fs::write(home.join(".devtools").join("opencode").join("readme.md"), "custom {repo_name}")
+    std::fs::create_dir_all(home.join(".devtools").join("assistant")).unwrap();
+    std::fs::write(home.join(".devtools").join("assistant").join("readme.md"), "custom {repo_name}")
         .expect("seed a customized body");
     let reopened = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2600.)), |window, cx| {
         SettingsPage::new(store.clone(), window, cx)
@@ -516,6 +516,63 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     assert!(
         json.contains("\"CodeSearchExecutable\": \"rgz\""),
         "the executable persisted (got {json})"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The two enable switches are independent cards: the OpenCode CLI switch
+/// (with its executable field) and the warp-agent AI switch each render while
+/// the *other* feature is off. Fusing them again would show up here.
+#[gpui_kit::gpui::test]
+fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("devtools-switch-split-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; set before the store reads settings;
+    // serialized against the sibling HOME probes by HOME_ENV_LOCK
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    // the CLI on, warp-agent off: each switch must own its own controls
+    let scratch = home.join(".devtools").join("settings.json");
+    std::fs::write(
+        &scratch,
+        r#"{"OpenCode": {"EnableOpenCode": true}, "WarpAgent": {"EnableWarpAgent": false, "Executable": "warp-agent"}}"#,
+    )
+    .expect("scratch settings");
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+        )
+    });
+    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
+        SettingsPage::new(store, window, cx)
+    });
+    let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        wcx.debug_bounds("settings-row-Enable OpenCode").is_some(),
+        "the OpenCode CLI switch renders with warp-agent off"
+    );
+    assert!(
+        wcx.debug_bounds("settings-field-OpenCode executable").is_some(),
+        "the OpenCode executable field sits in the CLI card"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Enable warp-agent").is_some(),
+        "the warp-agent switch renders independently of the CLI switch"
     );
 
     let _ = std::fs::remove_dir_all(&home);

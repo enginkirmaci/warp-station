@@ -972,9 +972,8 @@ impl ChangesView {
                 && state.wand_repo.as_deref() == state.selected_repo.as_deref()
         };
         let wand_on = self.store.read(cx).wand_available();
-        let opencode_on = wand_on;
         let message_empty = self.commit_message.read(cx).value().trim().is_empty();
-        let generate_and_commit = message_empty && opencode_on;
+        let generate_and_commit = message_empty && wand_on;
 
         let mut card = div()
             .w(px(320.))
@@ -1059,7 +1058,7 @@ impl ChangesView {
             let message = self.commit_message.clone();
             let this = cx.entity();
             let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
-            let can_commit = !busy && (!message_empty || opencode_on);
+            let can_commit = !busy && (!message_empty || wand_on);
             let color = if can_commit { theme::ON_ACCENT } else { theme::TEXT_FAINT };
             div()
                 .id("commit-button")
@@ -1083,7 +1082,7 @@ impl ChangesView {
                     }
                     let text = message.read(cx).value().to_string();
                     if text.trim().is_empty() {
-                        if !opencode_on {
+                        if !wand_on {
                             return;
                         }
                         // empty box: generate first; the drained draft

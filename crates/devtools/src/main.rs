@@ -21,6 +21,10 @@ fn main() {
 
     let _log_guard = logging::initialize();
 
+    // the prompts and the catalog cache shared one folder (`opencode`, briefly
+    // `ai`) before the AI surface moved to warp-agent: split them out once
+    devtools_core::paths::migrate_legacy_ai_data();
+
     application()
         .with_assets(assets::EmbedAssets::new())
         .run(|cx: &mut App| {
