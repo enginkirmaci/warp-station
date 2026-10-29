@@ -7,6 +7,7 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
+use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -47,6 +48,7 @@ fn overlay_shell(
     div()
         .id(id)
         .debug_selector(move || id.into())
+        .a11y_button("Close dialog")
         .absolute()
         .inset_0()
         .occlude()
@@ -59,7 +61,12 @@ fn overlay_shell(
             this.dialog = None;
             cx.notify();
         }))
-        .child(body.id("dialog-card-body").occlude().on_click(|_, _, _| {}))
+        .child(
+            body.id("dialog-card-body")
+                .role(gpui::Role::Dialog)
+                .occlude()
+                .on_click(|_, _, _| {}),
+        )
         .into_any_element()
 }
 
@@ -92,6 +99,7 @@ fn plain_button(
     div()
         .id(SharedString::from(id.clone()))
         .debug_selector(move || id.clone())
+        .a11y_button(label.to_string())
         .cursor_pointer()
         .rounded_md()
         .px_3()
@@ -151,6 +159,7 @@ fn card_with_close(
                     div()
                         .id("add-dialog-close")
                         .debug_selector(|| "add-dialog-close".into())
+                        .a11y_button("Close")
                         .cursor_pointer()
                         .rounded_md()
                         .size(px(26.))
@@ -177,6 +186,7 @@ fn accent_button(
     div()
         .id(SharedString::from(id.clone()))
         .debug_selector(move || id.clone())
+        .a11y_button(label.to_string())
         .cursor_pointer()
         .rounded_md()
         .px_3()
@@ -253,6 +263,7 @@ impl AddRepoDialog {
             rows = rows.child(
                 div()
                     .id("select-all-row")
+                    .a11y_toggle(format!("Select all available ({selectable})"), all_checked)
                     .cursor_pointer()
                     .flex()
                     .flex_row()
@@ -306,6 +317,7 @@ impl AddRepoDialog {
                 div()
                     .id(("found-repo", index as u64))
                     .debug_selector(move || format!("found-repo-{index}"))
+                    .a11y_toggle(label.to_string(), *checked && !*tracked)
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -419,6 +431,7 @@ impl AddRepoDialog {
                     .child(
                         div()
                             .id("depth-up")
+                            .a11y_button("Increase scan depth")
                             .cursor_pointer()
                             .w(px(18.))
                             .h(px(14.))
@@ -441,6 +454,7 @@ impl AddRepoDialog {
                     .child(
                         div()
                             .id("depth-down")
+                            .a11y_button("Decrease scan depth")
                             .cursor_pointer()
                             .w(px(18.))
                             .h(px(14.))

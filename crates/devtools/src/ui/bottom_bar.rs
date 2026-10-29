@@ -8,6 +8,7 @@ use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::changes::ChangesView;
 use crate::ui::icon;
+use crate::ui::A11y;
 use crate::ui::azure_tab::AzureView;
 use crate::ui::overview::OverviewView;
 use crate::ui::pr_issues::ItemListView;
@@ -87,6 +88,9 @@ impl BottomBar {
         let store_for_paint = self.store.clone();
         div()
             .id("bar-splitter")
+            .role(gpui::Role::Splitter)
+            .aria_label("Resize panel")
+            .aria_orientation(gpui::Orientation::Vertical)
             .relative()
             .w_full()
             .h(px(6.))
@@ -191,6 +195,7 @@ impl Render for BottomBar {
             // one; Changes shows the modified-file count beside its label
             let chip = div()
                 .id(SharedString::from(format!("tab-{}", tab.label())))
+                .a11y_tab(tab.label(), active)
                 .cursor_pointer()
                 .flex()
                 .flex_col()
@@ -247,6 +252,7 @@ impl Render for BottomBar {
             tag_chips = tag_chips.child(
                 div()
                     .id("tag-chip-favorites")
+                    .a11y_button("Remove tag favorites")
                     .cursor_pointer()
                     .rounded_lg()
                     .bg(theme::tint(color))
@@ -283,6 +289,7 @@ impl Render for BottomBar {
             tag_chips = tag_chips.child(
                 div()
                     .id(SharedString::from(format!("tag-chip-{tag}")))
+                    .a11y_button(format!("Remove tag {tag}"))
                     .cursor_pointer()
                     .rounded_lg()
                     .bg(theme::tint(color))
@@ -323,6 +330,7 @@ impl Render for BottomBar {
                 .child(
                     div()
                         .id("add-tag")
+                        .a11y_button("Add tag")
                         .cursor_pointer()
                         .rounded_md()
                         .px_1p5()
@@ -348,6 +356,7 @@ impl Render for BottomBar {
                 .child(
                     div()
                         .id("add-tag-cancel")
+                        .a11y_button("Cancel adding tag")
                         .cursor_pointer()
                         .rounded_md()
                         .px_1p5()
@@ -364,6 +373,7 @@ impl Render for BottomBar {
         } else {
             div()
                 .id("add-tag-toggle")
+                .a11y_button("Add a tag")
                 .cursor_pointer()
                 .rounded_md()
                 .px_1p5()
@@ -398,6 +408,10 @@ impl Render for BottomBar {
                 // favorite star
                 div()
                     .id("bar-star")
+                    .a11y_toggle(
+                        if entry.is_favorite() { "Remove from favorites" } else { "Add to favorites" },
+                        entry.is_favorite(),
+                    )
                     .cursor_pointer()
                     .rounded_md()
                     .size(px(24.))
@@ -429,6 +443,7 @@ impl Render for BottomBar {
                 row.child(
                     div()
                         .id("bar-branch")
+                        .a11y_button(format!("Copy branch name {branch}"))
                         .cursor_pointer()
                         .flex_shrink_0()
                         .rounded_md()
@@ -495,6 +510,7 @@ impl Render for BottomBar {
             .child(
                 div()
                     .id("bar-refresh")
+                    .a11y_button("Refresh panel")
                     .cursor_pointer()
                     .rounded_lg()
                     .border_1()
@@ -516,6 +532,7 @@ impl Render for BottomBar {
             .child(
                 div()
                     .id("bar-kebab")
+                    .a11y_button("More actions")
                     .cursor_pointer()
                     .rounded_lg()
                     .border_1()
@@ -544,6 +561,7 @@ impl Render for BottomBar {
             .child(
                 div()
                     .id("close-bar")
+                    .a11y_button("Close panel")
                     .cursor_pointer()
                     .rounded_md()
                     .size(px(24.))
@@ -609,6 +627,8 @@ impl BottomBar {
         let this = cx.entity();
         let mut menu = div()
             .id("kebab-menu")
+            .role(gpui::Role::Menu)
+            .aria_label("Repository actions")
             .absolute()
             .right(px(12.))
             .top(px(46.))
@@ -628,6 +648,7 @@ impl BottomBar {
             div()
                 .id(SharedString::from(format!("kebab-{label}")))
                 .debug_selector(move || format!("kebab-{label}"))
+                .a11y_menu_item(label)
                 .cursor_pointer()
                 .px_3()
                 .py_1p5()
@@ -692,6 +713,11 @@ impl BottomBar {
                 let this = this.clone();
                 div()
                     .id("kebab-remove")
+                    .a11y_button(if remove_armed {
+                        "Confirm remove from repositories"
+                    } else {
+                        "Remove from repositories"
+                    })
                     .cursor_pointer()
                     .px_3()
                     .py_1p5()

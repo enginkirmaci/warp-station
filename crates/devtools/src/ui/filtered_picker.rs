@@ -5,7 +5,7 @@
 use crate::net::GitAction;
 use crate::store::Store;
 use crate::theme;
-use crate::ui::{icon, trim_branch_label, with_tooltip, BRANCH_LABEL_CHARS};
+use crate::ui::{icon, trim_branch_label, with_tooltip, A11y, BRANCH_LABEL_CHARS};
 use gpui::prelude::*;
 use gpui::{
     App, Context, Entity, FontWeight, Hsla, MouseButton, SharedString, TextRun, Window, div, px,
@@ -553,6 +553,7 @@ impl FilteredPicker {
         let mut row = div()
             .id(SharedString::from(id))
             .debug_selector(move || selector.clone())
+            .a11y_option(item.label.clone(), item.selected)
             .w_full()
             .h(px(ROW_HEIGHT))
             .cursor_pointer()
@@ -604,6 +605,11 @@ impl FilteredPicker {
                 div()
                     .id(SharedString::from(id))
                     .debug_selector(move || selector.clone())
+                    .a11y_button(if armed {
+                        format!("Confirm delete branch {name}")
+                    } else {
+                        format!("Delete branch {name}")
+                    })
                     .cursor_pointer()
                     .rounded_md()
                     .size(px(18.))
@@ -685,6 +691,10 @@ impl FilteredPicker {
         let mut trigger = div()
             .id(SharedString::from(trigger_id))
             .debug_selector(move || selector.clone())
+            .role(gpui::Role::ComboBox)
+            .aria_label(self.key)
+            .aria_expanded(self.open)
+            .aria_value(selection.label.clone())
             .flex_1()
             .min_w_0()
             .cursor_pointer()
@@ -754,6 +764,7 @@ impl FilteredPicker {
         let store = self.store.clone();
         div()
             .id(SharedString::from(format!("picker-refresh-{}", self.key)))
+            .a11y_button("Refresh models")
             .cursor_pointer()
             .rounded_md()
             .px_2()
@@ -825,6 +836,7 @@ impl FilteredPicker {
         div()
             .id("new-branch-row")
             .debug_selector(|| "new-branch-row".into())
+            .a11y_button("New branch…")
             .cursor_pointer()
             .rounded_md()
             .px_2()
@@ -871,6 +883,7 @@ impl FilteredPicker {
                 div()
                     .id("new-branch-cancel")
                     .debug_selector(|| "new-branch-cancel".into())
+                    .a11y_button("Cancel new branch")
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -892,6 +905,7 @@ impl FilteredPicker {
                 div()
                     .id("new-branch-create")
                     .debug_selector(|| "new-branch-create".into())
+                    .a11y_button("Create branch")
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()

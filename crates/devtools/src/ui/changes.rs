@@ -11,6 +11,7 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::filtered_picker::FilteredPicker;
 use crate::ui::icon;
+use crate::ui::A11y;
 use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
@@ -340,6 +341,7 @@ impl ChangesView {
 
         let mut row = div()
             .id(row_id)
+            .a11y_tree_item(file.path.clone(), Some(expanded))
             .cursor_pointer()
             .group("file-row")
             .flex()
@@ -407,6 +409,7 @@ impl ChangesView {
                             .child(
                                 div()
                                     .id(SharedString::from(format!("discard-{staged}-{}", file.path)))
+                                    .a11y_button(format!("Discard {}", file.path))
                                     .cursor_pointer()
                                     .rounded_md()
                                     .size(px(20.))
@@ -566,6 +569,7 @@ impl ChangesView {
             list = list.child(
                 div()
                     .id(SharedString::from(format!("commit-{}", row.short_hash)))
+                    .a11y_button(format!("{} — {}, {}", row.subject, row.author, row.rel))
                     .cursor_pointer()
                     .flex()
                     .flex_row()
@@ -622,6 +626,7 @@ impl ChangesView {
                         // drilling in
                         div()
                             .id(SharedString::from(format!("copy-sha-{}", row.short_hash)))
+                            .a11y_button(format!("Copy SHA {}", row.short_hash))
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
@@ -701,6 +706,7 @@ impl ChangesView {
             let text = if armed_now { "Confirm" } else { label };
             div()
                 .id(id)
+                .a11y_button(text)
                 .cursor_pointer()
                 .rounded_md()
                 .border_1()
@@ -753,6 +759,7 @@ impl ChangesView {
             let full_hash = details.hash.clone();
             div()
                 .id("detail-copy-sha")
+                .a11y_button("Copy SHA")
                 .cursor_pointer()
                 .rounded_md()
                 .border_1()
@@ -784,6 +791,7 @@ impl ChangesView {
                 .child(
                     div()
                         .id("detail-back")
+                        .a11y_button("Back to history")
                         .cursor_pointer()
                         .rounded_md()
                         .px_1p5()
@@ -848,6 +856,7 @@ impl ChangesView {
             let expanded = self.expanded_details.contains(&key);
             let mut row = div()
                 .id(SharedString::from(format!("detail-file-{}", file.path)))
+                .a11y_tree_item(file.path.clone(), Some(expanded))
                 .cursor_pointer()
                 .flex()
                 .flex_col()
@@ -1027,6 +1036,7 @@ impl ChangesView {
                         box_area.child(
                             div()
                                 .id("wand-corner")
+                                .a11y_button("Generate commit message")
                                 .absolute()
                                 .bottom_1()
                                 .right_2()
@@ -1053,6 +1063,7 @@ impl ChangesView {
             let color = if can_commit { theme::ON_ACCENT } else { theme::TEXT_FAINT };
             div()
                 .id("commit-button")
+                .a11y_button(label)
                 .cursor_pointer()
                 .w_full()
                 .h(px(34.))
@@ -1157,6 +1168,7 @@ impl ChangesView {
             let mut row = div()
                 .id(SharedString::from(format!("rail-{label}")))
                 .debug_selector(move || format!("rail-{label}"))
+                .a11y_button(label)
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
@@ -1265,6 +1277,7 @@ impl ChangesView {
         action_list = action_list.child(
             div()
                 .id("rail-History")
+                .a11y_toggle("History", self.history_open)
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
@@ -1359,6 +1372,7 @@ fn section_header(
         };
         let button = div()
             .id(id)
+            .a11y_button(action_label)
             .cursor_pointer()
             .rounded_md()
             .p_1()
@@ -1406,6 +1420,11 @@ fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) 
     };
     div()
         .id(SharedString::from(format!("toggle-{staged}-{}", file.path)))
+        .a11y_button(if staged {
+            format!("Unstage {}", file.path)
+        } else {
+            format!("Stage {}", file.path)
+        })
         .cursor_pointer()
         .rounded_md()
         .size(px(20.))

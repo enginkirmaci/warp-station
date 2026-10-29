@@ -7,6 +7,7 @@ use crate::net::WandKind;
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::icon;
+use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::base::text::TextView;
@@ -88,6 +89,7 @@ impl Render for OverviewView {
                 row.child(
                     div()
                         .id("readme-discard")
+                        .a11y_button("Discard README draft")
                         .cursor_pointer()
                         .rounded_md()
                         .px_2()
@@ -112,6 +114,7 @@ impl Render for OverviewView {
                 .child(
                     div()
                         .id("readme-save")
+                        .a11y_button("Save README")
                         .cursor_pointer()
                         .rounded_md()
                         .px_2()
@@ -154,6 +157,7 @@ impl Render for OverviewView {
                     let store = self.store.clone();
                     div()
                         .id("readme-wand")
+                        .a11y_button("Draft README with OpenCode")
                         .cursor_pointer()
                         .rounded_md()
                         .p_1()
@@ -220,6 +224,7 @@ impl Render for OverviewView {
                             column.child(
                                 div()
                                     .id("readme-empty-wand")
+                                    .a11y_button("Draft README with OpenCode")
                                     .cursor_pointer()
                                     .rounded_md()
                                     .border_1()
@@ -296,6 +301,7 @@ fn render_sidebar(
         let store = store.clone();
         div()
             .id(id)
+            .a11y_button(format!("{count} {label}"))
             .cursor_pointer()
             .flex_1()
             .min_w_0()
@@ -519,6 +525,7 @@ fn link_detail_row(label: &str, value: String) -> impl IntoElement + use<> {
     let open_value = value.clone();
     div()
         .id(gpui::SharedString::from(format!("detail-link-{label}")))
+        .a11y_button(format!("Open {label}"))
         .cursor_pointer()
         .flex()
         .flex_row()

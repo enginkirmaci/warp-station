@@ -9,6 +9,7 @@ use crate::store::{BottomBarTab, Store};
 use crate::theme;
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
+use crate::ui::A11y;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
@@ -457,6 +458,7 @@ impl ReposPage {
             tag_pills = tag_pills.child(
                 div()
                     .id(gpui::ElementId::NamedInteger("filter".into(), index as u64))
+                    .a11y_toggle(tag.clone(), active)
                     .cursor_pointer()
                     .rounded_full()
                     .border_1()
@@ -525,6 +527,7 @@ impl ReposPage {
             .child(div().flex_1())
             .child(icon_action(
                 "refresh-button",
+                "Refresh repositories",
                 "icons/icon-refresh.svg",
                 if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
                 move |_, _, cx| {
@@ -562,6 +565,7 @@ impl ReposPage {
         let archive_chip = div()
             .id("archive-chip")
             .debug_selector(|| "archive-chip".into())
+            .a11y_toggle(format!("Archive ({archived_count})"), show_archived)
             .cursor_pointer()
             .rounded_full()
             .border_1()
@@ -596,6 +600,7 @@ impl ReposPage {
                 div()
                     .id("clear-button")
                     .debug_selector(|| "clear-button".into())
+                    .a11y_button("Clear filters")
                     .cursor_pointer()
                         .rounded_md()
                         .px_2()
@@ -631,6 +636,7 @@ fn toolbar_action(
     let color = if primary { theme::ON_ACCENT } else { theme::TEXT_DIM };
     div()
         .id(id)
+        .a11y_button(label)
         .cursor_pointer()
         .rounded_md()
         .h(px(30.))
@@ -657,12 +663,14 @@ fn toolbar_action(
 /// A square, borderless icon button for the toolbar's utility actions.
 fn icon_action(
     id: &'static str,
+    label: &'static str,
     icon_path: &'static str,
     color: gpui::Rgba,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
     div()
         .id(id)
+        .a11y_button(label)
         .cursor_pointer()
         .rounded_md()
         .size(px(30.))
@@ -983,17 +991,30 @@ impl TableDelegate for ReposDelegate {
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> gpui::Stateful<gpui::Div> {
-        let group_key = {
+        let group = {
             let store = self.store.read(cx);
             match store.projected.get(row_ix) {
-                Some(ProjectedRow::Group { key, .. }) => Some(key.clone()),
+                Some(ProjectedRow::Group { key, name, count, collapsed }) => {
+                    Some((key.clone(), name.clone(), *count, *collapsed))
+                }
                 _ => None,
             }
         };
+        let repo_label = {
+            let store = self.store.read(cx);
+            store
+                .projected
+                .get(row_ix)
+                .and_then(|row| row.repo_index())
+                .and_then(|ix| store.repos.get(ix))
+                .map(|repo| (repo.name.clone(), repo.is_archived()))
+        };
         let mut tr = div().id(("row", row_ix));
-        if let Some(key) = group_key {
+        if let Some((key, name, count, collapsed)) = group {
             let selector = format!("repos-group-header-{key}");
             tr = tr
+                .aria_label(format!("{name} — {count} repositories"))
+                .aria_expanded(!collapsed)
                 .relative()
                 // the hover-revealed solo icon inside the cells keys off this group
                 .group("repos-group-header")
@@ -1009,6 +1030,13 @@ impl TableDelegate for ReposDelegate {
                         .border_color(theme::BORDER_LIGHT),
                 );
         } else {
+            if let Some((name, archived)) = repo_label {
+                tr = tr.aria_label(if archived {
+                    format!("{name} (archived)")
+                } else {
+                    name
+                });
+            }
             // repo rows register the hover group the activity cell's
             // archive/restore action reveals under — on the row, so hovering
             // anywhere on it counts, not just that one cell
@@ -1128,6 +1156,10 @@ impl TableDelegate for ReposDelegate {
                     let star = div()
                         .id(("star", row_ix))
                         .debug_selector(move || format!("repos-star-cell-{row_ix}"))
+                        .a11y_toggle(
+                            if favorite { "Remove from favorites" } else { "Add to favorites" },
+                            favorite,
+                        )
                         .cursor_pointer()
                         .flex()
                         .items_center()
@@ -1206,6 +1238,7 @@ impl TableDelegate for ReposDelegate {
                     let notes_name = repo.name.clone();
                     let notes_button = div()
                         .id(("open-notes", row_ix))
+                        .a11y_button("Open notes")
                         .cursor_pointer()
                         .flex_shrink_0()
                         .rounded_md()
@@ -1338,6 +1371,11 @@ impl TableDelegate for ReposDelegate {
                         } else {
                             format!("repos-archive-toggle-{row_ix}")
                         }
+                    })
+                    .a11y_button(if archived {
+                        "Unarchive repository"
+                    } else {
+                        "Archive repository"
                     })
                     .cursor_pointer()
                     .rounded_md()
@@ -1490,6 +1528,7 @@ fn group_header_cell(
                     let selector = format!("repos-group-header-{key}-chevron");
                     move || selector.clone()
                 })
+                .a11y_button(if *collapsed { "Expand group" } else { "Collapse group" })
                 .cursor_pointer()
                 .flex()
                 .items_center()
@@ -1529,6 +1568,7 @@ fn group_header_cell(
                     let selector = format!("repos-group-header-{key}-solo");
                     move || selector.clone()
                 })
+                .a11y_button("Show only this group")
                 .relative()
                 .cursor_pointer()
                 .flex()
@@ -1632,6 +1672,7 @@ fn tab_cell(
     let store = store.clone();
     div()
         .id(gpui::ElementId::NamedInteger(id.0.into(), id.1))
+        .a11y_button(format!("{folder} — open {}", tab.label()))
         .cursor_pointer()
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
@@ -1873,6 +1914,7 @@ fn shortcuts_cell(
         let element = div()
             .id(SharedString::from(format!("open-warp-{row_ix}")))
             .debug_selector(move || format!("repos-warp-cell-{row_ix}"))
+            .a11y_button("Open in warp-agent")
             .cursor_pointer()
             .rounded_md()
             .size(px(36.))
@@ -1905,6 +1947,7 @@ fn shortcuts_cell(
         let store = store.clone();
         let element = div()
             .id(SharedString::from(id))
+            .a11y_button(tip)
             .cursor_pointer()
             .rounded_md()
             .size(px(36.))
@@ -2033,6 +2076,7 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
     div()
         .id("summary-button")
         .debug_selector(|| "summary-button".into())
+        .a11y_button(if busy { "Summarizing…" } else { "Summary" })
         .cursor_pointer()
         // the pill rides in the titlebar's drag region
         .occlude()

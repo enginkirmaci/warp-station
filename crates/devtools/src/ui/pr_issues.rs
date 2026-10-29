@@ -6,6 +6,7 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
+use crate::ui::A11y;
 use devtools_core::github::GitHubItem;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
@@ -49,6 +50,7 @@ impl Render for ItemListView {
             .child(
                 div()
                     .id("pr-refresh")
+                    .a11y_button("Refresh panel")
                     .cursor_pointer()
                     .rounded_md()
                     .size(px(26.))
@@ -65,6 +67,7 @@ impl Render for ItemListView {
                 row.child(
                     div()
                         .id("pr-open-github")
+                        .a11y_button("Open on GitHub")
                         .cursor_pointer()
                         .rounded_md()
                         .size(px(26.))
@@ -247,6 +250,13 @@ impl ItemListView {
 
         div()
             .id(SharedString::from(format!("{}-{}", kind, item.number)))
+            .a11y_button(format!(
+                "{} #{} {} — {}",
+                kind,
+                item.number,
+                item.title,
+                item.author.clone().unwrap_or_else(|| "—".into())
+            ))
             .cursor_pointer()
             .flex()
             .flex_row()

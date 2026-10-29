@@ -4,6 +4,7 @@
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::A11y;
 use devtools_core::azure::AzureItem;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
@@ -50,6 +51,11 @@ impl Render for AzureView {
                 list = list.child(
                     div()
                         .id(SharedString::from(format!("pipeline-{}", run.id)))
+                        .a11y_button(format!(
+                            "Pipeline {} — {}",
+                            run.build_number,
+                            run.definition_name.clone().unwrap_or_default()
+                        ))
                         .cursor_pointer()
                         .flex()
                         .flex_row()
@@ -146,6 +152,7 @@ fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
     };
     div()
         .id(SharedString::from(format!("azure-{kind}-{}", item.number)))
+        .a11y_button(format!("{} #{} {}", kind, item.number, item.title))
         .cursor_pointer()
         .flex()
         .flex_row()

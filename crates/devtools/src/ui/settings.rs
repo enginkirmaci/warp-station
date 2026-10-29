@@ -9,6 +9,7 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
 use crate::ui::filtered_picker::FilteredPicker;
+use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::component::input::{
@@ -407,6 +408,7 @@ impl Render for SettingsPage {
                             .child(
                                 div()
                                     .id("settings-back")
+                                    .a11y_button("Back to repositories")
                                     .cursor_pointer()
                                     .rounded_md()
                                     .flex()
@@ -445,6 +447,7 @@ impl Render for SettingsPage {
                             .child(
                                 div()
                                     .id("settings-open-folder")
+                                    .a11y_button("Open data folder")
                                     .cursor_pointer()
                                     .rounded_md()
                                     .px_2()
@@ -502,9 +505,9 @@ impl Render for SettingsPage {
                                     }))
                                     .child(self.card("Repository scanning", cx, |this, cx, card| {
                                         card.child(label("Scan folders (one per line)"))
-                                            .child(Textarea::new(&this.scan_folders).bordered(true).small().h(px(240.)))
+                                            .child(Textarea::new(&this.scan_folders).bordered(true).small().h(px(240.)).aria_label("Scan folders"))
                                             .child(label("Excluded folders (one per line)"))
-                                            .child(Textarea::new(&this.excluded_folders).bordered(true).small().h(px(100.)))
+                                            .child(Textarea::new(&this.excluded_folders).bordered(true).small().h(px(100.)).aria_label("Excluded folders"))
                                             .child(two_col(
                                                 field_row("Git folder pattern", &this.git_folder_pattern),
                                                 field_row("Solution file pattern", &this.solution_file_pattern),
@@ -647,6 +650,7 @@ impl SettingsPage {
                 div()
                     .id(SharedString::from(format!("template-row-{id}")))
                     .debug_selector(move || format!("template-row-{id}"))
+                    .aria_label(template.title)
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -774,6 +778,7 @@ impl SettingsPage {
             .bordered(false)
             .appearance(false)
             .h_full()
+            .aria_label(format!("{title} template body"))
             .font_family(SharedString::from(theme::ui_font()))
             .text_size(px(theme::font_body() + 1.))
             .line_height(relative(1.7));
@@ -877,6 +882,7 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     div()
         .id("settings-save")
         .debug_selector(|| "settings-save".into())
+        .a11y_button("Save settings")
         .cursor_pointer()
         .rounded_md()
         .bg(theme::ACCENT)
@@ -910,6 +916,7 @@ fn template_action_button(
     div()
         .id(SharedString::from(id))
         .debug_selector(move || selector)
+        .a11y_button(text)
         .cursor_pointer()
         .rounded_md()
         .border_1()
@@ -963,13 +970,14 @@ fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement +
         .flex_col()
         .gap_1()
         .child(label(label_text))
-        .child(Input::new(field).small())
+        .child(Input::new(field).small().aria_label(label_text))
 }
 
 fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     let running = devtools_core::snapit::is_running();
     div()
         .id("snapit-run-control")
+        .a11y_button(if running { "Stop SnapIt" } else { "Start SnapIt" })
         .cursor_pointer()
         .self_center()
         .rounded_md()
@@ -1014,7 +1022,12 @@ fn switch_row(
         .flex_row()
         .items_center()
         .gap_2()
-        .child(Switch::new(SharedString::from(format!("switch-{label_text}"))).checked(checked).on_click(on_click))
+        .child(
+            Switch::new(SharedString::from(format!("switch-{label_text}")))
+                .checked(checked)
+                .accessibility_label(label_text)
+                .on_click(on_click),
+        )
         // the label gives up room (and wraps) instead of running under the
         // neighbouring column when the card is narrow
         .child(div().flex_1().min_w_0().child(label(label_text)))
@@ -1029,6 +1042,7 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
         row = row.child(
             div()
                 .id(SharedString::from(format!("text-size-{key}")))
+                .a11y_toggle(format!("Text size {name}"), selected)
                 .cursor_pointer()
                 .rounded_md()
                 .px_3()
@@ -1065,6 +1079,7 @@ fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui:
             div()
                 .id(id.clone())
                 .debug_selector(move || id.to_string())
+                .a11y_toggle(format!("Group depth {level}"), selected)
                 .cursor_pointer()
                 .rounded_md()
                 .px_3()
@@ -1105,6 +1120,7 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
             div()
                 .id(id)
                 .debug_selector(move || id.into())
+                .a11y_toggle(format!("Auto fetch {name}"), selected)
                 .cursor_pointer()
                 .rounded_md()
                 .px_3()

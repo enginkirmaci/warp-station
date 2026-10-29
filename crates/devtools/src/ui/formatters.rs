@@ -4,6 +4,7 @@
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -133,6 +134,7 @@ impl Render for FormattersDrawer {
                 row = row.child(
                     div()
                         .id(SharedString::from(format!("fmt-mode-{}", mode.label())))
+                        .a11y_toggle(mode.label(), active)
                         .cursor_pointer()
                         .flex_1()
                         .flex()
@@ -186,6 +188,7 @@ impl Render for FormattersDrawer {
                     .child(
                         div()
                             .id(("fmt-copy", index as u64))
+                            .a11y_button(format!("Copy {item}"))
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
@@ -278,6 +281,7 @@ impl Render for FormattersDrawer {
                             .child(
                                 div()
                                     .id("fmt-clear-history")
+                                    .a11y_button("Clear history")
                                     .cursor_pointer()
                                     .rounded_md()
                                     .px_1p5()
@@ -300,6 +304,7 @@ impl Render for FormattersDrawer {
 fn run_button(enabled: bool, cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
     div()
         .id("fmt-run")
+        .a11y_button("Run formatter")
         .cursor_pointer()
         .rounded_md()
         .px_3()

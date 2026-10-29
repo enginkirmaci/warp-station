@@ -9,6 +9,7 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
+use crate::ui::A11y;
 use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
 use devtools_core::markdown_live;
 use devtools_core::notes as notes_core;
@@ -474,6 +475,28 @@ fn byte_to_char(text: &str, byte: usize) -> usize {
     text[..byte.min(text.len())].chars().count()
 }
 
+/// The toolbar glyph buttons' spoken names — the visible labels ("B", "H1")
+/// are shorthand, not names.
+fn format_label(format: &str) -> &'static str {
+    match format {
+        "bold" => "Bold",
+        "italic" => "Italic",
+        "strike" => "Strikethrough",
+        "code" => "Inline code",
+        "link" => "Insert link",
+        "h1" => "Heading 1",
+        "h2" => "Heading 2",
+        "h3" => "Heading 3",
+        "bullet" => "Bullet list",
+        "numbered" => "Numbered list",
+        "task" => "Task list",
+        "quote" => "Quote",
+        "codeblock" => "Code block",
+        "hr" => "Horizontal rule",
+        _ => "Format",
+    }
+}
+
 fn char_to_byte(text: &str, char_ix: usize) -> usize {
     text.char_indices().nth(char_ix).map(|(i, _)| i).unwrap_or(text.len())
 }
@@ -772,6 +795,7 @@ impl NotesPage {
                         row.child(
                             div()
                                 .id("note-new")
+                                .a11y_toggle("New note", self.create_open)
                                 .cursor_pointer()
                                 .rounded_md()
                                 .size(px(22.))
@@ -789,6 +813,7 @@ impl NotesPage {
                     .child(
                         div()
                             .id("notes-collapse-all")
+                            .a11y_button("Collapse all folders")
                             .cursor_pointer()
                             .rounded_md()
                             .size(px(22.))
@@ -822,6 +847,7 @@ impl NotesPage {
                                 .child(
                                     div()
                                         .id("note-create-confirm")
+                                        .a11y_button("Create note")
                                         .cursor_pointer()
                                         .rounded_md()
                                         .px_2()
@@ -837,6 +863,7 @@ impl NotesPage {
                                 .child(
                                     div()
                                         .id("note-create-cancel")
+                                        .a11y_button("Cancel new note")
                                         .cursor_pointer()
                                         .rounded_md()
                                         .px_2()
@@ -860,6 +887,7 @@ impl NotesPage {
                 hits = hits.child(
                     div()
                         .id(("search-hit", index as u64))
+                        .a11y_button(format!("{} — {}", hit.title, hit.excerpt))
                         .cursor_pointer()
                         .rounded_md()
                         .px_2()
@@ -917,6 +945,10 @@ impl NotesPage {
             let row = div()
                 .id(id)
                 .debug_selector(move || format!("note-item-{}", selector_name))
+                .a11y_tree_item(
+                    item.name.clone(),
+                    item.is_folder.then_some(expanded),
+                )
                 .cursor_pointer()
                 .rounded_md()
                 .px_1p5()
@@ -1013,6 +1045,7 @@ impl NotesPage {
             }
             let mut button = div()
                 .id(SharedString::from(format!("fmt-{format}")))
+                .a11y_button(format_label(format))
                 .cursor_pointer()
                 .rounded_md()
                 .size(px(24.))
@@ -1065,9 +1098,10 @@ impl NotesPage {
                     .child(div().flex_1())
                     .when(self.open_note.is_some(), |row| {
                         row.child(
-                            div()
-                                .id("note-save")
-                                .cursor_pointer()
+                        div()
+                            .id("note-save")
+                            .a11y_button("Save note")
+                            .cursor_pointer()
                                 .rounded_md()
                                 .px_2()
                                 .py_0p5()
@@ -1091,6 +1125,11 @@ impl NotesPage {
                         .child(
                             div()
                                 .id("note-delete")
+                                .a11y_button(if armed {
+                                    "Confirm delete note"
+                                } else {
+                                    "Delete note"
+                                })
                                 .cursor_pointer()
                                 .size(px(24.))
                                 .rounded_md()
@@ -1120,6 +1159,7 @@ impl NotesPage {
             .bordered(false)
             .appearance(false)
             .h_full()
+            .aria_label("Note body")
             .font_family(SharedString::from(theme::ui_font()))
             .text_size(px(theme::font_body() + 1.))
             .line_height(relative(1.7))
@@ -1158,6 +1198,7 @@ impl NotesPage {
                     column.child(
                         div()
                             .id("notes-empty-new")
+                            .a11y_button("New note")
                             .cursor_pointer()
                             .rounded_md()
                             .border_1()

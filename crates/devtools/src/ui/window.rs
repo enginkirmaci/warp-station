@@ -6,6 +6,7 @@ use crate::theme;
 use crate::ui::bottom_bar::BottomBar;
 use crate::ui::clipboard_password::{copy_stored_password, ClipboardPasswordDrawer};
 use crate::ui::icon;
+use crate::ui::A11y;
 use crate::ui::notes::NotesPage;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::repos::summary_button;
@@ -116,6 +117,9 @@ impl Render for MainWindow {
             self.page = Page::Repos;
         }
         let mut root = div()
+            .id("app-root")
+            .role(gpui::Role::Application)
+            .aria_label("Dev Tools")
             .size_full()
             .flex()
             .flex_col()
@@ -280,6 +284,8 @@ impl MainWindow {
                 div()
                     .id(("toast", id))
                     .debug_selector(move || format!("toast-{id}"))
+                    .role(gpui::Role::Alert)
+                    .aria_label(notice.text.clone())
                     .occlude()
                     .max_w(px(420.))
                     .flex()
@@ -312,6 +318,7 @@ impl MainWindow {
                         div()
                             .id(("toast-close", id))
                             .debug_selector(move || format!("toast-close-{id}"))
+                            .a11y_button("Dismiss notification")
                             .cursor_pointer()
                             .flex_shrink_0()
                             .rounded_md()
@@ -361,6 +368,7 @@ impl MainWindow {
                    on_click: ClickHandler| {
             div()
                 .id(id)
+                .a11y_menu_item(label)
                 .cursor_pointer()
                 .rounded_md()
                 .px_2()
@@ -381,6 +389,8 @@ impl MainWindow {
         let mut menu = div()
             .id("tools-menu")
             .debug_selector(|| "tools-menu".into())
+            .role(gpui::Role::Menu)
+            .aria_label("Tools")
             .absolute()
             .top(px(theme::TITLEBAR_H + 4.))
             // right edge of the menu = right edge of the tools button: 8px
@@ -433,6 +443,7 @@ impl MainWindow {
                 .child(
                     div()
                         .id("tools-menu-scrim")
+                        .a11y_button("Close tools menu")
                         .absolute()
                         .inset_0()
                         .occlude()
@@ -508,6 +519,7 @@ impl MainWindow {
                 .child(
                     div()
                         .id("drawer-scrim")
+                        .a11y_button("Close drawer")
                         .absolute()
                         .inset_0()
                         .occlude()
@@ -594,6 +606,7 @@ impl MainWindow {
                 div()
                     .id(("search-hit", index as u64))
                     .debug_selector(move || format!("search-hit-{index_for_probe}"))
+                    .a11y_button(format!("{title} — {detail}"))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -657,6 +670,7 @@ impl MainWindow {
                 div()
                     .id(("search-code-hit", index as u64))
                     .debug_selector(move || format!("search-code-hit-{index}"))
+                    .a11y_button(format!("{}:{} — {}", file_name, hit.line, hit.rel_path))
                     .cursor_pointer()
                     .rounded_md()
                     .px_2()
@@ -873,6 +887,7 @@ pub(crate) fn window_button(
     div()
         .id(id)
         .debug_selector(move || id.into())
+        .a11y_button(tooltip)
         .cursor_pointer()
         // the titlebar underneath is one big drag region; a control both
         // occludes it from the Windows hit test and stops the press from
@@ -906,6 +921,7 @@ fn status_chip(
     div()
         .id(id)
         .debug_selector(move || id.into())
+        .a11y_button(tooltip)
         .cursor_pointer()
         .occlude()
         .flex_shrink_0()
@@ -1134,6 +1150,7 @@ impl MainWindow {
                         div()
                             .id("tools-toggle")
                             .debug_selector(|| "tools-toggle".into())
+                            .a11y_toggle("Tools", self.tools_menu_open)
                             .cursor_pointer()
                             .occlude()
                             .rounded_md()
@@ -1164,6 +1181,10 @@ impl MainWindow {
                         div()
                             .id("settings-toggle")
                             .debug_selector(|| "settings-toggle".into())
+                            .a11y_toggle(
+                                if on_settings { "Back to repositories" } else { "Settings" },
+                                on_settings,
+                            )
                             .cursor_pointer()
                             .occlude()
                             .rounded_md()
@@ -1296,6 +1317,7 @@ impl MainWindow {
                     .child({
                         div()
                             .id("notes-toggle")
+                            .a11y_button("Notes")
                             .cursor_pointer()
                             .occlude()
                             .rounded_md()

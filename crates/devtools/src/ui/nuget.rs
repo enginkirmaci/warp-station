@@ -5,6 +5,7 @@
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, App, Context, Entity, FontWeight, Window};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -306,6 +307,7 @@ fn action_button(
 ) -> gpui::AnyElement {
     div()
         .id(id)
+        .a11y_button(label.to_string())
         .cursor_pointer()
         .rounded_md()
         .px_3()
