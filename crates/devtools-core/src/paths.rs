@@ -1,7 +1,8 @@
 //! Global per-user locations. Everything lives under ~/.devtools — one data
 //! set shared across app versions; never relocate the root or change the
 //! on-disk formats (a renamed subfolder ships with a startup migration, see
-//! [`migrate_legacy_ai_data`]).
+//! [`migrate_legacy_ai_data`]). The one exception is the notes store: it
+//! moved to the shared ~/.warp/notes so warp-notes reads the same data.
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +22,7 @@ impl AppPaths {
         Self::user_data_root().join("repos.cache.json")
     }
     pub fn notes_dir() -> PathBuf {
-        Self::user_data_root().join("notes")
+        home().join(".warp").join("notes")
     }
     /// The assistant folder: one user-editable prompt template per wand
     /// (commit message, README, daily summary). General to the AI surface —
@@ -44,6 +45,38 @@ impl AppPaths {
 /// already in the new layout always win, and a missing old folder is a no-op.
 pub fn migrate_legacy_ai_data() {
     migrate_legacy_ai_data_at(&AppPaths::user_data_root());
+    migrate_legacy_notes_store();
+}
+
+/// The notes store moved to the shared `~/.warp/notes` (warp-notes reads the
+/// same store). The legacy `~/.devtools/notes` renames over while the target
+/// is missing — idempotent, and whichever app runs first performs the move.
+fn migrate_legacy_notes_store() {
+    let target = AppPaths::notes_dir();
+    if target.is_dir() {
+        return;
+    }
+    let legacy = AppPaths::user_data_root().join("notes");
+    if !legacy.is_dir() {
+        return;
+    }
+    if let Some(parent) = target.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!("could not create {}: {err}", parent.display());
+        return;
+    }
+    match std::fs::rename(&legacy, &target) {
+        Ok(()) => tracing::info!(
+            "migrated the notes store {} → {}",
+            legacy.display(),
+            target.display()
+        ),
+        Err(err) => tracing::warn!(
+            "could not migrate the legacy notes store {}: {err}",
+            legacy.display()
+        ),
+    }
 }
 
 /// The testable body of [migrate_legacy_ai_data]; `root` is the data root.
@@ -62,7 +95,9 @@ fn migrate_legacy_dir(root: &Path, old: &Path) {
     }
     let assistant = root.join("assistant");
     let cache = root.join("models.cache.json");
-    let Ok(entries) = std::fs::read_dir(old) else { return };
+    let Ok(entries) = std::fs::read_dir(old) else {
+        return;
+    };
     let mut copied = 0usize;
     let mut failed = false;
     for entry in entries.flatten() {
@@ -108,7 +143,11 @@ fn migrate_legacy_dir(root: &Path, old: &Path) {
 /// $HOME on unix; USERPROFILE first on Windows — a POSIX-style $HOME leaked
 /// from a Git Bash parent shell is not a valid Win32 path.
 pub(crate) fn home() -> PathBuf {
-    let keys: [&str; 2] = if cfg!(windows) { ["USERPROFILE", "HOME"] } else { ["HOME", "USERPROFILE"] };
+    let keys: [&str; 2] = if cfg!(windows) {
+        ["USERPROFILE", "HOME"]
+    } else {
+        ["HOME", "USERPROFILE"]
+    };
     keys.iter()
         .find_map(|key| std::env::var_os(key).filter(|value| !value.is_empty()))
         .map(PathBuf::from)
@@ -146,8 +185,16 @@ mod tests {
     fn legacy_opencode_dir_splits_into_assistant_and_cache() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("opencode")).unwrap();
-        std::fs::write(root.path().join("opencode").join("readme.md"), "custom body").unwrap();
-        std::fs::write(root.path().join("opencode").join("models.cache.json"), "[\"a/b\"]").unwrap();
+        std::fs::write(
+            root.path().join("opencode").join("readme.md"),
+            "custom body",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("opencode").join("models.cache.json"),
+            "[\"a/b\"]",
+        )
+        .unwrap();
 
         migrate_legacy_ai_data_at(root.path());
 
@@ -160,10 +207,17 @@ mod tests {
             "[\"a/b\"]"
         );
         assert!(
-            !root.path().join("assistant").join("models.cache.json").exists(),
+            !root
+                .path()
+                .join("assistant")
+                .join("models.cache.json")
+                .exists(),
             "the cache never lands in the prompt folder"
         );
-        assert!(!root.path().join("opencode").exists(), "the emptied legacy folder is removed");
+        assert!(
+            !root.path().join("opencode").exists(),
+            "the emptied legacy folder is removed"
+        );
     }
 
     /// The never-released `ai` folder is split and retired too.
@@ -172,7 +226,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("ai")).unwrap();
         std::fs::write(root.path().join("ai").join("readme.md"), "custom").unwrap();
-        std::fs::write(root.path().join("ai").join("models.cache.json"), "[\"a/b\"]").unwrap();
+        std::fs::write(
+            root.path().join("ai").join("models.cache.json"),
+            "[\"a/b\"]",
+        )
+        .unwrap();
 
         migrate_legacy_ai_data_at(root.path());
 
@@ -180,8 +238,14 @@ mod tests {
             std::fs::read_to_string(root.path().join("assistant").join("readme.md")).unwrap(),
             "custom"
         );
-        assert!(root.path().join("models.cache.json").exists(), "the cache reached the root");
-        assert!(!root.path().join("ai").exists(), "the intermediate folder is gone");
+        assert!(
+            root.path().join("models.cache.json").exists(),
+            "the cache reached the root"
+        );
+        assert!(
+            !root.path().join("ai").exists(),
+            "the intermediate folder is gone"
+        );
     }
 
     #[test]
@@ -189,7 +253,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("opencode")).unwrap();
         std::fs::write(root.path().join("opencode").join("readme.md"), "legacy").unwrap();
-        std::fs::write(root.path().join("opencode").join("models.cache.json"), "[\"old\"]").unwrap();
+        std::fs::write(
+            root.path().join("opencode").join("models.cache.json"),
+            "[\"old\"]",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.path().join("assistant")).unwrap();
         std::fs::write(root.path().join("assistant").join("readme.md"), "current").unwrap();
         std::fs::write(root.path().join("models.cache.json"), "[\"new\"]").unwrap();
@@ -213,7 +281,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("opencode")).unwrap();
         std::fs::write(root.path().join("opencode").join("readme.md"), "legacy").unwrap();
-        std::fs::write(root.path().join("opencode").join("models.cache.json"), "[\"a/b\"]").unwrap();
+        std::fs::write(
+            root.path().join("opencode").join("models.cache.json"),
+            "[\"a/b\"]",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.path().join("assistant")).unwrap();
         std::fs::write(root.path().join("assistant").join("readme.md"), "current").unwrap();
 

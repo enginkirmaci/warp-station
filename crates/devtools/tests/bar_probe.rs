@@ -85,14 +85,16 @@ fn chip_routing_lands_on_the_requested_tab(cx: &mut TestAppContext) {
     });
 }
 
+/// The row's notes icon no longer routes through the store (it launches the
+/// external warp-notes app directly), so `ensure_repo_selected` — its old
+/// re-fire path — only has to stay selection-stable.
 #[gpui::test]
-fn notes_button_path_never_closes_the_bar(cx: &mut TestAppContext) {
+fn ensure_repo_selected_is_stable_for_the_selected_repo(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let store = fake_store(cx);
 
     cx.update(|cx| {
         store.update(cx, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
-        // the row's notes button re-fires on the selected repo: the bar stays
         store.update(cx, |s, cx| s.ensure_repo_selected("/probe/alpha", cx));
         assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
     });

@@ -101,17 +101,11 @@ pub struct Store {
     /// the per-second tick expires it.
     pub notices: Vec<Notice>,
     notice_generation: u64,
-    /// A note to open in the Notes window (global search click), drained by
-    /// the Notes page's render.
-    pub pending_note_open: Option<std::path::PathBuf>,
     /// Global-search results (repos by name/path + note content hits).
     pub global_search: Vec<GlobalSearchHit>,
-    /// The repos-table notes button asks for the floating notes window.
+    /// E2E hook: DEVTOOLS_NOTES=1 asks for Notes on launch; the main
+    /// window's render drains it into a warp-notes launch.
     pub notes_requested: bool,
-    /// The repo whose notes folder the Notes window should pin to, set only
-    /// by the rows' notes icon (repo row presses never re-root the tree);
-    /// drained by the Notes page's render.
-    pub pending_notes_scope: Option<String>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -217,11 +211,9 @@ impl Store {
             warp_running: std::collections::HashMap::new(),
             notices: Vec::new(),
             notice_generation: 0,
-            pending_note_open: None,
             global_search: Vec::new(),
-            // E2E hook: DEVTOOLS_NOTES=1 opens the Notes window on launch
+            // E2E hook: DEVTOOLS_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1"),
-            pending_notes_scope: None,
             commit_details: None,
             commit_file_patch: None,
             next_auto_fetch: None,
@@ -1200,15 +1192,6 @@ impl Store {
         if self.selected_repo.as_deref() != Some(folder) {
             self.select_repo(Some(folder.to_string()), cx);
         }
-    }
-
-    /// The rows' notes icon: pins the Notes window to one repo's notes
-    /// folder and asks for the window. Notifies even when the repo is
-    /// already selected, so an open Notes window drains the request.
-    pub fn request_notes_scope(&mut self, repo: String, cx: &mut Context<Self>) {
-        self.pending_notes_scope = Some(repo);
-        self.notes_requested = true;
-        cx.notify();
     }
 
     /// Closes the bar and clears the row highlight.

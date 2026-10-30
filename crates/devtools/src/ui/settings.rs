@@ -63,6 +63,9 @@ pub struct SettingsPage {
     // AI features (warp-agent)
     warp_enabled: bool,
     warp_executable: Entity<InputState>,
+    // Notes (warp-notes)
+    warp_notes_enabled: bool,
+    warp_notes_executable: Entity<InputState>,
     default_model: Entity<InputState>,
     commit_model: Entity<InputState>,
     default_model_picker: Entity<FilteredPicker>,
@@ -193,6 +196,8 @@ impl SettingsPage {
             enable_opencode: settings.opencode.enable_opencode,
             warp_enabled: settings.warp_agent.enable_warp_agent,
             warp_executable: field(window, cx, &settings.warp_agent.executable),
+            warp_notes_enabled: settings.warp_notes.enable_warp_notes,
+            warp_notes_executable: field(window, cx, &settings.warp_notes.executable),
             default_model,
             commit_model,
             default_model_picker,
@@ -272,6 +277,8 @@ impl SettingsPage {
         let keep_awake_enabled = self.keep_awake_enabled;
         let warp_enabled = self.warp_enabled;
         let warp_exe = Self::value(&self.warp_executable, cx);
+        let warp_notes_enabled = self.warp_notes_enabled;
+        let warp_notes_exe = Self::value(&self.warp_notes_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let auto_fetch_minutes = self.auto_fetch_minutes;
         // absence = fetch always; the only meaningful write is the opt-in
@@ -317,6 +324,8 @@ impl SettingsPage {
                 s.opencode.enable_opencode = flags.6;
                 s.warp_agent.enable_warp_agent = warp_enabled;
                 s.warp_agent.executable = warp_exe;
+                s.warp_notes.enable_warp_notes = warp_notes_enabled;
+                s.warp_notes.executable = warp_notes_exe;
                 s.opencode.default_model = default_model;
                 s.opencode.commit_model = (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
                 s.repos.enable_git_hub = flags.7;
@@ -616,6 +625,14 @@ impl Render for SettingsPage {
                                         .child(label("Prompt templates"))
                                         .child(this.templates_section(cx))
                                         .child(label("The wands, the daily summary and the model catalog run over warp-agent's door."))
+                                    }))
+                                    .child(self.card("Notes (warp-notes)", cx, |this, cx, card| {
+                                        card.child(switch_row("Enable warp-notes", this.warp_notes_enabled, cx.listener(|this, _, _, cx| {
+                                            this.warp_notes_enabled = !this.warp_notes_enabled;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("warp-notes executable", &this.warp_notes_executable))
+                                        .child(label("The notes toggle, the tools menu and the rows' note icons launch this app over the shared notes store set above."))
                                     }))
                                     .child(self.card("Columns", cx, |this, cx, card| {
                                         card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {

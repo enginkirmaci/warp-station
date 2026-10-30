@@ -1,5 +1,5 @@
 //! The main window: custom titlebar + page content. Hosts the Repos page;
-//! Settings swaps content and Notes opens a floating window (later waves).
+//! Settings swaps content and Notes launches the external warp-notes app.
 
 use crate::store::Store;
 use crate::theme;
@@ -7,11 +7,10 @@ use crate::ui::bottom_bar::BottomBar;
 use crate::ui::clipboard_password::{copy_stored_password, ClipboardPasswordDrawer};
 use crate::ui::icon;
 use crate::ui::A11y;
-use crate::ui::notes::NotesPage;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::repos::summary_button;
 use gpui::prelude::*;
-use gpui::{div, px, size, App, Bounds, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
+use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::Sizable as _;
 
@@ -37,7 +36,6 @@ pub struct MainWindow {
     settings_page: Entity<crate::ui::settings::SettingsPage>,
     bottom_bar: Entity<BottomBar>,
     global_search: Entity<InputState>,
-    notes_window: Option<gpui::AnyWindowHandle>,
     /// The open tool drawer, if any (one at a time; entities are lazy).
     active_drawer: Option<DrawerKind>,
     formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
@@ -82,7 +80,6 @@ impl MainWindow {
             settings_page,
             bottom_bar,
             global_search,
-            notes_window: None,
             // E2E hook: DEVTOOLS_TOOLS_OPEN=formatters|nuget|clipboard docks
             // that drawer on launch
             active_drawer: match std::env::var("DEVTOOLS_TOOLS_OPEN").as_deref() {
@@ -110,7 +107,7 @@ impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         if self.store.read(cx).notes_requested {
             self.store.update(cx, |s, _| s.notes_requested = false);
-            self.open_notes_window(window, cx);
+            self.launch_notes(None, cx);
         }
         if self.settings_page.read(cx).back_requested {
             self.settings_page.update(cx, |page, _| page.back_requested = false);
@@ -357,9 +354,9 @@ impl MainWindow {
                 cx.notify();
             })
         };
-        let open_notes = cx.listener(|this, _, window, cx| {
+        let open_notes = cx.listener(|this, _, _, cx| {
             this.tools_menu_open = false;
-            this.open_notes_window(window, cx);
+            this.launch_notes(None, cx);
         });
         type ClickHandler = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
         let row = |id: &'static str,
@@ -430,12 +427,14 @@ impl MainWindow {
                 Box::new(open_drawer(DrawerKind::ClipboardPassword)),
             ));
         }
-        menu = menu.child(row(
-            "tools-menu-notes",
-            "icons/icon-note.svg",
-            "Notes",
-            Box::new(open_notes),
-        ));
+        if settings.warp_notes.enable_warp_notes {
+            menu = menu.child(row(
+                "tools-menu-notes",
+                "icons/icon-note.svg",
+                "Notes",
+                Box::new(open_notes),
+            ));
+        }
         Some(
             div()
                 .absolute()
@@ -787,14 +786,7 @@ impl MainWindow {
                 self.store.update(cx, |s, cx| s.open_repo_tab(&folder, crate::store::BottomBarTab::Overview, cx));
             }
             crate::store::GlobalSearchHit::Note { path, .. } => {
-                self.store.update(cx, |s, cx| {
-                    s.pending_note_open = Some(path.clone());
-                    // the notes page drains this on its next render; the
-                    // notify is what makes an already-open notes window
-                    // re-render (its store observer fires on it)
-                    cx.notify();
-                });
-                self.open_notes_window(window, cx);
+                self.launch_notes(Some(path.clone()), cx);
             }
         }
         self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
@@ -827,50 +819,20 @@ impl MainWindow {
         cx.notify();
     }
 
-    /// Opens (or focuses) the floating notes window.
-    pub fn open_notes_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(handle) = &self.notes_window {
-            if cx.windows().contains(handle) {
-                let _ = handle.update(cx, |_, window, _| window.activate_window());
-                return;
-            }
-            self.notes_window = None;
+    /// Launches the external warp-notes app on the shared store: the notes
+    /// toggle, the tools-menu row, the rows' notes icon (with no note) and
+    /// the global-search note hits (with one) all land here. The selected
+    /// repo pins the scope; fire-and-forget — the window outlives DevTools.
+    fn launch_notes(&mut self, note: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
+        let settings = self.store.read(cx).settings();
+        if !settings.warp_notes.enable_warp_notes {
+            return;
         }
-        let _ = window;
-        let store = self.store.clone();
-        let bounds = Bounds::centered(None, size(px(980.), px(700.)), cx);
-        if let Ok((handle, _)) = gpui_kit::open_window(
-            gpui::WindowOptions {
-                window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
-                app_id: Some("devtools".into()),
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Notes".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            cx,
-            move |window, cx| {
-                cx.new(|cx| {
-                    let mut page = NotesPage::new(store.clone(), window, cx);
-                    // E2E hook: DEVTOOLS_NOTE=<relative-path> opens that note
-                    // right away (headless/live capture without clicks)
-                    if let Ok(rel) = std::env::var("DEVTOOLS_NOTE") {
-                        let root = devtools_core::notes::resolve_store_root(
-                            &store.read(cx).settings().general.notes_store_path,
-                        );
-                        let path = root.join(rel.trim_start_matches(['/', '\\']));
-                        for parent in path.ancestors().skip(1) {
-                            page.expand_tree_path(parent.to_path_buf());
-                        }
-                        page.open_note(path, window, cx);
-                    }
-                    page
-                })
-            },
-        ) {
-            self.notes_window = Some(handle);
+        let executable = settings.warp_notes.executable.clone();
+        let store_root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
+        let repo = self.store.read(cx).selected_entry().map(|e| e.name.clone());
+        if let Err(err) = devtools_core::warp_notes::launch(&executable, &store_root, repo.as_deref(), note.as_deref()) {
+            self.store.update(cx, |s, _| s.notify_error(err));
         }
         cx.notify();
     }
@@ -1314,31 +1276,32 @@ impl MainWindow {
                     )
                     // hairline between the app name and the tools that follow
                     .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-                    .child({
-                        div()
-                            .id("notes-toggle")
-                            .a11y_button("Notes")
-                            .cursor_pointer()
-                            .occlude()
-                            .rounded_md()
-                            .size(px(26.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(self.notes_window.is_some(), |d| d.bg(theme::tint(theme::ACCENT)))
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_notes_window(window, cx);
-                            }))
-                            .when(show_tooltips, |d| {
-                                d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
-                            })
-                            .child(icon(
-                                "icons/icon-note.svg",
-                                px(theme::icon_medium()),
-                                if self.notes_window.is_some() { theme::ACCENT } else { theme::TEXT_MUTED },
-                            ))
+                    .when(self.store.read(cx).settings().warp_notes.enable_warp_notes, |left| {
+                        left.child({
+                            div()
+                                .id("notes-toggle")
+                                .a11y_button("Notes")
+                                .cursor_pointer()
+                                .occlude()
+                                .rounded_md()
+                                .size(px(26.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .hover(|s| s.bg(theme::HOVER))
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.launch_notes(None, cx);
+                                }))
+                                .when(show_tooltips, |d| {
+                                    d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
+                                })
+                                .child(icon(
+                                    "icons/icon-note.svg",
+                                    px(theme::icon_medium()),
+                                    theme::TEXT_MUTED,
+                                ))
+                        })
                     })
                     .when(self.store.read(cx).wand_available(), |left| {
                         left.child(summary_button(&self.store, self.store.read(cx).summary_busy))

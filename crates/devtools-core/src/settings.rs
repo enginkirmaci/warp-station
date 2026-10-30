@@ -26,6 +26,8 @@ pub struct AppSettings {
     pub opencode: OpenCodeSettings,
     #[serde(default, rename = "WarpAgent")]
     pub warp_agent: WarpAgentSettings,
+    #[serde(default, rename = "WarpNotes")]
+    pub warp_notes: WarpNotesSettings,
     #[serde(default)]
     pub general: GeneralSettings,
 }
@@ -211,10 +213,32 @@ pub struct WarpAgentSettings {
 
 impl Default for WarpAgentSettings {
     fn default() -> Self {
-        Self { enable_warp_agent: true, executable: "warp-agent".into() }
+        Self {
+            enable_warp_agent: true,
+            executable: "warp-agent".into(),
+        }
     }
 }
 
+/// The warp-notes integration: the Notes surfaces launch the external app
+/// over the shared ~/.warp/notes store, so these toggle the feature set and
+/// name its binary.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct WarpNotesSettings {
+    #[serde(rename = "EnableWarpNotes")]
+    pub enable_warp_notes: bool,
+    pub executable: String,
+}
+
+impl Default for WarpNotesSettings {
+    fn default() -> Self {
+        Self {
+            enable_warp_notes: true,
+            executable: "warp-notes".into(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
@@ -223,7 +247,6 @@ pub struct ClipboardPasswordSettings {
     pub encrypted_password: Option<String>,
     pub enable_clipboard_password: bool,
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
@@ -237,7 +260,6 @@ pub struct SnapItSettings {
     pub executable: String,
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
 #[derive(Default)]
@@ -245,7 +267,6 @@ pub struct KeepAwakeSettings {
     /// Restores the keep-awake execution state at app launch.
     pub enabled: bool,
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
@@ -322,7 +343,8 @@ impl SettingsService {
             *guard = next.clone();
             (next, self.path.clone())
         };
-        self.version.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         jsonio::write_json_atomically(&path, &updated)?;
         Ok(updated)
     }
@@ -348,17 +370,25 @@ fn migrate_legacy_enable_keys(json: &str) -> String {
         if obj.contains_key(new) {
             return;
         }
-        obj.insert(new.to_string(), serde_json::Value::Bool(if inverted {
-            !legacy_value
-        } else {
-            legacy_value
-        }));
+        obj.insert(
+            new.to_string(),
+            serde_json::Value::Bool(if inverted {
+                !legacy_value
+            } else {
+                legacy_value
+            }),
+        );
         changed = true;
     };
     copy_bool("Repos", "ShowGitHubColumn", "EnableGitHub", false);
     copy_bool("Repos", "ShowAzureDevOpsColumn", "EnableAzureDevOps", false);
     copy_bool("OpenCode", "Enabled", "EnableOpenCode", false);
-    copy_bool("ClipboardPassword", "HideFromGui", "EnableClipboardPassword", true);
+    copy_bool(
+        "ClipboardPassword",
+        "HideFromGui",
+        "EnableClipboardPassword",
+        true,
+    );
     if changed {
         root.to_string()
     } else {
@@ -379,7 +409,10 @@ mod tests {
             "OpenCode": {"EnableOpenCode": true, "DefaultModel": "x", "CommitModel": null}
         }"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.repos.repo_scan_folders.as_deref(), Some(&["/a".to_string(), "/b".to_string()][..]));
+        assert_eq!(
+            s.repos.repo_scan_folders.as_deref(),
+            Some(&["/a".to_string(), "/b".to_string()][..])
+        );
         assert_eq!(s.repos.sort_mode, RepoSortMode::Changes);
         assert_eq!(s.repos.max_scan_depth, 5);
         assert!(!s.general.show_tooltips);
@@ -393,7 +426,8 @@ mod tests {
 
     #[test]
     fn legacy_enable_keys_migrate_once() {
-        let json = r#"{"OpenCode": {"Enabled": true}, "ClipboardPassword": {"HideFromGui": false}}"#;
+        let json =
+            r#"{"OpenCode": {"Enabled": true}, "ClipboardPassword": {"HideFromGui": false}}"#;
         let s: AppSettings = serde_json::from_str(&migrate_legacy_enable_keys(json)).unwrap();
         assert!(s.opencode.enable_opencode);
         // inverted legacy key: HideFromGui=false → enabled
@@ -480,7 +514,11 @@ mod tests {
         assert_ne!(legacy.repos.enable_code_search, Some(false));
         assert_eq!(legacy.repos.code_search_executable.as_deref(), None);
         assert_eq!(
-            legacy.repos.code_search_executable.clone().unwrap_or_else(|| "rg".into()),
+            legacy
+                .repos
+                .code_search_executable
+                .clone()
+                .unwrap_or_else(|| "rg".into()),
             "rg"
         );
         // an explicit opt-out and a custom binary persist and read back
@@ -519,8 +557,10 @@ mod tests {
         assert!(s.warp_agent.enable_warp_agent);
         assert_eq!(s.warp_agent.executable, "warp-agent");
         // an explicit off round-trips
-        let off: AppSettings =
-            serde_json::from_str(r#"{"WarpAgent": {"EnableWarpAgent": false, "Executable": "wa"}}"#).unwrap();
+        let off: AppSettings = serde_json::from_str(
+            r#"{"WarpAgent": {"EnableWarpAgent": false, "Executable": "wa"}}"#,
+        )
+        .unwrap();
         assert!(!off.warp_agent.enable_warp_agent);
         assert_eq!(off.warp_agent.executable, "wa");
     }

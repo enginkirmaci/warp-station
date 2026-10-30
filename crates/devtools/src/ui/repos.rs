@@ -1139,6 +1139,7 @@ impl TableDelegate for ReposDelegate {
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
         let show_tooltips = settings.general.show_tooltips;
+        let notes_enabled = settings.warp_notes.enable_warp_notes;
         let archived = repo.is_archived();
         let warp_running = store
             .warp_running
@@ -1234,7 +1235,6 @@ impl TableDelegate for ReposDelegate {
                         .into_any_element()
                 } else {
                     let store = self.store.clone();
-                    let notes_folder = folder.clone();
                     let notes_name = repo.name.clone();
                     let notes_button = div()
                         .id(("open-notes", row_ix))
@@ -1248,9 +1248,19 @@ impl TableDelegate for ReposDelegate {
                         .hover(|s| s.bg(theme::HOVER))
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
-                            store.update(cx, |s, cx| {
-                                s.ensure_repo_selected(&notes_folder, cx);
-                                s.request_notes_scope(notes_name.clone(), cx);
+                            store.update(cx, |s, _| {
+                                let settings = s.settings();
+                                let root = devtools_core::notes::resolve_store_root(
+                                    &settings.general.notes_store_path,
+                                );
+                                if let Err(err) = devtools_core::warp_notes::launch(
+                                    &settings.warp_notes.executable,
+                                    &root,
+                                    Some(&notes_name),
+                                    None,
+                                ) {
+                                    s.notify_error(err);
+                                }
                             });
                         })
                         .child(icon(
@@ -1266,11 +1276,13 @@ impl TableDelegate for ReposDelegate {
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(crate::ui::with_tooltip(
-                            notes_button,
-                            show_tooltips,
-                            "Open notes for this repository",
-                        ))
+                        .when(notes_enabled, |cell| {
+                            cell.child(crate::ui::with_tooltip(
+                                notes_button,
+                                show_tooltips,
+                                "Open notes for this repository",
+                            ))
+                        })
                         .child(
                             div()
                                 .flex_1()

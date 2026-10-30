@@ -6,7 +6,6 @@ pub mod changes;
 pub mod clipboard_password;
 pub mod dialogs;
 pub mod formatters;
-pub mod notes;
 pub mod nuget;
 pub mod overview;
 pub mod pr_issues;
