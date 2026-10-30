@@ -195,6 +195,11 @@ impl Render for ChangesView {
         if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
             self.patches.insert((path, staged), patch.replace('\r', ""));
         }
+        // a settled commit empties the message box (before the draft drain so
+        // a wand draft landing in the same pass survives)
+        if self.store.update(cx, |store, _| std::mem::take(&mut store.commit_message_clear)) {
+            self.commit_message.update(cx, |state, cx| state.set_value("", window, cx));
+        }
         let mut auto_commit_text: Option<String> = None;
         if let Some(draft) = self.store.update(cx, |store, _| store.commit_message_draft.take()) {
             let draft = draft.trim().to_string();

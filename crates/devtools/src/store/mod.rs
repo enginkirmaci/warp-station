@@ -83,6 +83,8 @@ pub struct Store {
     pub wand_error: Option<String>,
     /// The commit-message wand's draft, drained into the Changes commit box.
     pub commit_message_draft: Option<String>,
+    /// Set when a commit succeeded: the view drains it to empty the box.
+    pub commit_message_clear: bool,
     /// The README wand's draft, rendered by the Overview pane with Save/Discard.
     pub readme_draft: Option<String>,
     /// The model catalog (settings pickers + wands), cache-backed.
@@ -206,6 +208,7 @@ impl Store {
             wand_repo: None,
             wand_error: None,
             commit_message_draft: None,
+            commit_message_clear: false,
             readme_draft: None,
             models: Vec::new(),
             template_loaded: None,
@@ -639,6 +642,9 @@ impl Store {
                     );
                     if let Some(hash) = commit_hash {
                         tracing::info!("committed {hash} in {folder}");
+                    }
+                    if label == "commit" && self.selected_repo.as_deref() == Some(folder.as_str()) {
+                        self.commit_message_clear = true;
                     }
                 }
                 cx.notify();
@@ -1225,6 +1231,7 @@ impl Store {
         self.commit_file_patch = None;
         self.github_details = None;
         self.commit_message_draft = None;
+        self.commit_message_clear = false;
         self.readme_draft = None;
         self.wand_error = None;
         self.wand_repo = None;
