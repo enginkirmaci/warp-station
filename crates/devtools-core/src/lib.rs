@@ -12,7 +12,6 @@ pub mod github;
 pub mod hotkey;
 pub mod jsonio;
 pub mod keepawake;
-pub mod markdown_live;
 pub mod model;
 pub mod notes;
 pub mod nuget;

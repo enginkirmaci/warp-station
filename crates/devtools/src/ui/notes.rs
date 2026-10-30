@@ -10,8 +10,7 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::icon;
 use crate::ui::A11y;
-use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
-use devtools_core::markdown_live;
+use warpui_kit_markdown::{live_highlighter_factory, live, LIVE_LANGUAGE};
 use devtools_core::notes as notes_core;
 use gpui::prelude::*;
 use gpui::{
@@ -313,7 +312,7 @@ impl NotesPage {
         let range = self.editor.read(cx).selected_range();
         let start_ch = byte_to_char(&text, range.start);
         let end_ch = byte_to_char(&text, range.end);
-        let result = devtools_core::notes::markdown_apply(format, &text, start_ch, end_ch - start_ch);
+        let result = warpui_kit_markdown::apply::markdown_apply(format, &text, start_ch, end_ch - start_ch);
         self.editor.update(cx, |state, cx| {
             // replace_all keeps the undo stack, unlike set_value
             state.replace_all(result.text.as_str(), window, cx);
@@ -337,7 +336,7 @@ impl NotesPage {
         let text = editor.read(cx).value().to_string();
         let selection = editor.read(cx).selected_range();
         let caret_char = byte_to_char(&text, selection.start);
-        let (new_text, new_caret_char) = match notes_core::continue_list(&text, caret_char) {
+        let (new_text, new_caret_char) = match warpui_kit_markdown::apply::continue_list(&text, caret_char) {
             Some((text, caret)) => (text, caret),
             None => {
                 // plain newline, replacing the selection and keeping the
@@ -386,7 +385,7 @@ impl NotesPage {
             return; // the press selected text, it was not a click on the box
         }
         let text = self.editor.read(cx).value().to_string();
-        if let Some(new_text) = markdown_live::toggle_task_at(&text, range.start) {
+        if let Some(new_text) = live::toggle_task_at(&text, range.start) {
             self.editor.update(cx, |state, cx| {
                 state.replace_all(new_text.as_str(), window, cx);
                 state.set_selected_range(range.start..range.start, cx);

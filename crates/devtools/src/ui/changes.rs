@@ -9,14 +9,18 @@
 use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
 use crate::theme;
-use crate::ui::filtered_picker::FilteredPicker;
-use crate::ui::icon;
-use crate::ui::A11y;
+use crate::ui::{icon, A11y};
 use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
 use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
+use gpui_kit::component::Sizable as _;
+use std::cell::RefCell;
 use std::rc::Rc;
+use warpui_kit_picker::{
+    FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
+    PickerRow, PickerSpec, PickerTarget, Selection, TrailingDelete, TriggerScale,
+};
 
 /// One history row's display strings, precomputed when the history (or the
 /// day) changes so a render never re-derives them per row.
@@ -42,6 +46,9 @@ pub struct ChangesView {
     patches: std::collections::HashMap<(String, bool), String>,
     /// The branch selector: the shared FilteredPicker in branch mode.
     branch_picker: Entity<FilteredPicker>,
+    /// The branch picker's ephemeral state (armed delete, open form); shared
+    /// with the picker's closures.
+    branch_ui: Rc<RefCell<BranchUi>>,
     commit_message: Entity<TextareaState>,
     /// Set when the user pressed "Generate & Commit" with an empty box: the
     /// wand's draft lands here first, then commits automatically.
@@ -66,7 +73,16 @@ pub struct ChangesView {
 
 impl ChangesView {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let branch_picker = cx.new(|cx| FilteredPicker::branches(store.clone(), window, cx));
+        let new_branch_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
+        let branch_ui: Rc<RefCell<BranchUi>> = Rc::new(RefCell::new(BranchUi::default()));
+        let branch_picker = build_branch_picker(
+            &store,
+            branch_ui.clone(),
+            new_branch_name.clone(),
+            window,
+            cx,
+        );
         // the picker's open popup is appended by render_rail as the rail's
         // last child, so picker-internal changes (filter typing, arming,
         // dismissal) must repaint this view too
@@ -80,6 +96,7 @@ impl ChangesView {
             expanded: std::collections::HashSet::new(),
             patches: std::collections::HashMap::new(),
             branch_picker,
+            branch_ui,
             commit_message,
             auto_commit_after_draft: false,
             history_open: false,
@@ -105,6 +122,15 @@ impl ChangesView {
         self.expanded.clear();
         self.patches.clear();
         self.branch_picker.update(cx, FilteredPicker::dismiss);
+        {
+            // the branch popup must never show the previous repo's list,
+            // filter or form
+            let mut ui = self.branch_ui.borrow_mut();
+            ui.delete_armed = None;
+            ui.new_branch_open = false;
+        }
+        self.branch_picker
+            .update(cx, |picker, cx| picker.clear_filter(window, cx));
         self.commit_message.update(cx, |f, cx| f.set_value("", window, cx));
         self.auto_commit_after_draft = false;
         self.history_open = false;
@@ -476,7 +502,13 @@ impl ChangesView {
                     .max_h(px(220.))
                     .overflow_hidden()
                     .overflow_y_scroll()
-                    .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
+                    .child(warpui_kit_diff::render_diff(
+                        patch,
+                        None,
+                        theme::font_small() - 2.0,
+                        window,
+                        cx,
+                    )),
             );
         }
         row.into_any_element()
@@ -917,7 +949,13 @@ impl ChangesView {
                         .max_h(px(220.))
                         .overflow_hidden()
                         .overflow_y_scroll()
-                        .child(crate::ui::diff::render_diff(patch, theme::font_small() - 2.0, window)),
+                        .child(warpui_kit_diff::render_diff(
+                        patch,
+                        None,
+                        theme::font_small() - 2.0,
+                        window,
+                        cx,
+                    )),
                 );
             }
             files = files.child(row);
@@ -1463,4 +1501,366 @@ fn count_pill(text: String, color: gpui::Rgba) -> impl IntoElement + use<> {
 /// The hairline separator between rail sections.
 fn divider() -> impl IntoElement + use<> {
     div().h(px(1.)).my_1p5().bg(theme::HAIRLINE)
+}
+
+// ---- the branch picker ------------------------------------------------------
+
+/// The app's icon paths for the shared picker shell.
+const PICKER_ICONS: PickerIcons = PickerIcons {
+    check: "icons/icon-check.svg",
+    chevron_down: "icons/icon-chevron-down.svg",
+    trash: "icons/icon-trash.svg",
+    refresh: "icons/icon-refresh.svg",
+};
+
+/// The branch picker's ephemeral state: the armed delete, whether the
+/// new-branch form replaced the list, and the repo the popup was loaded for
+/// (a mismatch resets it).
+#[derive(Default)]
+struct BranchUi {
+    delete_armed: Option<String>,
+    new_branch_open: bool,
+}
+
+/// The branch selector: a pick checks the branch out; locals carry the delete
+/// trash and the popup carries the new-branch form.
+fn build_branch_picker(
+    store: &Entity<Store>,
+    branch_ui: Rc<RefCell<BranchUi>>,
+    new_branch_name: Entity<InputState>,
+    window: &mut Window,
+    cx: &mut Context<ChangesView>,
+) -> Entity<FilteredPicker> {
+    let spec = PickerSpec {
+        key: "Branch",
+        trigger_label: "Branch",
+        filter_placeholder: "Filter branches",
+        icons: PICKER_ICONS,
+        trigger_icon: Some("icons/icon-source-branch.svg"),
+        provider_badge: false,
+        refresh: false,
+        refresh_label: "",
+        stop_trigger_mousedown: true,
+        visible_rows: 8,
+        selected_accent: true,
+        overlay: true,
+        anchor: OverlayAnchor::Rail,
+        trigger_scale: TriggerScale::Compact,
+        trigger_rounded_lg: false,
+        trigger_min_h: None,
+        panel_chrome: PanelChrome::Menus,
+        trigger_id: Some("branch-button"),
+        panel_id: Some("branch-menu"),
+        filter_selector: Some("branch-filter"),
+        list_id: Some("branch-list"),
+    };
+    let pick_store = store.clone();
+    let branch_picker = cx.new(|cx| {
+        FilteredPicker::new(
+            spec,
+            PickerTarget::Callback(Box::new(move |value, _window, cx| {
+                pick_store.update(cx, |s, cx| s.run_git(GitAction::Checkout(value.to_string()), cx));
+            })),
+            Box::new(|_, _, _| unreachable!("the real source lands right after construction")),
+            window,
+            cx,
+        )
+    });
+    {
+        let data_store = store.clone();
+        let data_ui = branch_ui.clone();
+        let data_name = new_branch_name.clone();
+        let data_picker = branch_picker.downgrade();
+        branch_picker.update(cx, |picker, _cx| {
+            picker.set_data_source(Box::new(
+                move |filter: &str, window: &Window, cx: &gpui::App| {
+                    // the picker hands itself in for the form's repaints;
+                    // a dying entity renders an empty list
+                    match data_picker.upgrade() {
+                        Some(picker) => branch_data(
+                            &data_store, &data_ui, &data_name, &picker, filter, window, cx,
+                        ),
+                        None => PickerData {
+                            body: PickerBody::Rows(Vec::new()),
+                            selected: Selection::default(),
+                            footer: None,
+                            fonts: theme::font_tokens(),
+                            accent: theme::ACCENT,
+                            show_tooltips: false,
+                        },
+                    }
+                },
+            ));
+        });
+    }
+    // dismissal (outside click, Escape, a pick) clears the ephemeral state
+    branch_picker.update(cx, |picker, cx| {
+        picker.set_on_dismiss({
+            let ui = branch_ui.clone();
+            Box::new(move |_cx| {
+                let mut ui = ui.borrow_mut();
+                ui.delete_armed = None;
+                ui.new_branch_open = false;
+            })
+        });
+        picker.set_on_trailing({
+            let ui = branch_ui.clone();
+            let store = store.clone();
+            Box::new(move |name, cx| {
+                let confirmed = {
+                    let mut ui = ui.borrow_mut();
+                    if ui.delete_armed.as_deref() == Some(name) {
+                        ui.delete_armed = None;
+                        true
+                    } else {
+                        ui.delete_armed = Some(name.to_string());
+                        false
+                    }
+                };
+                if confirmed {
+                    store.update(cx, |s, cx| {
+                        s.run_git(GitAction::DeleteBranch(name.to_string()), cx)
+                    });
+                }
+                // true = done: the shell dismisses (no re-entrant update —
+                // this closure runs inside the picker's own row listener)
+                confirmed
+            })
+        });
+        picker.observe_entity(store, cx);
+    });
+    branch_picker
+}
+
+
+/// One render's worth of the branch list: locals with their delete trash, the
+/// inert "Remote" group label, and — when the form is open — the form as the
+/// whole panel body.
+fn branch_data(
+    store: &Entity<Store>,
+    branch_ui: &Rc<RefCell<BranchUi>>,
+    new_branch_name: &Entity<InputState>,
+    picker: &Entity<FilteredPicker>,
+    filter: &str,
+    window: &Window,
+    cx: &gpui::App,
+) -> PickerData {
+    let store_read = store.read(cx);
+    let current = store_read
+        .selected_entry()
+        .and_then(|e| e.git_branch_name.clone())
+        .unwrap_or_default();
+    let show_tooltips = store_read.settings().general.show_tooltips;
+    let armed = branch_ui.borrow().delete_armed.clone();
+    let form_open = branch_ui.borrow().new_branch_open;
+
+    if form_open {
+        return PickerData {
+            body: PickerBody::Replace(new_branch_form(
+                store,
+                branch_ui,
+                new_branch_name,
+                picker,
+                cx,
+            )),
+            selected: Selection {
+                value: current.clone(),
+                label: "—".to_string(),
+                badge: None,
+            },
+            footer: None,
+            fonts: theme::font_tokens(),
+            accent: theme::ACCENT,
+            show_tooltips,
+        };
+    }
+
+    let filter = filter.to_lowercase();
+    let mut rows = Vec::new();
+    let mut remotes_labeled = false;
+    for branch in &store_read.branches {
+        if !filter.is_empty() && !branch.name.to_lowercase().contains(&filter) {
+            continue;
+        }
+        let is_remote = branch.kind == devtools_core::model::GitBranchKind::Remote;
+        // locals first, then the inert "Remote" group label (re-emerges
+        // before the first matching remote while filtering)
+        if is_remote && !remotes_labeled {
+            remotes_labeled = true;
+            rows.push(PickerRow::Group {
+                id: "branch-group-remote".into(),
+                label: "Remote".into(),
+                selector: Some("branch-group-remote".into()),
+            });
+        }
+        let deletable = !is_remote && branch.name != current;
+        rows.push(PickerRow::Item(PickerItem {
+            id: format!("branch-row-{}", branch.name),
+            selector: format!("branch-row-{}", branch.name),
+            value: branch.name.clone(),
+            // the full name stays the pick payload; the display label sheds
+            // its head only when it would overflow
+            label: crate::ui::branch_label(&branch.name, window),
+            selected: branch.name == current,
+            muted: is_remote,
+            trailing_delete: deletable.then(|| TrailingDelete {
+                id: format!("branch-delete-{}", branch.name),
+                selector: format!("branch-delete-{}", branch.name),
+                armed: armed.as_deref() == Some(branch.name.as_str()),
+                tooltip: "Delete branch",
+            }),
+        }));
+    }
+
+    PickerData {
+        body: PickerBody::Rows(rows),
+        selected: Selection {
+            label: if current.is_empty() {
+                "—".to_string()
+            } else {
+                crate::ui::branch_label(&current, window)
+            },
+            badge: None,
+            value: current,
+        },
+        footer: Some(new_branch_footer(store, branch_ui, new_branch_name, picker, cx)),
+        fonts: theme::font_tokens(),
+        accent: theme::ACCENT,
+        show_tooltips,
+    }
+}
+
+/// The panel footer: "+ New branch…" opens the form seeded with the repo's
+/// branch-name prefix and focused, ready to type.
+fn new_branch_footer(
+    store: &Entity<Store>,
+    branch_ui: &Rc<RefCell<BranchUi>>,
+    new_branch_name: &Entity<InputState>,
+    picker: &Entity<FilteredPicker>,
+    cx: &gpui::App,
+) -> gpui::AnyElement {
+    let prefix = store.read(cx).settings().repos.branch_name_prefix.clone();
+    let seed = if prefix.is_empty() {
+        String::new()
+    } else {
+        format!("{prefix}/")
+    };
+    let ui = branch_ui.clone();
+    let name = new_branch_name.clone();
+    let picker = picker.downgrade();
+    div()
+        .id("new-branch-row")
+        .debug_selector(|| "new-branch-row".into())
+        .a11y_button("New branch…")
+        .cursor_pointer()
+        .rounded_md()
+        .px_2()
+        .py_1()
+        .text_size(px(theme::font_small()))
+        .text_color(theme::ACCENT)
+        .hover(|s| s.bg(theme::HOVER))
+        .on_click(move |_, window, cx| {
+            // the form always opens seeded with the repo's prefix and
+            // focused, ready to type the branch name
+            name.update(cx, |state, cx| {
+                state.set_value(seed.as_str(), window, cx);
+                state.focus(window, cx);
+            });
+            ui.borrow_mut().new_branch_open = true;
+            let _ = picker.update(cx, |_, cx| cx.notify());
+        })
+        .child("+ New branch…")
+        .into_any_element()
+}
+
+/// The open new-branch form: the name input over Cancel/Create, replacing the
+/// whole panel body.
+fn new_branch_form(
+    store: &Entity<Store>,
+    branch_ui: &Rc<RefCell<BranchUi>>,
+    new_branch_name: &Entity<InputState>,
+    picker: &Entity<FilteredPicker>,
+    _cx: &gpui::App,
+) -> gpui::AnyElement {
+    let cancel_ui = branch_ui.clone();
+    let create_ui = branch_ui.clone();
+    let create_store = store.clone();
+    let create_name = new_branch_name.clone();
+    let cancel_picker = picker.downgrade();
+    let create_picker = picker.downgrade();
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .debug_selector(|| "new-branch-name".into())
+                .child(gpui_kit::component::input::Input::new(new_branch_name).small()),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .child(
+                    div()
+                        .id("new-branch-cancel")
+                        .debug_selector(|| "new-branch-cancel".into())
+                        .a11y_button("Cancel new branch")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_1()
+                        .text_size(px(theme::font_small()))
+                        .text_color(theme::TEXT_DIM)
+                        .border_1()
+                        .border_color(theme::HAIRLINE)
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(move |_, _, cx| {
+                            cancel_ui.borrow_mut().new_branch_open = false;
+                            let _ = cancel_picker.update(cx, |_, cx| cx.notify());
+                        })
+                        .child("Cancel"),
+                )
+                .child(
+                    div()
+                        .id("new-branch-create")
+                        .debug_selector(|| "new-branch-create".into())
+                        .a11y_button("Create branch")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .px_2()
+                        .py_1()
+                        .text_size(px(theme::font_small()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .bg(theme::ACCENT)
+                        .text_color(theme::ON_ACCENT)
+                        .hover(|s| s.opacity(0.9))
+                        .on_click(move |_, window, cx| {
+                            let name = create_name.read(cx).value().trim().to_string();
+                            if name.is_empty() {
+                                return;
+                            }
+                            create_store.update(cx, |s, cx| {
+                                s.run_git(
+                                    GitAction::CreateBranch {
+                                        name,
+                                        start: None,
+                                        checkout: true,
+                                    },
+                                    cx,
+                                )
+                            });
+                            // a created branch is a selection: the popup
+                            // closes and the form resets
+                            create_ui.borrow_mut().new_branch_open = false;
+                            create_name.update(cx, |f, cx| f.set_value("", window, cx));
+                            let _ = create_picker.update(cx, |p, cx| {
+                                p.dismiss(cx);
+                            });
+                        })
+                        .child("Create"),
+                ),
+        )
+        .into_any_element()
 }

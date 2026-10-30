@@ -3,7 +3,7 @@
 //! screenshotted without touching app state. `cargo run -p devtools --example diff_demo`
 
 use devtools::theme;
-use devtools::ui::diff::render_diff;
+use warpui_kit_diff::render_diff;
 use gpui::prelude::*;
 use gpui::{div, px, size, Bounds, Context, Render, TitlebarOptions, Window, WindowBounds, WindowOptions};
 use gpui_platform::application;
@@ -87,7 +87,7 @@ index 1111111..2222222 100644
 struct DiffDemo;
 
 impl Render for DiffDemo {
-    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut card = |patch: &'static str| {
             div()
                 .w_full()
@@ -97,7 +97,7 @@ impl Render for DiffDemo {
                 .border_color(theme::BORDER_LIGHT)
                 .py_2()
                 .overflow_hidden()
-                .child(render_diff(patch, theme::font_small() - 2.0, window))
+                .child(render_diff(patch, None, theme::font_small() - 2.0, window, cx))
         };
         div()
             .size_full()

@@ -7,8 +7,11 @@
 use crate::net::TemplateOp;
 use crate::store::Store;
 use crate::theme;
-use crate::ui::markdown_editor::{live_highlighter_factory, LIVE_LANGUAGE};
-use crate::ui::filtered_picker::FilteredPicker;
+use warpui_kit_markdown::{live_highlighter_factory, LIVE_LANGUAGE};
+use warpui_kit_picker::{
+    model_name, model_provider, FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData,
+    PickerIcons, PickerItem, PickerRow, PickerSpec, PickerTarget, Selection, TriggerScale,
+};
 use crate::ui::A11y;
 use gpui::prelude::*;
 use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
@@ -127,16 +130,22 @@ impl SettingsPage {
 
         let default_model = field(window, cx, &settings.opencode.default_model);
         let commit_model = field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default());
-        let default_model_picker = {
-            let field = default_model.clone();
-            let store = store.clone();
-            cx.new(|cx| FilteredPicker::new(field, store, "Default", "OpenCode default", window, cx))
-        };
-        let commit_model_picker = {
-            let field = commit_model.clone();
-            let store = store.clone();
-            cx.new(|cx| FilteredPicker::new(field, store, "Commit", "Use default model", window, cx))
-        };
+        let default_model_picker = model_picker(
+            &default_model,
+            &store,
+            "Default",
+            "OpenCode default",
+            window,
+            cx,
+        );
+        let commit_model_picker = model_picker(
+            &commit_model,
+            &store,
+            "Commit",
+            "Use default model",
+            window,
+            cx,
+        );
 
         let page = Self {
             store: store.clone(),
@@ -1142,4 +1151,157 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
         );
     }
     row.into_any_element()
+}
+
+// ---- model pickers ----------------------------------------------------------
+
+/// The app's icon paths for the shared picker shell.
+const PICKER_ICONS: PickerIcons = PickerIcons {
+    check: "icons/icon-check.svg",
+    chevron_down: "icons/icon-chevron-down.svg",
+    trash: "icons/icon-trash.svg",
+    refresh: "icons/icon-refresh.svg",
+};
+
+/// One settings model slot: a shared FilteredPicker whose pick writes the
+/// model into `field`; the catalog, grouping and refresh come from the store.
+fn model_picker(
+    field: &Entity<InputState>,
+    store: &Entity<Store>,
+    key: &'static str,
+    default_label: &'static str,
+    window: &mut Window,
+    cx: &mut Context<SettingsPage>,
+) -> Entity<FilteredPicker> {
+    let spec = PickerSpec {
+        key,
+        trigger_label: key,
+        filter_placeholder: "Filter models",
+        icons: PICKER_ICONS,
+        trigger_icon: None,
+        provider_badge: true,
+        refresh: true,
+        refresh_label: "Refresh models",
+        stop_trigger_mousedown: false,
+        visible_rows: 10,
+        selected_accent: false,
+        overlay: false,
+        anchor: OverlayAnchor::Rail,
+        trigger_scale: TriggerScale::Compact,
+        trigger_rounded_lg: false,
+        trigger_min_h: None,
+        panel_chrome: PanelChrome::Menus,
+        trigger_id: None,
+        panel_id: None,
+        filter_selector: None,
+        list_id: None,
+    };
+    let refresh_store = store.clone();
+    cx.new(|cx| {
+        let data = {
+            let field = field.clone();
+            let store = store.clone();
+            Box::new(move |filter: &str, window: &gpui::Window, cx: &gpui::App| {
+                model_data(&field, &store, key, default_label, filter, window, cx)
+            }) as Box<dyn Fn(&str, &gpui::Window, &gpui::App) -> PickerData>
+        };
+        let mut picker =
+            FilteredPicker::new(spec, PickerTarget::Field(field.clone()), data, window, cx);
+        picker.set_on_refresh(Box::new(move |cx| {
+            refresh_store.update(cx, |s, cx| s.load_models(cx));
+        }));
+        picker.observe_entity(store, cx);
+        picker.observe_entity(field, cx);
+        picker
+    })
+}
+
+/// One render's worth of the model catalog: the default row, provider groups
+/// and the filtered, deduped models.
+fn model_data(
+    field: &Entity<InputState>,
+    store: &Entity<Store>,
+    key: &'static str,
+    default_label: &str,
+    filter: &str,
+    _window: &gpui::Window,
+    cx: &gpui::App,
+) -> PickerData {
+    let selected = field.read(cx).value().trim().to_string();
+    let filter = filter.to_lowercase();
+    let mut models: Vec<String> = store
+        .read(cx)
+        .models
+        .iter()
+        .filter(|model| {
+            let model = model.trim();
+            !model.is_empty()
+                && !model.starts_with('(')
+                && (filter.is_empty() || model.to_lowercase().contains(&filter))
+        })
+        .cloned()
+        .collect();
+    models.sort_by(|a, b| {
+        model_provider(a)
+            .to_lowercase()
+            .cmp(&model_provider(b).to_lowercase())
+            .then_with(|| a.to_lowercase().cmp(&b.to_lowercase()))
+    });
+    models.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+
+    let mut rows = Vec::with_capacity(models.len() + 4);
+    rows.push(PickerRow::Item(PickerItem {
+        id: format!("model-{key}-default"),
+        selector: format!("model-row-{key}-default"),
+        value: String::new(),
+        label: default_label.to_string(),
+        selected: selected.is_empty(),
+        muted: false,
+        trailing_delete: None,
+    }));
+    if models.is_empty() {
+        rows.push(PickerRow::Message {
+            id: format!("model-message-{key}"),
+            label: "No models found. Start warp-agent, then refresh.".to_string(),
+        });
+    } else {
+        let mut last_provider = String::new();
+        for model in models {
+            let provider = model_provider(&model).to_string();
+            if !provider.is_empty() && provider != last_provider {
+                rows.push(PickerRow::Group {
+                    id: format!("model-provider-{key}-{provider}"),
+                    label: provider.to_uppercase(),
+                    selector: None,
+                });
+                last_provider = provider;
+            }
+            rows.push(PickerRow::Item(PickerItem {
+                id: format!("model-row-{key}-{model}"),
+                selector: format!("model-row-{key}-{model}"),
+                value: model.clone(),
+                label: model_name(&model).to_string(),
+                selected: model.eq_ignore_ascii_case(&selected),
+                muted: false,
+                trailing_delete: None,
+            }));
+        }
+    }
+
+    PickerData {
+        body: PickerBody::Rows(rows),
+        selected: Selection {
+            badge: (!model_provider(&selected).is_empty()).then(|| model_provider(&selected).to_string()),
+            label: if selected.is_empty() {
+                default_label.to_string()
+            } else {
+                model_name(&selected).to_string()
+            },
+            value: selected,
+        },
+        footer: None,
+        fonts: theme::font_tokens(),
+        accent: theme::ACCENT,
+        show_tooltips: store.read(cx).settings().general.show_tooltips,
+    }
 }

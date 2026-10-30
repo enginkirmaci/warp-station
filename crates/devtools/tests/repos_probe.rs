@@ -628,12 +628,12 @@ fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
         drop(window.draw(cx));
         let fits = "users/enginkirmaci/test";
         assert_eq!(
-            devtools::ui::filtered_picker::branch_label(fits, window),
+            devtools::ui::branch_label(fits, window),
             fits,
             "a name that fits the rail renders whole"
         );
         let long = "users/enginkirmaci/a-branch-name-far-too-long-for-the-rail";
-        let label = devtools::ui::filtered_picker::branch_label(long, window);
+        let label = devtools::ui::branch_label(long, window);
         assert!(
             label.starts_with('…'),
             "an overflowing name sheds its head (got {label:?})"
