@@ -19,7 +19,9 @@ impl Default for EmbedAssets {
 
 impl EmbedAssets {
     pub fn new() -> Self {
-        Self { kit: gpui_kit::assets::Assets }
+        Self {
+            kit: gpui_kit::assets::Assets,
+        }
     }
 }
 
@@ -50,7 +52,11 @@ mod tests {
     // the UI ran without any icons. These run against the real embed table.
     #[test]
     fn embedded_set_is_populated() {
-        assert!(super::EMBEDDED_FILES.len() > 50, "only {} assets embedded", super::EMBEDDED_FILES.len());
+        assert!(
+            super::EMBEDDED_FILES.len() > 50,
+            "only {} assets embedded",
+            super::EMBEDDED_FILES.len()
+        );
     }
 
     #[test]

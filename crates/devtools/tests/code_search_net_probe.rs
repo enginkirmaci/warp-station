@@ -22,7 +22,10 @@ async fn real_rg_sweep_over_this_repo_produces_usable_hits() {
         devtools_core::code_search::CODE_SEARCH_CAP,
     )
     .await;
-    assert!(!hits.is_empty(), "this repo's own sources must match 'fn run_git'");
+    assert!(
+        !hits.is_empty(),
+        "this repo's own sources must match 'fn run_git'"
+    );
     for hit in &hits {
         assert!(
             hit.excerpt[hit.match_start..hit.match_end].eq_ignore_ascii_case("fn run_git"),

@@ -12,8 +12,8 @@ use devtools_core::github::GitHubRepoDetails;
 use devtools_core::repo_store::RepoEntry;
 use gpui::prelude::*;
 use gpui::{
-    canvas, deferred, div, point, px, size, Bounds, Context, Modifiers, Pixels, Render, Size,
-    TestAppContext, VisualTestContext, Window,
+    Bounds, Context, Modifiers, Pixels, Render, Size, TestAppContext, VisualTestContext, Window,
+    canvas, deferred, div, point, px, size,
 };
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -160,7 +160,10 @@ fn kebab_menu_opens_with_anchored_geometry(cx: &mut TestAppContext) {
     let header = bounds(cx, "bar-header");
     let kebab = bounds(cx, "bar-kebab");
     cx.simulate_click(
-        point(kebab.origin.x + kebab.size.width / 2., kebab.origin.y + kebab.size.height / 2.),
+        point(
+            kebab.origin.x + kebab.size.width / 2.,
+            kebab.origin.y + kebab.size.height / 2.,
+        ),
         Modifiers::default(),
     );
     cx.run_until_parked();
@@ -173,10 +176,16 @@ fn kebab_menu_opens_with_anchored_geometry(cx: &mut TestAppContext) {
         (menu.origin, menu.size),
     );
     assert!(
-        close(menu.origin.x + menu.size.width, header.origin.x + header.size.width - px(12.)),
+        close(
+            menu.origin.x + menu.size.width,
+            header.origin.x + header.size.width - px(12.)
+        ),
         "menu right edge must anchor 12px inside the header right edge",
     );
-    assert!(close(menu.size.width, px(210.)), "menu keeps its 210px width");
+    assert!(
+        close(menu.size.width, px(210.)),
+        "menu keeps its 210px width"
+    );
 
     // Any press outside the menu dismisses it — including the titlebar.
     cx.simulate_click(point(px(4.), px(4.)), Modifiers::default());
@@ -190,7 +199,10 @@ fn kebab_menu_opens_with_anchored_geometry(cx: &mut TestAppContext) {
     // Escape is the keyboard path back out of the menu.
     let kebab = bounds(cx, "bar-kebab");
     cx.simulate_click(
-        point(kebab.origin.x + kebab.size.width / 2., kebab.origin.y + kebab.size.height / 2.),
+        point(
+            kebab.origin.x + kebab.size.width / 2.,
+            kebab.origin.y + kebab.size.height / 2.,
+        ),
         Modifiers::default(),
     );
     cx.run_until_parked();
@@ -225,31 +237,23 @@ fn deferred_menu_paints_above_following_siblings(cx: &mut TestAppContext) {
                 .flex()
                 .flex_col()
                 .child(
-                    div()
-                        .h(px(40.))
-                        .relative()
-                        .child(deferred(
-                            div()
-                                .absolute()
-                                .top(px(30.))
-                                .left(px(0.))
-                                .size(px(40.))
-                                .bg(gpui::black())
-                                .child(canvas(
-                                    |_, _, _| {},
-                                    move |_, _, _, _| menu_order.borrow_mut().push("menu"),
-                                )),
-                        )),
+                    div().h(px(40.)).relative().child(deferred(
+                        div()
+                            .absolute()
+                            .top(px(30.))
+                            .left(px(0.))
+                            .size(px(40.))
+                            .bg(gpui::black())
+                            .child(canvas(
+                                |_, _, _| {},
+                                move |_, _, _, _| menu_order.borrow_mut().push("menu"),
+                            )),
+                    )),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .bg(gpui::black())
-                        .child(canvas(
-                            |_, _, _| {},
-                            move |_, _, _, _| panel_order.borrow_mut().push("panel"),
-                        )),
-                )
+                .child(div().flex_1().bg(gpui::black()).child(canvas(
+                    |_, _, _| {},
+                    move |_, _, _, _| panel_order.borrow_mut().push("panel"),
+                )))
         }
     }
 

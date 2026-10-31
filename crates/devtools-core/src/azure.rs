@@ -16,7 +16,8 @@ WHERE [System.TeamProject] = @project \
 AND [System.State] NOT IN ('Done', 'Closed', 'Removed', 'Completed') \
 ORDER BY [System.ChangedDate] DESC";
 
-const WORK_ITEM_FIELDS: &str = "System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo";
+const WORK_ITEM_FIELDS: &str =
+    "System.Id,System.Title,System.State,System.WorkItemType,System.AssignedTo";
 
 // ---- remote parsing -----------------------------------------------------------
 
@@ -46,12 +47,13 @@ pub fn read_remote_url(folder: &Path, name: Option<&str>) -> Option<String> {
             continue;
         }
         if let Some((key, value)) = line.split_once('=')
-            && key.trim().eq_ignore_ascii_case("url") {
-                let value = value.trim();
-                if !value.is_empty() {
-                    return Some(value.to_string());
-                }
+            && key.trim().eq_ignore_ascii_case("url")
+        {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
             }
+        }
     }
     None
 }
@@ -62,7 +64,9 @@ pub fn normalize_server_url(value: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.to_lowercase().starts_with("http://") || trimmed.to_lowercase().starts_with("https://") {
+    if trimmed.to_lowercase().starts_with("http://")
+        || trimmed.to_lowercase().starts_with("https://")
+    {
         Some(trimmed.to_string())
     } else {
         Some(format!("https://{trimmed}"))
@@ -120,7 +124,12 @@ pub fn parse_url(url: &str, custom_base: Option<&str>) -> Option<AzureRemote> {
         Some((a, p)) => (a, p),
         None => (rest, ""),
     };
-    let host = authority.rsplit('@').next()?.split(':').next()?.to_lowercase();
+    let host = authority
+        .rsplit('@')
+        .next()?
+        .split(':')
+        .next()?
+        .to_lowercase();
     let segments: Vec<String> = path
         .split('/')
         .filter(|s| !s.is_empty())
@@ -141,13 +150,15 @@ pub fn parse_url(url: &str, custom_base: Option<&str>) -> Option<AzureRemote> {
 
     // Legacy: https://{org}.visualstudio.com/{project}/_git/{repo}
     if let Some(org) = host.strip_suffix(".visualstudio.com")
-        && segments.len() >= 3 && segments[1].eq_ignore_ascii_case("_git") {
-            return Some(AzureRemote {
-                base_url: format!("https://dev.azure.com/{}", escape(org)),
-                project: escape(&segments[0]),
-                repository: escape(&strip_dot_git(&segments[2])),
-            });
-        }
+        && segments.len() >= 3
+        && segments[1].eq_ignore_ascii_case("_git")
+    {
+        return Some(AzureRemote {
+            base_url: format!("https://dev.azure.com/{}", escape(org)),
+            project: escape(&segments[0]),
+            repository: escape(&strip_dot_git(&segments[2])),
+        });
+    }
 
     // Custom server: {scheme}://{host}[/app-path]/{collection}/{project}/_git/{repo}
     // (the app-path arrives via the segments themselves, never from the
@@ -161,7 +172,11 @@ pub fn parse_url(url: &str, custom_base: Option<&str>) -> Option<AzureRemote> {
 fn from_git_segments(base_without_path: &str, segments: &[String]) -> Option<AzureRemote> {
     for i in 1..segments.len().saturating_sub(1) {
         if segments[i].eq_ignore_ascii_case("_git") {
-            let org_path = segments[..i - 1].iter().map(|s| escape(s)).collect::<Vec<_>>().join("/");
+            let org_path = segments[..i - 1]
+                .iter()
+                .map(|s| escape(s))
+                .collect::<Vec<_>>()
+                .join("/");
             return Some(AzureRemote {
                 base_url: if org_path.is_empty() {
                     base_without_path.to_string()
@@ -177,23 +192,25 @@ fn from_git_segments(base_without_path: &str, segments: &[String]) -> Option<Azu
 }
 
 fn percent_decode(segment: &str) -> String {
-    // minimal %XX decoding for the path segments we compare
+    // minimal %XX decoding for the path segments we compare — decode at the
+    // byte level and reassemble as UTF-8, so "%C3%A9" is "é" rather than the
+    // per-byte Latin-1 mangling a `byte as char` cast produces
     let bytes = segment.as_bytes();
-    let mut out = String::with_capacity(segment.len());
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() + 1 && i + 2 <= bytes.len() - 1 + 1 {
-            let hex = segment.get(i + 1..i + 3).unwrap_or("");
-            if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                out.push(byte as char);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && let Some(hex) = segment.get(i + 1..i + 3)
+            && let Ok(byte) = u8::from_str_radix(hex, 16)
+        {
+            out.push(byte);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
         }
-        out.push(bytes[i] as char);
-        i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 // ---- REST client ---------------------------------------------------------------
@@ -222,13 +239,21 @@ pub struct PipelineRun {
 
 impl PipelineRun {
     pub fn is_running(&self) -> bool {
-        !self.is_failed() && !self.is_succeeded() && matches!(self.status.as_deref(), Some("notStarted" | "inProgress" | "postponed"))
+        !self.is_failed()
+            && !self.is_succeeded()
+            && matches!(
+                self.status.as_deref(),
+                Some("notStarted" | "inProgress" | "postponed")
+            )
     }
     pub fn is_failed(&self) -> bool {
         matches!(self.result.as_deref(), Some("failed" | "canceled"))
     }
     pub fn is_succeeded(&self) -> bool {
-        matches!(self.result.as_deref(), Some("succeeded" | "partiallySucceeded"))
+        matches!(
+            self.result.as_deref(),
+            Some("succeeded" | "partiallySucceeded")
+        )
     }
     pub fn display_branch(&self) -> Option<String> {
         self.branch
@@ -265,9 +290,10 @@ pub fn resolve_pat(configured: &str) -> Option<String> {
     }
     for name in ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_EXT_PAT"] {
         if let Ok(value) = std::env::var(name)
-            && !value.trim().is_empty() {
-                return Some(value.trim().to_string());
-            }
+            && !value.trim().is_empty()
+        {
+            return Some(value.trim().to_string());
+        }
     }
     None
 }
@@ -290,11 +316,17 @@ pub async fn refresh(folder: &Path, pat: &str, custom_base: &str) -> AzureSnapsh
             remote.base_url, remote.project, remote.repository
         ))
         .await;
-    let Some(meta) = meta else { return AzureSnapshot::default() };
+    let Some(meta) = meta else {
+        return AzureSnapshot::default();
+    };
     if meta.get("id").is_none() {
         return AzureSnapshot::default();
     }
-    let repo_id = meta.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let repo_id = meta
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let web_url = meta
         .pointer("/_links/web/href")
         .and_then(|v| v.as_str())
@@ -334,8 +366,16 @@ async fn fetch_pulls(client: &Client, remote: &AzureRemote, repo_id: &str) -> Ve
                     let number = p.get("pullRequestId").and_then(|v| v.as_u64())?;
                     Some(AzureItem {
                         number,
-                        title: p.get("title").and_then(|t| t.as_str()).unwrap_or_default().to_string(),
-                        url: p.pointer("/_links/web/href").and_then(|u| u.as_str()).unwrap_or_default().to_string(),
+                        title: p
+                            .get("title")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        url: p
+                            .pointer("/_links/web/href")
+                            .and_then(|u| u.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
                         author: p
                             .pointer("/createdBy/displayName")
                             .and_then(|a| a.as_str())
@@ -346,7 +386,12 @@ async fn fetch_pulls(client: &Client, remote: &AzureRemote, repo_id: &str) -> Ve
                             .and_then(|l| l.as_array())
                             .map(|arr| {
                                 arr.iter()
-                                    .filter_map(|l| l.get("name").and_then(|n| n.as_str()).filter(|n| !n.trim().is_empty()).map(str::to_string))
+                                    .filter_map(|l| {
+                                        l.get("name")
+                                            .and_then(|n| n.as_str())
+                                            .filter(|n| !n.trim().is_empty())
+                                            .map(str::to_string)
+                                    })
                                     .collect()
                             })
                             .unwrap_or_default(),
@@ -372,7 +417,9 @@ async fn fetch_work_items(client: &Client, remote: &AzureRemote) -> Vec<AzureIte
         "{}/{}/_apis/wit/wiql?api-version=7.1&$top={ITEM_LIMIT}",
         remote.base_url, remote.project
     );
-    let wiql_body = WiqlRequest { query: WORK_ITEM_QUERY };
+    let wiql_body = WiqlRequest {
+        query: WORK_ITEM_QUERY,
+    };
     let wiql_result: Option<serde_json::Value> = client.post_json(&wiql_url, &wiql_body).await;
     let Some(wiql) = wiql_result else {
         return Vec::new();
@@ -380,12 +427,20 @@ async fn fetch_work_items(client: &Client, remote: &AzureRemote) -> Vec<AzureIte
     let ids: Vec<u64> = wiql
         .get("workItems")
         .and_then(|w| w.as_array())
-        .map(|rows| rows.iter().filter_map(|w| w.get("id").and_then(|i| i.as_u64())).collect())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|w| w.get("id").and_then(|i| i.as_u64()))
+                .collect()
+        })
         .unwrap_or_default();
     if ids.is_empty() {
         return Vec::new();
     }
-    let id_list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let id_list = ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let Some(payload) = client
         .get_json::<serde_json::Value>(&format!(
             "{}/{}/_apis/wit/workitems?api-version=7.1&ids={id_list}&fields={WORK_ITEM_FIELDS}",
@@ -407,15 +462,23 @@ async fn fetch_work_items(client: &Client, remote: &AzureRemote) -> Vec<AzureIte
                         if let Some(s) = value.as_str() {
                             Some(s.to_string())
                         } else {
-                            value.get("displayName").and_then(|n| n.as_str()).map(str::to_string)
+                            value
+                                .get("displayName")
+                                .and_then(|n| n.as_str())
+                                .map(str::to_string)
                         }
                     };
                     Some(AzureItem {
                         number: id,
                         title: field("System.Title")?,
-                        url: format!("{}/{}/_workitems/edit/{id}", remote.base_url, remote.project),
+                        url: format!(
+                            "{}/{}/_workitems/edit/{id}",
+                            remote.base_url, remote.project
+                        ),
                         author: field("System.AssignedTo"),
-                        labels: field("System.WorkItemType").map(|t| vec![t]).unwrap_or_default(),
+                        labels: field("System.WorkItemType")
+                            .map(|t| vec![t])
+                            .unwrap_or_default(),
                         is_draft: false,
                         state: field("System.State"),
                     })
@@ -451,12 +514,25 @@ async fn fetch_pipelines(client: &Client, remote: &AzureRemote, repo_id: &str) -
                 .take(PIPELINE_LIMIT)
                 .map(|b| PipelineRun {
                     id: b.get("id").and_then(|i| i.as_u64()).unwrap_or_default(),
-                    build_number: b.get("buildNumber").and_then(|n| n.as_str()).unwrap_or_default().to_string(),
-                    definition_name: b.pointer("/definition/name").and_then(|n| n.as_str()).map(str::to_string),
-                    branch: b.pointer("/sourceBranch").and_then(|n| n.as_str()).map(str::to_string),
+                    build_number: b
+                        .get("buildNumber")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    definition_name: b
+                        .pointer("/definition/name")
+                        .and_then(|n| n.as_str())
+                        .map(str::to_string),
+                    branch: b
+                        .pointer("/sourceBranch")
+                        .and_then(|n| n.as_str())
+                        .map(str::to_string),
                     result: b.get("result").and_then(|r| r.as_str()).map(str::to_string),
                     status: b.get("status").and_then(|s| s.as_str()).map(str::to_string),
-                    url: b.pointer("/_links/web/href").and_then(|u| u.as_str()).map(str::to_string),
+                    url: b
+                        .pointer("/_links/web/href")
+                        .and_then(|u| u.as_str())
+                        .map(str::to_string),
                 })
                 .collect()
         })
@@ -498,7 +574,11 @@ impl Client {
         body: &B,
     ) -> Option<T> {
         let response = self
-            .send(reqwest::Method::POST, url, Some(serde_json::to_vec(body).ok()?))
+            .send(
+                reqwest::Method::POST,
+                url,
+                Some(serde_json::to_vec(body).ok()?),
+            )
             .await?;
         if response.status().as_u16() == 401 || !response.status().is_success() {
             tracing::debug!("azure devops POST {url} -> {}", response.status());
@@ -518,7 +598,9 @@ impl Client {
             .request(method, url)
             .header("Authorization", &self.auth_header);
         if let Some(body) = body {
-            request = request.header("Content-Type", "application/json").body(body);
+            request = request
+                .header("Content-Type", "application/json")
+                .body(body);
         }
         request.send().await.ok()
     }
@@ -529,12 +611,24 @@ fn base64(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(TABLE[(n >> 18) as usize & 63] as char);
         out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -542,6 +636,16 @@ fn base64(input: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_decode_decodes_utf8_sequences() {
+        // a `byte as char` regression: "%C3%A9" decoded as two Latin-1 chars
+        assert_eq!(percent_decode("caf%C3%A9"), "café");
+        assert_eq!(percent_decode("my%20org"), "my org");
+        assert_eq!(percent_decode("plain"), "plain");
+        assert_eq!(percent_decode("100%"), "100%");
+        assert_eq!(percent_decode("%ZZ"), "%ZZ");
+    }
 
     #[test]
     fn parses_public_https_remote() {
@@ -567,7 +671,10 @@ mod tests {
         let custom = "https://devops.company.com/tfs";
         let url = "https://devops.company.com/tfs/DefaultCollection/Proj/_git/repo";
         let remote = parse_url(url, Some(custom)).unwrap();
-        assert_eq!(remote.base_url, "https://devops.company.com/tfs/DefaultCollection");
+        assert_eq!(
+            remote.base_url,
+            "https://devops.company.com/tfs/DefaultCollection"
+        );
         assert_eq!(remote.project, "Proj");
         assert_eq!(remote.repository, "repo");
         // a different host does not match

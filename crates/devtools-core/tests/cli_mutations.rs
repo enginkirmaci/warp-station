@@ -55,12 +55,19 @@ fn scratch_repo(tag: &str) -> Option<std::path::PathBuf> {
 
 #[tokio::test]
 async fn stage_commit_discard_round_trip() {
-    let Some(dir) = scratch_repo("rt") else { return };
+    let Some(dir) = scratch_repo("rt") else {
+        return;
+    };
 
     // new file lands untracked on the unstaged side
     std::fs::write(dir.join("a.txt"), "hello\n").unwrap();
     let snapshot = devtools_core::git::read::change_snapshot(&dir).unwrap();
-    assert!(snapshot.unstaged_files.iter().any(|f| f.path == "a.txt" && f.status_code == "?"));
+    assert!(
+        snapshot
+            .unstaged_files
+            .iter()
+            .any(|f| f.path == "a.txt" && f.status_code == "?")
+    );
 
     // stage it — moves to the staged side
     assert!(cli::stage(&dir, "a.txt").await.ok);
@@ -71,12 +78,22 @@ async fn stage_commit_discard_round_trip() {
     // unstage returns it to the unstaged side as untracked
     assert!(cli::unstage(&dir, "a.txt").await.ok);
     let snapshot = devtools_core::git::read::change_snapshot(&dir).unwrap();
-    assert!(snapshot.unstaged_files.iter().any(|f| f.path == "a.txt" && f.status_code == "?"));
+    assert!(
+        snapshot
+            .unstaged_files
+            .iter()
+            .any(|f| f.path == "a.txt" && f.status_code == "?")
+    );
 
     // discard deletes the untracked file entirely
     assert!(cli::discard_file(&dir, "a.txt", false).await);
     assert!(!dir.join("a.txt").exists());
-    assert!(devtools_core::git::read::change_snapshot(&dir).unwrap().status_files.is_empty());
+    assert!(
+        devtools_core::git::read::change_snapshot(&dir)
+            .unwrap()
+            .status_files
+            .is_empty()
+    );
 
     // modify a tracked file, stage, commit -F with a multiline message
     std::fs::write(dir.join("base.txt"), "base\nmore\n").unwrap();
@@ -97,11 +114,19 @@ async fn stage_commit_discard_round_trip() {
 
 #[tokio::test]
 async fn branch_create_and_checkout() {
-    let Some(dir) = scratch_repo("br") else { return };
+    let Some(dir) = scratch_repo("br") else {
+        return;
+    };
 
     let result = cli::create_branch(&dir, "feature/x", None, true).await;
     assert!(result.success, "{result:?}");
-    assert_eq!(devtools_core::git::read::probe(&dir).unwrap().branch_name.as_deref(), Some("feature/x"));
+    assert_eq!(
+        devtools_core::git::read::probe(&dir)
+            .unwrap()
+            .branch_name
+            .as_deref(),
+        Some("feature/x")
+    );
 
     assert!(cli::checkout(&dir, "master").await.ok || cli::checkout(&dir, "main").await.ok);
 
@@ -115,7 +140,9 @@ async fn branch_create_and_checkout() {
 
 #[tokio::test]
 async fn branch_delete() {
-    let Some(dir) = scratch_repo("bd") else { return };
+    let Some(dir) = scratch_repo("bd") else {
+        return;
+    };
 
     assert!(cli::create_branch(&dir, "keep", None, false).await.success);
     assert!(cli::create_branch(&dir, "gone", None, false).await.success);
@@ -138,19 +165,29 @@ async fn branch_delete() {
         .expect("scratch repo has a branch");
     let refused = cli::delete_branch(&dir, &current).await;
     assert!(!refused.success, "{refused:?}");
-    assert!(refused.error.as_deref().is_some_and(|e| e.starts_with("error:")));
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("error:"))
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
 async fn discard_staged_path_returns_to_head() {
-    let Some(dir) = scratch_repo("dc") else { return };
+    let Some(dir) = scratch_repo("dc") else {
+        return;
+    };
 
     std::fs::write(dir.join("base.txt"), "changed\n").unwrap();
     assert!(cli::stage(&dir, "base.txt").await.ok);
     assert!(cli::discard_file(&dir, "base.txt", true).await);
-    assert_eq!(std::fs::read_to_string(dir.join("base.txt")).unwrap(), "base\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("base.txt")).unwrap(),
+        "base\n"
+    );
     assert!(Path::new(&dir).join("base.txt").exists());
 
     let _ = std::fs::remove_dir_all(&dir);

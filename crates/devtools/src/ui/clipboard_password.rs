@@ -6,9 +6,9 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui::{App, Context, Entity, FontWeight, Window, div, px};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 pub struct ClipboardPasswordDrawer {
     pub store: Entity<Store>,
@@ -136,7 +136,8 @@ impl Render for ClipboardPasswordDrawer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         if self.pending_clear {
             self.pending_clear = false;
-            self.password.update(cx, |state, cx| state.set_value(String::new(), window, cx));
+            self.password
+                .update(cx, |state, cx| state.set_value(String::new(), window, cx));
         }
         let stored = stored_password(&self.store.read(cx).settings()).is_some();
         // the confirm state auto-expires so the drawer never sits in a
@@ -272,7 +273,11 @@ fn ghost_button(
         .text_size(px(theme::font_small()))
         .font_weight(FontWeight::SEMIBOLD)
         // emphasized = the destructive confirm state: solid danger fill
-        .bg(if emphasized { color.into() } else { theme::tint(color) })
+        .bg(if emphasized {
+            color.into()
+        } else {
+            theme::tint(color)
+        })
         .text_color(if emphasized { theme::ON_ACCENT } else { color })
         .map(|d| {
             if enabled {

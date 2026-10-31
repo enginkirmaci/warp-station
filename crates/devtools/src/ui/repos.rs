@@ -7,15 +7,17 @@
 use crate::store::projection::ProjectedRow;
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
+use crate::ui::A11y;
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
-use crate::ui::A11y;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Pixels, SharedString, Window};
+use gpui::{App, Context, Entity, FontWeight, MouseButton, Pixels, SharedString, Window, div, px};
+use gpui_kit::component::table::{
+    Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
+};
 use gpui_kit::component::{Sizable as _, Size};
-use gpui_kit::component::table::{Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -99,7 +101,11 @@ impl ReposPage {
                 // group header rows are inert: never selected, never open
                 // the bar (the kit reverts the transient highlight through
                 // clear_selection, which emits no SelectRow)
-                if table_for_store.read(cx).delegate().row_is_group(*row_ix, cx) {
+                if table_for_store
+                    .read(cx)
+                    .delegate()
+                    .row_is_group(*row_ix, cx)
+                {
                     table_for_store.update(cx, |table, cx| table.clear_selection(cx));
                     return;
                 }
@@ -138,13 +144,19 @@ impl ReposPage {
         cx.observe(&store_for_observe, move |_, store, cx| {
             let wanted = {
                 let store = store.read(cx);
-                let key = (store.projection_generation(), store.selected_repo.clone().unwrap_or_default());
+                let key = (
+                    store.projection_generation(),
+                    store.selected_repo.clone().unwrap_or_default(),
+                );
                 if key == *last_sync.borrow() {
                     Sync::Skip
                 } else {
                     *last_sync.borrow_mut() = key.clone();
                     Sync::Row(store.selected_repo.as_deref().and_then(|folder| {
-                        table_for_observe.read(cx).delegate().row_for_folder(folder, cx)
+                        table_for_observe
+                            .read(cx)
+                            .delegate()
+                            .row_for_folder(folder, cx)
                     }))
                 }
             };
@@ -157,9 +169,8 @@ impl ReposPage {
                         // subscription above, so select_repo never toggles an
                         // externally-selected row closed
                         suppressed_for_observe.set(suppressed_for_observe.get() + 1);
-                        table_for_observe.update(cx, |table, cx| {
-                            table.set_selected_row(row_ix, cx)
-                        });
+                        table_for_observe
+                            .update(cx, |table, cx| table.set_selected_row(row_ix, cx));
                     }
                     None => table_for_observe.update(cx, |table, cx| table.clear_selection(cx)),
                 }
@@ -204,7 +215,9 @@ impl ReposPage {
 
     /// Sends the Add-Repositories dialog's deep scan.
     pub fn kick_deep_scan(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
+        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else {
+            return;
+        };
         // Enter and the Rescan button both route here; a scan already in
         // flight must not be re-sent (two settles would flash two result sets)
         if dialog.scanning {
@@ -219,17 +232,23 @@ impl ReposPage {
         dialog.scanned = false;
         dialog.found.clear();
         let settings = self.store.read(cx).settings();
-        let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::DeepScan {
-            root: root.trim().to_string(),
-            depth,
-            settings: settings.repos.clone(),
-        });
+        let _ = self
+            .store
+            .read(cx)
+            .net
+            .send_blocking(crate::net::NetCommand::DeepScan {
+                root: root.trim().to_string(),
+                depth,
+                settings: settings.repos.clone(),
+            });
         cx.notify();
     }
 
     /// Adds every checked entry from the Add-Repositories dialog.
     pub fn commit_add_dialog(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else { return };
+        let Some(Dialog::AddRepo(dialog)) = &mut self.dialog else {
+            return;
+        };
         let selected: Vec<devtools_core::scan::ScannedRepo> = dialog
             .found
             .iter()
@@ -241,14 +260,17 @@ impl ReposPage {
             cx.notify();
             return;
         }
-        self.store.update(cx, |store, cx| store.register_repos(&selected, cx));
+        self.store
+            .update(cx, |store, cx| store.register_repos(&selected, cx));
         self.dialog = None;
         cx.notify();
     }
 
     /// Sends the Clone dialog's clone (with inline validation).
     pub fn commit_clone(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::Clone(dialog)) = &mut self.dialog else { return };
+        let Some(Dialog::Clone(dialog)) = &mut self.dialog else {
+            return;
+        };
         let mut validation_error: Option<String> = None;
         {
             let url = dialog.url.read(cx).value().to_string();
@@ -263,7 +285,8 @@ impl ReposPage {
                 || name.contains('\\')
             {
                 validation_error = Some("Enter a usable repository name".into());
-            } else if destination.trim().is_empty() || !std::path::Path::new(&destination).is_dir() {
+            } else if destination.trim().is_empty() || !std::path::Path::new(&destination).is_dir()
+            {
                 validation_error = Some("Destination folder does not exist".into());
             } else if std::path::Path::new(&destination).join(&name).exists() {
                 validation_error = Some("Target folder already exists".into());
@@ -280,11 +303,15 @@ impl ReposPage {
         let destination = dialog.destination.read(cx).value().to_string();
         dialog.busy = true;
         dialog.error = None;
-        let _ = self.store.read(cx).net.send_blocking(crate::net::NetCommand::Clone {
-            url: url.trim().to_string(),
-            parent_dir: destination,
-            name,
-        });
+        let _ = self
+            .store
+            .read(cx)
+            .net
+            .send_blocking(crate::net::NetCommand::Clone {
+                url: url.trim().to_string(),
+                parent_dir: destination,
+                name,
+            });
         cx.notify();
     }
 }
@@ -292,38 +319,63 @@ impl ReposPage {
 impl Render for ReposPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         // drain dialog-bound results the moment we are about to draw
-        let drained_deep_scan = self.store.update(cx, |store, _| store.deep_scan_result.take());
+        let drained_deep_scan = self
+            .store
+            .update(cx, |store, _| store.deep_scan_result.take());
         if let Some(found) = drained_deep_scan
-            && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
-                dialog.scanning = false;
-                dialog.scanned = true;
-                dialog.found = found
-                    .into_iter()
-                    .map(|repo| {
-                        let tracked = self
-                            .store
-                            .read(cx)
-                            .repos
-                            .iter()
-                            .any(|r| r.folder_path == repo.folder_path);
-                        (repo, !tracked, tracked)
-                    })
-                    .collect();
-            }
-        if let Some(path) = self.store.update(cx, |store, _| store.folder_pick_result.take())
             && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
         {
-            dialog.root.update(cx, |field, cx| field.set_value(&path, window, cx));
+            dialog.scanning = false;
+            dialog.scanned = true;
+            dialog.found = found
+                .into_iter()
+                .map(|repo| {
+                    let tracked = self
+                        .store
+                        .read(cx)
+                        .repos
+                        .iter()
+                        .any(|r| r.folder_path == repo.folder_path);
+                    (repo, !tracked, tracked)
+                })
+                .collect();
+        }
+        if let Some(path) = self
+            .store
+            .update(cx, |store, _| store.folder_pick_result.take())
+            && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
+        {
+            dialog
+                .root
+                .update(cx, |field, cx| field.set_value(&path, window, cx));
         }
         let drained_clone = self.store.update(cx, |store, _| store.clone_result.take());
         if let Some((parent_dir, name, result)) = drained_clone {
             if result.success {
-                self.store.update(cx, |store, cx| store.adopt_clone(&parent_dir, &name, cx));
+                self.store
+                    .update(cx, |store, cx| store.adopt_clone(&parent_dir, &name, cx));
                 self.dialog = None;
             } else if let Some(Dialog::Clone(dialog)) = &mut self.dialog {
                 dialog.busy = false;
                 dialog.error = result.error.or_else(|| Some("clone failed".into()));
             }
+        }
+        // Prototype look (`DEVTOOLS_UI_PROTO=1`): the list replaces the table,
+        // but never while a dialog is open — dialogs stay table-agnostic and
+        // must remain reachable.
+        if crate::ui::repos_proto::enabled() && self.dialog.is_none() {
+            let toolbar = self.render_toolbar(window.viewport_size().width, cx);
+            let store = self.store.read(cx);
+            let list = crate::ui::repos_proto::render(store);
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .relative()
+                .child(toolbar)
+                .child(div().flex_1().min_h_0().child(list))
+                .into_any_element();
         }
         // Dynamic columns: the kit's table only re-prepares column widths on
         // refresh(), so feed it the real available width and refresh once per
@@ -344,7 +396,13 @@ impl Render for ReposPage {
                 let cols = visible_columns(&settings, available, branch);
                 let metrics = layout_metrics(&settings, available, branch);
                 let name = name_width(&cols, &settings, available, metrics);
-                Rc::new(TableLayout { key, cols, metrics, name, settings })
+                Rc::new(TableLayout {
+                    key,
+                    cols,
+                    metrics,
+                    name,
+                    settings,
+                })
             };
             *self.table_layout.borrow_mut() = Some(layout);
             self.table.update(cx, |state, cx| state.refresh(cx));
@@ -377,12 +435,16 @@ impl Render for ReposPage {
         if let Some(dialog) = &mut self.dialog {
             page = page.child(dialog.render(window, cx));
         }
-        page
+        page.into_any_element()
     }
 }
 
 impl ReposPage {
-    fn render_toolbar(&mut self, viewport_width: Pixels, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_toolbar(
+        &mut self,
+        viewport_width: Pixels,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let (tags, active_tags, scanning) = {
             let store = self.store.read(cx);
             (store.all_tags(), store.tag_filters.clone(), store.scanning)
@@ -462,7 +524,11 @@ impl ReposPage {
                     .cursor_pointer()
                     .rounded_full()
                     .border_1()
-                    .border_color(if active { theme::ACCENT } else { theme::HAIRLINE })
+                    .border_color(if active {
+                        theme::ACCENT
+                    } else {
+                        theme::HAIRLINE
+                    })
                     .px_2()
                     .py_0p5()
                     .text_size(px(theme::font_small() - 1.))
@@ -491,7 +557,11 @@ impl ReposPage {
             .items_center()
             .gap_2()
             .px_4()
-            .child(icon("icons/icon-logo-mark.svg", px(theme::icon_medium()), theme::TEXT_FAINT))
+            .child(icon(
+                "icons/icon-logo-mark.svg",
+                px(theme::icon_medium()),
+                theme::TEXT_FAINT,
+            ))
             .child(
                 div()
                     .text_size(px(theme::font_title() + 1.))
@@ -506,7 +576,12 @@ impl ReposPage {
                     .child(format!("{total_repos} repos")),
             )
             .when(show_change_chip && total_changes > 0, |row| {
-                row.child(count_chip(total_changes, "changes", theme::AMBER_BRIGHT, None))
+                row.child(count_chip(
+                    total_changes,
+                    "changes",
+                    theme::AMBER_BRIGHT,
+                    None,
+                ))
             })
             .when(show_remote_chips && github_on && total_prs > 0, |row| {
                 row.child(count_chip(
@@ -529,7 +604,11 @@ impl ReposPage {
                 "refresh-button",
                 "Refresh repositories",
                 "icons/icon-refresh.svg",
-                if scanning { theme::ACCENT } else { theme::TEXT_MUTED },
+                if scanning {
+                    theme::ACCENT
+                } else {
+                    theme::TEXT_MUTED
+                },
                 move |_, _, cx| {
                     store_refresh.update(cx, |s, cx| s.refresh(cx));
                 },
@@ -569,7 +648,11 @@ impl ReposPage {
             .cursor_pointer()
             .rounded_full()
             .border_1()
-            .border_color(if show_archived { theme::ACCENT } else { theme::HAIRLINE })
+            .border_color(if show_archived {
+                theme::ACCENT
+            } else {
+                theme::HAIRLINE
+            })
             .px_2()
             .py_0p5()
             .text_size(px(theme::font_small() - 1.))
@@ -597,11 +680,11 @@ impl ReposPage {
             .child(tag_pills)
             .when(filters_active, |row| {
                 row.child(
-                div()
-                    .id("clear-button")
-                    .debug_selector(|| "clear-button".into())
-                    .a11y_button("Clear filters")
-                    .cursor_pointer()
+                    div()
+                        .id("clear-button")
+                        .debug_selector(|| "clear-button".into())
+                        .a11y_button("Clear filters")
+                        .cursor_pointer()
                         .rounded_md()
                         .px_2()
                         .py_1()
@@ -633,7 +716,11 @@ fn toolbar_action(
     primary: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
-    let color = if primary { theme::ON_ACCENT } else { theme::TEXT_DIM };
+    let color = if primary {
+        theme::ON_ACCENT
+    } else {
+        theme::TEXT_DIM
+    };
     div()
         .id(id)
         .a11y_button(label)
@@ -748,8 +835,16 @@ fn visible_columns(settings: &AppSettings, available: Pixels, branch: Pixels) ->
     let shortcuts = shortcuts_column_width(settings);
     let changes = px(132.) * scale;
     let activity = px(84.) * scale;
-    let github = if settings.repos.enable_git_hub { px(96.) * scale } else { px(0.) };
-    let azure = if settings.repos.enable_azure_dev_ops { px(120.) * scale } else { px(0.) };
+    let github = if settings.repos.enable_git_hub {
+        px(96.) * scale
+    } else {
+        px(0.)
+    };
+    let azure = if settings.repos.enable_azure_dev_ops {
+        px(120.) * scale
+    } else {
+        px(0.)
+    };
     // what the name column needs to stay readable next to the fixed ones
     let required = |extra: Pixels| star + shortcuts + changes + branch + px(140.) + extra;
 
@@ -873,7 +968,10 @@ impl ReposDelegate {
 
     fn repo_at(&self, row_ix: usize, cx: &App) -> Option<RepoEntry> {
         let store = self.store.read(cx);
-        store.repo_row(row_ix).and_then(|ix| store.repos.get(ix)).cloned()
+        store
+            .repo_row(row_ix)
+            .and_then(|ix| store.repos.get(ix))
+            .cloned()
     }
 
     fn row_is_group(&self, row_ix: usize, cx: &App) -> bool {
@@ -915,7 +1013,13 @@ impl ReposDelegate {
         let cols = visible_columns(&settings, available, branch);
         let metrics = layout_metrics(&settings, available, branch);
         let name = name_width(&cols, &settings, available, metrics);
-        let layout = Rc::new(TableLayout { key, cols, metrics, name, settings });
+        let layout = Rc::new(TableLayout {
+            key,
+            cols,
+            metrics,
+            name,
+            settings,
+        });
         *self.layout.borrow_mut() = Some(layout.clone());
         layout
     }
@@ -994,9 +1098,12 @@ impl TableDelegate for ReposDelegate {
         let group = {
             let store = self.store.read(cx);
             match store.projected.get(row_ix) {
-                Some(ProjectedRow::Group { key, name, count, collapsed }) => {
-                    Some((key.clone(), name.clone(), *count, *collapsed))
-                }
+                Some(ProjectedRow::Group {
+                    key,
+                    name,
+                    count,
+                    collapsed,
+                }) => Some((key.clone(), name.clone(), *count, *collapsed)),
                 _ => None,
             }
         };
@@ -1065,23 +1172,44 @@ impl TableDelegate for ReposDelegate {
                 ColumnSort::Default
             }
         };
-        match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
-            ColKind::Star => {
-                Column::new("star", "").width(px(36.)).resizable(false).text_center()
-            }
-            ColKind::Name => Column::new("name", "Repository").width(layout.name).min_width(px(140.)).sort(kit_sort(RepoSortMode::Name)),
-            ColKind::Branch => Column::new("branch", "Branch").width(layout.metrics.branch).resizable(false).sort(kit_sort(RepoSortMode::Branch)),
-            ColKind::Changes => Column::new("changes", "Changes").width(layout.metrics.changes).resizable(false).sort(kit_sort(RepoSortMode::Changes)),
-            ColKind::Github => Column::new("github", "GitHub").width(px(96.) * scale).sort(kit_sort(RepoSortMode::GitHub)),
-            ColKind::Azure => {
-                Column::new("azure", "Azure DevOps").width(px(120.) * scale).text_center().resizable(false)
-            }
-            ColKind::Activity => {
-                Column::new("activity", "Last activity").width(px(84.) * scale).resizable(false).sort(kit_sort(RepoSortMode::LastActivity))
-            }
+        match layout
+            .cols
+            .get(col_ix)
+            .copied()
+            .unwrap_or(ColKind::Shortcuts)
+        {
+            ColKind::Star => Column::new("star", "")
+                .width(px(36.))
+                .resizable(false)
+                .text_center(),
+            ColKind::Name => Column::new("name", "Repository")
+                .width(layout.name)
+                .min_width(px(140.))
+                .sort(kit_sort(RepoSortMode::Name)),
+            ColKind::Branch => Column::new("branch", "Branch")
+                .width(layout.metrics.branch)
+                .resizable(false)
+                .sort(kit_sort(RepoSortMode::Branch)),
+            ColKind::Changes => Column::new("changes", "Changes")
+                .width(layout.metrics.changes)
+                .resizable(false)
+                .sort(kit_sort(RepoSortMode::Changes)),
+            ColKind::Github => Column::new("github", "GitHub")
+                .width(px(96.) * scale)
+                .sort(kit_sort(RepoSortMode::GitHub)),
+            ColKind::Azure => Column::new("azure", "Azure DevOps")
+                .width(px(120.) * scale)
+                .text_center()
+                .resizable(false),
+            ColKind::Activity => Column::new("activity", "Last activity")
+                .width(px(84.) * scale)
+                .resizable(false)
+                .sort(kit_sort(RepoSortMode::LastActivity)),
             ColKind::Shortcuts => {
                 // hugs its button row: the width follows the enabled launchers
-                Column::new("shortcuts", "").width(shortcuts_column_width(&layout.settings)).resizable(false)
+                Column::new("shortcuts", "")
+                    .width(shortcuts_column_width(&layout.settings))
+                    .resizable(false)
             }
         }
     }
@@ -1147,7 +1275,12 @@ impl TableDelegate for ReposDelegate {
             .filter(|status| !status.running.is_empty())
             .map(|status| status.running.join(", "));
 
-        let cell: gpui::AnyElement = match layout.cols.get(col_ix).copied().unwrap_or(ColKind::Shortcuts) {
+        let cell: gpui::AnyElement = match layout
+            .cols
+            .get(col_ix)
+            .copied()
+            .unwrap_or(ColKind::Shortcuts)
+        {
             ColKind::Star => {
                 if archived {
                     // archived rows are inert: no star, no toggle
@@ -1158,7 +1291,11 @@ impl TableDelegate for ReposDelegate {
                         .id(("star", row_ix))
                         .debug_selector(move || format!("repos-star-cell-{row_ix}"))
                         .a11y_toggle(
-                            if favorite { "Remove from favorites" } else { "Add to favorites" },
+                            if favorite {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
                             favorite,
                         )
                         .cursor_pointer()
@@ -1177,7 +1314,11 @@ impl TableDelegate for ReposDelegate {
                         .child(icon(
                             "icons/icon-star.svg",
                             px(theme::icon_medium()),
-                            if favorite { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
+                            if favorite {
+                                theme::GOLD_BRIGHT
+                            } else {
+                                theme::STAR_MUTED
+                            },
                         ));
                     let mut cell = div()
                         .relative()
@@ -1187,7 +1328,11 @@ impl TableDelegate for ReposDelegate {
                         .child(crate::ui::with_tooltip(
                             star,
                             show_tooltips,
-                            if favorite { "Remove from favorites" } else { "Add to favorites" },
+                            if favorite {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
                         ));
                     // warp-agent presence: a leading dot instead of the old
                     // sparkle logo in the shortcuts cell
@@ -1516,8 +1661,8 @@ fn faded(cell: gpui::AnyElement) -> gpui::AnyElement {
     div().opacity(0.55).child(cell).into_any_element()
 }
 
-/// The scan-root group header's cells: col 0 carries the collapse chevron,
-/// col 1 the identity row (folder glyph, group name with the full root as
+/// The folder group header's cells: col 0 carries the collapse chevron,
+/// col 1 the identity row (folder glyph, group name with the full folder as
 /// tooltip, repo count, hover-revealed solo filter), the rest empty — a
 /// header is one full-width band, not a row of values. Both buttons stop
 /// propagation so the row never routes a selection.
@@ -1528,7 +1673,13 @@ fn group_header_cell(
     store: &Entity<Store>,
     show_tooltips: bool,
 ) -> gpui::AnyElement {
-    let ProjectedRow::Group { key, name, count, collapsed } = row else {
+    let ProjectedRow::Group {
+        key,
+        name,
+        count,
+        collapsed,
+    } = row
+    else {
         return div().into_any_element();
     };
     let other = key == crate::store::projection::OTHER_GROUP_KEY;
@@ -1540,7 +1691,11 @@ fn group_header_cell(
                     let selector = format!("repos-group-header-{key}-chevron");
                     move || selector.clone()
                 })
-                .a11y_button(if *collapsed { "Expand group" } else { "Collapse group" })
+                .a11y_button(if *collapsed {
+                    "Expand group"
+                } else {
+                    "Collapse group"
+                })
                 .cursor_pointer()
                 .flex()
                 .items_center()
@@ -1563,11 +1718,15 @@ fn group_header_cell(
                     px(theme::icon_medium()),
                     theme::TEXT_FAINT,
                 ));
-            crate::ui::with_tooltip(chevron, show_tooltips, if *collapsed {
-                "Expand group"
-            } else {
-                "Collapse group"
-            })
+            crate::ui::with_tooltip(
+                chevron,
+                show_tooltips,
+                if *collapsed {
+                    "Expand group"
+                } else {
+                    "Collapse group"
+                },
+            )
             .into_any_element()
         }
         1 => {
@@ -1598,8 +1757,12 @@ fn group_header_cell(
                     }
                 })
                 .child(
-                    icon("icons/icon-folder.svg", px(theme::icon_medium()), theme::TEXT_FAINT)
-                        .group_hover("repos-group-header", |s| s.opacity(0.)),
+                    icon(
+                        "icons/icon-folder.svg",
+                        px(theme::icon_medium()),
+                        theme::TEXT_FAINT,
+                    )
+                    .group_hover("repos-group-header", |s| s.opacity(0.)),
                 )
                 .child(
                     div()
@@ -1609,12 +1772,17 @@ fn group_header_cell(
                         .items_center()
                         .justify_center()
                         .child(
-                            icon("icons/icon-search.svg", px(theme::icon_medium()), theme::TEXT_MUTED)
-                                .opacity(0.)
-                                .group_hover("repos-group-header", |s| s.opacity(1.)),
+                            icon(
+                                "icons/icon-search.svg",
+                                px(theme::icon_medium()),
+                                theme::TEXT_MUTED,
+                            )
+                            .opacity(0.)
+                            .group_hover("repos-group-header", |s| s.opacity(1.)),
                         ),
                 );
-            let solo_swap = crate::ui::with_tooltip(solo_swap, show_tooltips, "Show only this group");
+            let solo_swap =
+                crate::ui::with_tooltip(solo_swap, show_tooltips, "Show only this group");
             let name_label = crate::ui::with_tooltip(
                 div()
                     .id(("group-name", row_ix as u64))
@@ -1630,7 +1798,7 @@ fn group_header_cell(
                 if other {
                     "Repositories under no scan root".to_string()
                 } else {
-                    format!("Scan root {key}")
+                    format!("Folder {key}")
                 },
             );
             div()
@@ -1695,8 +1863,12 @@ fn tab_cell(
         .into_any_element()
 }
 
-fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) = branch.filter(|b| !b.is_empty()) else {
-        return div().text_color(theme::TEXT_FAINT).child("—").into_any_element();
+fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {
+    let Some(branch) = branch.filter(|b| !b.is_empty()) else {
+        return div()
+            .text_color(theme::TEXT_FAINT)
+            .child("—")
+            .into_any_element();
     };
     let color = if branch == "main" {
         theme::SUCCESS_BRIGHT
@@ -1723,8 +1895,15 @@ fn branch_pill(branch: Option<&str>) -> gpui::AnyElement {    let Some(branch) =
         .text_size(px(theme::font_small()))
         .font_family(gpui::SharedString::from(theme::code_font()))
         .text_color(color)
-        .child(icon("icons/icon-source-branch.svg", px(theme::icon_small() - 2.), color))
-        .child(crate::ui::trim_branch_label(branch, crate::ui::BRANCH_LABEL_CHARS))
+        .child(icon(
+            "icons/icon-source-branch.svg",
+            px(theme::icon_small() - 2.),
+            color,
+        ))
+        .child(crate::ui::trim_branch_label(
+            branch,
+            crate::ui::BRANCH_LABEL_CHARS,
+        ))
         .into_any_element()
 }
 
@@ -1813,7 +1992,11 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
                 .items_center()
                 .gap_0p5()
                 .text_color(theme::PURPLE_BRIGHT)
-                .child(icon("icons/icon-git-pull-request.svg", px(theme::icon_small() - 3.), theme::PURPLE_BRIGHT))
+                .child(icon(
+                    "icons/icon-git-pull-request.svg",
+                    px(theme::icon_small() - 3.),
+                    theme::PURPLE_BRIGHT,
+                ))
                 .child(format!("{}", repo.github_pr_count)),
         );
     }
@@ -1829,7 +2012,11 @@ fn github_cell(repo: &RepoEntry) -> gpui::AnyElement {
                 .items_center()
                 .gap_0p5()
                 .text_color(theme::SUCCESS_BRIGHT)
-                .child(icon("icons/icon-issue.svg", px(theme::icon_small() - 3.), theme::SUCCESS_BRIGHT))
+                .child(icon(
+                    "icons/icon-issue.svg",
+                    px(theme::icon_small() - 3.),
+                    theme::SUCCESS_BRIGHT,
+                ))
                 .child(format!("{}", repo.github_issue_count)),
         );
     }
@@ -1853,7 +2040,8 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
             .child("·")
             .into_any_element();
     };
-    if snapshot.pipelines.is_empty() && snapshot.pulls.is_empty() && snapshot.work_items.is_empty() {
+    if snapshot.pipelines.is_empty() && snapshot.pulls.is_empty() && snapshot.work_items.is_empty()
+    {
         return div()
             .text_size(px(theme::font_small()))
             .text_color(theme::TEXT_FAINT)
@@ -2138,11 +2326,15 @@ mod tests {
         // folder only: one 36px button, no gaps, no divider, slack 8
         assert_eq!(shortcuts_column_width(&settings_with(&[])), px(44.));
         // folder + terminal: two buttons + one gap
-        assert_eq!(shortcuts_column_width(&settings_with(&["terminal"])), px(86.));
+        assert_eq!(
+            shortcuts_column_width(&settings_with(&["terminal"])),
+            px(86.)
+        );
         // full linux set: warp door, opencode button + divider, vscode,
         // folder, terminal = 5 buttons + divider = 6 children -> 5 gaps +
         // divider (1px + mx_1 = 9); the solution slot only joins on Windows
-        let full = shortcuts_column_width(&settings_with(&["terminal", "vscode", "opencode", "warp"]));
+        let full =
+            shortcuts_column_width(&settings_with(&["terminal", "vscode", "opencode", "warp"]));
         assert_eq!(full, px(5. * 36. + 5. * 6. + 9. + 8.));
     }
 
@@ -2206,7 +2398,8 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(
-            cx.read_entity(&store, |s, _| s.selected_repo.clone()).as_deref(),
+            cx.read_entity(&store, |s, _| s.selected_repo.clone())
+                .as_deref(),
             Some("/probe/beta"),
             "mirroring the selection must not toggle the bar closed"
         );

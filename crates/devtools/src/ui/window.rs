@@ -3,16 +3,18 @@
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::bottom_bar::BottomBar;
-use crate::ui::clipboard_password::{copy_stored_password, ClipboardPasswordDrawer};
-use crate::ui::icon;
 use crate::ui::A11y;
+use crate::ui::bottom_bar::BottomBar;
+use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
+use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::repos::summary_button;
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui::{
+    App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea, div, px,
+};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 /// Which page fills the window body (the bottom bar rides only with Repos).
 #[derive(Clone, Copy, PartialEq)]
@@ -54,11 +56,11 @@ pub struct MainWindow {
 impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
-        let settings_page = cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
+        let settings_page =
+            cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
-        let global_search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search repositories and notes")
-        });
+        let global_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories and notes"));
         let search_store = store.clone();
         cx.subscribe(&global_search, move |_, field, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -110,7 +112,8 @@ impl Render for MainWindow {
             self.launch_notes(None, cx);
         }
         if self.settings_page.read(cx).back_requested {
-            self.settings_page.update(cx, |page, _| page.back_requested = false);
+            self.settings_page
+                .update(cx, |page, _| page.back_requested = false);
             self.page = Page::Repos;
         }
         let mut root = div()
@@ -127,12 +130,15 @@ impl Render for MainWindow {
             // any press outside the bar's kebab menu dismisses it; the menu
             // itself and its trigger stop propagation so their own handlers
             // remain the only ones that see the press
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                gpui_kit::base::GlobalState::suppress_text_selection(cx);
-                this.bottom_bar.update(cx, |bar, cx| {
-                    bar.dismiss_kebab(cx);
-                });
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    gpui_kit::base::GlobalState::suppress_text_selection(cx);
+                    this.bottom_bar.update(cx, |bar, cx| {
+                        bar.dismiss_kebab(cx);
+                    });
+                }),
+            )
             // Ctrl+K and Ctrl+F focus the global-search field; Ctrl+Shift+V
             // copies the stored Clipboard Password (fallback for when the
             // system-wide grab in net.rs did not land); Escape dismisses the
@@ -178,7 +184,9 @@ impl Render for MainWindow {
                         return;
                     }
                     if this.page == Page::Repos
-                        && this.repos_page.update(cx, |page, cx| page.dismiss_overlay(cx))
+                        && this
+                            .repos_page
+                            .update(cx, |page, cx| page.dismiss_overlay(cx))
                     {
                         cx.stop_propagation();
                         return;
@@ -271,7 +279,9 @@ impl MainWindow {
             .gap_2();
         for notice in notices {
             let (glyph, color) = match notice.kind {
-                crate::store::NoticeKind::Success => ("icons/icon-check.svg", theme::SUCCESS_BRIGHT),
+                crate::store::NoticeKind::Success => {
+                    ("icons/icon-check.svg", theme::SUCCESS_BRIGHT)
+                }
                 crate::store::NoticeKind::Info => ("icons/icon-info.svg", theme::BLUE_BRIGHT),
                 crate::store::NoticeKind::Error => ("icons/icon-alert.svg", theme::DANGER),
             };
@@ -540,7 +550,11 @@ impl MainWindow {
     }
 
     /// The global-search results popup under the titlebar field.
-    fn render_search_popup(&mut self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn render_search_popup(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let term = self.global_search.read(cx).value().to_string();
         if term.trim().is_empty() {
             return None;
@@ -577,7 +591,11 @@ impl MainWindow {
                     .p_2()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_FAINT)
-                    .child(if pending || code_searching { "Searching…" } else { "No matches." })
+                    .child(if pending || code_searching {
+                        "Searching…"
+                    } else {
+                        "No matches."
+                    })
                     .into_any_element(),
             );
         }
@@ -631,7 +649,12 @@ impl MainWindow {
                         div()
                             .flex()
                             .flex_col()
-                            .child(div().text_size(px(theme::font_small())).text_color(theme::TEXT_DIM).child(title))
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::TEXT_DIM)
+                                    .child(title),
+                            )
                             .child(
                                 div()
                                     .text_size(px(theme::font_small() - 2.))
@@ -783,13 +806,16 @@ impl MainWindow {
                 self.page = Page::Repos;
                 // open on Overview without the row-press toggle semantics
                 let folder = folder.clone();
-                self.store.update(cx, |s, cx| s.open_repo_tab(&folder, crate::store::BottomBarTab::Overview, cx));
+                self.store.update(cx, |s, cx| {
+                    s.open_repo_tab(&folder, crate::store::BottomBarTab::Overview, cx)
+                });
             }
             crate::store::GlobalSearchHit::Note { path, .. } => {
                 self.launch_notes(Some(path.clone()), cx);
             }
         }
-        self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
+        self.global_search
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.store.update(cx, |s, cx| s.run_global_search("", cx));
         cx.notify();
     }
@@ -812,9 +838,11 @@ impl MainWindow {
             &settings.repos.vscode_profile,
         );
         if let Err(err) = devtools_core::terminal::open_code_plan(&plan) {
-            self.store.update(cx, |s, _| s.notify_error(format!("open failed: {err}")));
+            self.store
+                .update(cx, |s, _| s.notify_error(format!("open failed: {err}")));
         }
-        self.global_search.update(cx, |state, cx| state.set_value("", window, cx));
+        self.global_search
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.store.update(cx, |s, cx| s.run_global_search("", cx));
         cx.notify();
     }
@@ -829,9 +857,15 @@ impl MainWindow {
             return;
         }
         let executable = settings.warp_notes.executable.clone();
-        let store_root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
+        let store_root =
+            devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
         let repo = self.store.read(cx).selected_entry().map(|e| e.name.clone());
-        if let Err(err) = devtools_core::warp_notes::launch(&executable, &store_root, repo.as_deref(), note.as_deref()) {
+        if let Err(err) = devtools_core::warp_notes::launch(
+            &executable,
+            &store_root,
+            repo.as_deref(),
+            note.as_deref(),
+        ) {
             self.store.update(cx, |s, _| s.notify_error(err));
         }
         cx.notify();
@@ -864,7 +898,9 @@ pub(crate) fn window_button(
         .hover(move |s| s.bg(hover_bg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
-        .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
+        .when(show_tooltip, |d| {
+            d.tooltip(crate::ui::tooltip_text(tooltip))
+        })
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
@@ -895,7 +931,9 @@ fn status_chip(
         .items_center()
         .gap_1p5()
         .hover(|s| s.bg(theme::HOVER))
-        .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(tooltip)))
+        .when(show_tooltip, |d| {
+            d.tooltip(crate::ui::tooltip_text(tooltip))
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(on_click)
         .child(div().size(px(8.)).rounded_full().bg(dot_color))
@@ -1225,23 +1263,31 @@ impl MainWindow {
             // clickable. Linux/macOS start the move on the first motion so a
             // plain click (and the headless probes) never enters a drag.
             .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                gpui_kit::base::GlobalState::suppress_text_selection(cx);
-                this.titlebar_should_move = true;
-            }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| {
-                this.titlebar_should_move = false;
-            }))
-            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
-                if this.titlebar_should_move {
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    gpui_kit::base::GlobalState::suppress_text_selection(cx);
+                    this.titlebar_should_move = true;
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
                     this.titlebar_should_move = false;
-                    // a missed mouse-up (the OS move loop swallowed it)
-                    // must not turn a later hover into a drag
-                    if event.pressed_button == Some(MouseButton::Left) {
-                        window.start_window_move();
+                }),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, _| {
+                    if this.titlebar_should_move {
+                        this.titlebar_should_move = false;
+                        // a missed mouse-up (the OS move loop swallowed it)
+                        // must not turn a later hover into a drag
+                        if event.pressed_button == Some(MouseButton::Left) {
+                            window.start_window_move();
+                        }
                     }
-                }
-            }))
+                }),
+            )
             .on_mouse_down_out(cx.listener(|this, _, _, _| {
                 this.titlebar_should_move = false;
             }))
@@ -1276,35 +1322,45 @@ impl MainWindow {
                     )
                     // hairline between the app name and the tools that follow
                     .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-                    .when(self.store.read(cx).settings().warp_notes.enable_warp_notes, |left| {
-                        left.child({
-                            div()
-                                .id("notes-toggle")
-                                .a11y_button("Notes")
-                                .cursor_pointer()
-                                .occlude()
-                                .rounded_md()
-                                .size(px(26.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .hover(|s| s.bg(theme::HOVER))
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.launch_notes(None, cx);
-                                }))
-                                .when(show_tooltips, |d| {
-                                    d.tooltip(crate::ui::tooltip_text("Notes — markdown notes for the selected repo"))
-                                })
-                                .child(icon(
-                                    "icons/icon-note.svg",
-                                    px(theme::icon_medium()),
-                                    theme::TEXT_MUTED,
-                                ))
-                        })
-                    })
+                    .when(
+                        self.store.read(cx).settings().warp_notes.enable_warp_notes,
+                        |left| {
+                            left.child({
+                                div()
+                                    .id("notes-toggle")
+                                    .a11y_button("Notes")
+                                    .cursor_pointer()
+                                    .occlude()
+                                    .rounded_md()
+                                    .size(px(26.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .hover(|s| s.bg(theme::HOVER))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.launch_notes(None, cx);
+                                    }))
+                                    .when(show_tooltips, |d| {
+                                        d.tooltip(crate::ui::tooltip_text(
+                                            "Notes — markdown notes for the selected repo",
+                                        ))
+                                    })
+                                    .child(icon(
+                                        "icons/icon-note.svg",
+                                        px(theme::icon_medium()),
+                                        theme::TEXT_MUTED,
+                                    ))
+                            })
+                        },
+                    )
                     .when(self.store.read(cx).wand_available(), |left| {
-                        left.child(summary_button(&self.store, self.store.read(cx).summary_busy))
+                        left.child(summary_button(
+                            &self.store,
+                            self.store.read(cx).summary_busy,
+                        ))
                     }),
             )
             // equal spacers on both sides of the search field

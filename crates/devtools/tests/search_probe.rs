@@ -7,7 +7,7 @@ use devtools::store::{GlobalSearchHit, Store};
 use devtools::ui::window::MainWindow;
 use devtools_core::code_search::CodeHit;
 use devtools_core::repo_store::RepoEntry;
-use gpui::{prelude::*, TestAppContext};
+use gpui::{TestAppContext, prelude::*};
 use std::path::PathBuf;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
@@ -82,16 +82,16 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     draw(cx);
 
     // the window root owns the focus at startup: the first typed character
     // must start a fresh term in the global search
     cx.simulate_input("a");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["alpha", "beta", "gamma"]);
@@ -103,7 +103,8 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
     // the field now owns the focus, so the rest of the word lands in it —
     // and is appended, not treated as another fresh term
     cx.simulate_input("lph");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["alpha"]);
@@ -119,15 +120,15 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     draw(cx);
 
     // type-anywhere builds a term and hands the focus to the global field
     cx.simulate_input("bet");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["beta"]);
@@ -135,7 +136,8 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
     // the field owns the focus now, so characters append to the term instead
     // of triggering another type-anywhere pass
     cx.simulate_input("x");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(
@@ -148,7 +150,8 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
     // (appending would leave "betxa" matching nothing)
     cx.simulate_keystrokes("ctrl-f");
     cx.simulate_input("a");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(
@@ -173,13 +176,18 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
         r#"{{"OpenCode": {{"EnableOpenCode": true}}, "WarpAgent": {{"EnableWarpAgent": true, "Executable": "{}"}}}}"#,
         exe.display().to_string().replace('\\', "\\\\")
     );
-    let scratch = std::env::temp_dir().join(format!("devtools-probe-titlebar-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-titlebar-{}.json",
+        std::process::id()
+    ));
     std::fs::write(&scratch, json).expect("scratch settings");
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![
             entry("alpha", "/probe/alpha"),
@@ -190,9 +198,8 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
     });
     let _ = std::fs::remove_file(&scratch);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     draw(cx);
 
@@ -236,7 +243,9 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
     let store_handle = store.clone();
@@ -261,7 +270,9 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
         "tools-toggle",
         "settings-toggle",
     ] {
-        let bounds = wcx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} renders"));
+        let bounds = wcx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} renders"));
         assert!(
             bounds.origin.x >= bar.origin.x
                 && bounds.origin.x + bounds.size.width <= bar.origin.x + bar.size.width,
@@ -289,13 +300,14 @@ fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     draw(cx);
     let _ = std::fs::remove_file(&scratch);
@@ -341,16 +353,16 @@ fn code_rows_render_below_repo_rows_under_the_shared_cap(cx: &mut TestAppContext
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     draw(cx);
 
     // a 3-character term (the code sweep's lower gate) that matches one repo;
     // the debounced run also dispatches the ripgrep sweep when rg resolves
     cx.simulate_input("alp");
-    cx.executor().advance_clock(std::time::Duration::from_millis(200));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
     cx.run_until_parked();
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["alpha"]);
@@ -358,7 +370,16 @@ fn code_rows_render_below_repo_rows_under_the_shared_cap(cx: &mut TestAppContext
     // hand-set the sweep's answer: 14 code hits so the shared cap bites
     // (1 repo row + 11 code rows = 12), and settle the searching hint
     let hits: Vec<CodeHit> = (0..14)
-        .map(|i| code_hit("alpha", &format!("src/file{i}.rs"), i + 1, "let needle = 1;", 4, 10))
+        .map(|i| {
+            code_hit(
+                "alpha",
+                &format!("src/file{i}.rs"),
+                i + 1,
+                "let needle = 1;",
+                4,
+                10,
+            )
+        })
         .collect();
     store.update(cx, |s, cx| {
         s.code_search_hits = hits;
@@ -374,10 +395,7 @@ fn code_rows_render_below_repo_rows_under_the_shared_cap(cx: &mut TestAppContext
     for i in 0..11 {
         // debug_bounds wants a 'static str; the loop is bounded so a leak is fine
         let selector: &'static str = Box::leak(format!("search-code-hit-{i}").into_boxed_str());
-        assert!(
-            cx.debug_bounds(selector).is_some(),
-            "code row {i} renders"
-        );
+        assert!(cx.debug_bounds(selector).is_some(), "code row {i} renders");
     }
     assert!(
         cx.debug_bounds("search-code-hit-11").is_none(),
@@ -403,16 +421,31 @@ fn stale_code_search_results_drop_and_current_apply(cx: &mut TestAppContext) {
         cx.notify();
     });
     store.update(cx, |s, cx| {
-        s.on_net_event(devtools::net::UiEvent::CodeSearchSettled { generation: 9, hits: hits.clone() }, cx);
+        s.on_net_event(
+            devtools::net::UiEvent::CodeSearchSettled {
+                generation: 9,
+                hits: hits.clone(),
+            },
+            cx,
+        );
     });
-    let (applied, searching) = cx.read_entity(&store, |s, _| (s.code_search_hits.is_empty(), s.code_searching));
+    let (applied, searching) = cx.read_entity(&store, |s, _| {
+        (s.code_search_hits.is_empty(), s.code_searching)
+    });
     assert!(applied, "a stale sweep must not land");
     assert!(searching, "the in-flight hint survives a stale settle");
 
     store.update(cx, |s, cx| {
-        s.on_net_event(devtools::net::UiEvent::CodeSearchSettled { generation: 0, hits: hits.clone() }, cx);
+        s.on_net_event(
+            devtools::net::UiEvent::CodeSearchSettled {
+                generation: 0,
+                hits: hits.clone(),
+            },
+            cx,
+        );
     });
-    let (applied, searching) = cx.read_entity(&store, |s, _| (s.code_search_hits.len(), s.code_searching));
+    let (applied, searching) =
+        cx.read_entity(&store, |s, _| (s.code_search_hits.len(), s.code_searching));
     assert_eq!(applied, 1, "the current generation's sweep lands");
     assert!(!searching, "applying the settle clears the searching hint");
 }
@@ -422,18 +455,30 @@ fn stale_code_search_results_drop_and_current_apply(cx: &mut TestAppContext) {
 /// unresolvable one plans the system-default fallback. No spawn here.
 #[test]
 fn code_open_plan_picks_vscode_or_fallback() {
-    use devtools_core::terminal::{plan_code_open, CodeOpenPlan};
+    use devtools_core::terminal::{CodeOpenPlan, plan_code_open};
 
-    let missing = plan_code_open("/probe/alpha/src/lib.rs", 42, "devtools-definitely-missing-binary", "");
+    let missing = plan_code_open(
+        "/probe/alpha/src/lib.rs",
+        42,
+        "devtools-definitely-missing-binary",
+        "",
+    );
     assert_eq!(
         missing,
-        CodeOpenPlan::SystemDefault { file: "/probe/alpha/src/lib.rs".into() },
+        CodeOpenPlan::SystemDefault {
+            file: "/probe/alpha/src/lib.rs".into()
+        },
         "an unresolvable executable falls back to the system default"
     );
 
     // an existing absolute path (this test binary) plans the VS Code launch
     let exe = std::env::current_exe().expect("test binary path");
-    let plan = plan_code_open("/probe/alpha/src/lib.rs", 42, &exe.to_string_lossy(), "rust");
+    let plan = plan_code_open(
+        "/probe/alpha/src/lib.rs",
+        42,
+        &exe.to_string_lossy(),
+        "rust",
+    );
     assert_eq!(
         plan,
         CodeOpenPlan::VsCode {

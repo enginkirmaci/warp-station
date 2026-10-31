@@ -213,19 +213,28 @@ impl NugetService {
     /// One discovered .nupkg: clear its global cache entry, advance the
     /// activity counter, copy it into <watch>/nugets. Returns false when the
     /// stop signal interrupted the work.
-    async fn process_package(&self, path: &Path, config: &NugetConfig, stop_rx: &async_channel::Receiver<()>) -> bool {
+    async fn process_package(
+        &self,
+        path: &Path,
+        config: &NugetConfig,
+        stop_rx: &async_channel::Receiver<()>,
+    ) -> bool {
         enum Flow {
             Done,
             Cancelled,
         }
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let flow: Result<Flow, String> = async {
             // 1. clear the matching global-packages entry (parse/global failures
             //    only skip this step — the count and the copy still advance)
             if let Some((id, version)) = extract_package_info(&name) {
                 let global = self.state.lock().unwrap().global_packages.clone();
                 if let Some(global) = global {
-                    let entry = global.join(id.to_lowercase()).join(version.to_lowercase());                    if entry.is_dir() {
+                    let entry = global.join(id.to_lowercase()).join(version.to_lowercase());
+                    if entry.is_dir() {
                         std::fs::remove_dir_all(&entry).map_err(|err| err.to_string())?;
                         self.push_log(format!("✓ Cleared cache for {id} {version}"));
                     } else {
@@ -243,7 +252,9 @@ impl NugetService {
                 let mut state = self.state.lock().unwrap();
                 let now = std::time::Instant::now();
                 state.count = match state.last_change {
-                    Some(previous) if now.duration_since(previous) < config.count_window => state.count + 1,
+                    Some(previous) if now.duration_since(previous) < config.count_window => {
+                        state.count + 1
+                    }
                     _ => 1,
                 };
                 state.last_change = Some(now);
@@ -330,13 +341,17 @@ impl NugetService {
                 "✗ Timed out after {}s registering NuGet source '{source_name}': {folder}",
                 COMMAND_TIMEOUT.as_secs()
             )),
-            Ok(result) if result.succeeded() => {
-                self.push_log(format!("✓ Registered NuGet source '{source_name}': {folder}"))
-            }
-            Ok(result) if result.stdout.to_lowercase().contains("already been added") => {
-                self.push_log(format!("ℹ NuGet source '{source_name}' already registered: {folder}"))
-            }
-            Ok(result) => self.push_log(format!("✗ Failed to register source: {}", result.stderr.trim())),
+            Ok(result) if result.succeeded() => self.push_log(format!(
+                "✓ Registered NuGet source '{source_name}': {folder}"
+            )),
+            Ok(result) if result.stdout.to_lowercase().contains("already been added") => self
+                .push_log(format!(
+                    "ℹ NuGet source '{source_name}' already registered: {folder}"
+                )),
+            Ok(result) => self.push_log(format!(
+                "✗ Failed to register source: {}",
+                result.stderr.trim()
+            )),
             Err(err) => self.push_log(format!("✗ Execution error: {err}")),
         }
         self.emit();
@@ -380,7 +395,12 @@ async fn sleep_interruptible(stop_rx: &async_channel::Receiver<()>, delay: Durat
 /// `dotnet nuget locals global-packages --list` → the printed folder. The exit
 /// code is not consulted; the folder line on stdout is all that matters.
 async fn resolve_global_packages_folder() -> Option<String> {
-    let args = ["nuget".to_string(), "locals".to_string(), "global-packages".to_string(), "--list".to_string()];
+    let args = [
+        "nuget".to_string(),
+        "locals".to_string(),
+        "global-packages".to_string(),
+        "--list".to_string(),
+    ];
     let result = process::run(ProcessRunOptions {
         file_name: "dotnet",
         args: &args,
@@ -390,7 +410,10 @@ async fn resolve_global_packages_folder() -> Option<String> {
     })
     .await
     .ok()?;
-    let line = result.stdout.lines().find(|line| line.trim_start().starts_with("global-packages:"))?;
+    let line = result
+        .stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with("global-packages:"))?;
     Some(line.split_once(':')?.1.trim().trim_matches('"').to_string())
 }
 
@@ -399,7 +422,12 @@ fn compute_copy_folder(watch_folder: &str) -> Option<String> {
         return None;
     }
     // join collapses a trailing separator, so "/src/pkg/" → "/src/pkg/nugets"
-    Some(Path::new(watch_folder).join("nugets").to_string_lossy().to_string())
+    Some(
+        Path::new(watch_folder)
+            .join("nugets")
+            .to_string_lossy()
+            .to_string(),
+    )
 }
 
 fn scan_packages(folder: &Path, filter: &str) -> BTreeSet<PathBuf> {
@@ -416,11 +444,15 @@ fn walk(dir: &Path, filter: &str, depth: usize, found: &mut BTreeSet<PathBuf>) {
         return;
     };
     for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else { continue };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
         let path = entry.path();
         if file_type.is_dir() {
             walk(&path, filter, depth + 1, found);
-        } else if file_type.is_file() && matches_filter(&entry.file_name().to_string_lossy(), filter) {
+        } else if file_type.is_file()
+            && matches_filter(&entry.file_name().to_string_lossy(), filter)
+        {
             found.insert(path);
         }
     }
@@ -527,7 +559,10 @@ mod tests {
         let mut started = false;
         for _ in 0..100 {
             while let Ok(snapshot) = receiver.try_recv() {
-                started |= snapshot.activity.iter().any(|line| line.starts_with("▶ Watching"));
+                started |= snapshot
+                    .activity
+                    .iter()
+                    .any(|line| line.starts_with("▶ Watching"));
             }
             if started {
                 break;
@@ -549,7 +584,10 @@ mod tests {
         }
         assert!(latest.count >= 1, "package never counted");
         assert!(
-            latest.activity.iter().any(|line| line.starts_with("✓ Copied to")),
+            latest
+                .activity
+                .iter()
+                .any(|line| line.starts_with("✓ Copied to")),
             "copy never logged: {:?}",
             latest.activity
         );
@@ -559,7 +597,11 @@ mod tests {
         let mut stopped = false;
         for _ in 0..100 {
             while let Ok(snapshot) = receiver.try_recv() {
-                stopped |= !snapshot.watching && snapshot.activity.iter().any(|line| line.contains("⏹ Stopped"));
+                stopped |= !snapshot.watching
+                    && snapshot
+                        .activity
+                        .iter()
+                        .any(|line| line.contains("⏹ Stopped"));
                 latest = snapshot;
             }
             if stopped {

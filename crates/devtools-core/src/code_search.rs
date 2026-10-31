@@ -39,7 +39,12 @@ pub struct CodeHit {
 /// (`-F`, the term is user text, never a regex), case-insensitive, two
 /// matching lines per file, big binaries skipped. `-e` keeps a leading-dash
 /// term from reading as a flag.
-pub async fn run_code_search(rg_exe: &Path, folders: &[PathBuf], term: &str, cap: usize) -> Vec<CodeHit> {
+pub async fn run_code_search(
+    rg_exe: &Path,
+    folders: &[PathBuf],
+    term: &str,
+    cap: usize,
+) -> Vec<CodeHit> {
     let term = term.trim();
     if folders.is_empty() || term.is_empty() {
         return Vec::new();
@@ -147,7 +152,11 @@ fn parse_match_event(line: &str, folders: &[PathBuf]) -> Option<CodeHit> {
 /// Trims rg's trailing newline off the line text and, for long lines, windows
 /// MAX_EXCERPT bytes around the match — the returned offsets index the
 /// returned excerpt and always slice the matched text back out.
-fn excerpt_around(line_text: &str, match_start: usize, match_end: usize) -> Option<(String, usize, usize)> {
+fn excerpt_around(
+    line_text: &str,
+    match_start: usize,
+    match_end: usize,
+) -> Option<(String, usize, usize)> {
     let trimmed = line_text.strip_suffix('\n').unwrap_or(line_text);
     let trimmed = trimmed.strip_suffix('\r').unwrap_or(trimmed);
     if match_start >= match_end
@@ -191,8 +200,10 @@ mod tests {
     /// the repos live under.
     fn fixture(name: &str) -> PathBuf {
         // the name keeps parallel tests out of each other's remove_dir_all
-        let root =
-            std::env::temp_dir().join(format!("devtools-code-search-{}-{name}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "devtools-code-search-{}-{name}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("alpha/src")).unwrap();
         fs::create_dir_all(root.join("beta/docs")).unwrap();
@@ -202,7 +213,11 @@ mod tests {
         )
         .unwrap();
         fs::write(root.join("alpha/README.md"), "the needle in the readme\n").unwrap();
-        fs::write(root.join("beta/docs/guide.md"), "# Guide\nfollow the NEEDLE through the docs\n").unwrap();
+        fs::write(
+            root.join("beta/docs/guide.md"),
+            "# Guide\nfollow the NEEDLE through the docs\n",
+        )
+        .unwrap();
         fs::write(root.join("beta/main.py"), "def needle(): return 'needle'\n").unwrap();
         root
     }
@@ -229,18 +244,27 @@ mod tests {
         // alpha/src/lib.rs caps at 2 lines (needle_finder + NEEDLE comment);
         // README, guide.md and main.py add one line each
         assert_eq!(hits.len(), 5, "one rg pass covers every repo: {hits:?}");
-        let lib: Vec<_> = hits.iter().filter(|h| h.repo == "alpha" && h.rel_path.ends_with("lib.rs")).collect();
+        let lib: Vec<_> = hits
+            .iter()
+            .filter(|h| h.repo == "alpha" && h.rel_path.ends_with("lib.rs"))
+            .collect();
         assert_eq!(lib.len(), 2, "per-file max-count=2: {lib:?}");
         assert_eq!(lib[0].line, 1);
         assert_eq!(lib[1].line, 2);
-        let guide = hits.iter().find(|h| h.rel_path == "docs/guide.md").expect("nested file found");
+        let guide = hits
+            .iter()
+            .find(|h| h.rel_path == "docs/guide.md")
+            .expect("nested file found");
         assert_eq!(guide.repo, "beta");
         assert_eq!(guide.line, 2);
         // case-insensitive: the uppercase term matched the lowercase occurrences
         for hit in &hits {
             let matched = &hit.excerpt[hit.match_start..hit.match_end];
             assert_eq!(matched.len(), "NEEDLE".len());
-            assert!(matched.eq_ignore_ascii_case("NEEDLE"), "matched {matched:?}");
+            assert!(
+                matched.eq_ignore_ascii_case("NEEDLE"),
+                "matched {matched:?}"
+            );
         }
         let _ = fs::remove_dir_all(&root);
     }
@@ -270,8 +294,15 @@ mod tests {
             println!("skipping code-search test: rg not found on PATH");
             return;
         };
-        let wide = hits.iter().find(|h| h.rel_path == "wide.txt").expect("the wide line");
-        assert!(wide.excerpt.len() < 200, "excerpt windowed, got {} bytes", wide.excerpt.len());
+        let wide = hits
+            .iter()
+            .find(|h| h.rel_path == "wide.txt")
+            .expect("the wide line");
+        assert!(
+            wide.excerpt.len() < 200,
+            "excerpt windowed, got {} bytes",
+            wide.excerpt.len()
+        );
         let matched = &wide.excerpt[wide.match_start..wide.match_end];
         assert!(matched.eq_ignore_ascii_case("needle"));
         let _ = fs::remove_dir_all(&root);
@@ -283,7 +314,10 @@ mod tests {
         // match at byte 81..87 (80 a's + the space), line longer than the window
         let (excerpt, start, end) = excerpt_around(&line, 81, 87).expect("clean line");
         assert_eq!(&excerpt[start..end], "target");
-        assert!(excerpt.len() <= MAX_EXCERPT + 4, "window stays tight: {excerpt}");
+        assert!(
+            excerpt.len() <= MAX_EXCERPT + 4,
+            "window stays tight: {excerpt}"
+        );
         // a short line keeps its full text and original offsets
         let (excerpt, start, end) = excerpt_around("hit the target here\n", 8, 14).unwrap();
         assert_eq!(excerpt, "hit the target here");
@@ -306,9 +340,15 @@ mod tests {
         };
         assert!(run_code_search(&rg, &[], "term", 12).await.is_empty());
         assert!(
-            run_code_search(&rg, &folders(&fixture("empty-inputs")), "   ", 12).await.is_empty()
+            run_code_search(&rg, &folders(&fixture("empty-inputs")), "   ", 12)
+                .await
+                .is_empty()
         );
         // a folder that does not exist: rg errors, the sweep still settles empty
-        assert!(run_code_search(&rg, &[PathBuf::from("/definitely/not/here")], "term", 12).await.is_empty());
+        assert!(
+            run_code_search(&rg, &[PathBuf::from("/definitely/not/here")], "term", 12)
+                .await
+                .is_empty()
+        );
     }
 }

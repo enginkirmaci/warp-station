@@ -49,7 +49,10 @@ mod linux {
         // splits on commas — neither may appear in the exe path
         if !exe.contains(' ') && !exe.contains(',') {
             let _ = ipc(&socket, "unbind CTRL SHIFT V");
-            let reply = ipc(&socket, &format!("keyword bind CTRL SHIFT V, execr, {command}"))?;
+            let reply = ipc(
+                &socket,
+                &format!("keyword bind CTRL SHIFT V, execr, {command}"),
+            )?;
             if reply == "ok" {
                 return Ok(());
             }
@@ -75,8 +78,8 @@ mod linux {
 
     /// CLI side of the bind: tell the running instance to copy, then exit.
     pub fn ping_copy_password() -> anyhow::Result<()> {
-        let path = clipboard_socket_path()
-            .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
+        let path =
+            clipboard_socket_path().ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
         let mut stream = connect(&path)?;
         stream.write_all(b"copy-password\n")?;
         let mut reply = String::new();
@@ -194,6 +197,9 @@ mod windows {
     /// no window, and SetClipboardData accepts a null-hwnd association.
     fn set_clipboard_text(text: &str) -> anyhow::Result<()> {
         let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: documented FFI — OpenClipboard(0) is the null-hwnd
+        // any-thread form; the closure below hands every allocation either to
+        // SetClipboardData (system-owned) or GlobalFree before CloseClipboard
         unsafe {
             if OpenClipboard(0) == 0 {
                 anyhow::bail!("OpenClipboard failed (held by another window?)");
@@ -254,6 +260,9 @@ mod windows {
         thread::Builder::new()
             .name("ctrl-shift-v".into())
             .spawn(move || {
+                // SAFETY: documented FFI — a null hwnd registers a
+                // thread-specific hotkey, and the GetMessageW loop below
+                // runs on this same thread as required
                 let taken = unsafe {
                     RegisterHotKey(0, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_V)
                 } == 0;
@@ -261,8 +270,11 @@ mod windows {
                 if taken {
                     return;
                 }
+                // SAFETY: Msg is a plain C struct of integers, so all-zero is
+                // its documented zero state
                 let mut msg: Msg = unsafe { std::mem::zeroed() };
                 loop {
+                    // SAFETY: msg is initialized and stays on this thread
                     let ret = unsafe { GetMessageW(&mut msg, 0, 0, 0) };
                     // 0 = WM_QUIT, -1 = hard error; anything else is a message
                     if ret <= 0 {

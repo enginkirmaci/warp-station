@@ -7,7 +7,7 @@ use crate::theme;
 use crate::ui::A11y;
 use devtools_core::azure::AzureItem;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 
 pub struct AzureView {
     pub store: Entity<Store>,
@@ -16,13 +16,19 @@ pub struct AzureView {
 impl Render for AzureView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let folder = self.store.read(cx).selected_repo.clone();
-        let snapshot = folder.as_ref().and_then(|f| self.store.read(cx).azure_by_folder.get(f).cloned());
+        let snapshot = folder
+            .as_ref()
+            .and_then(|f| self.store.read(cx).azure_by_folder.get(f).cloned());
 
         let Some(snapshot) = snapshot else {
-            return empty_state("No Azure DevOps activity loaded — the pass fills after the scan settles".into());
+            return empty_state(
+                "No Azure DevOps activity loaded — the pass fills after the scan settles".into(),
+            );
         };
         if !snapshot.available {
-            return empty_state("This repository has no Azure DevOps remote (or the PAT was rejected)".into());
+            return empty_state(
+                "This repository has no Azure DevOps remote (or the PAT was rejected)".into(),
+            );
         }
 
         let mut list = div()
@@ -124,7 +130,10 @@ impl Render for AzureView {
             }
         }
 
-        if snapshot.pipelines.is_empty() && snapshot.pulls.is_empty() && snapshot.work_items.is_empty() {
+        if snapshot.pipelines.is_empty()
+            && snapshot.pulls.is_empty()
+            && snapshot.work_items.is_empty()
+        {
             return empty_state("No activity on Azure DevOps".into());
         }
         list.into_any_element()
@@ -167,7 +176,11 @@ fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
                 let _ = devtools_core::terminal::open_folder(&url);
             }
         })
-        .child(crate::ui::icon(kind_icon, px(theme::icon_small()), kind_color))
+        .child(crate::ui::icon(
+            kind_icon,
+            px(theme::icon_small()),
+            kind_color,
+        ))
         .child(
             div()
                 .flex_1()

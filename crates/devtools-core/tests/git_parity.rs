@@ -20,7 +20,9 @@ fn git(args: &[&str]) -> Option<String> {
         .current_dir(&root)
         .output()
         .ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).to_string())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 fn require() -> Option<std::path::PathBuf> {
@@ -35,7 +37,10 @@ fn probe_matches_cli_status() {
 
     let porcelain = git(&["status", "--porcelain=v1", "--untracked-files=all"]).unwrap_or_default();
     let cli_count = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
-    assert_eq!(probe.modified_count as usize, cli_count, "modified count vs porcelain");
+    assert_eq!(
+        probe.modified_count as usize, cli_count,
+        "modified count vs porcelain"
+    );
 
     let branch = git(&["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
     assert_eq!(probe.branch_name.as_deref(), Some(branch.trim()));
@@ -53,7 +58,11 @@ fn change_snapshot_matches_cli_diffs() {
     // staged side vs `git diff --cached --name-only` (status staged entries are
     // a superset only when renames/binary diverge — for this repo they match)
     let cached = git(&["diff", "--cached", "--name-only"]).unwrap_or_default();
-    let cached_names: Vec<&str> = cached.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let cached_names: Vec<&str> = cached
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     for name in &cached_names {
         assert!(
             snapshot.staged_files.iter().any(|f| f.path == *name),
@@ -72,7 +81,10 @@ fn change_snapshot_matches_cli_diffs() {
     let untracked = git(&["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
     for name in untracked.lines().map(str::trim).filter(|l| !l.is_empty()) {
         assert!(
-            snapshot.unstaged_files.iter().any(|f| f.path == name && f.status_code == "?"),
+            snapshot
+                .unstaged_files
+                .iter()
+                .any(|f| f.path == name && f.status_code == "?"),
             "untracked missing from unstaged: {name}"
         );
     }
@@ -95,15 +107,18 @@ fn recent_commits_match_log() {
 fn branches_and_remotes_match_cli() {
     let Some(root) = require() else { return };
     let branches = read::branches(&root).expect("branches");
-    let local = git(&["for-each-ref", "--format=%(refname:short)", "refs/heads"])
-        .unwrap_or_default();
+    let local =
+        git(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]).unwrap_or_default();
     let local_names: Vec<String> = local.lines().map(str::trim).map(str::to_string).collect();
     let ours_locals: Vec<&str> = branches
         .iter()
         .filter(|b| b.kind == devtools_core::model::GitBranchKind::Local)
         .map(|b| b.name.as_str())
         .collect();
-    assert_eq!(ours_locals, local_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    assert_eq!(
+        ours_locals,
+        local_names.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+    );
 
     if read::default_remote_name(&root).is_some() {
         let remote = git(&["remote"]).unwrap_or_default();
@@ -121,7 +136,11 @@ fn commit_prompt_context_matches_cli() {
     // file list vs `git diff --cached --name-only`; a rename pair reads
     // "old -> new" and the CLI name-only line is the new side
     let cached = git(&["diff", "--cached", "--name-only"]).unwrap_or_default();
-    let cli_names: Vec<&str> = cached.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let cli_names: Vec<&str> = cached
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     let our_names: Vec<String> = files
         .iter()
         .map(|path| {
@@ -130,14 +149,25 @@ fn commit_prompt_context_matches_cli() {
                 .unwrap_or_else(|| path.clone())
         })
         .collect();
-    assert_eq!(our_names.len(), cli_names.len(), "staged count vs CLI: {files:?}");
+    assert_eq!(
+        our_names.len(),
+        cli_names.len(),
+        "staged count vs CLI: {files:?}"
+    );
     for (ours, cli) in our_names.iter().zip(&cli_names) {
         assert_eq!(ours, cli);
     }
     if cli_names.is_empty() {
-        assert!(patch.is_empty(), "no staged files but a non-empty patch head");
+        assert!(
+            patch.is_empty(),
+            "no staged files but a non-empty patch head"
+        );
     } else {
-        assert!(patch.contains("diff --git "), "patch head: {}", &patch[..patch.len().min(80)]);
+        assert!(
+            patch.contains("diff --git "),
+            "patch head: {}",
+            &patch[..patch.len().min(80)]
+        );
     }
 
     let log = git(&["log", "-10", "--pretty=%s"]).unwrap_or_default();

@@ -10,14 +10,15 @@ pub mod nuget;
 pub mod overview;
 pub mod pr_issues;
 pub mod repos;
+pub mod repos_proto;
 pub mod settings;
 pub mod window;
 
-pub use warpui_kit_core::{icon, A11y};
 pub use warpui_kit_core::tooltip::{tooltip_text, with_tooltip};
+pub use warpui_kit_core::{A11y, icon};
 
 use gpui::prelude::*;
-use gpui::{div, px, FontWeight, Styled};
+use gpui::{FontWeight, Styled, div, px};
 
 use crate::theme;
 
@@ -87,45 +88,41 @@ pub fn drawer_header(
     hint: &'static str,
     on_close: DrawerOnClose,
 ) -> gpui::AnyElement {
-    let mut header = div()
-        .flex()
-        .flex_col()
-        .gap_0p5()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
+    let mut header = div().flex().flex_col().gap_0p5().child(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(px(theme::font_title()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::TEXT)
+                    .child(title),
+            )
+            .child(div().flex_1())
+            .when_some(on_close, |row, close| {
+                row.child(
                     div()
-                        .text_size(px(theme::font_title()))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::TEXT)
-                        .child(title),
+                        .id("drawer-close")
+                        .a11y_button("Close drawer")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .size(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .hover(|s| s.bg(theme::HOVER))
+                        .on_click(move |_, window, cx| close(window, cx))
+                        .child(icon(
+                            "icons/icon-close.svg",
+                            px(theme::icon_small()),
+                            theme::TEXT_MUTED,
+                        )),
                 )
-                .child(div().flex_1())
-                .when_some(on_close, |row, close| {
-                    row.child(
-                        div()
-                            .id("drawer-close")
-                            .a11y_button("Close drawer")
-                            .cursor_pointer()
-                            .rounded_md()
-                            .size(px(24.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_click(move |_, window, cx| close(window, cx))
-                            .child(icon(
-                                "icons/icon-close.svg",
-                                px(theme::icon_small()),
-                                theme::TEXT_MUTED,
-                            )),
-                    )
-                }),
-        );
+            }),
+    );
     if !hint.is_empty() {
         header = header.child(
             div()
@@ -152,7 +149,10 @@ mod tests {
     #[test]
     fn short_branches_pass_through() {
         assert_eq!(trim_branch_label("main", BRANCH_LABEL_CHARS), "main");
-        assert_eq!(trim_branch_label("users/enginkirma", BRANCH_LABEL_CHARS), "users/enginkirma");
+        assert_eq!(
+            trim_branch_label("users/enginkirma", BRANCH_LABEL_CHARS),
+            "users/enginkirma"
+        );
     }
 
     #[test]

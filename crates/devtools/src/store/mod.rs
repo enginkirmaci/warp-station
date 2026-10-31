@@ -4,7 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WarpWorkspaceStatus, WandKind};
+use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus};
 use devtools_core::repo_store::{self, RepoEntry};
 use devtools_core::settings::{AppSettings, RepoSortMode, ReposSettings, SettingsService};
 use gpui::{App, Context};
@@ -23,20 +23,20 @@ pub struct Store {
     /// false = the mode's default "best-first" read, true = flipped. Seeded
     /// from the persisted direction when set, else the mode's default.
     pub sort_ascending: bool,
-    /// Session-only solo filter: while set, only that scan-root group's rows
+    /// Session-only solo filter: while set, only that folder group's rows
     /// are projected (the header's filter icon; Clear removes it).
     pub group_filter: Option<String>,
-    /// Collapsible scan-root groups on/off; seeded from the persisted
+    /// Collapsible folder groups on/off; seeded from the persisted
     /// setting (or the DEVTOOLS_GROUPS E2E hook), flipped by the Settings save.
     pub group_by_root: bool,
-    /// Folder levels the group headers sit at under each scan root
-    /// (1 = the roots themselves); seeded from the persisted setting,
-    /// flipped by the Settings save.
+    /// Folder levels the group headers stand at, counting up from the scan
+    /// roots' shared folder (1 = that folder); seeded from the persisted
+    /// setting, flipped by the Settings save.
     pub group_depth: usize,
-    /// Collapsed group keys (scan-root paths, or "other"); mirrored into
+    /// Collapsed group keys (folder paths, or "other"); mirrored into
     /// `ReposSettings::collapsed_groups` on every toggle.
     pub collapsed_groups: Option<Vec<String>>,
-    /// The table's rows: scan-root group headers interleaved with repo
+    /// The table's rows: folder group headers interleaved with repo
     /// indices (flat repo rows when grouping is off).
     pub projected: Vec<projection::ProjectedRow>,
     /// Bumped on every reproject; views use it to skip rescans when an
@@ -71,8 +71,10 @@ pub struct Store {
     /// GitHub activity per folder — feeds the PR/Issues tabs; the entry
     /// counts on the repos table come from these snapshots. Arc-shared so a
     /// view render clones a pointer, not the whole snapshot.
-    pub github_by_folder: std::collections::HashMap<String, Arc<devtools_core::github::GitHubSnapshot>>,
-    pub azure_by_folder: std::collections::HashMap<String, Arc<devtools_core::azure::AzureSnapshot>>,
+    pub github_by_folder:
+        std::collections::HashMap<String, Arc<devtools_core::github::GitHubSnapshot>>,
+    pub azure_by_folder:
+        std::collections::HashMap<String, Arc<devtools_core::azure::AzureSnapshot>>,
     pub github_details: Option<devtools_core::github::GitHubRepoDetails>,
 
     // ---- wand (warp-agent) state ----
@@ -153,7 +155,10 @@ impl Store {
 
     /// The probe seam: probes pass a scratch-backed service so a settings
     /// mutation never lands in the real ~/.devtools/settings.json.
-    pub fn with_settings(net: async_channel::Sender<NetCommand>, settings: Arc<SettingsService>) -> Self {
+    pub fn with_settings(
+        net: async_channel::Sender<NetCommand>,
+        settings: Arc<SettingsService>,
+    ) -> Self {
         let app_settings = settings.get();
         let cached = repo_store::load_cache(&repo_store::cache_path())
             .map(|c| c.repos.iter().map(repo_store::entry_from_cache).collect())
@@ -240,7 +245,9 @@ impl Store {
             .filter(|repo| !repo.is_archived())
             .map(|r| r.folder_path.clone())
             .collect();
-        let _ = store.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
+        let _ = store.net.send_blocking(NetCommand::ProbeAll {
+            folders: folders.clone(),
+        });
         store.kick_github_pass(&folders);
         store.kick_azure_pass(&folders);
         store.scanning = true;
@@ -256,17 +263,21 @@ impl Store {
                 .repos
                 .iter()
                 .find(|r| r.name.eq_ignore_ascii_case(&pattern))
-                .or_else(|| store.repos.get(pattern.parse::<usize>().unwrap_or(usize::MAX)))
-            {
-                store.selected_repo = Some(entry.folder_path.to_string_lossy().to_string());
-                let _ = store.net.send_blocking(NetCommand::LoadChanges {
-                    folder: entry.folder_path.clone(),
-                });
-                // companion hook: DEVTOOLS_TAB=<tab label> picks the open tab
-                if let Ok(tab) = std::env::var("DEVTOOLS_TAB") {
-                    store.selected_tab = BottomBarTab::parse(&tab);
-                }
+                .or_else(|| {
+                    store
+                        .repos
+                        .get(pattern.parse::<usize>().unwrap_or(usize::MAX))
+                })
+        {
+            store.selected_repo = Some(entry.folder_path.to_string_lossy().to_string());
+            let _ = store.net.send_blocking(NetCommand::LoadChanges {
+                folder: entry.folder_path.clone(),
+            });
+            // companion hook: DEVTOOLS_TAB=<tab label> picks the open tab
+            if let Ok(tab) = std::env::var("DEVTOOLS_TAB") {
+                store.selected_tab = BottomBarTab::parse(&tab);
             }
+        }
         // Notes stay closed until the user asks for them (titlebar button,
         // repo-row note icon, tools menu, or a global-search hit).
         store
@@ -330,7 +341,9 @@ impl Store {
                 watch_folder: section.watch_folder,
                 filter: section.nuget_package_filter,
                 copy_delay: std::time::Duration::from_millis(u64::from(section.file_copy_delay_ms)),
-                count_window: std::time::Duration::from_secs(u64::from(section.count_reset_interval_seconds)),
+                count_window: std::time::Duration::from_secs(u64::from(
+                    section.count_reset_interval_seconds,
+                )),
             },
         });
     }
@@ -349,7 +362,9 @@ impl Store {
         self.update_settings(|s| {
             s.nuget_local.watch_folder = (!trimmed.is_empty()).then(|| trimmed.clone());
         });
-        let _ = self.net.send_blocking(NetCommand::NugetSetFolder { folder: trimmed });
+        let _ = self
+            .net
+            .send_blocking(NetCommand::NugetSetFolder { folder: trimmed });
     }
 
     pub fn kick_scan(&mut self, settings: &AppSettings) {
@@ -380,12 +395,17 @@ impl Store {
                     .filter(|repo| !repo.is_archived())
                     .map(|r| r.folder_path.clone())
                     .collect();
-                let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: folders.clone() });
+                let _ = self.net.send_blocking(NetCommand::ProbeAll {
+                    folders: folders.clone(),
+                });
                 self.kick_github_pass(&folders);
                 self.kick_azure_pass(&folders);
                 cx.notify();
             }
-            UiEvent::StatusSettled { probes, after_fetch } => {
+            UiEvent::StatusSettled {
+                probes,
+                after_fetch,
+            } => {
                 for probe in &probes {
                     if let Some(entry) = self
                         .repos
@@ -413,7 +433,12 @@ impl Store {
                 self.deep_scan_result = Some(found);
                 cx.notify();
             }
-            UiEvent::CloneSettled { parent_dir, name, result, .. } => {
+            UiEvent::CloneSettled {
+                parent_dir,
+                name,
+                result,
+                ..
+            } => {
                 self.clone_result = Some((parent_dir, name, result));
                 cx.notify();
             }
@@ -421,7 +446,13 @@ impl Store {
                 self.folder_pick_result = path;
                 cx.notify();
             }
-            UiEvent::ChangesLoaded { folder, snapshot, branches, recent, unpushed } => {
+            UiEvent::ChangesLoaded {
+                folder,
+                snapshot,
+                branches,
+                recent,
+                unpushed,
+            } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.set_changes(snapshot);
                     self.changes_loaded_for = Some(folder);
@@ -433,13 +464,22 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::ChangePatchLoaded { folder, path, staged, patch } => {
+            UiEvent::ChangePatchLoaded {
+                folder,
+                path,
+                staged,
+                patch,
+            } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.change_patch_result = Some((path, staged, patch));
                 }
                 cx.notify();
             }
-            UiEvent::HistoryLoaded { folder, commits, unpushed } => {
+            UiEvent::HistoryLoaded {
+                folder,
+                commits,
+                unpushed,
+            } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.set_history(commits);
                     self.unpushed = unpushed;
@@ -478,7 +518,11 @@ impl Store {
                 self.models = models;
                 cx.notify();
             }
-            UiEvent::TemplateLoaded { id, content, customized } => {
+            UiEvent::TemplateLoaded {
+                id,
+                content,
+                customized,
+            } => {
                 self.template_loaded = Some((id, content, customized));
                 cx.notify();
             }
@@ -581,13 +625,24 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::CommitFilePatchLoaded { folder, hash, path, patch } => {
+            UiEvent::CommitFilePatchLoaded {
+                folder,
+                hash,
+                path,
+                patch,
+            } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.commit_file_patch = Some((format!("{hash}|{path}"), patch));
                 }
                 cx.notify();
             }
-            UiEvent::GitDone { folder, label, error, commit_hash, detail } => {
+            UiEvent::GitDone {
+                folder,
+                label,
+                error,
+                commit_hash,
+                detail,
+            } => {
                 self.git_busy = false;
                 let name = self
                     .repos
@@ -605,33 +660,29 @@ impl Store {
                     ));
                 } else {
                     self.last_git_error = None;
-                    self.notify_success(
-                        match (label, commit_hash.as_deref()) {
-                            ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
-                            ("fetch", _) => format!("Fetched {name}"),
-                            ("pull", _) => format!("Pulled {name}"),
-                            ("push", _) => format!("Pushed {name}"),
-                            ("sync", _) => format!("Synced {name}"),
-                            ("publish", _) => format!(
-                                "Published {} — it tracks the remote",
-                                detail.as_deref().unwrap_or(&name)
-                            ),
-                            ("checkout", _) => format!(
-                                "Checked out {} in {name}",
-                                detail.as_deref().unwrap_or(&name)
-                            ),
-                            ("create branch", _) => format!(
-                                "Created {} in {name}",
-                                detail.as_deref().unwrap_or(&name)
-                            ),
-                            ("delete branch", _) => format!(
-                                "Deleted {} in {name}",
-                                detail.as_deref().unwrap_or(&name)
-                            ),
-                            ("revert", _) => format!("Reverted in {name}"),
-                            _ => format!("{label} ok"),
-                        },
-                    );
+                    self.notify_success(match (label, commit_hash.as_deref()) {
+                        ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
+                        ("fetch", _) => format!("Fetched {name}"),
+                        ("pull", _) => format!("Pulled {name}"),
+                        ("push", _) => format!("Pushed {name}"),
+                        ("sync", _) => format!("Synced {name}"),
+                        ("publish", _) => format!(
+                            "Published {} — it tracks the remote",
+                            detail.as_deref().unwrap_or(&name)
+                        ),
+                        ("checkout", _) => format!(
+                            "Checked out {} in {name}",
+                            detail.as_deref().unwrap_or(&name)
+                        ),
+                        ("create branch", _) => {
+                            format!("Created {} in {name}", detail.as_deref().unwrap_or(&name))
+                        }
+                        ("delete branch", _) => {
+                            format!("Deleted {} in {name}", detail.as_deref().unwrap_or(&name))
+                        }
+                        ("revert", _) => format!("Reverted in {name}"),
+                        _ => format!("{label} ok"),
+                    });
                     if let Some(hash) = commit_hash {
                         tracing::info!("committed {hash} in {folder}");
                     }
@@ -723,8 +774,9 @@ impl Store {
         if folders.is_empty() {
             return;
         }
-        let summaries_dir = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path)
-            .join("Summaries");
+        let summaries_dir =
+            devtools_core::notes::resolve_store_root(&settings.general.notes_store_path)
+                .join("Summaries");
         let day = chrono::Local::now().date_naive() - chrono::Duration::days(1);
         self.summary_busy = true;
         let id = format!("summary-{}", self.save_generation);
@@ -757,7 +809,10 @@ impl Store {
     /// One prompt-template op from the Settings card; the settled state
     /// returns as [UiEvent::TemplateLoaded].
     pub fn template_io(&mut self, id: &str, op: TemplateOp) {
-        let _ = self.net.send_blocking(NetCommand::TemplateIo { id: id.to_string(), op });
+        let _ = self.net.send_blocking(NetCommand::TemplateIo {
+            id: id.to_string(),
+            op,
+        });
     }
 
     /// Every one-shot wand (commit message, README, summary) runs on the
@@ -779,10 +834,14 @@ impl Store {
         if self.wand_busy.is_some() {
             return;
         }
-        let Some(folder) = self.selected_repo.clone() else { return };
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
         let settings = self.settings();
         if !settings.warp_agent.enable_warp_agent {
-            self.notify_error("Could not generate — warp-agent integration is disabled in settings");
+            self.notify_error(
+                "Could not generate — warp-agent integration is disabled in settings",
+            );
             cx.notify();
             return;
         }
@@ -829,7 +888,9 @@ impl Store {
     /// Sends one mutation for the selected repo and marks the rail busy; the
     /// net thread settles the reload.
     pub fn run_git(&mut self, action: GitAction, cx: &mut Context<Self>) {
-        let Some(folder) = self.selected_repo.clone() else { return };
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
         self.git_busy = true;
         self.last_git_error = None;
         let _ = self.net.send_blocking(NetCommand::Git {
@@ -847,7 +908,11 @@ impl Store {
     /// Adopts scan results into the tracked list (the Add-Repositories
     /// dialog's Add button): new folders append; known folders keep their
     /// tags. Persists immediately and re-probes the new arrivals.
-    pub fn register_repos(&mut self, found: &[devtools_core::scan::ScannedRepo], cx: &mut Context<Self>) {
+    pub fn register_repos(
+        &mut self,
+        found: &[devtools_core::scan::ScannedRepo],
+        cx: &mut Context<Self>,
+    ) {
         let previous: Vec<RepoEntry> = self.repos.clone();
         let (mut merged, _) = repo_store::merge_scan(&previous, found);
         // merge_scan drops repos absent from `found`; the dialog adds to the
@@ -878,7 +943,10 @@ impl Store {
                 let roots = s.repos.repo_scan_folders.get_or_insert_default();
                 for folder in &new_folders {
                     let folder = folder.to_string_lossy().to_string();
-                    if !roots.iter().any(|f| devtools_core::paths::same_folder_text(f, &folder)) {
+                    if !roots
+                        .iter()
+                        .any(|f| devtools_core::paths::same_folder_text(f, &folder))
+                    {
                         roots.push(folder);
                     }
                 }
@@ -889,7 +957,9 @@ impl Store {
             tracing::warn!("could not save repo cache: {err}");
         }
         if !new_folders.is_empty() {
-            let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: new_folders });
+            let _ = self.net.send_blocking(NetCommand::ProbeAll {
+                folders: new_folders,
+            });
         }
         cx.notify();
     }
@@ -900,7 +970,10 @@ impl Store {
     pub fn adopt_clone(&mut self, parent_dir: &str, name: &str, cx: &mut Context<Self>) {
         let folder = std::path::PathBuf::from(parent_dir).join(name);
         if !folder.join(".git").is_dir() {
-            tracing::warn!("clone destination missing after clone: {}", folder.display());
+            tracing::warn!(
+                "clone destination missing after clone: {}",
+                folder.display()
+            );
             self.notify_error("The clone landed but could not be added to the list");
             cx.notify();
             return;
@@ -908,7 +981,10 @@ impl Store {
         let folder_str = folder.to_string_lossy().to_string();
         self.update_settings(|s| {
             if let Some(roots) = &mut s.repos.repo_scan_folders {
-                if !roots.iter().any(|f| devtools_core::paths::same_folder_text(f, &folder_str)) {
+                if !roots
+                    .iter()
+                    .any(|f| devtools_core::paths::same_folder_text(f, &folder_str))
+                {
                     roots.push(folder_str.clone());
                     roots.sort();
                 }
@@ -1020,13 +1096,19 @@ impl Store {
     /// there (index.lock conflict avoidance) — then re-arm into the future
     /// (an interval) or clear (the launch one-shot).
     pub fn check_auto_fetch(&mut self, cx: &mut Context<Self>) {
-        let Some(due) = self.next_auto_fetch else { return };
+        let Some(due) = self.next_auto_fetch else {
+            return;
+        };
         if std::time::Instant::now() < due {
             return;
         }
         // the setting may have been turned off since this was armed
         let interval = Self::auto_fetch_interval(&self.settings().repos);
-        let gated = self.settings().repos.auto_fetch_only_focused.unwrap_or(false);
+        let gated = self
+            .settings()
+            .repos
+            .auto_fetch_only_focused
+            .unwrap_or(false);
         if interval.is_none() && !gated {
             self.next_auto_fetch = None;
             return;
@@ -1073,7 +1155,12 @@ impl Store {
 
     /// A sortable header click: the kit's cycle drives both the mode and the
     /// direction, so both land together.
-    pub fn set_sort_direction(&mut self, mode: RepoSortMode, ascending: bool, cx: &mut Context<Self>) {
+    pub fn set_sort_direction(
+        &mut self,
+        mode: RepoSortMode,
+        ascending: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.sort_mode = mode;
         self.sort_ascending = ascending;
         self.update_settings(|s| {
@@ -1084,7 +1171,7 @@ impl Store {
         cx.notify();
     }
 
-    /// A group header's chevron: collapses/expands that scan-root section and
+    /// A group header's chevron: collapses/expands that folder section and
     /// persists the key (absence-meaningful, like sort_ascending).
     pub fn toggle_group_collapse(&mut self, key: &str, cx: &mut Context<Self>) {
         let keys = self.collapsed_groups.get_or_insert_with(Vec::new);
@@ -1115,7 +1202,7 @@ impl Store {
     }
 
     /// The Settings save path: flips grouping and re-projects. No rescan —
-    /// the scan roots themselves did not change, only their presentation.
+    /// the repos themselves did not change, only their presentation.
     pub fn set_group_by_root(&mut self, on: bool) {
         if self.group_by_root == on {
             return;
@@ -1124,8 +1211,8 @@ impl Store {
         self.reproject();
     }
 
-    /// The Settings save path: moves the group headers to another folder
-    /// level under each root and re-projects. No rescan, like the toggle —
+    /// The Settings save path: moves the group headers one folder further
+    /// up (or down) and re-projects. No rescan, like the toggle —
     /// presentation only, so stale persisted collapse keys (from another
     /// depth) simply stop matching and their groups start expanded.
     pub fn set_group_depth(&mut self, depth: usize) {
@@ -1139,7 +1226,11 @@ impl Store {
 
     /// Checks/unchecks one tag-filter chip (OR semantics across the set).
     pub fn toggle_tag_filter(&mut self, tag: &str, cx: &mut Context<Self>) {
-        match self.tag_filters.iter().position(|t| t.eq_ignore_ascii_case(tag)) {
+        match self
+            .tag_filters
+            .iter()
+            .position(|t| t.eq_ignore_ascii_case(tag))
+        {
             Some(ix) => {
                 self.tag_filters.remove(ix);
             }
@@ -1222,9 +1313,11 @@ impl Store {
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {
-        self.selected_repo
-            .as_ref()
-            .and_then(|folder| self.repos.iter().find(|r| r.folder_path.to_string_lossy() == *folder))
+        self.selected_repo.as_ref().and_then(|folder| {
+            self.repos
+                .iter()
+                .find(|r| r.folder_path.to_string_lossy() == *folder)
+        })
     }
 
     /// Replaces the whole list (test setup; later also the Add-Repositories
@@ -1246,9 +1339,12 @@ impl Store {
         }
     }
 
-    /// True when the row renders a scan-root group header (never selectable).
+    /// True when the row renders a folder group header (never selectable).
     pub fn row_is_group(&self, row_ix: usize) -> bool {
-        matches!(self.projected.get(row_ix), Some(projection::ProjectedRow::Group { .. }))
+        matches!(
+            self.projected.get(row_ix),
+            Some(projection::ProjectedRow::Group { .. })
+        )
     }
 
     fn reproject(&mut self) {
@@ -1256,14 +1352,14 @@ impl Store {
         // projection result can be assigned back without borrow fights
         let app_settings = self.settings();
         let solo = self.group_filter.clone();
-        let collapsed: std::collections::HashSet<String> = self
-            .collapsed_groups
-            .iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let collapsed: std::collections::HashSet<String> =
+            self.collapsed_groups.iter().flatten().cloned().collect();
         let grouping = self.group_by_root.then(|| projection::Grouping {
-            roots: app_settings.repos.repo_scan_folders.as_deref().unwrap_or(&[]),
+            roots: app_settings
+                .repos
+                .repo_scan_folders
+                .as_deref()
+                .unwrap_or(&[]),
             depth: self.group_depth,
             collapsed: &collapsed,
             solo: solo.as_deref(),
@@ -1337,20 +1433,31 @@ impl Store {
     /// The bar rail's refresh: re-probe the repo, reload its changes and an
     /// open history view.
     pub fn refresh_panel(&mut self, cx: &mut Context<Self>) {
-        let Some(folder) = self.selected_repo.clone() else { return };
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
         let path = std::path::PathBuf::from(&folder);
-        let _ = self.net.send_blocking(NetCommand::ProbeAll { folders: vec![path.clone()] });
-        let _ = self.net.send_blocking(NetCommand::LoadChanges { folder: path.clone() });
+        let _ = self.net.send_blocking(NetCommand::ProbeAll {
+            folders: vec![path.clone()],
+        });
+        let _ = self.net.send_blocking(NetCommand::LoadChanges {
+            folder: path.clone(),
+        });
         if !self.history.is_empty() {
-            let _ = self.net.send_blocking(NetCommand::LoadHistory { folder: path });
-        }        cx.notify();
+            let _ = self
+                .net
+                .send_blocking(NetCommand::LoadHistory { folder: path });
+        }
+        cx.notify();
     }
 
     /// The bar kebab's "Remove from repositories": drops the repo's folder
     /// from the persisted scan roots (disk untouched), rescans so the row
     /// leaves the list, and closes the bar.
     pub fn remove_from_repositories(&mut self, cx: &mut Context<Self>) {
-        let Some(folder) = self.selected_repo.clone() else { return };
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
         let name = self
             .repos
             .iter()
@@ -1462,8 +1569,15 @@ impl Store {
 
 #[derive(Clone, Debug)]
 pub enum GlobalSearchHit {
-    Repo { name: String, folder: String },
-    Note { title: String, excerpt: String, path: std::path::PathBuf },
+    Repo {
+        name: String,
+        folder: String,
+    },
+    Note {
+        title: String,
+        excerpt: String,
+        path: std::path::PathBuf,
+    },
 }
 
 impl Store {
@@ -1489,7 +1603,12 @@ impl Store {
             .repos
             .iter()
             .filter(|repo| !repo.is_archived())
-            .map(|repo| (repo.name.clone(), repo.folder_path.to_string_lossy().to_string()))
+            .map(|repo| {
+                (
+                    repo.name.clone(),
+                    repo.folder_path.to_string_lossy().to_string(),
+                )
+            })
             .collect();
         let notes_root =
             devtools_core::notes::resolve_store_root(&self.settings().general.notes_store_path);
@@ -1540,9 +1659,7 @@ impl Store {
             .unwrap_or_else(|| "rg".into());
         let Some(rg_exe) = devtools_core::exe::locate(&rg_setting) else {
             self.code_searching = false;
-            tracing::warn!(
-                "code search enabled but ripgrep could not be located ({rg_setting})"
-            );
+            tracing::warn!("code search enabled but ripgrep could not be located ({rg_setting})");
             return;
         };
         // captured now: the net thread holds no repo state, and archived
@@ -1579,7 +1696,9 @@ fn global_search_hits(
     let needle = term.to_lowercase();
     let mut hits: Vec<GlobalSearchHit> = repos
         .iter()
-        .filter(|(name, folder)| name.to_lowercase().contains(&needle) || folder.to_lowercase().contains(&needle))
+        .filter(|(name, folder)| {
+            name.to_lowercase().contains(&needle) || folder.to_lowercase().contains(&needle)
+        })
         .take(REPO_CAP)
         .map(|(name, folder)| GlobalSearchHit::Repo {
             name: name.clone(),
@@ -1716,6 +1835,9 @@ mod tests {
 
         settings.opencode.enable_opencode = true;
         settings.warp_agent.enable_warp_agent = false;
-        assert!(!ai_enabled(&settings), "warp-agent off turns the AI surface off");
+        assert!(
+            !ai_enabled(&settings),
+            "warp-agent off turns the AI surface off"
+        );
     }
 }

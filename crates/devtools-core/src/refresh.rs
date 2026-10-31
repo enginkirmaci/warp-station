@@ -17,7 +17,12 @@ pub struct RefreshCoalescer {
 
 impl Default for RefreshCoalescer {
     fn default() -> Self {
-        Self { state: Arc::new(Mutex::new(State { running: false, pending: false })) }
+        Self {
+            state: Arc::new(Mutex::new(State {
+                running: false,
+                pending: false,
+            })),
+        }
     }
 }
 

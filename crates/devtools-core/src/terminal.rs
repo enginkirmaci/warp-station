@@ -33,7 +33,11 @@ fn ps_single_quote(text: &str) -> String {
 fn ps_command_line(argv: &[String]) -> String {
     argv.iter()
         .map(|arg| {
-            if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "._-./:\\".contains(c)) {
+            if !arg.is_empty()
+                && arg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-./:\\".contains(c))
+            {
                 arg.clone()
             } else {
                 ps_single_quote(arg)
@@ -47,7 +51,11 @@ fn powershell_argv(dir: &str, cmd: &[String]) -> Vec<String> {
     vec![
         "-NoExit".to_string(),
         "-Command".to_string(),
-        format!("Set-Location -LiteralPath {}; {}", ps_single_quote(dir), ps_command_line(cmd)),
+        format!(
+            "Set-Location -LiteralPath {}; {}",
+            ps_single_quote(dir),
+            ps_command_line(cmd)
+        ),
     ]
 }
 
@@ -72,7 +80,9 @@ pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String>
     let configured = ide_executable.trim();
     if !configured.is_empty() {
         let Some(path) = exe::locate(configured) else {
-            return Err(format!("'{configured}' not found on PATH or in the user install folders"));
+            return Err(format!(
+                "'{configured}' not found on PATH or in the user install folders"
+            ));
         };
         return std::process::Command::new(&path)
             .arg(solution)
@@ -94,7 +104,9 @@ pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String>
     {
         let exe_name = "rider";
         let Some(path) = exe::locate(exe_name) else {
-            return Err(format!("'{exe_name}' not found on PATH or in the user install folders"));
+            return Err(format!(
+                "'{exe_name}' not found on PATH or in the user install folders"
+            ));
         };
         std::process::Command::new(&path)
             .arg(solution)
@@ -106,7 +118,11 @@ pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String>
 
 /// Opens a repo folder in VS Code, with the configured profile when set.
 pub fn open_in_vscode(folder: &str, vscode_executable: &str, profile: &str) -> Result<(), String> {
-    let Some(path) = exe::locate(if vscode_executable.trim().is_empty() { "code" } else { vscode_executable }) else {
+    let Some(path) = exe::locate(if vscode_executable.trim().is_empty() {
+        "code"
+    } else {
+        vscode_executable
+    }) else {
         return Err("VS Code executable not found".into());
     };
     let mut command = std::process::Command::new(&path);
@@ -129,15 +145,31 @@ pub fn open_in_vscode(folder: &str, vscode_executable: &str, profile: &str) -> R
 /// probes can assert the decision without spawning anything.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CodeOpenPlan {
-    VsCode { executable: PathBuf, profile: String, file: String, line: u32 },
-    SystemDefault { file: String },
+    VsCode {
+        executable: PathBuf,
+        profile: String,
+        file: String,
+        line: u32,
+    },
+    SystemDefault {
+        file: String,
+    },
 }
 
 /// Decides how a code-search hit opens without launching anything: an empty
 /// configured name falls back to `code`, and an unresolvable one to the
 /// system default.
-pub fn plan_code_open(file: &str, line: u32, vscode_executable: &str, profile: &str) -> CodeOpenPlan {
-    let configured = if vscode_executable.trim().is_empty() { "code" } else { vscode_executable };
+pub fn plan_code_open(
+    file: &str,
+    line: u32,
+    vscode_executable: &str,
+    profile: &str,
+) -> CodeOpenPlan {
+    let configured = if vscode_executable.trim().is_empty() {
+        "code"
+    } else {
+        vscode_executable
+    };
     match exe::locate(configured) {
         Some(executable) => CodeOpenPlan::VsCode {
             executable,
@@ -145,7 +177,9 @@ pub fn plan_code_open(file: &str, line: u32, vscode_executable: &str, profile: &
             file: file.to_string(),
             line,
         },
-        None => CodeOpenPlan::SystemDefault { file: file.to_string() },
+        None => CodeOpenPlan::SystemDefault {
+            file: file.to_string(),
+        },
     }
 }
 
@@ -154,7 +188,12 @@ pub fn plan_code_open(file: &str, line: u32, vscode_executable: &str, profile: &
 /// desktop's default handler.
 pub fn open_code_plan(plan: &CodeOpenPlan) -> Result<(), String> {
     match plan {
-        CodeOpenPlan::VsCode { executable, profile, file, line } => {
+        CodeOpenPlan::VsCode {
+            executable,
+            profile,
+            file,
+            line,
+        } => {
             let mut command = std::process::Command::new(executable);
             if !profile.is_empty() {
                 command.args(["--profile", profile]);
@@ -175,7 +214,12 @@ pub fn open_code_plan(plan: &CodeOpenPlan) -> Result<(), String> {
 
 /// Opens a file at its 1-based line in VS Code (the configured profile), or
 /// with the system default editor when the executable does not resolve.
-pub fn open_in_vscode_at(file: &str, line: u32, vscode_executable: &str, profile: &str) -> Result<(), String> {
+pub fn open_in_vscode_at(
+    file: &str,
+    line: u32,
+    vscode_executable: &str,
+    profile: &str,
+) -> Result<(), String> {
     open_code_plan(&plan_code_open(file, line, vscode_executable, profile))
 }
 
@@ -183,7 +227,11 @@ pub fn open_in_vscode_at(file: &str, line: u32, vscode_executable: &str, profile
 /// separator, .exe stripped, lowercased on Windows where configs arrive as
 /// full paths in any casing (WT.EXE, C:\...\WindowsTerminal.exe).
 fn terminal_base(configured: &str) -> String {
-    let base = configured.trim().rsplit(['/', '\\']).next().unwrap_or_default();
+    let base = configured
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default();
     #[cfg(windows)]
     let base = base.to_lowercase();
     base.trim_end_matches(".exe").to_string()
@@ -203,7 +251,10 @@ pub fn open_terminal(folder: &str, terminal_executable: &str) -> Result<(), Stri
                 if Path::new(folder).exists() {
                     command.current_dir(folder);
                 }
-                return command.spawn().map(|_| ()).map_err(|err| format!("{}: {err}", path.display()));
+                return command
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|err| format!("{}: {err}", path.display()));
             }
         }
         // configured-but-missing: fall through to probing only when unresolved
@@ -215,7 +266,10 @@ pub fn open_terminal(folder: &str, terminal_executable: &str) -> Result<(), Stri
             if Path::new(folder).exists() {
                 command.current_dir(folder);
             }
-            return command.spawn().map(|_| ()).map_err(|err| format!("{}: {err}", path.display()));
+            return command
+                .spawn()
+                .map(|_| ())
+                .map_err(|err| format!("{}: {err}", path.display()));
         }
     }
     Err("No terminal emulator found (tried the configured one plus the common ones)".into())
@@ -229,17 +283,34 @@ fn probed_terminals() -> &'static [&'static str] {
 
 #[cfg(not(windows))]
 fn probed_terminals() -> &'static [&'static str] {
-    &["alacritty", "ghostty", "foot", "kitty", "wezterm", "gnome-terminal", "konsole", "xterm"]
+    &[
+        "alacritty",
+        "ghostty",
+        "foot",
+        "kitty",
+        "wezterm",
+        "gnome-terminal",
+        "konsole",
+        "xterm",
+    ]
 }
 
 /// Runs a command (opencode, a shell, …) inside a terminal at the folder.
-pub fn launch_in_terminal(folder: &str, command: &str, terminal_executable: &str) -> Result<(), String> {
+pub fn launch_in_terminal(
+    folder: &str,
+    command: &str,
+    terminal_executable: &str,
+) -> Result<(), String> {
     launch_argv_in_terminal(folder, &[command.to_string()], terminal_executable)
 }
 
 /// Runs a full argv (e.g. `opencode --model <id>`) inside a terminal at the
 /// folder — the quick-launch path, where the command carries arguments.
-pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executable: &str) -> Result<(), String> {
+pub fn launch_argv_in_terminal(
+    folder: &str,
+    argv: &[String],
+    terminal_executable: &str,
+) -> Result<(), String> {
     if argv.is_empty() {
         return Err("nothing to launch".into());
     }
@@ -249,10 +320,16 @@ pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executabl
         // command runs under `cmd /k` — a direct commandline after `--` fails
         // with 0x80070002 for npm-style CLIs like opencode
         ("wt", |dir, cmd| {
-            vec!["-d".to_string(), dir.to_string(), "--".to_string(), "cmd".to_string(), "/k".to_string()]
-                .into_iter()
-                .chain(cmd.iter().cloned())
-                .collect()
+            vec![
+                "-d".to_string(),
+                dir.to_string(),
+                "--".to_string(),
+                "cmd".to_string(),
+                "/k".to_string(),
+            ]
+            .into_iter()
+            .chain(cmd.iter().cloned())
+            .collect()
         }),
         ("pwsh", powershell_argv),
         ("powershell", powershell_argv),
@@ -299,7 +376,10 @@ pub fn launch_argv_in_terminal(folder: &str, argv: &[String], terminal_executabl
                 .collect()
         }),
         ("xterm", |_dir, cmd| {
-            vec!["-e".into()].into_iter().chain(cmd.iter().cloned()).collect()
+            vec!["-e".into()]
+                .into_iter()
+                .chain(cmd.iter().cloned())
+                .collect()
         }),
     ];
     // the configured terminal wins when it names a known shape
@@ -338,7 +418,10 @@ fn apply_open_dir(command: &mut std::process::Command, terminal: &str, folder: &
         }
         "pwsh" | "powershell" => {
             command.args(["-NoExit", "-Command"]);
-            command.arg(format!("Set-Location -LiteralPath {}", ps_single_quote(folder)));
+            command.arg(format!(
+                "Set-Location -LiteralPath {}",
+                ps_single_quote(folder)
+            ));
         }
         "alacritty" => {
             command.args(["--working-directory", folder]);

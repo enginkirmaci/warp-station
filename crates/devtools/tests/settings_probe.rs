@@ -4,8 +4,8 @@
 use devtools::net::{NetCommand, TemplateOp};
 use devtools::store::Store;
 use devtools::ui::settings::SettingsPage;
-use gpui::prelude::*;
 use gpui::TestAppContext;
+use gpui::prelude::*;
 
 /// Serializes the two HOME-swapping probes against each other (the plain
 /// draws test never writes and tolerates either HOME).
@@ -18,12 +18,19 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.update(|_, _| devtools_core::settings::SettingsService::open().get().repos.max_scan_depth) >= 1);
+    assert!(
+        cx.update(|_, _| devtools_core::settings::SettingsService::open()
+            .get()
+            .repos
+            .max_scan_depth)
+            >= 1
+    );
 }
 
 /// The OpenCode filtered picker: the pseudo "(server default)" entry the catalog
@@ -35,7 +42,10 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("devtools-model-picker-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "devtools-model-picker-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".devtools")).unwrap();
     // SAFETY: process-global env; serialized against the sibling HOME probes
@@ -51,12 +61,15 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(3000.)), |window, cx| {
-        SettingsPage::new(store.clone(), window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(3000.)),
+        |window, cx| SettingsPage::new(store.clone(), window, cx),
+    );
     let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
     wcx.run_until_parked();
     store.update(&mut wcx, |s, _| {
@@ -69,15 +82,26 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     wcx.update(|window, cx| drop(window.draw(cx)));
 
     click(&mut wcx, "model-trigger-Default");
-    assert!(wcx.debug_bounds("model-panel-Default").is_some(), "the picker opens");
-    assert!(wcx.debug_bounds("model-filter-Default").is_some(), "the filter renders inside the picker");
-    assert!(wcx.debug_bounds("model-row-Default-opencode/alpha").is_some());
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/model-199").is_none(),
+        wcx.debug_bounds("model-panel-Default").is_some(),
+        "the picker opens"
+    );
+    assert!(
+        wcx.debug_bounds("model-filter-Default").is_some(),
+        "the filter renders inside the picker"
+    );
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/alpha")
+            .is_some()
+    );
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/model-199")
+            .is_none(),
         "the virtualized list only lays out visible rows"
     );
     assert!(
-        wcx.debug_bounds("model-row-Default-(server default)").is_none(),
+        wcx.debug_bounds("model-row-Default-(server default)")
+            .is_none(),
         "the catalog sentinel never becomes a row"
     );
 
@@ -85,19 +109,31 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     wcx.simulate_input("beta");
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    assert!(wcx.debug_bounds("model-row-Default-other/beta").is_some(), "the filter keeps a match");
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/alpha").is_none(),
+        wcx.debug_bounds("model-row-Default-other/beta").is_some(),
+        "the filter keeps a match"
+    );
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/alpha")
+            .is_none(),
         "the filter drops non-matches"
     );
 
     click(&mut wcx, "model-row-Default-other/beta");
-    assert!(wcx.debug_bounds("model-panel-Default").is_none(), "a pick closes the picker");
+    assert!(
+        wcx.debug_bounds("model-panel-Default").is_none(),
+        "a pick closes the picker"
+    );
 
     click(&mut wcx, "model-trigger-Default");
-    assert!(wcx.debug_bounds("model-row-Default-opencode/alpha").is_some(), "reopening clears the filter");
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/model-199").is_none(),
+        wcx.debug_bounds("model-row-Default-opencode/alpha")
+            .is_some(),
+        "reopening clears the filter"
+    );
+    assert!(
+        wcx.debug_bounds("model-row-Default-opencode/model-199")
+            .is_none(),
         "the virtualized list still only lays out visible rows"
     );
     wcx.simulate_click(
@@ -109,7 +145,10 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     );
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    assert!(wcx.debug_bounds("model-panel-Default").is_none(), "an outside click dismisses the picker");
+    assert!(
+        wcx.debug_bounds("model-panel-Default").is_none(),
+        "an outside click dismisses the picker"
+    );
 
     let _ = std::fs::remove_dir_all(&home);
 }
@@ -125,7 +164,8 @@ fn auto_fetch_row_picks_and_persists(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("devtools-auto-fetch-probe-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("devtools-auto-fetch-probe-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".devtools")).unwrap();
     // SAFETY: process-global env; set before the store reads settings; the
@@ -142,18 +182,29 @@ fn auto_fetch_row_picks_and_persists(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
-        SettingsPage::new(store, window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2400.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
     let cx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.debug_bounds("auto-fetch-row").is_some(), "the auto fetch row renders");
-    for option in ["auto-fetch-off", "auto-fetch-15", "auto-fetch-30", "auto-fetch-60"] {
+    assert!(
+        cx.debug_bounds("auto-fetch-row").is_some(),
+        "the auto fetch row renders"
+    );
+    for option in [
+        "auto-fetch-off",
+        "auto-fetch-15",
+        "auto-fetch-30",
+        "auto-fetch-60",
+    ] {
         assert!(cx.debug_bounds(option).is_some(), "{option} renders");
     }
 
@@ -198,9 +249,10 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
 
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2600.)), |window, cx| {
-        SettingsPage::new(store.clone(), window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2600.)),
+        |window, cx| SettingsPage::new(store.clone(), window, cx),
+    );
     let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
@@ -217,21 +269,37 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
 
     // a body modified straight on disk badges once a fresh page re-opens
     std::fs::create_dir_all(home.join(".devtools").join("assistant")).unwrap();
-    std::fs::write(home.join(".devtools").join("assistant").join("readme.md"), "custom {repo_name}")
-        .expect("seed a customized body");
-    let reopened = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2600.)), |window, cx| {
-        SettingsPage::new(store.clone(), window, cx)
-    });
+    std::fs::write(
+        home.join(".devtools").join("assistant").join("readme.md"),
+        "custom {repo_name}",
+    )
+    .expect("seed a customized body");
+    let reopened = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2600.)),
+        |window, cx| SettingsPage::new(store.clone(), window, cx),
+    );
     let mut wcx = gpui::VisualTestContext::from_window(reopened.into(), cx);
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    assert!(wcx.debug_bounds("template-customized-readme").is_some(), "disk edit badges");
-    assert!(wcx.debug_bounds("template-customized-commit-message").is_none());
+    assert!(
+        wcx.debug_bounds("template-customized-readme").is_some(),
+        "disk edit badges"
+    );
+    assert!(
+        wcx.debug_bounds("template-customized-commit-message")
+            .is_none()
+    );
 
     // Edit swaps the section for the embedded editor and asks for the body
     click(&mut wcx, "template-edit-readme");
-    assert!(wcx.debug_bounds("template-editor-readme").is_some(), "the editor view renders");
-    assert!(wcx.debug_bounds("template-row-readme").is_none(), "the rows are gone");
+    assert!(
+        wcx.debug_bounds("template-editor-readme").is_some(),
+        "the editor view renders"
+    );
+    assert!(
+        wcx.debug_bounds("template-row-readme").is_none(),
+        "the rows are gone"
+    );
     assert!(
         matches!(
             last_command(&net_rx),
@@ -252,8 +320,14 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
 
     // Cancel exits without writing anything
     click(&mut wcx, "template-cancel-readme");
-    assert!(wcx.debug_bounds("template-editor-readme").is_none(), "cancel exits the editor");
-    assert!(wcx.debug_bounds("template-row-readme").is_some(), "the rows are back");
+    assert!(
+        wcx.debug_bounds("template-editor-readme").is_none(),
+        "cancel exits the editor"
+    );
+    assert!(
+        wcx.debug_bounds("template-row-readme").is_some(),
+        "the rows are back"
+    );
 
     // Reset is two-click armed; only the confirm reaches the net channel
     click(&mut wcx, "template-reset-readme");
@@ -271,7 +345,9 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
 }
 
 fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
-    let bounds = cx.debug_bounds(selector).unwrap_or_else(|| panic!("{selector} missing"));
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} missing"));
     cx.simulate_click(
         gpui::Point {
             x: bounds.origin.x + bounds.size.width / 2.,
@@ -292,7 +368,7 @@ fn last_command(net_rx: &async_channel::Receiver<NetCommand>) -> Option<NetComma
     last
 }
 
-/// The scanning card's "Group repos by scan root" switch: it renders seeded
+/// The scanning card's "Group repos by folder" switch: it renders seeded
 /// from the settings, a click flips it, and Save persists GroupReposByRoot
 /// into the scratch file — grouping is a projection toggle, so saving must
 /// not send a second rescan.
@@ -319,24 +395,28 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
-        SettingsPage::new(store, window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2400.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
 
     assert!(
-        wcx.debug_bounds("settings-row-Group repos by scan root").is_some(),
+        wcx.debug_bounds("settings-row-Group repos by folder")
+            .is_some(),
         "the grouping switch row renders in the scanning card"
     );
 
     // the Switch leads the row: a click near its start edge flips it
     let row = wcx
-        .debug_bounds("settings-row-Group repos by scan root")
+        .debug_bounds("settings-row-Group repos by folder")
         .expect("grouping switch row bounds");
     wcx.simulate_click(
         gpui::point(row.origin.x + gpui::px(20.), row.center().y),
@@ -394,12 +474,15 @@ fn group_depth_picker_renders_grouped_and_persists(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
-        SettingsPage::new(store, window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2400.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
@@ -462,22 +545,27 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
-        SettingsPage::new(store, window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2400.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
 
     assert!(
-        wcx.debug_bounds("settings-row-Cross-repo code search").is_some(),
+        wcx.debug_bounds("settings-row-Cross-repo code search")
+            .is_some(),
         "the code search switch row renders in the External tools card"
     );
     assert!(
-        wcx.debug_bounds("settings-field-ripgrep executable").is_some(),
+        wcx.debug_bounds("settings-field-ripgrep executable")
+            .is_some(),
         "the ripgrep executable field row renders"
     );
 
@@ -496,7 +584,10 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
         .debug_bounds("settings-field-ripgrep executable")
         .expect("ripgrep field bounds");
     wcx.simulate_click(
-        gpui::point(field.center().x, field.origin.y + field.size.height - gpui::px(12.)),
+        gpui::point(
+            field.center().x,
+            field.origin.y + field.size.height - gpui::px(12.),
+        ),
         gpui::Modifiers::default(),
     );
     wcx.run_until_parked();
@@ -552,12 +643,15 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
-    let handle = cx.open_window(gpui::size(gpui::px(1400.), gpui::px(2400.)), |window, cx| {
-        SettingsPage::new(store, window, cx)
-    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2400.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
@@ -567,7 +661,8 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
         "the OpenCode CLI switch renders with warp-agent off"
     );
     assert!(
-        wcx.debug_bounds("settings-field-OpenCode executable").is_some(),
+        wcx.debug_bounds("settings-field-OpenCode executable")
+            .is_some(),
         "the OpenCode executable field sits in the CLI card"
     );
     assert!(

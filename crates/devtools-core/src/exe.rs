@@ -27,9 +27,16 @@ fn user_install_dirs() -> Vec<PathBuf> {
     extra
         .into_iter()
         .chain(
-            [".local/bin", ".opencode/bin", ".cargo/bin", "bin", ".deno/bin", ".nvm/versions/node/current/bin"]
-                .iter()
-                .map(|dir| home.join(dir)),
+            [
+                ".local/bin",
+                ".opencode/bin",
+                ".cargo/bin",
+                "bin",
+                ".deno/bin",
+                ".nvm/versions/node/current/bin",
+            ]
+            .iter()
+            .map(|dir| home.join(dir)),
         )
         .collect()
 }
@@ -76,9 +83,11 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
     for dir in std::env::split_paths(&path_env) {
         let full = dir.join(name);
         if let Ok(metadata) = std::fs::metadata(&full)
-            && metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
-                return Some(full);
-            }
+            && metadata.is_file()
+            && metadata.permissions().mode() & 0o111 != 0
+        {
+            return Some(full);
+        }
     }
     None
 }

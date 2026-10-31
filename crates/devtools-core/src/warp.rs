@@ -4,8 +4,8 @@
 //! warp-agent turns the AI features off; a merely closed one is launched on
 //! demand and the run continues.
 
-use anyhow::{anyhow, Context as _, Result};
-use serde_json::{json, Value};
+use anyhow::{Context as _, Result, anyhow};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -35,8 +35,15 @@ fn config_dir() -> PathBuf {
 
 /// The door endpoint as published by a running warp-agent.
 pub fn read_endpoint() -> Option<(u16, String)> {
-    let port = std::fs::read_to_string(port_file()).ok()?.trim().parse().ok()?;
-    let token = std::fs::read_to_string(token_file()).ok()?.trim().to_string();
+    let port = std::fs::read_to_string(port_file())
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let token = std::fs::read_to_string(token_file())
+        .ok()?
+        .trim()
+        .to_string();
     if token.is_empty() {
         return None;
     }
@@ -71,7 +78,10 @@ impl Client {
             .await
             .context("warp-agent door connect failed")?;
         stream.set_nodelay(true).ok();
-        let mut client = Self { reader: BufReader::new(stream), next_id: 1 };
+        let mut client = Self {
+            reader: BufReader::new(stream),
+            next_id: 1,
+        };
         client.write(&json!({"auth": token})).await?;
         let welcome = client.read_frame().await?;
         if !welcome.get("ok").and_then(Value::as_bool).unwrap_or(false) {
@@ -139,18 +149,18 @@ impl Client {
             if answer.get("ok").and_then(Value::as_bool).unwrap_or(false) {
                 return Ok(answer);
             }
-            let error = answer.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+            let error = answer
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error");
             return Err(anyhow!("{error}"));
         }
     }
 
     pub async fn open_workspace(&mut self, path: &Path) -> Result<()> {
-        self.request(
-            "open-workspace",
-            json!({"path": path.to_string_lossy()}),
-        )
-        .await
-        .map(|_| ())
+        self.request("open-workspace", json!({"path": path.to_string_lossy()}))
+            .await
+            .map(|_| ())
     }
 
     pub async fn new_chat(
@@ -160,7 +170,8 @@ impl Client {
         auto_send: bool,
         model: Option<&str>,
     ) -> Result<()> {
-        let mut params = json!({"workspace": workspace, "prefill": prefill, "auto_send": auto_send});
+        let mut params =
+            json!({"workspace": workspace, "prefill": prefill, "auto_send": auto_send});
         if let Some(model) = model.filter(|m| !m.is_empty()) {
             params["model"] = json!(model);
         }
@@ -172,13 +183,20 @@ impl Client {
         Ok(answer
             .get("models")
             .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(|m| m.as_str().map(str::to_string)).collect())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|m| m.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
     pub async fn status(&mut self) -> Result<Value> {
         self.request("status", json!({})).await.map(|answer| {
-            answer.get("workspaces").cloned().unwrap_or(Value::Array(Vec::new()))
+            answer
+                .get("workspaces")
+                .cloned()
+                .unwrap_or(Value::Array(Vec::new()))
         })
     }
 
@@ -195,7 +213,8 @@ impl Client {
     ) -> Result<String> {
         let id = self.next_id;
         self.next_id += 1;
-        let mut params = json!({"id": id, "cmd": "run-prompt", "workspace": workspace, "prompt": prompt});
+        let mut params =
+            json!({"id": id, "cmd": "run-prompt", "workspace": workspace, "prompt": prompt});
         if let Some(model) = model.filter(|m| !m.is_empty()) {
             params["model"] = json!(model);
         }
@@ -224,22 +243,29 @@ impl Client {
             };
             if answer.get("event").and_then(Value::as_str) == Some("run-log")
                 && answer.get("run").and_then(Value::as_u64) == Some(id)
-                && let Some(line) = answer.get("line").and_then(Value::as_str) {
-                    on_log(line.to_string());
-                    continue;
+                && let Some(line) = answer.get("line").and_then(Value::as_str)
+            {
+                on_log(line.to_string());
+                continue;
             }
             if answer.get("id").and_then(Value::as_u64) != Some(id) {
                 continue;
             }
             if answer.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                let text = answer.get("text").and_then(Value::as_str).unwrap_or_default();
+                let text = answer
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let text = text.trim().to_string();
                 if text.is_empty() {
                     return Err(anyhow!("the model returned no text"));
                 }
                 return Ok(text);
             }
-            let error = answer.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+            let error = answer
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error");
             return Err(anyhow!("{error}"));
         }
     }
@@ -261,7 +287,9 @@ pub async fn connect_or_launch(exe: &Path, folder: Option<&Path>) -> Result<Clie
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     hide_console(&mut command);
-    command.spawn().with_context(|| format!("'{}' failed to start", exe.display()))?;
+    command
+        .spawn()
+        .with_context(|| format!("'{}' failed to start", exe.display()))?;
 
     let deadline = std::time::Instant::now() + LAUNCH_DEADLINE;
     loop {
@@ -303,15 +331,24 @@ mod tests {
             let mut reader = BufReader::new(read_half);
             let mut line = String::new();
             reader.read_line(&mut line).await.unwrap();
-            write_half.write_all(format!("{}\n", json!({"ok": true})).as_bytes()).await.unwrap();
+            write_half
+                .write_all(format!("{}\n", json!({"ok": true})).as_bytes())
+                .await
+                .unwrap();
             loop {
                 let mut line = String::new();
                 if reader.read_line(&mut line).await.unwrap() == 0 {
                     return;
                 }
                 let request: Value = serde_json::from_str(line.trim()).unwrap();
-                let cmd = request.get("cmd").and_then(Value::as_str).unwrap_or_default();
-                let id = request.get("id").and_then(Value::as_u64).unwrap_or_default();
+                let cmd = request
+                    .get("cmd")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let id = request
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
                 let Some((_, answer)) = answers.iter().find(|(name, _)| *name == cmd) else {
                     continue;
                 };

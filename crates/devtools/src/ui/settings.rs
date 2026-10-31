@@ -7,21 +7,19 @@
 use crate::net::TemplateOp;
 use crate::store::Store;
 use crate::theme;
-use warpui_kit_markdown::{live_highlighter_factory, LIVE_LANGUAGE};
-use warpui_kit_picker::{
-    model_name, model_provider, FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData,
-    PickerIcons, PickerItem, PickerRow, PickerSpec, PickerTarget, Selection, TriggerScale,
-};
 use crate::ui::A11y;
 use gpui::prelude::*;
-use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{
-    Editor, EditorState, Input, InputState, Textarea, TextareaState,
-};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px, relative};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Editor, EditorState, Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::switch::Switch;
 use std::cell::RefCell;
 use std::rc::Rc;
+use warpui_kit_markdown::{LIVE_LANGUAGE, live_highlighter_factory};
+use warpui_kit_picker::{
+    FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
+    PickerRow, PickerSpec, PickerTarget, Selection, TriggerScale, model_name, model_provider,
+};
 
 pub struct SettingsPage {
     pub store: Entity<Store>,
@@ -95,15 +93,25 @@ impl SettingsPage {
         let settings = store.read(cx).settings();
         let repos = &settings.repos;
         let general = &settings.general;
-        let line_list = |items: &Option<Vec<String>>| {
-            items.clone().unwrap_or_default().join("\n")
-        };
+        let line_list = |items: &Option<Vec<String>>| items.clone().unwrap_or_default().join("\n");
 
-        fn field(window: &mut Window, cx: &mut Context<SettingsPage>, value: &str) -> Entity<InputState> {
-            let initial = if value.is_empty() { String::new() } else { value.to_string() };
+        fn field(
+            window: &mut Window,
+            cx: &mut Context<SettingsPage>,
+            value: &str,
+        ) -> Entity<InputState> {
+            let initial = if value.is_empty() {
+                String::new()
+            } else {
+                value.to_string()
+            };
             cx.new(|cx| InputState::new(window, cx).default_value(initial))
         }
-        fn area(window: &mut Window, cx: &mut Context<SettingsPage>, value: &str) -> Entity<TextareaState> {
+        fn area(
+            window: &mut Window,
+            cx: &mut Context<SettingsPage>,
+            value: &str,
+        ) -> Entity<TextareaState> {
             cx.new(|cx| TextareaState::new(window, cx).default_value(value.to_string()))
         }
 
@@ -132,7 +140,11 @@ impl SettingsPage {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
 
         let default_model = field(window, cx, &settings.opencode.default_model);
-        let commit_model = field(window, cx, &settings.opencode.commit_model.clone().unwrap_or_default());
+        let commit_model = field(
+            window,
+            cx,
+            &settings.opencode.commit_model.clone().unwrap_or_default(),
+        );
         let default_model_picker = model_picker(
             &default_model,
             &store,
@@ -185,7 +197,10 @@ impl SettingsPage {
             code_search_executable: field(
                 window,
                 cx,
-                &repos.code_search_executable.clone().unwrap_or_else(|| "rg".into()),
+                &repos
+                    .code_search_executable
+                    .clone()
+                    .unwrap_or_else(|| "rg".into()),
             ),
             enable_terminal: repos.enable_terminal,
             enable_vscode: repos.enable_vscode,
@@ -260,7 +275,10 @@ impl SettingsPage {
             Self::value(&self.default_model, cx),
             Self::value(&self.github_executable, cx),
         );
-        let (azure_pat, azure_url) = (Self::value(&self.azure_pat, cx), Self::value(&self.azure_url, cx));
+        let (azure_pat, azure_url) = (
+            Self::value(&self.azure_pat, cx),
+            Self::value(&self.azure_url, cx),
+        );
         let flags = (
             self.show_tooltips,
             self.start_minimized,
@@ -288,7 +306,13 @@ impl SettingsPage {
         let code_search_enabled = self.enable_code_search;
         let code_search_exe = Self::value(&self.code_search_executable, cx);
 
-        let old_scan_folders = self.store.read(cx).settings().repos.repo_scan_folders.clone();
+        let old_scan_folders = self
+            .store
+            .read(cx)
+            .settings()
+            .repos
+            .repo_scan_folders
+            .clone();
         let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
 
         self.store.update(cx, |store, cx| {
@@ -298,8 +322,16 @@ impl SettingsPage {
                 s.general.start_minimized = flags.1;
                 s.general.start_at_boot = flags.2;
                 s.general.font_scale = Some(self.text_size.to_string());
-                s.repos.repo_scan_folders = if scan_folders.is_empty() { None } else { Some(scan_folders.clone()) };
-                s.repos.excluded_folders = if excluded.is_empty() { None } else { Some(excluded.clone()) };
+                s.repos.repo_scan_folders = if scan_folders.is_empty() {
+                    None
+                } else {
+                    Some(scan_folders.clone())
+                };
+                s.repos.excluded_folders = if excluded.is_empty() {
+                    None
+                } else {
+                    Some(excluded.clone())
+                };
                 s.repos.git_folder_pattern = git_pattern;
                 s.repos.solution_file_pattern = solution_pattern;
                 s.repos.platform_folder_name = platform;
@@ -312,7 +344,8 @@ impl SettingsPage {
                 // enabled stays absent: absence IS the enabled state, so the
                 // only meaningful write is the opt-out
                 s.repos.enable_code_search = (!code_search_enabled).then_some(false);
-                s.repos.code_search_executable = (!code_search_exe.trim().is_empty()).then_some(code_search_exe);
+                s.repos.code_search_executable =
+                    (!code_search_exe.trim().is_empty()).then_some(code_search_exe);
                 s.repos.vscode_executable = vscode_exe;
                 s.repos.vscode_profile = vscode_profile;
                 s.repos.terminal_executable = terminal_exe;
@@ -327,7 +360,8 @@ impl SettingsPage {
                 s.warp_notes.enable_warp_notes = warp_notes_enabled;
                 s.warp_notes.executable = warp_notes_exe;
                 s.opencode.default_model = default_model;
-                s.opencode.commit_model = (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
+                s.opencode.commit_model =
+                    (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
                 s.repos.enable_git_hub = flags.7;
                 s.repos.git_hub_executable = github_exe;
                 s.repos.enable_azure_dev_ops = flags.8;
@@ -340,7 +374,7 @@ impl SettingsPage {
             // the interval may have changed: re-arm the periodic fetch
             store.refresh_auto_fetch_schedule();
             // grouping only reshapes the table: re-project, never rescan —
-            // the scan roots themselves did not change
+            // the repos and their folders did not change
             store.set_group_by_root(group_by_root);
             store.set_group_depth(group_depth);
             // a scan-input change live-applies with a rescan; a text-size
@@ -390,8 +424,9 @@ impl Render for SettingsPage {
             && self.editing_template == Some(id.as_str())
         {
             self.template_editor_seeded = true;
-            self.template_editor
-                .update(cx, |state, cx| state.set_value(content.as_str(), window, cx));
+            self.template_editor.update(cx, |state, cx| {
+                state.set_value(content.as_str(), window, cx)
+            });
         }
         let just_saved = self
             .saved_note
@@ -535,14 +570,14 @@ impl Render for SettingsPage {
                                                 field_row("Platform folder name", &this.platform_folder_name),
                                                 field_row("Max scan depth", &this.max_scan_depth),
                                             ))
-                                            .child(switch_row("Group repos by scan root", this.group_by_root, cx.listener(|this, _, _, cx| {
+                                            .child(switch_row("Group repos by folder", this.group_by_root, cx.listener(|this, _, _, cx| {
                                                 this.group_by_root = !this.group_by_root;
                                                 cx.notify();
                                             })))
-                                            .child(label("Group the table under the scan folders' shared folder — collapsing and filtering here never rescans."))
+                                            .child(label("Group the table by the folder each repository lives in — collapsing and filtering here never rescans."))
                                             .when(this.group_by_root, |card| {
                                                 card.child(group_depth_row(this, cx))
-                                                    .child(label("Headers sit this many folder levels under the scan folders' shared folder; deeper repos fold into their ancestor's group. Scan folders sharing no folder group individually."))
+                                                    .child(label("1 groups repos under the scan folders' shared folder, 2 under that folder's parent, and so on. Folders that resolve to the same path (a symlink and its target) share one group."))
                                             })
                                     }))
                                     .child(self.card("Git", cx, |this, cx, card| {
@@ -700,9 +735,7 @@ impl SettingsPage {
                             .when(customized, |row| {
                                 row.child(
                                     div()
-                                        .id(SharedString::from(format!(
-                                            "template-customized-{id}"
-                                        )))
+                                        .id(SharedString::from(format!("template-customized-{id}")))
                                         .debug_selector(move || format!("template-customized-{id}"))
                                         .rounded_full()
                                         .bg(theme::tint(theme::ACCENT))
@@ -748,7 +781,8 @@ impl SettingsPage {
                     // never flashes while the Read round-trip is in flight
                     this.template_editor
                         .update(cx, |state, cx| state.set_value("", window, cx));
-                    this.store.update(cx, |s, _| s.template_io(id, TemplateOp::Read));
+                    this.store
+                        .update(cx, |s, _| s.template_io(id, TemplateOp::Read));
                     cx.notify();
                 }),
             ))
@@ -758,15 +792,15 @@ impl SettingsPage {
                 false,
                 move |_, _, _| {
                     // never hand the system editor a file that does not exist
-                    if let Some(template) =
-                        devtools_core::opencode::PROMPT_TEMPLATES.iter().find(|t| t.id == id)
+                    if let Some(template) = devtools_core::opencode::PROMPT_TEMPLATES
+                        .iter()
+                        .find(|t| t.id == id)
                         && devtools_core::opencode::read_template(id).is_none()
                     {
                         let _ = devtools_core::opencode::write_template(id, template.default);
                     }
                     if let Some(path) = devtools_core::opencode::template_path(id) {
-                        let _ =
-                            devtools_core::terminal::open_folder(&path.to_string_lossy());
+                        let _ = devtools_core::terminal::open_folder(&path.to_string_lossy());
                     }
                 },
             ))
@@ -951,11 +985,19 @@ fn template_action_button(
         .cursor_pointer()
         .rounded_md()
         .border_1()
-        .border_color(if armed { theme::DANGER } else { theme::HAIRLINE })
+        .border_color(if armed {
+            theme::DANGER
+        } else {
+            theme::HAIRLINE
+        })
         .px_2()
         .py_0p5()
         .text_size(px(theme::font_small() - 1.))
-        .text_color(if armed { theme::DANGER } else { theme::TEXT_DIM })
+        .text_color(if armed {
+            theme::DANGER
+        } else {
+            theme::TEXT_DIM
+        })
         .hover(|s| s.bg(theme::HOVER))
         .on_click(on_click)
         .child(text.to_string())
@@ -1008,7 +1050,11 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     let running = devtools_core::snapit::is_running();
     div()
         .id("snapit-run-control")
-        .a11y_button(if running { "Stop SnapIt" } else { "Start SnapIt" })
+        .a11y_button(if running {
+            "Stop SnapIt"
+        } else {
+            "Start SnapIt"
+        })
         .cursor_pointer()
         .self_center()
         .rounded_md()
@@ -1017,7 +1063,11 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .px_3()
         .py_1p5()
         .text_size(px(theme::font_small()))
-        .text_color(if running { theme::DANGER } else { theme::SUCCESS_BRIGHT })
+        .text_color(if running {
+            theme::DANGER
+        } else {
+            theme::SUCCESS_BRIGHT
+        })
         .hover(|s| s.bg(theme::HOVER))
         .on_click(cx.listener(|this, _, _, cx| {
             // the live field value, so a new binary can be tried without
@@ -1036,7 +1086,11 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
             }
             cx.notify();
         }))
-        .child(if running { "Stop SnapIt" } else { "Start SnapIt" })
+        .child(if running {
+            "Stop SnapIt"
+        } else {
+            "Start SnapIt"
+        })
         .into_any_element()
 }
 
@@ -1066,8 +1120,17 @@ fn switch_row(
 }
 
 fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
-    let options = [(theme::FONT_COMPACT, "Small"), (theme::FONT_NORMAL, "Normal"), (theme::FONT_LARGE, "Large")];
-    let mut row = div().flex().flex_row().items_center().gap_2().child(label("Text size"));
+    let options = [
+        (theme::FONT_COMPACT, "Small"),
+        (theme::FONT_NORMAL, "Normal"),
+        (theme::FONT_LARGE, "Large"),
+    ];
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(label("Text size"));
     for (key, name) in options {
         let selected = this.text_size == key;
         row = row.child(
@@ -1080,8 +1143,13 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
                 .py_1()
                 .text_size(px(theme::font_small()))
                 .font_weight(FontWeight::SEMIBOLD)
-                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
-                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .when(selected, |d| {
+                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
+                })
+                .when(!selected, |d| {
+                    d.text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::HOVER))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.text_size = key;
                     cx.notify();
@@ -1093,7 +1161,8 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
 }
 
 /// The group-depth picker: 1/2/3/4 segmented buttons; 1 = the scan roots'
-/// shared folder. Only rendered while grouping is on.
+/// shared folder, each further level one folder higher. Only rendered while
+/// grouping is on.
 fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
     let mut row = div()
         .id("group-depth-row")
@@ -1117,8 +1186,13 @@ fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui:
                 .py_1()
                 .text_size(px(theme::font_small()))
                 .font_weight(FontWeight::SEMIBOLD)
-                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
-                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .when(selected, |d| {
+                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
+                })
+                .when(!selected, |d| {
+                    d.text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::HOVER))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.group_depth = level;
                     cx.notify();
@@ -1158,8 +1232,13 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
                 .py_1()
                 .text_size(px(theme::font_small()))
                 .font_weight(FontWeight::SEMIBOLD)
-                .when(selected, |d| d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT))
-                .when(!selected, |d| d.text_color(theme::TEXT_MUTED).hover(|s| s.bg(theme::HOVER)))
+                .when(selected, |d| {
+                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
+                })
+                .when(!selected, |d| {
+                    d.text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::HOVER))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.auto_fetch_minutes = value;
                     cx.notify();
@@ -1308,7 +1387,8 @@ fn model_data(
     PickerData {
         body: PickerBody::Rows(rows),
         selected: Selection {
-            badge: (!model_provider(&selected).is_empty()).then(|| model_provider(&selected).to_string()),
+            badge: (!model_provider(&selected).is_empty())
+                .then(|| model_provider(&selected).to_string()),
             label: if selected.is_empty() {
                 default_label.to_string()
             } else {

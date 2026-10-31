@@ -4,8 +4,8 @@
 //! follow (gsettings org.gnome.desktop.interface text-scaling-factor).
 
 pub use warpui_kit_core::fonts::{
-    code_font, normalize_font_scale, resolve_fonts, ui_font, CODE_FONT,
-    FONT_COMPACT, FONT_LARGE, FONT_NORMAL, FONT_UI,
+    CODE_FONT, FONT_COMPACT, FONT_LARGE, FONT_NORMAL, FONT_UI, code_font, normalize_font_scale,
+    resolve_fonts, ui_font,
 };
 pub use warpui_kit_core::palette;
 // every shared color const stays reachable as `theme::X`
@@ -18,12 +18,7 @@ pub use warpui_kit_core::palette::*;
 /// every window, so a settings save can re-run it).
 pub fn apply_kit_theme(cx: &mut gpui::App) {
     let accent = palette::AccentColors::for_preset(palette::normalize_accent(Some("blue")));
-    warpui_kit_core::apply_kit_theme(
-        accent,
-        &font_tokens(),
-        palette::BACKGROUND,
-        cx,
-    );
+    warpui_kit_core::apply_kit_theme(accent, &font_tokens(), palette::BACKGROUND, cx);
 }
 
 /// The tokens the kit mapping and shared shells ride: the settings text-size
@@ -104,7 +99,8 @@ pub const TABLE_ROW_H: f32 = 48.0;
 
 // ---- desktop text scaling --------------------------------------------------
 
-static SYSTEM_FACTOR_TX: std::sync::OnceLock<async_channel::Sender<f32>> = std::sync::OnceLock::new();
+static SYSTEM_FACTOR_TX: std::sync::OnceLock<async_channel::Sender<f32>> =
+    std::sync::OnceLock::new();
 
 /// Follows the desktop text scaling GTK apps honor — gsettings
 /// org.gnome.desktop.interface text-scaling-factor. The initial value applies
@@ -144,8 +140,13 @@ fn spawn_factor_monitor() {
                 .name("gsettings".into())
                 .spawn(move || {
                     use std::io::BufRead;
-                    let Some(stdout) = child.stdout.take() else { return };
-                    for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                    let Some(stdout) = child.stdout.take() else {
+                        return;
+                    };
+                    for line in std::io::BufReader::new(stdout)
+                        .lines()
+                        .map_while(Result::ok)
+                    {
                         if let Some(factor) = parse_system_factor(&line)
                             && let Some(tx) = SYSTEM_FACTOR_TX.get()
                         {
@@ -157,7 +158,9 @@ fn spawn_factor_monitor() {
                 .ok();
         }
         Err(_) => {
-            tracing::debug!("gsettings monitor unavailable; system text scale frozen at startup value");
+            tracing::debug!(
+                "gsettings monitor unavailable; system text scale frozen at startup value"
+            );
         }
     }
 }

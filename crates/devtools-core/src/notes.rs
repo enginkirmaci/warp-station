@@ -131,8 +131,18 @@ fn read_excerpt(path: &Path, term: &str) -> Option<String> {
         let Some(index) = line.to_lowercase().find(&term.to_lowercase()) else {
             continue;
         };
-        let start = index.saturating_sub(40);
-        let end = (start + 160).min(line.len());
+        // the offset was found in the lowercased copy, whose byte length can
+        // differ (İ U+0130 lowercases to 3 bytes) — walk back onto the
+        // original line's char boundaries before slicing (see
+        // code_search::excerpt_around for the same pattern)
+        let mut start = index.saturating_sub(40);
+        while start > 0 && !line.is_char_boundary(start) {
+            start += 1;
+        }
+        let mut end = (start + 160).min(line.len());
+        while end < line.len() && !line.is_char_boundary(end) {
+            end += 1;
+        }
         let mut excerpt = String::new();
         if start > 0 {
             excerpt.push('…');

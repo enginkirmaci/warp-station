@@ -42,7 +42,9 @@ pub fn is_running() -> bool {
 
 #[cfg(windows)]
 pub fn start(configured: &str) -> Result<(), String> {
-    let mut slot = CHILD.lock().map_err(|_| "SnapIt state poisoned".to_string())?;
+    let mut slot = CHILD
+        .lock()
+        .map_err(|_| "SnapIt state poisoned".to_string())?;
     if let Some(child) = slot.as_mut() {
         if matches!(child.try_wait(), Ok(None)) {
             return Ok(());
@@ -64,15 +66,23 @@ pub fn start(configured: &str) -> Result<(), String> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 
-    *slot = Some(command.spawn().map_err(|err| format!("could not start SnapIt: {err}"))?);
+    *slot = Some(
+        command
+            .spawn()
+            .map_err(|err| format!("could not start SnapIt: {err}"))?,
+    );
     Ok(())
 }
 
 #[cfg(windows)]
 pub fn stop() -> Result<(), String> {
-    let mut slot = CHILD.lock().map_err(|_| "SnapIt state poisoned".to_string())?;
+    let mut slot = CHILD
+        .lock()
+        .map_err(|_| "SnapIt state poisoned".to_string())?;
     if let Some(mut child) = slot.take() {
-        child.kill().map_err(|err| format!("could not stop SnapIt: {err}"))?;
+        child
+            .kill()
+            .map_err(|err| format!("could not stop SnapIt: {err}"))?;
         let _ = child.wait();
     }
     Ok(())

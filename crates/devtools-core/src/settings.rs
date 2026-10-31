@@ -90,14 +90,14 @@ pub struct ReposSettings {
     /// launch. None/false = fetch regardless. Absence-meaningful like
     /// auto_fetch_minutes.
     pub auto_fetch_only_focused: Option<bool>,
-    /// Collapsible scan-root groups in the repos table; None/false = the flat
+    /// Collapsible folder groups in the repos table; None/false = the flat
     /// list. Absence-meaningful like sort_ascending.
     pub group_repos_by_root: Option<bool>,
-    /// Folder levels the grouping headers sit at under each scan root
-    /// (1 = the roots themselves); None = 1. Absence-meaningful like
-    /// sort_ascending.
+    /// Folder levels the group headers count up from the scan roots' shared
+    /// folder (1 = that folder itself, 2 = its parent); None = 1.
+    /// Absence-meaningful like sort_ascending.
     pub group_root_depth: Option<u8>,
-    /// Collapsed group keys (scan-root paths, or "other"); None = all
+    /// Collapsed group keys (folder paths, or "other"); None = all
     /// expanded. Absence-meaningful like sort_ascending.
     pub collapsed_groups: Option<Vec<String>>,
     /// Cross-repo ripgrep search in the titlebar popup; None = enabled —

@@ -28,9 +28,15 @@ pub struct GitOutcome {
 impl GitOutcome {
     fn from(result: &process::ProcessRunResult) -> Self {
         if result.succeeded() || result.truncated {
-            Self { ok: true, error: None }
+            Self {
+                ok: true,
+                error: None,
+            }
         } else {
-            Self { ok: false, error: summarize_sync_error(&result.stderr) }
+            Self {
+                ok: false,
+                error: summarize_sync_error(&result.stderr),
+            }
         }
     }
 
@@ -99,10 +105,19 @@ pub fn summarize_sync_error(stderr: &str) -> Option<String> {
 }
 
 pub async fn checkout(folder: &Path, branch: &str) -> GitOutcome {
-    let result = run_git(folder, &["checkout".into(), branch.into()], PROCESS_TIMEOUT, None).await;
+    let result = run_git(
+        folder,
+        &["checkout".into(), branch.into()],
+        PROCESS_TIMEOUT,
+        None,
+    )
+    .await;
     match result {
         Ok(r) => GitOutcome::from(&r),
-        Err(err) => GitOutcome { ok: false, error: Some(err.to_string()) },
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
     }
 }
 
@@ -140,7 +155,11 @@ pub async fn clone(url: &str, parent_directory: &Path, repo_name: &str) -> GitSy
     // The working directory is the destination's PARENT — the one command that
     // runs outside any existing repo. A cancelled (killed) clone leaves a
     // partial worktree; remove it so a retry finds the slot free.
-    let args = vec!["clone".into(), url.trim().to_string(), repo_name.trim().to_string()];
+    let args = vec![
+        "clone".into(),
+        url.trim().to_string(),
+        repo_name.trim().to_string(),
+    ];
     let result = process::run(ProcessRunOptions {
         file_name: "git",
         args: &args,
@@ -152,9 +171,12 @@ pub async fn clone(url: &str, parent_directory: &Path, repo_name: &str) -> GitSy
     .await;
     match result {
         Ok(r) if r.succeeded() => GitSyncResult::ok(),
-        Ok(_) => {
+        Ok(r) => {
             remove_partial_clone(parent_directory.join(repo_name)).await;
-            GitSyncResult::err(None)
+            // surface git's fatal line like every other mutation — "clone
+            // failed" alone can't tell an auth failure from a bad URL or an
+            // scp-style remote (host:repo is not a valid Windows folder name)
+            GitOutcome::from(&r).into_sync_result()
         }
         Err(err) => GitSyncResult::err(Some(err.to_string())),
     }
@@ -199,15 +221,27 @@ pub async fn publish_branch(folder: &Path, branch: &str) -> GitSyncResult {
 async fn sync(folder: &Path, args: &[String]) -> GitOutcome {
     match run_git(folder, args, SYNC_TIMEOUT, None).await {
         Ok(r) => GitOutcome::from(&r),
-        Err(err) => GitOutcome { ok: false, error: Some(err.to_string()) },
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
     }
 }
 
 pub async fn stage(folder: &Path, path: &str) -> GitOutcome {
-    let result = run_git(folder, &["add".into(), "--".into(), path.into()], PROCESS_TIMEOUT, None).await;
+    let result = run_git(
+        folder,
+        &["add".into(), "--".into(), path.into()],
+        PROCESS_TIMEOUT,
+        None,
+    )
+    .await;
     match result {
         Ok(r) => GitOutcome::from(&r),
-        Err(err) => GitOutcome { ok: false, error: Some(err.to_string()) },
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
     }
 }
 
@@ -216,7 +250,17 @@ pub async fn stage_all(folder: &Path) -> GitOutcome {
 }
 
 pub async fn unstage(folder: &Path, path: &str) -> GitOutcome {
-    simple(folder, &["reset".into(), "-q".into(), "HEAD".into(), "--".into(), path.into()]).await
+    simple(
+        folder,
+        &[
+            "reset".into(),
+            "-q".into(),
+            "HEAD".into(),
+            "--".into(),
+            path.into(),
+        ],
+    )
+    .await
 }
 
 pub async fn unstage_all(folder: &Path) -> GitOutcome {
@@ -226,7 +270,10 @@ pub async fn unstage_all(folder: &Path) -> GitOutcome {
 async fn simple(folder: &Path, args: &[String]) -> GitOutcome {
     match run_git(folder, args, PROCESS_TIMEOUT, None).await {
         Ok(r) => GitOutcome::from(&r),
-        Err(err) => GitOutcome { ok: false, error: Some(err.to_string()) },
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
     }
 }
 
@@ -301,7 +348,11 @@ pub async fn commit(folder: &Path, message: &str) -> Option<String> {
     }
     let outcome = run_git(
         folder,
-        &["commit".into(), "-F".into(), message_file.to_string_lossy().to_string()],
+        &[
+            "commit".into(),
+            "-F".into(),
+            message_file.to_string_lossy().to_string(),
+        ],
         PROCESS_TIMEOUT,
         None,
     )

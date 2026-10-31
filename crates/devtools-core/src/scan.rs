@@ -26,7 +26,11 @@ pub struct RepoScanResult {
 /// Scoped scan for the Add-Repositories dialog: `root` wins over the
 /// configured listing roots, so typing a folder actually searches that folder
 /// instead of silently re-scanning the whole settings list.
-pub fn scan_folder(settings: &ReposSettings, root: &Path, max_depth: Option<i32>) -> RepoScanResult {
+pub fn scan_folder(
+    settings: &ReposSettings,
+    root: &Path,
+    max_depth: Option<i32>,
+) -> RepoScanResult {
     let mut scoped = settings.clone();
     scoped.repo_scan_folders = Some(vec![root.to_string_lossy().to_string()]);
     scan(&scoped, max_depth)
@@ -78,7 +82,12 @@ pub fn scan(settings: &ReposSettings, max_depth: Option<i32>) -> RepoScanResult 
     }
 
     repos.sort_by(|a, b| a.name.cmp(&b.name));
-    repos.dedup_by(|a, b| crate::paths::same_folder_text(&a.folder_path.to_string_lossy(), &b.folder_path.to_string_lossy()));
+    repos.dedup_by(|a, b| {
+        crate::paths::same_folder_text(
+            &a.folder_path.to_string_lossy(),
+            &b.folder_path.to_string_lossy(),
+        )
+    });
     RepoScanResult { repos }
 }
 
@@ -140,7 +149,9 @@ fn find_git_dirs(
     };
     let mut subdirs = Vec::new();
     for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else { continue };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
         if !file_type.is_dir() {
             continue;
         }
@@ -153,7 +164,13 @@ fn find_git_dirs(
     }
     if depth < max_depth {
         for sub in subdirs {
-            found.extend(find_git_dirs(&sub, git_pattern, depth + 1, max_depth, excluded));
+            found.extend(find_git_dirs(
+                &sub,
+                git_pattern,
+                depth + 1,
+                max_depth,
+                excluded,
+            ));
         }
     }
     found
@@ -164,7 +181,10 @@ mod tests {
     use super::*;
 
     fn settings(roots: Vec<String>) -> ReposSettings {
-        ReposSettings { repo_scan_folders: Some(roots), ..Default::default() }
+        ReposSettings {
+            repo_scan_folders: Some(roots),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -176,10 +196,16 @@ mod tests {
         std::fs::create_dir_all(tmp.join("repo-a/deep/.git")).unwrap();
         std::fs::write(tmp.join("repo-a/a.slnx"), "").unwrap();
 
-        let result = scan(&settings(vec![tmp.join("repo-a").to_string_lossy().to_string()]), None);
+        let result = scan(
+            &settings(vec![tmp.join("repo-a").to_string_lossy().to_string()]),
+            None,
+        );
         assert_eq!(result.repos.len(), 1);
         assert_eq!(result.repos[0].name, "repo-a");
-        assert_eq!(result.repos[0].solution_path.as_deref(), tmp.join("repo-a").join("a.slnx").to_str());
+        assert_eq!(
+            result.repos[0].solution_path.as_deref(),
+            tmp.join("repo-a").join("a.slnx").to_str()
+        );
         assert!(result.repos[0].tags.is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
     }

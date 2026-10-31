@@ -7,8 +7,8 @@ use devtools::store::Store;
 use devtools::store::projection::ProjectedRow;
 use devtools::ui::window::MainWindow;
 use devtools_core::repo_store::RepoEntry;
-use gpui::prelude::*;
 use gpui::TestAppContext;
+use gpui::prelude::*;
 use std::path::PathBuf;
 
 fn entry(name: &str, path: &str, tags: &[&str]) -> RepoEntry {
@@ -55,9 +55,8 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -91,8 +90,16 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     assert!(selected_before.is_none());
 
     // click into the first row through the real event pipeline
-    cx.simulate_mouse_down(gpui::point(px_col(), px_row()), gpui::MouseButton::Left, gpui::Modifiers::default());
-    cx.simulate_mouse_up(gpui::point(px_col(), px_row()), gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_down(
+        gpui::point(px_col(), px_row()),
+        gpui::MouseButton::Left,
+        gpui::Modifiers::default(),
+    );
+    cx.simulate_mouse_up(
+        gpui::point(px_col(), px_row()),
+        gpui::MouseButton::Left,
+        gpui::Modifiers::default(),
+    );
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -117,9 +124,8 @@ fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContex
         s.select_repo(Some("/probe/alpha".into()), cx)
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(cx.debug_bounds("bar-root").is_some(), "bar starts open");
@@ -128,7 +134,10 @@ fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContex
         .debug_bounds("add-repo-button")
         .expect("add-repository button in the toolbar");
     cx.simulate_click(
-        gpui::point(add.origin.x + add.size.width / 2., add.origin.y + add.size.height / 2.),
+        gpui::point(
+            add.origin.x + add.size.width / 2.,
+            add.origin.y + add.size.height / 2.,
+        ),
         gpui::Modifiers::default(),
     );
     cx.run_until_parked();
@@ -162,16 +171,19 @@ fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
 
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/beta".into()), cx)
     });
     cx.run_until_parked();
-    assert_eq!(cx.read_entity(&store, |s, _| s.selected_repo.clone()).as_deref(), Some("/probe/beta"));
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.selected_repo.clone())
+            .as_deref(),
+        Some("/probe/beta")
+    );
     assert!(cx.read_entity(&store, |s, _| s.selected_entry().is_some()));
 
     cx.update_entity(&store, |s: &mut Store, cx| s.select_repo(None, cx));
@@ -194,15 +206,23 @@ fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
     });
 
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.debug_bounds("toast-stack").is_some(), "the toast stack renders");
-    assert!(cx.debug_bounds("toast-0").is_some(), "the error toast renders");
-    assert!(cx.debug_bounds("toast-1").is_some(), "the success toast renders");
+    assert!(
+        cx.debug_bounds("toast-stack").is_some(),
+        "the toast stack renders"
+    );
+    assert!(
+        cx.debug_bounds("toast-0").is_some(),
+        "the error toast renders"
+    );
+    assert!(
+        cx.debug_bounds("toast-1").is_some(),
+        "the success toast renders"
+    );
 
     let close = cx
         .debug_bounds("toast-close-1")
@@ -210,8 +230,14 @@ fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
     cx.simulate_click(close.center(), gpui::Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(cx.debug_bounds("toast-1").is_none(), "the dismissed toast is gone");
-    assert!(cx.debug_bounds("toast-0").is_some(), "the sibling toast stays");
+    assert!(
+        cx.debug_bounds("toast-1").is_none(),
+        "the dismissed toast is gone"
+    );
+    assert!(
+        cx.debug_bounds("toast-0").is_some(),
+        "the sibling toast stays"
+    );
 }
 
 /// The branch dropdown follows the kebab menu's dismissal contract: Escape
@@ -226,17 +252,22 @@ fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
         // the branch selector lives on the Changes tab
         s.set_tab(devtools::store::BottomBarTab::Changes, cx);
         s.branches = vec![
-            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+            GitBranchRef {
+                name: "main".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "feature".into(),
+                kind: GitBranchKind::Local,
+            },
         ];
     });
     cx.run_until_parked();
@@ -252,7 +283,10 @@ fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
     };
 
     open_menu(cx);
-    assert!(cx.debug_bounds("branch-menu").is_some(), "the dropdown opens");
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown opens"
+    );
 
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
@@ -312,18 +346,29 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
         s.set_tab(devtools::store::BottomBarTab::Changes, cx);
         s.branches = vec![
-            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "origin/main".into(), kind: GitBranchKind::Remote },
-            GitBranchRef { name: "origin/rust".into(), kind: GitBranchKind::Remote },
+            GitBranchRef {
+                name: "main".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "feature".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "origin/main".into(),
+                kind: GitBranchKind::Remote,
+            },
+            GitBranchRef {
+                name: "origin/rust".into(),
+                kind: GitBranchKind::Remote,
+            },
         ];
     });
     cx.run_until_parked();
@@ -336,11 +381,16 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.debug_bounds("branch-menu").is_some(), "the dropdown opens");
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown opens"
+    );
     let label = cx
         .debug_bounds("branch-group-remote")
         .expect("the Remote group label renders");
-    let local = cx.debug_bounds("branch-row-main").expect("the local row renders");
+    let local = cx
+        .debug_bounds("branch-row-main")
+        .expect("the local row renders");
     let remote = cx
         .debug_bounds("branch-row-origin/main")
         .expect("the remote row renders");
@@ -366,16 +416,21 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
         s.set_tab(devtools::store::BottomBarTab::Changes, cx);
         s.branches = vec![
-            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
+            GitBranchRef {
+                name: "main".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "feature".into(),
+                kind: GitBranchKind::Local,
+            },
         ];
     });
     cx.run_until_parked();
@@ -388,7 +443,9 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    let row = cx.debug_bounds("branch-row-feature").expect("the row renders");
+    let row = cx
+        .debug_bounds("branch-row-feature")
+        .expect("the row renders");
     let trash = cx
         .debug_bounds("branch-delete-feature")
         .expect("the deletable row carries the trash");
@@ -409,9 +466,8 @@ fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
@@ -420,7 +476,9 @@ fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    let row = cx.debug_bounds("rail-Push").expect("the Push action renders");
+    let row = cx
+        .debug_bounds("rail-Push")
+        .expect("the Push action renders");
     let badge = cx
         .debug_bounds("rail-badge-Push")
         .expect("the pending-push pill renders");
@@ -444,23 +502,33 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo(Some("/probe/alpha".into()), cx);
         s.set_tab(devtools::store::BottomBarTab::Changes, cx);
         s.branches = vec![
-            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "feature".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "origin/main".into(), kind: GitBranchKind::Remote },
+            GitBranchRef {
+                name: "main".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "feature".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "origin/main".into(),
+                kind: GitBranchKind::Remote,
+            },
         ];
     });
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    let rail_fetch = cx.debug_bounds("rail-Fetch").expect("the git actions render");
+    let rail_fetch = cx
+        .debug_bounds("rail-Fetch")
+        .expect("the git actions render");
     let button = cx
         .debug_bounds("branch-button")
         .expect("the branch selector renders in the rail");
@@ -541,9 +609,8 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
         store
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -565,7 +632,10 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
             .width
     });
     let chrome = gpui::px(devtools::theme::icon_small() - 2. + 4. + 16.);
-    eprintln!("DEBUG pill={} untrimmed={} chrome={}", pill.size.width, untrimmed, chrome);
+    eprintln!(
+        "DEBUG pill={} untrimmed={} chrome={}",
+        pill.size.width, untrimmed, chrome
+    );
     assert!(
         pill.size.width < untrimmed + chrome,
         "the pill trims its head ({} vs untrimmed {} + chrome)",
@@ -577,9 +647,18 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
         s.select_repo(Some("/probe/alpha".into()), cx);
         s.set_tab(devtools::store::BottomBarTab::Changes, cx);
         s.branches = vec![
-            GitBranchRef { name: LONG.into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "main".into(), kind: GitBranchKind::Local },
-            GitBranchRef { name: "origin/users/enginkirmaci/test".into(), kind: GitBranchKind::Remote },
+            GitBranchRef {
+                name: LONG.into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "main".into(),
+                kind: GitBranchKind::Local,
+            },
+            GitBranchRef {
+                name: "origin/users/enginkirmaci/test".into(),
+                kind: GitBranchKind::Remote,
+            },
         ];
     });
     cx.run_until_parked();
@@ -595,7 +674,9 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
         cx.debug_bounds("branch-menu").is_some(),
         "the dropdown opens"
     );
-    let row = cx.debug_bounds(ROW).expect("the row renders under its full name");
+    let row = cx
+        .debug_bounds(ROW)
+        .expect("the row renders under its full name");
     cx.simulate_click(row.center(), gpui::Modifiers::default());
     cx.run_until_parked();
 
@@ -657,7 +738,10 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
             UiEvent::WarpStatus {
                 workspaces: vec![(
                     "/repos/a".into(),
-                    WarpWorkspaceStatus { connected: true, running: vec!["chat one".into(), "chat two".into()] },
+                    WarpWorkspaceStatus {
+                        connected: true,
+                        running: vec!["chat one".into(), "chat two".into()],
+                    },
                 )],
             },
             cx,
@@ -671,7 +755,7 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
             .warp_running
             .get("/repos/a")
             .map(|w| w.running.clone()))
-        .unwrap(),
+            .unwrap(),
         vec!["chat one".to_string(), "chat two".to_string()]
     );
 
@@ -699,7 +783,10 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
         s.select_repo(Some("/probe/alpha".into()), cx);
         // prime everything the switch must clear (repo A's state)
         s.set_changes(None);
-        s.branches = vec![GitBranchRef { name: "main".into(), kind: GitBranchKind::Local }];
+        s.branches = vec![GitBranchRef {
+            name: "main".into(),
+            kind: GitBranchKind::Local,
+        }];
         s.recent_commits = vec![devtools_core::model::GitCommitInfo {
             hash: "abc".into(),
             subject: "old".into(),
@@ -814,13 +901,14 @@ fn table_rows_center_their_content(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    let header = cx.debug_bounds("repos-header").expect("table header renders");
+    let header = cx
+        .debug_bounds("repos-header")
+        .expect("table header renders");
     let name = cx
         .debug_bounds("repos-name-cell-0")
         .expect("the first row renders");
@@ -852,14 +940,19 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     // SAFETY: process-global env, held exclusively via AUTO_FETCH_ENV
     unsafe { std::env::set_var("DEVTOOLS_AUTO_FETCH_SECS", "1") };
 
-    let scratch = std::env::temp_dir().join(format!("devtools-auto-fetch-store-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-auto-fetch-store-{}.json",
+        std::process::id()
+    ));
     std::fs::write(&scratch, r#"{"Repos": {"AutoFetchMinutes": 30}}"#).expect("scratch settings");
 
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![
             entry("alpha", "/probe/alpha", &[]),
@@ -894,7 +987,10 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     );
     cx.read_entity(&store, |s, _| {
         let due = s.next_auto_fetch.expect("each fire re-arms the schedule");
-        assert!(due > std::time::Instant::now(), "the next due sits in the future");
+        assert!(
+            due > std::time::Instant::now(),
+            "the next due sits in the future"
+        );
     });
 
     // a git mutation in the selected repo excludes its folder (index.lock)
@@ -906,7 +1002,11 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
     while let Ok(command) = net_rx.try_recv() {
         if let NetCommand::FetchAll { folders } = command {
-            assert_eq!(folders, vec![PathBuf::from("/probe/gamma")], "the busy selected repo is excluded");
+            assert_eq!(
+                folders,
+                vec![PathBuf::from("/probe/gamma")],
+                "the busy selected repo is excluded"
+            );
         }
     }
 
@@ -938,7 +1038,9 @@ fn auto_fetch_focus_gate_holds_the_pass_until_a_window_is_focused(cx: &mut TestA
     let store = cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
         store
@@ -958,7 +1060,10 @@ fn auto_fetch_focus_gate_holds_the_pass_until_a_window_is_focused(cx: &mut TestA
     }
     cx.read_entity(&store, |s, _| {
         let due = s.next_auto_fetch.expect("the schedule stays armed");
-        assert!(due < std::time::Instant::now(), "a held pass is not re-armed");
+        assert!(
+            due < std::time::Instant::now(),
+            "a held pass is not re-armed"
+        );
     });
 
     // the gate turning off releases the held pass on the next tick
@@ -1000,13 +1105,16 @@ fn auto_fetch_gate_alone_fetches_once(cx: &mut TestAppContext) {
         "devtools-auto-fetch-once-{}.json",
         std::process::id()
     ));
-    std::fs::write(&scratch, r#"{"Repos": {"AutoFetchOnlyFocused": true}}"#).expect("scratch settings");
+    std::fs::write(&scratch, r#"{"Repos": {"AutoFetchOnlyFocused": true}}"#)
+        .expect("scratch settings");
 
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
     // a focused window: the one-shot is focus-gated like any other pass
@@ -1067,7 +1175,9 @@ fn px_col() -> gpui::Pixels {
 }
 
 /// Drains the store's net channel for LoadChanges requests.
-fn load_changes_folders(net_rx: &async_channel::Receiver<devtools::net::NetCommand>) -> Vec<String> {
+fn load_changes_folders(
+    net_rx: &async_channel::Receiver<devtools::net::NetCommand>,
+) -> Vec<String> {
     let mut folders = Vec::new();
     while let Ok(command) = net_rx.try_recv() {
         if let devtools::net::NetCommand::LoadChanges { folder } = command {
@@ -1176,9 +1286,8 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
         store
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -1201,7 +1310,9 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     );
 
     // the chip toggles the archived rows back on, below the live ones
-    let chip = cx.debug_bounds("archive-chip").expect("the archive chip renders");
+    let chip = cx
+        .debug_bounds("archive-chip")
+        .expect("the archive chip renders");
     cx.simulate_click(chip.center(), gpui::Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
@@ -1210,18 +1321,16 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     let beta_row = cx.read_entity(&store, |s, _| {
         s.projected
             .iter()
-            .position(|row| {
-                matches!(row, ProjectedRow::Repo(ix) if s.repos[*ix].name == "beta")
-            })
+            .position(|row| matches!(row, ProjectedRow::Repo(ix) if s.repos[*ix].name == "beta"))
             .expect("the archived row joins the projection when shown")
     });
     assert_eq!(
-        beta_row,
-        2,
+        beta_row, 2,
         "the archived row sorts below every live repo (favorites first)"
     );
     assert!(
-        cx.debug_bounds(row_selector("repos-restore-", beta_row)).is_some(),
+        cx.debug_bounds(row_selector("repos-restore-", beta_row))
+            .is_some(),
         "the archived row carries the hover-revealed restore action"
     );
 
@@ -1258,13 +1367,18 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     );
     let mut restored_probe = false;
     while let Ok(command) = net_rx.try_recv() {
-        let NetCommand::ProbeAll { folders } = command else { continue };
+        let NetCommand::ProbeAll { folders } = command else {
+            continue;
+        };
         if folders == vec![PathBuf::from("/probe/beta")] {
             restored_probe = true;
         }
     }
     assert!(restored_probe, "restore re-probes the restored folder");
-    assert!(cx.debug_bounds("toast-0").is_some(), "restore confirms with a toast");
+    assert!(
+        cx.debug_bounds("toast-0").is_some(),
+        "restore confirms with a toast"
+    );
 }
 
 fn px_row() -> gpui::Pixels {
@@ -1288,7 +1402,11 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     cx.update_entity(&store, |s: &mut Store, _| {
-        s.repos.push(entry_with_branch("delta", "/probe/delta", "release/feature-x"));
+        s.repos.push(entry_with_branch(
+            "delta",
+            "/probe/delta",
+            "release/feature-x",
+        ));
         // reproject also refreshes the widest-branch width the delegate reads
         s.reproject_pub();
     });
@@ -1347,7 +1465,8 @@ fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
         use gpui_kit::component::table::TableDelegate as _;
 
         for available in [674., 700., 760., 854., 960., 1100., 1234.] {
-            let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(available));
+            let delegate =
+                devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(available));
             let count = delegate.columns_count(cx);
             let widths: Vec<gpui::Pixels> =
                 (0..count).map(|ix| delegate.column(ix, cx).width).collect();
@@ -1367,7 +1486,11 @@ fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
                 "the changes column stays usable at {available}px (got {})",
                 widths[4]
             );
-            assert_eq!(widths[0], gpui::px(36.), "star column leads at {available}px");
+            assert_eq!(
+                widths[0],
+                gpui::px(36.),
+                "star column leads at {available}px"
+            );
             assert!(
                 widths[2] > gpui::px(100.),
                 "launcher buttons stay at {available}px (got {})",
@@ -1406,9 +1529,8 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
     });
 
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -1417,9 +1539,7 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
         let branch_ix = (0..delegate.columns_count(cx))
             .find(|&ix| delegate.column(ix, cx).key == "branch")
             .expect("the branch column is visible at 1100px");
-        let table = cx.new(|cx| {
-            gpui_kit::component::table::TableState::new(delegate, window, cx)
-        });
+        let table = cx.new(|cx| gpui_kit::component::table::TableState::new(delegate, window, cx));
         table.update(cx, |state, cx| {
             state
                 .delegate_mut()
@@ -1428,7 +1548,11 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
     });
 
     let (mode, ascending) = cx.read_entity(&store, |s, _| (s.sort_mode, s.sort_ascending));
-    assert_eq!(mode, RepoSortMode::Branch, "the branch header maps to the Branch mode");
+    assert_eq!(
+        mode,
+        RepoSortMode::Branch,
+        "the branch header maps to the Branch mode"
+    );
     assert!(ascending, "Ascending lands as ascending");
     let order = cx.read_entity(&store, |s, _| {
         s.projected
@@ -1481,15 +1605,20 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     dialog_draw(cx);
 
     dialog_click(cx, "add-repo-button");
-    assert!(cx.debug_bounds("add-repo-overlay").is_some(), "dialog opens");
-    assert!(cx.debug_bounds("btn-Scan").is_some(), "the dedicated Scan button renders");
+    assert!(
+        cx.debug_bounds("add-repo-overlay").is_some(),
+        "dialog opens"
+    );
+    assert!(
+        cx.debug_bounds("btn-Scan").is_some(),
+        "the dedicated Scan button renders"
+    );
     assert!(
         cx.debug_bounds("add-dialog-close").is_some(),
         "the header close button renders"
@@ -1506,7 +1635,10 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     dialog_draw(cx);
-    assert!(cx.debug_bounds("btn-accent-Add").is_some(), "Add waits in the footer");
+    assert!(
+        cx.debug_bounds("btn-accent-Add").is_some(),
+        "Add waits in the footer"
+    );
     assert!(cx.debug_bounds("found-repo-0").is_some());
 
     // uncheck both rows: the disabled Add must be a no-op, not a close
@@ -1599,30 +1731,43 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
 
     // a missing scratch file = default settings = NuGet + warp chips on, the
     // widest right-group the Linux build can render
-    let scratch =
-        std::env::temp_dir().join(format!("devtools-probe-titlebar-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-titlebar-{}.json",
+        std::process::id()
+    ));
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         )
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
     // the chips must actually render, or this probe exercises the compact
     // layout and proves nothing about the overflow
-    assert!(cx.debug_bounds("nuget-status").is_some(), "NuGet chip renders");
-    assert!(cx.debug_bounds("warp-status").is_some(), "warp chip renders");
+    assert!(
+        cx.debug_bounds("nuget-status").is_some(),
+        "NuGet chip renders"
+    );
+    assert!(
+        cx.debug_bounds("warp-status").is_some(),
+        "warp chip renders"
+    );
 
-    let right = cx.debug_bounds("titlebar-right").expect("right group renders");
+    let right = cx
+        .debug_bounds("titlebar-right")
+        .expect("right group renders");
     let nuget = cx.debug_bounds("nuget-status").expect("NuGet bounds");
-    let minimize = cx.debug_bounds("minimize-window").expect("minimize renders");
+    let minimize = cx
+        .debug_bounds("minimize-window")
+        .expect("minimize renders");
     let zoom = cx.debug_bounds("zoom").expect("maximize renders");
     let close = cx.debug_bounds("close-window").expect("close renders");
     // the computed width must actually hold the content: a too-small box
@@ -1669,9 +1814,8 @@ fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
 
     let store = fake_store(cx);
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     dialog_draw(cx);
 
@@ -1741,7 +1885,10 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
         // columns: star, name, shortcuts, branch, changes, …, last activity
         let activity_ix = delegate.columns_count(cx) - 1;
         assert!(
-            matches!(delegate.column(activity_ix, cx).sort, Some(ColumnSort::Descending)),
+            matches!(
+                delegate.column(activity_ix, cx).sort,
+                Some(ColumnSort::Descending)
+            ),
             "the active column shows its direction"
         );
         assert!(
@@ -1764,40 +1911,47 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
         );
         let activity_ix = delegate.columns_count(cx) - 1;
         assert!(
-            matches!(delegate.column(activity_ix, cx).sort, Some(ColumnSort::Default)),
+            matches!(
+                delegate.column(activity_ix, cx).sort,
+                Some(ColumnSort::Default)
+            ),
             "the previous column drops back to unsorted"
         );
     });
 }
 
-// ---- repo groups by scan root ----------------------------------------------
+// ---- repo groups by folder -------------------------------------------------
 
 /// Leaks a per-key selector for debug_bounds (which wants 'static).
 fn key_selector(prefix: &str, key: &str) -> &'static str {
     Box::leak(format!("{prefix}{key}").into_boxed_str())
 }
 
-/// A scratch-settings store with grouping on: two scan roots, two repos under
-/// root A, one under root B, one under neither (the "Other" fallback).
-/// Depth 2 is seeded because sibling-folder roots only render as their own
-/// headers from depth 2 — the depth-1 default merges them under /roots.
+/// A scratch-settings store with grouping on: two roots in disjoint trees,
+/// two repos under root A, one under root B, one under neither (the "Other"
+/// fallback). The default depth (1) makes each disjoint root its own header.
 fn grouped_store(cx: &mut TestAppContext, probe: &str) -> gpui::Entity<Store> {
-    let scratch = std::env::temp_dir().join(format!("devtools-groups-{probe}-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-groups-{probe}-{}.json",
+        std::process::id()
+    ));
     std::fs::write(
         &scratch,
-        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"], "GroupReposByRoot": true, "GroupRootDepth": 2}}"#,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/second/b"], "GroupReposByRoot": true}}"#,
     )
     .expect("scratch settings");
     let (net_tx, _net_rx) = async_channel::unbounded();
     cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![
             entry("alpha", "/roots/a/alpha", &[]),
             entry("beta", "/roots/a/beta", &[]),
-            entry("gamma", "/roots/b/gamma", &[]),
+            entry("gamma", "/second/b/gamma", &[]),
             entry("delta", "/elsewhere/delta", &[]),
         ]);
         store
@@ -1814,9 +1968,8 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
 
     let store = grouped_store(cx, "render");
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -1832,28 +1985,39 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
     assert_eq!(
         sketch,
         vec![
-            "#/roots/a(2)", "alpha", "beta",
-            "#/roots/b(1)", "gamma",
-            "#other(1)", "delta",
+            "#/roots/a(2)",
+            "alpha",
+            "beta",
+            "#/second/b(1)",
+            "gamma",
+            "#other(1)",
+            "delta",
         ],
         "headers interleave before their group's repos; the fallback group sorts last"
     );
 
-    for key in ["/roots/a", "/roots/b", "other"] {
+    for key in ["/roots/a", "/second/b", "other"] {
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", key)).is_some(),
+            cx.debug_bounds(key_selector("repos-group-header-", key))
+                .is_some(),
             "the {key} header row renders"
         );
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-chevron"))).is_some(),
+            cx.debug_bounds(key_selector(
+                "repos-group-header-",
+                &format!("{key}-chevron")
+            ))
+            .is_some(),
             "the {key} chevron renders"
         );
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-count"))).is_some(),
+            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-count")))
+                .is_some(),
             "the {key} count chip renders"
         );
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-solo"))).is_some(),
+            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-solo")))
+                .is_some(),
             "the {key} solo filter renders"
         );
     }
@@ -1869,14 +2033,19 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
     );
     // a header occupies the same 48px band: the cell wrapper leaves the
     // kit's 4+4 padding free, like every repo row
-    let wrap0 = cx.debug_bounds("repos-td-wrap-0").expect("header row renders");
+    let wrap0 = cx
+        .debug_bounds("repos-td-wrap-0")
+        .expect("header row renders");
     assert!(
         (wrap0.size.height - gpui::px(40.)).abs() < gpui::px(2.),
         "header cells fill the row minus the kit's padding (got {:?})",
         wrap0.size.height
     );
 
-    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-render-{}.json", std::process::id())));
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
+        "devtools-groups-render-{}.json",
+        std::process::id()
+    )));
 }
 
 /// The chevron collapses its group: the header stays with its count, the
@@ -1889,9 +2058,8 @@ fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
 
     let store = grouped_store(cx, "collapse");
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -1957,30 +2125,35 @@ fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
         "expanding the last collapsed group clears the key list"
     );
 
-    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-collapse-{}.json", std::process::id())));
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
+        "devtools-groups-collapse-{}.json",
+        std::process::id()
+    )));
 }
 
-/// Depth-2 grouping: headers sit at the first subfolder under each root
-/// (seeded GroupRootDepth), the root-level header is gone, the chevron
-/// persists the extended key, and set_group_depth live-moves the headers
-/// back to the roots without a rescan.
+/// Depth-level grouping: depth 1 puts the one header on the scan roots'
+/// shared folder (the default), the chevron persists that key, and
+/// set_group_depth(2) live-moves the header one folder up without a rescan.
 #[gpui::test]
-fn depth_two_headers_sit_under_the_root_and_persist(cx: &mut TestAppContext) {
+fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
-    let scratch = std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id()));
+    let scratch =
+        std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id()));
     std::fs::write(
         &scratch,
-        r#"{"Repos": {"RepoScanFolders": ["/roots/a"], "GroupReposByRoot": true, "GroupRootDepth": 2}}"#,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a"], "GroupReposByRoot": true}}"#,
     )
     .expect("scratch settings");
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![
             entry("alpha", "/roots/a/work/alpha", &[]),
@@ -1990,53 +2163,11 @@ fn depth_two_headers_sit_under_the_root_and_persist(cx: &mut TestAppContext) {
         store
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    let sketch = cx.read_entity(&store, |s, _| {
-        s.projected
-            .iter()
-            .map(|row| match row {
-                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
-                ProjectedRow::Group { key, count, .. } => format!("#{key}({count})"),
-            })
-            .collect::<Vec<_>>()
-    });
-    assert_eq!(
-        sketch,
-        vec![
-            "#/roots/a/side(1)", "gamma",
-            "#/roots/a/work(2)", "alpha", "beta",
-        ],
-        "depth-2 headers sit at the first subfolder; keys sort, repos keep the flat order"
-    );
-    assert!(
-        cx.debug_bounds("repos-group-header-/roots/a").is_none(),
-        "the root-level header disappears at depth 2"
-    );
-    assert!(
-        cx.debug_bounds("repos-group-header-/roots/a/work").is_some(),
-        "the subfolder header renders"
-    );
-
-    let chevron = cx
-        .debug_bounds("repos-group-header-/roots/a/work-chevron")
-        .expect("the subfolder chevron renders");
-    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
-        Some(vec!["/roots/a/work".to_string()]),
-        "the extended key persists like a root key"
-    );
-
-    cx.update_entity(&store, |s: &mut Store, _| s.set_group_depth(1));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
     let sketch = cx.read_entity(&store, |s, _| {
         s.projected
             .iter()
@@ -2049,7 +2180,45 @@ fn depth_two_headers_sit_under_the_root_and_persist(cx: &mut TestAppContext) {
     assert_eq!(
         sketch,
         vec!["#/roots/a(3)", "alpha", "beta", "gamma"],
-        "depth 1 re-buckets everything under the root header"
+        "depth 1 folds every repo under the root into one header"
+    );
+    assert!(
+        cx.debug_bounds("repos-group-header-/roots").is_none(),
+        "the parent-folder header is not where depth 1 puts it"
+    );
+    assert!(
+        cx.debug_bounds("repos-group-header-/roots/a").is_some(),
+        "the shared-folder header renders"
+    );
+
+    let chevron = cx
+        .debug_bounds("repos-group-header-/roots/a-chevron")
+        .expect("the shared-folder chevron renders");
+    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
+        Some(vec!["/roots/a".to_string()]),
+        "the shared-folder key persists like any group key"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, _| s.set_group_depth(2));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    let sketch = cx.read_entity(&store, |s, _| {
+        s.projected
+            .iter()
+            .map(|row| match row {
+                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
+                ProjectedRow::Group { key, count, .. } => format!("#{key}({count})"),
+            })
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        sketch,
+        vec!["#/roots(3)", "alpha", "beta", "gamma"],
+        "depth 2 raises the header to the root's parent; the old collapse key stops matching"
     );
 
     let mut scans = 0;
@@ -2060,7 +2229,9 @@ fn depth_two_headers_sit_under_the_root_and_persist(cx: &mut TestAppContext) {
     }
     assert_eq!(scans, 1, "the depth move must not rescan");
 
-    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id())));
+    let _ = std::fs::remove_file(
+        std::env::temp_dir().join(format!("devtools-groups-depth-{}.json", std::process::id())),
+    );
 }
 
 /// The header's solo filter narrows the table to that one group (and lights
@@ -2072,13 +2243,15 @@ fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
 
     let store = grouped_store(cx, "solo");
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    assert!(cx.debug_bounds("clear-button").is_none(), "no Clear before a filter");
+    assert!(
+        cx.debug_bounds("clear-button").is_none(),
+        "no Clear before a filter"
+    );
 
     let solo = cx
         .debug_bounds("repos-group-header-/roots/a-solo")
@@ -2088,7 +2261,8 @@ fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
 
     assert_eq!(
-        cx.read_entity(&store, |s, _| s.group_filter.clone()).as_deref(),
+        cx.read_entity(&store, |s, _| s.group_filter.clone())
+            .as_deref(),
         Some("/roots/a"),
         "soloing sets the session group filter"
     );
@@ -2106,7 +2280,10 @@ fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
         vec!["#/roots/a", "alpha", "beta"],
         "only the soloed group's rows survive"
     );
-    assert!(cx.debug_bounds("clear-button").is_some(), "the Clear button appears for a solo filter");
+    assert!(
+        cx.debug_bounds("clear-button").is_some(),
+        "the Clear button appears for a solo filter"
+    );
 
     // Clear restores the full projection and the filter
     let clear = cx.debug_bounds("clear-button").expect("Clear renders");
@@ -2115,9 +2292,14 @@ fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(cx.read_entity(&store, |s, _| s.group_filter.is_none()));
     assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 7);
-    assert!(cx.debug_bounds("clear-button").is_none(), "Clear retires once nothing is filtered");
+    assert!(
+        cx.debug_bounds("clear-button").is_none(),
+        "Clear retires once nothing is filtered"
+    );
 
-    let _ = std::fs::remove_file(std::env::temp_dir().join(format!("devtools-groups-solo-{}.json", std::process::id())));
+    let _ = std::fs::remove_file(
+        std::env::temp_dir().join(format!("devtools-groups-solo-{}.json", std::process::id())),
+    );
 }
 
 /// Without the grouping setting the table stays flat: no header selectors
@@ -2128,13 +2310,20 @@ fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
     cx.update(devtools::theme::apply_kit_theme);
 
     // same scan roots, no GroupReposByRoot — the setting's absence means off
-    let scratch = std::env::temp_dir().join(format!("devtools-groups-off-{}.json", std::process::id()));
-    std::fs::write(&scratch, r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"]}}"#).expect("scratch settings");
+    let scratch =
+        std::env::temp_dir().join(format!("devtools-groups-off-{}.json", std::process::id()));
+    std::fs::write(
+        &scratch,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"]}}"#,
+    )
+    .expect("scratch settings");
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|_cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![
             entry("alpha", "/roots/a/alpha", &[]),
@@ -2145,9 +2334,8 @@ fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
         store
     });
     let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
-    });
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -2158,7 +2346,8 @@ fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
     );
     for key in ["/roots/a", "/roots/b", "other"] {
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", key)).is_none(),
+            cx.debug_bounds(key_selector("repos-group-header-", key))
+                .is_none(),
             "no header row renders for {key} while grouping is off"
         );
     }

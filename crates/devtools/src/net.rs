@@ -13,42 +13,93 @@ use std::path::{Path, PathBuf};
 pub enum NetCommand {
     /// The listing scan: direct children of each scan root, user tags and
     /// last-known status carried over from `previous`, cache saved after.
-    Scan { settings: ReposSettings, previous: Vec<RepoEntry> },
+    Scan {
+        settings: ReposSettings,
+        previous: Vec<RepoEntry>,
+    },
     /// One status pass over every folder, 4-way parallel, burst-applied.
-    ProbeAll { folders: Vec<PathBuf> },
+    ProbeAll {
+        folders: Vec<PathBuf>,
+    },
     /// The periodic background fetch: `git fetch --prune` over every folder
     /// with a remote, then one status pass — errors are traced, not toasted.
-    FetchAll { folders: Vec<PathBuf> },
+    FetchAll {
+        folders: Vec<PathBuf>,
+    },
     /// The Add-Repositories dialog's deep scan under one root.
-    DeepScan { root: String, depth: i32, settings: ReposSettings },
+    DeepScan {
+        root: String,
+        depth: i32,
+        settings: ReposSettings,
+    },
     /// The Clone-from-URL dialog's clone into a parent directory.
-    Clone { url: String, parent_dir: String, name: String },
+    Clone {
+        url: String,
+        parent_dir: String,
+        name: String,
+    },
     /// The Changes tab's shared load: status snapshot + branches + history in
     /// one pass, settled together so the tab paints complete.
-    LoadChanges { folder: PathBuf },
+    LoadChanges {
+        folder: PathBuf,
+    },
     /// One mutation; the net thread reloads the repo's changes and probes its
     /// status after it settles, success or failure.
-    Git { folder: PathBuf, action: GitAction },
+    Git {
+        folder: PathBuf,
+        action: GitAction,
+    },
     /// One change row's expandable patch.
-    GetChangePatch { folder: PathBuf, path: String, staged: bool },
+    GetChangePatch {
+        folder: PathBuf,
+        path: String,
+        staged: bool,
+    },
     /// The history list's deeper commit cut plus the unpushed set.
-    LoadHistory { folder: PathBuf },
+    LoadHistory {
+        folder: PathBuf,
+    },
     /// One commit's drill-down: files with counts + message body.
-    GetCommitDetails { folder: PathBuf, hash: String },
+    GetCommitDetails {
+        folder: PathBuf,
+        hash: String,
+    },
     /// One drill-down file's patch.
-    GetCommitFilePatch { folder: PathBuf, hash: String, path: String },
+    GetCommitFilePatch {
+        folder: PathBuf,
+        hash: String,
+        path: String,
+    },
     /// The GitHub activity pass over every repo (2-way parallel gh spawns).
-    GitHubPass { folders: Vec<PathBuf>, gh_exe: String },
+    GitHubPass {
+        folders: Vec<PathBuf>,
+        gh_exe: String,
+    },
     /// The Overview sidebar's repo details.
-    GitHubDetails { folder: PathBuf, gh_exe: String },
+    GitHubDetails {
+        folder: PathBuf,
+        gh_exe: String,
+    },
     /// The Azure DevOps activity pass (2-way parallel REST probes).
-    AzurePass { folders: Vec<PathBuf>, pat: String, custom_base: String },
+    AzurePass {
+        folders: Vec<PathBuf>,
+        pat: String,
+        custom_base: String,
+    },
     /// One AI wand run: the prompt is built here, the turn runs in
     /// warp-agent over its door (launching it when merely closed).
-    Wand { id: String, kind: WandKind, folder: PathBuf, model: Option<String>, warp_exe: String },
+    Wand {
+        id: String,
+        kind: WandKind,
+        folder: PathBuf,
+        model: Option<String>,
+        warp_exe: String,
+    },
     /// The opencode model catalog through the warp-agent door (+ cache).
     /// Passive: a closed door falls back to the cache, never a launch.
-    LoadModels { default_model: String },
+    LoadModels {
+        default_model: String,
+    },
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
@@ -60,22 +111,37 @@ pub enum NetCommand {
         summaries_dir: PathBuf,
     },
     /// Opens a repo as a warp-agent workspace (added when missing).
-    WarpOpen { folder: PathBuf, warp_exe: String },
+    WarpOpen {
+        folder: PathBuf,
+        warp_exe: String,
+    },
     /// NuGet Local watch controls; the config is captured from settings at
     /// press time (the service holds no settings handle).
-    NugetStart { config: devtools_core::nuget::NugetConfig },
+    NugetStart {
+        config: devtools_core::nuget::NugetConfig,
+    },
     NugetStop,
-    NugetSetFolder { folder: String },
+    NugetSetFolder {
+        folder: String,
+    },
     NugetRegister,
     /// Opens the native folder picker on the net thread (a native modal must
     /// not block the UI thread); the pick settles as [UiEvent::FolderPicked].
     BrowseFolder,
     /// One prompt-template op from the Settings card; the settled state
     /// returns as [UiEvent::TemplateLoaded] for every op.
-    TemplateIo { id: String, op: TemplateOp },
+    TemplateIo {
+        id: String,
+        op: TemplateOp,
+    },
     /// One cross-repo ripgrep sweep for the titlebar search popup; the hits
     /// return as [UiEvent::CodeSearchSettled] with the dispatching generation.
-    CodeSearch { generation: u64, term: String, folders: Vec<PathBuf>, rg_exe: PathBuf },
+    CodeSearch {
+        generation: u64,
+        term: String,
+        folders: Vec<PathBuf>,
+        rg_exe: PathBuf,
+    },
 }
 
 /// A prompt-template management op (Settings → AI features card).
@@ -103,15 +169,24 @@ pub enum GitAction {
     Unstage(String),
     DiscardStaged(Vec<String>),
     DiscardUnstaged(Vec<String>),
-    DiscardFile { path: String, is_staged: bool },
+    DiscardFile {
+        path: String,
+        is_staged: bool,
+    },
     Commit(String),
     Checkout(String),
-    CreateBranch { name: String, start: Option<String>, checkout: bool },
+    CreateBranch {
+        name: String,
+        start: Option<String>,
+        checkout: bool,
+    },
     DeleteBranch(String),
     Fetch,
     Pull,
     Push,
-    Publish { branch: String },
+    Publish {
+        branch: String,
+    },
     /// Pull then push; a failed pull skips the push.
     Sync,
     /// `git revert --no-edit` on one commit (the drill-down's Revert).
@@ -146,7 +221,9 @@ impl GitAction {
         match self {
             GitAction::Checkout(target) | GitAction::Revert(target) => Some(target.clone()),
             GitAction::DeleteBranch(name) => Some(name.clone()),
-            GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => Some(name.clone()),
+            GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => {
+                Some(name.clone())
+            }
             _ => None,
         }
     }
@@ -175,10 +252,14 @@ fn parse_warp_status(workspaces: &serde_json::Value) -> Vec<(String, WarpWorkspa
                             sessions
                                 .iter()
                                 .filter(|s| {
-                                    s.get("running").and_then(serde_json::Value::as_bool).unwrap_or(false)
+                                    s.get("running")
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false)
                                 })
                                 .filter_map(|s| {
-                                    s.get("title").and_then(serde_json::Value::as_str).map(str::to_string)
+                                    s.get("title")
+                                        .and_then(serde_json::Value::as_str)
+                                        .map(str::to_string)
                                 })
                                 .collect()
                         })
@@ -186,7 +267,10 @@ fn parse_warp_status(workspaces: &serde_json::Value) -> Vec<(String, WarpWorkspa
                     Some((
                         path,
                         WarpWorkspaceStatus {
-                            connected: ws.get("connected").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                            connected: ws
+                                .get("connected")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
                             running,
                         },
                     ))
@@ -197,12 +281,26 @@ fn parse_warp_status(workspaces: &serde_json::Value) -> Vec<(String, WarpWorkspa
 }
 
 pub enum UiEvent {
-    ScanSettled { repos: Vec<RepoEntry>, removed: Vec<String> },
+    ScanSettled {
+        repos: Vec<RepoEntry>,
+        removed: Vec<String>,
+    },
     /// `after_fetch` marks the pass a FetchAll ends with, so the store can
     /// re-read the selected repo's open workspace from the post-fetch state.
-    StatusSettled { probes: Vec<StatusProbe>, after_fetch: bool },
-    DeepScanSettled { root: String, found: Vec<devtools_core::scan::ScannedRepo> },
-    CloneSettled { url: String, parent_dir: String, name: String, result: devtools_core::model::GitSyncResult },
+    StatusSettled {
+        probes: Vec<StatusProbe>,
+        after_fetch: bool,
+    },
+    DeepScanSettled {
+        root: String,
+        found: Vec<devtools_core::scan::ScannedRepo>,
+    },
+    CloneSettled {
+        url: String,
+        parent_dir: String,
+        name: String,
+        result: devtools_core::model::GitSyncResult,
+    },
     ChangesLoaded {
         folder: String,
         snapshot: Option<devtools_core::model::GitChangeSnapshot>,
@@ -219,45 +317,99 @@ pub enum UiEvent {
         /// The action's branch/commit target, for toast texts.
         detail: Option<String>,
     },
-    ChangePatchLoaded { folder: String, path: String, staged: bool, patch: String },
+    ChangePatchLoaded {
+        folder: String,
+        path: String,
+        staged: bool,
+        patch: String,
+    },
     HistoryLoaded {
         folder: String,
         commits: Vec<devtools_core::model::GitCommitInfo>,
         unpushed: Option<std::collections::HashSet<String>>,
     },
-    CommitDetailsLoaded { folder: String, details: Option<devtools_core::model::GitCommitDetails> },
-    CommitFilePatchLoaded { folder: String, hash: String, path: String, patch: String },
-    GitHubSettled { items: Vec<(String, devtools_core::github::GitHubSnapshot)> },
-    GitHubDetailsLoaded { folder: String, details: Option<devtools_core::github::GitHubRepoDetails> },
-    AzureSettled { items: Vec<(String, devtools_core::azure::AzureSnapshot)> },
-    WandLog { wand_id: String, line: String },
-    WandDone { wand_id: String, kind: WandKind, result: Result<String, String> },
-    ModelsLoaded { models: Vec<String> },
+    CommitDetailsLoaded {
+        folder: String,
+        details: Option<devtools_core::model::GitCommitDetails>,
+    },
+    CommitFilePatchLoaded {
+        folder: String,
+        hash: String,
+        path: String,
+        patch: String,
+    },
+    GitHubSettled {
+        items: Vec<(String, devtools_core::github::GitHubSnapshot)>,
+    },
+    GitHubDetailsLoaded {
+        folder: String,
+        details: Option<devtools_core::github::GitHubRepoDetails>,
+    },
+    AzureSettled {
+        items: Vec<(String, devtools_core::azure::AzureSnapshot)>,
+    },
+    WandLog {
+        wand_id: String,
+        line: String,
+    },
+    WandDone {
+        wand_id: String,
+        kind: WandKind,
+        result: Result<String, String>,
+    },
+    ModelsLoaded {
+        models: Vec<String>,
+    },
     /// The summary wand finished (Ok = the written file path).
-    SummaryDone { wand_id: String, result: Result<String, String> },
+    SummaryDone {
+        wand_id: String,
+        result: Result<String, String>,
+    },
     /// warp-agent came up or went away; `connected` gates the status chip.
-    WarpAvailability { connected: bool },
+    WarpAvailability {
+        connected: bool,
+    },
     /// A warp-agent status snapshot: workspace folder → running chats.
-    WarpStatus { workspaces: Vec<(String, WarpWorkspaceStatus)> },
+    WarpStatus {
+        workspaces: Vec<(String, WarpWorkspaceStatus)>,
+    },
     /// A warp-agent open/handoff settled; the error toasts on failure.
-    WarpOpened { folder: String, error: Option<String> },
+    WarpOpened {
+        folder: String,
+        error: Option<String>,
+    },
     /// A NuGet watch service state change (full snapshot).
     Nuget(devtools_core::nuget::NugetSnapshot),
     /// The system-wide Ctrl+Shift+V fired; the copy already ran on the
     /// trigger thread (wl-copy / raw SetClipboardData — gpui's Wayland write
     /// is focus-gated), the store only shows the toast.
-    ClipboardHotkey { message: &'static str },
+    ClipboardHotkey {
+        message: &'static str,
+    },
     /// The native folder picker closed; None = cancelled or unavailable.
-    FolderPicked { path: Option<String> },
+    FolderPicked {
+        path: Option<String>,
+    },
     /// A prompt template's settled state after any TemplateIo op: the raw
     /// body plus whether it differs from the built-in default.
-    TemplateLoaded { id: String, content: String, customized: bool },
+    TemplateLoaded {
+        id: String,
+        content: String,
+        customized: bool,
+    },
     /// The cross-repo code search settled; the store applies it only when the
     /// generation is still the latest (a newer keystroke wins).
-    CodeSearchSettled { generation: u64, hits: Vec<devtools_core::code_search::CodeHit> },
+    CodeSearchSettled {
+        generation: u64,
+        hits: Vec<devtools_core::code_search::CodeHit>,
+    },
 }
 
-pub fn spawn_net_thread() -> (std::thread::JoinHandle<()>, Sender<NetCommand>, Receiver<UiEvent>) {
+pub fn spawn_net_thread() -> (
+    std::thread::JoinHandle<()>,
+    Sender<NetCommand>,
+    Receiver<UiEvent>,
+) {
     let (cmd_tx, cmd_rx) = async_channel::unbounded::<NetCommand>();
     let (evt_tx, evt_rx) = async_channel::unbounded::<UiEvent>();
     let handle = std::thread::Builder::new()
@@ -348,12 +500,14 @@ async fn listen_clipboard_ping(evt_tx: Sender<UiEvent>) {
 
 async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
     // live wand runs: id → the run's kill signal
-    let wands: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<()>>>> =
-        std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let wands: std::sync::Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<()>>>,
+    > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
     // the NuGet watch service outlives the drawer; its snapshots forward as
     // UiEvents on the same bridge
-    let (nuget_events, nuget_receiver) = async_channel::unbounded::<devtools_core::nuget::NugetSnapshot>();
+    let (nuget_events, nuget_receiver) =
+        async_channel::unbounded::<devtools_core::nuget::NugetSnapshot>();
     let nuget = std::sync::Arc::new(devtools_core::nuget::NugetService::new(nuget_events));
     {
         let evt_tx = evt_tx.clone();
@@ -392,11 +546,17 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 if let Err(err) = repo_store::save_cache(&repo_store::cache_path(), &merged) {
                     tracing::warn!("could not save repo cache: {err}");
                 }
-                let _ = evt_tx.send_blocking(UiEvent::ScanSettled { repos: merged, removed });
+                let _ = evt_tx.send_blocking(UiEvent::ScanSettled {
+                    repos: merged,
+                    removed,
+                });
             }
             NetCommand::ProbeAll { folders } => {
                 let probes = probe_pass(folders).await;
-                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes, after_fetch: false });
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
+                    probes,
+                    after_fetch: false,
+                });
             }
             NetCommand::FetchAll { folders } => {
                 devtools_core::refresh::throttled_pass(folders.clone(), 3, |folder| async move {
@@ -413,22 +573,46 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 // the settled probes refresh the ahead/behind badges through
                 // the same burst-apply the manual passes use
                 let probes = probe_pass(folders).await;
-                let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes, after_fetch: true });
+                let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
+                    probes,
+                    after_fetch: true,
+                });
             }
-            NetCommand::DeepScan { root, depth, settings } => {
+            NetCommand::DeepScan {
+                root,
+                depth,
+                settings,
+            } => {
                 let scan_root = PathBuf::from(root.clone());
                 let found = tokio::task::spawn_blocking(move || {
                     scan::scan_folder(&settings, &scan_root, Some(depth))
                 })
                 .await
                 .unwrap_or_default();
-                let _ = evt_tx.send_blocking(UiEvent::DeepScanSettled { root, found: found.repos });
+                let _ = evt_tx.send_blocking(UiEvent::DeepScanSettled {
+                    root,
+                    found: found.repos,
+                });
             }
-            NetCommand::Clone { url, parent_dir, name } => {
-                let result = devtools_core::git::cli::clone(&url, Path::new(&parent_dir), &name).await;
-                let _ = evt_tx.send_blocking(UiEvent::CloneSettled { url, parent_dir, name, result });
+            NetCommand::Clone {
+                url,
+                parent_dir,
+                name,
+            } => {
+                let result =
+                    devtools_core::git::cli::clone(&url, Path::new(&parent_dir), &name).await;
+                let _ = evt_tx.send_blocking(UiEvent::CloneSettled {
+                    url,
+                    parent_dir,
+                    name,
+                    result,
+                });
             }
-            NetCommand::GetChangePatch { folder, path, staged } => {
+            NetCommand::GetChangePatch {
+                folder,
+                path,
+                staged,
+            } => {
                 let patch = tokio::task::spawn_blocking({
                     let folder = folder.clone();
                     let path = path.clone();
@@ -455,7 +639,9 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let gh = gh.clone();
                     async move {
                         let snapshot = devtools_core::github::refresh(&folder, &gh).await;
-                        sink.lock().unwrap().push((folder.to_string_lossy().to_string(), snapshot));
+                        sink.lock()
+                            .unwrap()
+                            .push((folder.to_string_lossy().to_string(), snapshot));
                     }
                 })
                 .await;
@@ -464,17 +650,27 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::GitHubSettled { items });
             }
-            NetCommand::WandSummary { id, folders, day, model, warp_exe, summaries_dir } => {
+            NetCommand::WandSummary {
+                id,
+                folders,
+                day,
+                model,
+                warp_exe,
+                summaries_dir,
+            } => {
                 let evt_tx = evt_tx.clone();
                 tokio::spawn(async move {
                     // gather every repo's day activity (blocking reads)
                     let activities = tokio::task::spawn_blocking(move || {
-                        let mut collected: Vec<(String, devtools_core::model::GitDayActivity)> = Vec::new();
+                        let mut collected: Vec<(String, devtools_core::model::GitDayActivity)> =
+                            Vec::new();
                         for (name, folder) in &folders {
-                            if let Some(activity) = devtools_core::git::read::day_activity(folder, day)
-                                && !activity.is_empty() {
-                                    collected.push((name.clone(), activity));
-                                }
+                            if let Some(activity) =
+                                devtools_core::git::read::day_activity(folder, day)
+                                && !activity.is_empty()
+                            {
+                                collected.push((name.clone(), activity));
+                            }
                         }
                         collected.sort_by(|a, b| a.0.cmp(&b.0));
                         collected
@@ -498,7 +694,12 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
 
                     // the summary is a warp-agent General-workspace chat: it
                     // stays visible there after the note is written
-                    let run = match devtools_core::warp::connect_or_launch(std::path::Path::new(&warp_exe), None).await {
+                    let run = match devtools_core::warp::connect_or_launch(
+                        std::path::Path::new(&warp_exe),
+                        None,
+                    )
+                    .await
+                    {
                         Ok(mut client) => {
                             let logs = evt_tx.clone();
                             let log_id = id.clone();
@@ -509,7 +710,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                     &prompt,
                                     model.as_deref(),
                                     move |line| {
-                                        let _ = logs.send_blocking(UiEvent::WandLog { wand_id: log_id.clone(), line });
+                                        let _ = logs.send_blocking(UiEvent::WandLog {
+                                            wand_id: log_id.clone(),
+                                            line,
+                                        });
                                     },
                                     kill_rx,
                                 )
@@ -531,7 +735,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         }
                         Err(err) => Err(format!("{err:#}")),
                     };
-                    let _ = evt_tx.send_blocking(UiEvent::SummaryDone { wand_id: id, result: outcome });
+                    let _ = evt_tx.send_blocking(UiEvent::SummaryDone {
+                        wand_id: id,
+                        result: outcome,
+                    });
                 });
             }
             NetCommand::LoadModels { default_model } => {
@@ -565,8 +772,9 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             }
             NetCommand::TemplateIo { id, op } => {
                 // unknown ids are ignored: no file, no event
-                if let Some(template) =
-                    devtools_core::opencode::PROMPT_TEMPLATES.iter().find(|t| t.id == id)
+                if let Some(template) = devtools_core::opencode::PROMPT_TEMPLATES
+                    .iter()
+                    .find(|t| t.id == id)
                 {
                     match op {
                         TemplateOp::Read => {}
@@ -587,10 +795,19 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let content = devtools_core::opencode::read_template(&id)
                         .unwrap_or_else(|| template.default.to_string());
                     let customized = devtools_core::opencode::is_customized(&id);
-                    let _ = evt_tx.send_blocking(UiEvent::TemplateLoaded { id, content, customized });
+                    let _ = evt_tx.send_blocking(UiEvent::TemplateLoaded {
+                        id,
+                        content,
+                        customized,
+                    });
                 }
             }
-            NetCommand::CodeSearch { generation, term, folders, rg_exe } => {
+            NetCommand::CodeSearch {
+                generation,
+                term,
+                folders,
+                rg_exe,
+            } => {
                 // spawned, not awaited: an 8s ripgrep sweep must not stall the
                 // net loop behind it
                 let evt_tx = evt_tx.clone();
@@ -605,7 +822,13 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let _ = evt_tx.send_blocking(UiEvent::CodeSearchSettled { generation, hits });
                 });
             }
-            NetCommand::Wand { id, kind, folder, model, warp_exe } => {
+            NetCommand::Wand {
+                id,
+                kind,
+                folder,
+                model,
+                warp_exe,
+            } => {
                 let evt_tx = evt_tx.clone();
                 let wands = wands.clone();
                 tokio::spawn(async move {
@@ -667,7 +890,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     )
                     .await
                     {
-                        Ok(mut client) => client.open_workspace(&folder).await.map_err(|err| format!("{err:#}")),
+                        Ok(mut client) => client
+                            .open_workspace(&folder)
+                            .await
+                            .map_err(|err| format!("{err:#}")),
                         Err(err) => Err(format!("{err:#}")),
                     };
                     let _ = evt_tx.send_blocking(UiEvent::WarpOpened {
@@ -676,7 +902,11 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     });
                 });
             }
-            NetCommand::AzurePass { folders, pat, custom_base } => {
+            NetCommand::AzurePass {
+                folders,
+                pat,
+                custom_base,
+            } => {
                 use std::sync::{Arc, Mutex};
                 let collected = Arc::new(Mutex::new(Vec::new()));
                 let sink = collected.clone();
@@ -685,8 +915,11 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let pat = pat.clone();
                     let custom_base = custom_base.clone();
                     async move {
-                        let snapshot = devtools_core::azure::refresh(&folder, &pat, &custom_base).await;
-                        sink.lock().unwrap().push((folder.to_string_lossy().to_string(), snapshot));
+                        let snapshot =
+                            devtools_core::azure::refresh(&folder, &pat, &custom_base).await;
+                        sink.lock()
+                            .unwrap()
+                            .push((folder.to_string_lossy().to_string(), snapshot));
                     }
                 })
                 .await;
@@ -707,7 +940,8 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     let folder = folder.clone();
                     move || {
                         (
-                            devtools_core::git::read::history_commits(&folder, 200).unwrap_or_default(),
+                            devtools_core::git::read::history_commits(&folder, 200)
+                                .unwrap_or_default(),
                             devtools_core::git::read::unpushed_hashes(&folder),
                         )
                     }
@@ -851,73 +1085,98 @@ async fn warp_status_loop(evt_tx: Sender<UiEvent>) {
             .warp_agent
             .enable_warp_agent
         {
-            if announced {
-                announced = false;
-                let _ = evt_tx.send_blocking(UiEvent::WarpAvailability { connected: false });
-            }
+            announce_warp(&evt_tx, &mut announced, false);
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             continue;
         }
-        let connected = match devtools_core::warp::Client::connect().await {
-            Ok(mut client) => {
-                if let Ok(workspaces) = client.status().await {
-                    let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
-                        workspaces: parse_warp_status(&workspaces),
-                    });
-                }
-                // ride the push stream until the door drops
-                while let Ok(frame) = client.next_frame().await {
-                    if frame.get("event").and_then(serde_json::Value::as_str) == Some("status")
-                        && let Some(workspaces) = frame.pointer("/data/workspaces")
-                    {
-                        let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
-                            workspaces: parse_warp_status(workspaces),
-                        });
-                    }
-                }
-                true
-            }
-            Err(_) => false,
-        };
-        if connected != announced {
-            announced = connected;
-            let _ = evt_tx.send_blocking(UiEvent::WarpAvailability { connected });
-        }
+        warp_status_cycle(
+            devtools_core::warp::Client::connect,
+            &evt_tx,
+            &mut announced,
+        )
+        .await;
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 }
 
-async fn run_git_action(folder: &Path, action: &GitAction) -> (bool, Option<String>, Option<String>) {
+/// Sends one availability change when it differs from what was already
+/// announced, so the chip hears only the real transitions.
+fn announce_warp(evt_tx: &Sender<UiEvent>, announced: &mut bool, connected: bool) {
+    if *announced != connected {
+        *announced = connected;
+        let _ = evt_tx.send_blocking(UiEvent::WarpAvailability { connected });
+    }
+}
+
+/// One watcher cycle: connect, announce green, ride the push stream until the
+/// door drops, announce gray. `connect` is a seam so tests can point the cycle
+/// at endpoint files in a temp dir.
+async fn warp_status_cycle<F, Fut>(connect: F, evt_tx: &Sender<UiEvent>, announced: &mut bool)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<devtools_core::warp::Client>>,
+{
+    let Ok(mut client) = connect().await else {
+        announce_warp(evt_tx, announced, false);
+        return;
+    };
+    announce_warp(evt_tx, announced, true);
+    if let Ok(workspaces) = client.status().await {
+        let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
+            workspaces: parse_warp_status(&workspaces),
+        });
+    }
+    // ride the push stream until the door drops
+    while let Ok(frame) = client.next_frame().await {
+        if frame.get("event").and_then(serde_json::Value::as_str) == Some("status")
+            && let Some(workspaces) = frame.pointer("/data/workspaces")
+        {
+            let _ = evt_tx.send_blocking(UiEvent::WarpStatus {
+                workspaces: parse_warp_status(workspaces),
+            });
+        }
+    }
+    announce_warp(evt_tx, announced, false);
+}
+
+async fn run_git_action(
+    folder: &Path,
+    action: &GitAction,
+) -> (bool, Option<String>, Option<String>) {
     use devtools_core::git::cli;
     match action {
         GitAction::StageAll => cli::stage_all(folder).await.into_outcome(),
         GitAction::UnstageAll => cli::unstage_all(folder).await.into_outcome(),
         GitAction::Stage(path) => cli::stage(folder, path).await.into_outcome(),
         GitAction::Unstage(path) => cli::unstage(folder, path).await.into_outcome(),
-        GitAction::DiscardStaged(paths) => (
-            cli::discard_paths(folder, paths, true).await,
+        GitAction::DiscardStaged(paths) => {
+            (cli::discard_paths(folder, paths, true).await, None, None)
+        }
+        GitAction::DiscardUnstaged(paths) => {
+            (cli::discard_paths(folder, paths, false).await, None, None)
+        }
+        GitAction::DiscardFile { path, is_staged } => (
+            cli::discard_file(folder, path, *is_staged).await,
             None,
             None,
         ),
-        GitAction::DiscardUnstaged(paths) => (
-            cli::discard_paths(folder, paths, false).await,
-            None,
-            None,
-        ),
-        GitAction::DiscardFile { path, is_staged } => {
-            (cli::discard_file(folder, path, *is_staged).await, None, None)
-        }
-        GitAction::Commit(message) => {
-            match cli::commit(folder, message).await {
-                Some(hash) => (true, None, Some(hash)),
-                None => (false, Some("nothing staged, or git rejected it".into()), None),
-            }
-        }
+        GitAction::Commit(message) => match cli::commit(folder, message).await {
+            Some(hash) => (true, None, Some(hash)),
+            None => (
+                false,
+                Some("nothing staged, or git rejected it".into()),
+                None,
+            ),
+        },
         GitAction::Checkout(branch) => {
             let outcome = cli::checkout(folder, branch).await;
             (outcome.ok, outcome.error, None)
         }
-        GitAction::CreateBranch { name, start, checkout } => {
+        GitAction::CreateBranch {
+            name,
+            start,
+            checkout,
+        } => {
             let result = cli::create_branch(folder, name, start.as_deref(), *checkout).await;
             (result.success, result.error, None)
         }
@@ -965,7 +1224,8 @@ impl OutcomeExt for devtools_core::git::cli::GitOutcome {
     fn into_outcome(self) -> (bool, Option<String>, Option<String>) {
         (
             self.ok,
-            self.error.or_else(|| (!self.ok).then(|| "git rejected it".into())),
+            self.error
+                .or_else(|| (!self.ok).then(|| "git rejected it".into())),
             None,
         )
     }
@@ -1002,8 +1262,135 @@ async fn probe_pass(folders: Vec<PathBuf>) -> Vec<StatusProbe> {
         }
     })
     .await;
-    let mut probes = Arc::try_unwrap(collected).map(|m| m.into_inner().unwrap()).unwrap_or_default();
+    let mut probes = Arc::try_unwrap(collected)
+        .map(|m| m.into_inner().unwrap())
+        .unwrap_or_default();
     // keep the table's burst-apply order stable (by folder path)
     probes.sort_by(|a, b| a.folder_path.cmp(&b.folder_path));
     probes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The availability announcements must ride the real transitions: green
+    /// right after a door answers, gray right after the door drops. The old
+    /// loop carried the green over the ride and delivered it only on the drop
+    /// — the chip lit up a beat before going gray, exactly backwards.
+    #[tokio::test]
+    async fn warp_status_cycle_announces_up_then_away() {
+        use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("ipc.port"), format!("{port}\n")).unwrap();
+        std::fs::write(dir.path().join("ipc.token"), "test-token\n").unwrap();
+
+        // one door connection: auth, answer the status snapshot (echoing the
+        // request's id), hang up — the hang-up ends the cycle's ride loop
+        let door = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read_half, mut write_half) = stream.into_split();
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            write_half.write_all(b"{\"ok\": true}\n").await.unwrap();
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+            let status = serde_json::json!({
+                "id": request.get("id").cloned().unwrap_or(serde_json::json!(0)),
+                "ok": true,
+                "workspaces": [{
+                    "path": "/repo",
+                    "connected": true,
+                    "sessions": [{"title": "fix the chip", "running": true}],
+                }]
+            });
+            write_half
+                .write_all(format!("{status}\n").as_bytes())
+                .await
+                .unwrap();
+        });
+
+        let (evt_tx, evt_rx) = async_channel::unbounded::<UiEvent>();
+        let mut announced = false;
+        warp_status_cycle(
+            || devtools_core::warp::Client::connect_in(dir.path()),
+            &evt_tx,
+            &mut announced,
+        )
+        .await;
+        drop(evt_tx);
+        door.await.unwrap();
+
+        let events: Vec<UiEvent> = drain_events(&evt_rx);
+        assert!(matches!(
+            events.first(),
+            Some(UiEvent::WarpAvailability { connected: true })
+        ));
+        let UiEvent::WarpStatus { workspaces } = &events[1] else {
+            panic!("the second event should be the status snapshot");
+        };
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].0, "/repo");
+        assert!(workspaces[0].1.connected);
+        assert_eq!(workspaces[0].1.running, vec!["fix the chip".to_string()]);
+        assert!(matches!(
+            events.last(),
+            Some(UiEvent::WarpAvailability { connected: false })
+        ));
+        assert_eq!(events.len(), 3);
+        assert!(!announced);
+    }
+
+    /// The dedupe on the away side: while the chip was never green, a missed
+    /// door stays silent; once the door was announced up, the next missed
+    /// door reports away exactly once.
+    #[tokio::test]
+    async fn warp_status_cycle_announces_away_on_missed_door() {
+        let dir = tempfile::tempdir().unwrap();
+        let (evt_tx, evt_rx) = async_channel::unbounded::<UiEvent>();
+        let mut announced = false;
+
+        // never green: a missed door dedupes to silence (the chip is already gray)
+        warp_status_cycle(
+            || devtools_core::warp::Client::connect_in(dir.path()),
+            &evt_tx,
+            &mut announced,
+        )
+        .await;
+        assert_eq!(drain_events(&evt_rx).len(), 0);
+        assert!(!announced);
+
+        // the door was up: the next missed door reports away once
+        announced = true;
+        warp_status_cycle(
+            || devtools_core::warp::Client::connect_in(dir.path()),
+            &evt_tx,
+            &mut announced,
+        )
+        .await;
+        drop(evt_tx);
+        let events = drain_events(&evt_rx);
+        assert!(matches!(
+            events.first(),
+            Some(UiEvent::WarpAvailability { connected: false })
+        ));
+        assert_eq!(events.len(), 1);
+        assert!(!announced);
+    }
+
+    /// async_channel's receiver has no try_iter; drain what is queued.
+    fn drain_events(rx: &async_channel::Receiver<UiEvent>) -> Vec<UiEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        events
+    }
 }

@@ -20,9 +20,11 @@ pub fn initialize() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
-    let registry = tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::io::stderr));
+    let registry = tracing_subscriber::registry().with(filter).with(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_writer(std::io::stderr),
+    );
     match file_layer {
         Some((layer, guard)) => {
             registry.with(layer).init();

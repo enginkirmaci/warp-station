@@ -56,7 +56,9 @@ mod tests {
     #[test]
     fn rfc3339_labels() {
         let now = Local::now() - Duration::days(70);
-        let iso = now.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let iso = now
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         assert_eq!(format_rfc3339(&iso).as_deref(), Some("2mo ago"));
         assert_eq!(format_rfc3339("not a date"), None);
     }

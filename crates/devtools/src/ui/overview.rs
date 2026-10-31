@@ -6,10 +6,10 @@
 use crate::net::WandKind;
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
-use crate::ui::icon;
 use crate::ui::A11y;
+use crate::ui::icon;
 use gpui::prelude::*;
-use gpui::{div, px, relative, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px, relative};
 use gpui_kit::base::text::TextView;
 
 pub struct OverviewView {
@@ -25,27 +25,35 @@ impl OverviewView {
         cx.observe(&store, |this, store, cx| {
             let selected = store.read(cx).selected_repo.clone();
             if selected != this.readme_loaded_for {
-                this.readme = selected.as_ref().and_then(|folder| read_readme(folder)).map(SharedString::from);
+                this.readme = selected
+                    .as_ref()
+                    .and_then(|folder| read_readme(folder))
+                    .map(SharedString::from);
                 this.readme_loaded_for = selected.clone();
                 // details probe rides along with the pane's first open
                 if let Some(folder) = selected {
                     let settings = store.read(cx).settings();
                     if settings.repos.enable_git_hub
-                        && let Some(gh) = devtools_core::exe::locate(&settings.repos.git_hub_executable) {
-                            let _ = store
-                                .read(cx)
-                                .net
-                                .send_blocking(crate::net::NetCommand::GitHubDetails {
-                                    folder: std::path::PathBuf::from(folder),
-                                    gh_exe: gh.to_string_lossy().to_string(),
-                                });
-                        }
+                        && let Some(gh) =
+                            devtools_core::exe::locate(&settings.repos.git_hub_executable)
+                    {
+                        let _ = store.read(cx).net.send_blocking(
+                            crate::net::NetCommand::GitHubDetails {
+                                folder: std::path::PathBuf::from(folder),
+                                gh_exe: gh.to_string_lossy().to_string(),
+                            },
+                        );
+                    }
                 }
                 cx.notify();
             }
         })
         .detach();
-        Self { store, readme: None, readme_loaded_for: None }
+        Self {
+            store,
+            readme: None,
+            readme_loaded_for: None,
+        }
     }
 }
 
@@ -81,7 +89,11 @@ impl Render for OverviewView {
                 div()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::TEXT_MUTED)
-                    .child(if has_draft { "README.md (unsaved)" } else { "README.md" }),
+                    .child(if has_draft {
+                        "README.md (unsaved)"
+                    } else {
+                        "README.md"
+                    }),
             )
             .child(div().flex_1())
             .when(has_draft, |row| {
@@ -108,7 +120,11 @@ impl Render for OverviewView {
                                 cx.notify();
                             });
                         }))
-                        .child(icon("icons/icon-undo.svg", px(theme::icon_small() - 1.), theme::TEXT_DIM))
+                        .child(icon(
+                            "icons/icon-undo.svg",
+                            px(theme::icon_small() - 1.),
+                            theme::TEXT_DIM,
+                        ))
                         .child("Discard"),
                 )
                 .child(
@@ -128,8 +144,12 @@ impl Render for OverviewView {
                         .text_color(theme::ON_ACCENT)
                         .hover(|s| s.opacity(0.9))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let Some(folder) = folder_save.clone() else { return };
-                            let draft = this.store.update(cx, |s: &mut Store, _| s.readme_draft.take());
+                            let Some(folder) = folder_save.clone() else {
+                                return;
+                            };
+                            let draft = this
+                                .store
+                                .update(cx, |s: &mut Store, _| s.readme_draft.take());
                             if let Some(draft) = draft {
                                 let path = std::path::Path::new(&folder).join("README.md");
                                 match std::fs::write(&path, format!("{draft}\n")) {
@@ -148,7 +168,11 @@ impl Render for OverviewView {
                             }
                             cx.notify();
                         }))
-                        .child(icon("icons/icon-save.svg", px(theme::icon_small() - 1.), theme::ON_ACCENT))
+                        .child(icon(
+                            "icons/icon-save.svg",
+                            px(theme::icon_small() - 1.),
+                            theme::ON_ACCENT,
+                        ))
                         .child("Save"),
                 )
             })
@@ -167,18 +191,19 @@ impl Render for OverviewView {
                         .on_click(move |_, _, cx| {
                             store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
                         })
-                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED))
+                        .child(icon(
+                            "icons/icon-wand.svg",
+                            px(theme::icon_small()),
+                            theme::TEXT_MUTED,
+                        ))
                 })
             })
             .when(wand_active, |row| {
-                row.child(
-                    div()
-                        .rounded_md()
-                        .p_1()
-                        .flex()
-                        .items_center()
-                        .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::ACCENT)),
-                )
+                row.child(div().rounded_md().p_1().flex().items_center().child(icon(
+                    "icons/icon-wand.svg",
+                    px(theme::icon_small()),
+                    theme::ACCENT,
+                )))
             });
 
         let store_for_empty = self.store.clone();
@@ -279,7 +304,13 @@ impl Render for OverviewView {
                     .child(header)
                     .child(pane),
             )
-            .child(render_sidebar(folder, entry, details, self.store.clone(), cx))
+            .child(render_sidebar(
+                folder,
+                entry,
+                details,
+                self.store.clone(),
+                cx,
+            ))
     }
 }
 
@@ -421,7 +452,10 @@ fn render_sidebar(
         };
         side = side.child(detail_row("Sync", sync));
         if let Some(at) = entry.git_last_commit_at {
-            side = side.child(detail_row("Last commit", devtools_core::rel_time::format(at)));
+            side = side.child(detail_row(
+                "Last commit",
+                devtools_core::rel_time::format(at),
+            ));
         }
     }
     if let Some(details) = &details {
@@ -457,19 +491,17 @@ fn render_sidebar(
                             .text_color(theme::TEXT_MUTED)
                             .child("Topics"),
                     )
-                    .child(
-                        div().flex().flex_row().flex_wrap().gap_1().children(
-                            details.topics.iter().map(|topic| {
-                                div()
-                                    .rounded_md()
-                                    .bg(theme::tint(theme::BLUE_BRIGHT))
-                                    .px_1p5()
-                                    .text_size(px(theme::font_small() - 2.))
-                                    .text_color(theme::BLUE_BRIGHT)
-                                    .child(topic.clone())
-                            }),
-                        ),
-                    ),
+                    .child(div().flex().flex_row().flex_wrap().gap_1().children(
+                        details.topics.iter().map(|topic| {
+                            div()
+                                .rounded_md()
+                                .bg(theme::tint(theme::BLUE_BRIGHT))
+                                .px_1p5()
+                                .text_size(px(theme::font_small() - 2.))
+                                .text_color(theme::BLUE_BRIGHT)
+                                .child(topic.clone())
+                        }),
+                    )),
             );
         }
     }
@@ -477,7 +509,13 @@ fn render_sidebar(
 }
 
 fn read_readme(folder: &str) -> Option<String> {
-    for name in ["README.md", "readme.md", "Readme.md", "README.markdown", "README"] {
+    for name in [
+        "README.md",
+        "readme.md",
+        "Readme.md",
+        "README.markdown",
+        "README",
+    ] {
         if let Ok(text) = std::fs::read_to_string(std::path::Path::new(folder).join(name)) {
             return Some(text);
         }
@@ -570,6 +608,5 @@ fn link_detail_row(label: &str, value: String) -> impl IntoElement + use<> {
 }
 
 fn render_markdown(source: SharedString) -> impl IntoElement + use<> {
-    TextView::markdown(gpui::ElementId::Name("readme".into()), source)
-        .selectable(true)
+    TextView::markdown(gpui::ElementId::Name("readme".into()), source).selectable(true)
 }

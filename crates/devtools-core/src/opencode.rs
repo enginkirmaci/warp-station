@@ -14,8 +14,7 @@ pub const RUN_CAP: Duration = Duration::from_secs(150);
 /// Appended to every filled prompt: the run must answer from the given
 /// input, not explore the repository on its own. Never part of the stored
 /// template body — the files hold the raw template only.
-const NO_TOOLS_SUFFIX: &str =
-    "\n\nThe input above is complete — do not use any tools; reply with the final answer text directly.";
+const NO_TOOLS_SUFFIX: &str = "\n\nThe input above is complete — do not use any tools; reply with the final answer text directly.";
 
 /// One user-editable prompt template: the overriding file under the
 /// assistant folder, the placeholders the builder fills in, and the built-in
@@ -151,8 +150,9 @@ pub fn write_template(id: &str, content: &str) -> Result<(), String> {
 
 /// Restores the built-in default body.
 pub fn reset_template(id: &str) -> Result<(), String> {
-    let default =
-        template_by_id(id).ok_or_else(|| format!("unknown template id: {id}"))?.default;
+    let default = template_by_id(id)
+        .ok_or_else(|| format!("unknown template id: {id}"))?
+        .default;
     write_template(id, default)
 }
 
@@ -167,7 +167,9 @@ pub fn is_customized(id: &str) -> bool {
 /// The seed-once read behind the builders: the user file when present, else
 /// the default written out for next time.
 fn load_template(id: &str) -> String {
-    let Some(tpl) = template_by_id(id) else { return String::new() };
+    let Some(tpl) = template_by_id(id) else {
+        return String::new();
+    };
     let path = crate::paths::AppPaths::assistant_dir().join(tpl.file_name);
     if let Ok(text) = std::fs::read_to_string(&path) {
         return text;
@@ -212,7 +214,9 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
         if skip || lines.len() >= max {
             return;
         }
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         let mut names: Vec<(String, bool)> = entries
             .flatten()
             .map(|e| {
@@ -248,9 +252,7 @@ pub fn file_tree(folder: &Path, max_lines: usize) -> String {
 
 /// The summary prompt's repository activity block (12 repos, 20 commits, 80
 /// files, 4000 chars per repo).
-pub fn format_repositories_block(
-    activities: &[(String, crate::model::GitDayActivity)],
-) -> String {
+pub fn format_repositories_block(activities: &[(String, crate::model::GitDayActivity)]) -> String {
     const MAX_REPOS: usize = 12;
     const MAX_COMMITS: usize = 20;
     const MAX_FILES: usize = 80;
@@ -278,7 +280,10 @@ pub fn format_repositories_block(
                 let counts = if commit.files.is_empty() {
                     String::new()
                 } else {
-                    format!(" — {} file(s), +{additions}/−{deletions}", commit.files.len())
+                    format!(
+                        " — {} file(s), +{additions}/−{deletions}",
+                        commit.files.len()
+                    )
                 };
                 out.push_str(&format!(
                     "- {} {} {}{}\n",
@@ -289,7 +294,10 @@ pub fn format_repositories_block(
                 ));
             }
             if activity.commits.len() > MAX_COMMITS {
-                out.push_str(&format!("… and {} more commits\n", activity.commits.len() - MAX_COMMITS));
+                out.push_str(&format!(
+                    "… and {} more commits\n",
+                    activity.commits.len() - MAX_COMMITS
+                ));
             }
         }
         out.push_str("Uncommitted changes:\n");
@@ -304,14 +312,22 @@ pub fn format_repositories_block(
                     (None, Some(d)) => format!(" (−{d})"),
                     (None, None) => String::new(),
                 };
-                working.push_str(&format!("- {}  {}{}\n", file.display_status_code(), file.path, counts));
+                working.push_str(&format!(
+                    "- {}  {}{}\n",
+                    file.display_status_code(),
+                    file.path,
+                    counts
+                ));
                 if working.len() > MAX_WORKING_CHARS {
                     working.push_str("… (truncated)\n");
                     break;
                 }
             }
             if activity.uncommitted_files.len() > MAX_FILES {
-                working.push_str(&format!("… and {} more files\n", activity.uncommitted_files.len() - MAX_FILES));
+                working.push_str(&format!(
+                    "… and {} more files\n",
+                    activity.uncommitted_files.len() - MAX_FILES
+                ));
             }
             out.push_str(working.trim_end_matches('\n'));
             out.push('\n');
@@ -319,7 +335,10 @@ pub fn format_repositories_block(
         out.push('\n');
     }
     if activities.len() > MAX_REPOS {
-        out.push_str(&format!("(… and {} more active repositories omitted)\n", activities.len() - MAX_REPOS));
+        out.push_str(&format!(
+            "(… and {} more active repositories omitted)\n",
+            activities.len() - MAX_REPOS
+        ));
     }
     out.trim_end().to_string()
 }
@@ -435,11 +454,17 @@ mod tests {
         // the registry's files are exactly the ones the builders load
         assert!(template_path("commit-message").is_some_and(|p| p.ends_with("commit-message.md")));
         assert!(template_path("readme").is_some_and(|p| p.ends_with("readme.md")));
-        assert!(template_path("daily-summary-all").is_some_and(|p| p.ends_with("daily-summary-all.md")));
+        assert!(
+            template_path("daily-summary-all").is_some_and(|p| p.ends_with("daily-summary-all.md"))
+        );
         assert!(template_path("unknown").is_none());
         // every default documents its own placeholders
         for template in PROMPT_TEMPLATES {
-            assert!(!template.placeholders.is_empty(), "{} lists placeholders", template.id);
+            assert!(
+                !template.placeholders.is_empty(),
+                "{} lists placeholders",
+                template.id
+            );
             for placeholder in template.placeholders {
                 assert!(
                     template.default.contains(placeholder),
@@ -461,7 +486,10 @@ mod tests {
 
         assert!(!is_customized("readme"), "nothing written yet");
         write_template("readme", "custom body {repo_name}").expect("write");
-        assert_eq!(read_template("readme").as_deref(), Some("custom body {repo_name}"));
+        assert_eq!(
+            read_template("readme").as_deref(),
+            Some("custom body {repo_name}")
+        );
         assert!(is_customized("readme"));
         reset_template("readme").expect("reset");
         assert!(!is_customized("readme"));

@@ -5,8 +5,8 @@
 
 use devtools::store::{BottomBarTab, Store};
 use devtools_core::repo_store::RepoEntry;
-use gpui::prelude::*;
 use gpui::TestAppContext;
+use gpui::prelude::*;
 use std::path::PathBuf;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
@@ -37,7 +37,10 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
         // re-shape the probes' row math (the grouping probes seed their own
         // scratch-settings store)
         store.group_by_root = false;
-        store.replace_repos(vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")]);
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
         store
     })
 }
@@ -69,17 +72,23 @@ fn chip_routing_lands_on_the_requested_tab(cx: &mut TestAppContext) {
     let store = fake_store(cx);
 
     cx.update(|cx| {
-        store.update(cx, |s, cx| s.open_repo_tab("/probe/alpha", BottomBarTab::PullRequests, cx));
+        store.update(cx, |s, cx| {
+            s.open_repo_tab("/probe/alpha", BottomBarTab::PullRequests, cx)
+        });
         assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
         assert_eq!(s_tab(&store, cx), BottomBarTab::PullRequests);
 
         // routing to the same repo's other tab never closes the bar
-        store.update(cx, |s, cx| s.open_repo_tab("/probe/alpha", BottomBarTab::Azure, cx));
+        store.update(cx, |s, cx| {
+            s.open_repo_tab("/probe/alpha", BottomBarTab::Azure, cx)
+        });
         assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/alpha"));
         assert_eq!(s_tab(&store, cx), BottomBarTab::Azure);
 
         // routing for a not-selected repo switches and keeps the requested tab
-        store.update(cx, |s, cx| s.open_repo_tab("/probe/beta", BottomBarTab::Issues, cx));
+        store.update(cx, |s, cx| {
+            s.open_repo_tab("/probe/beta", BottomBarTab::Issues, cx)
+        });
         assert_eq!(s_selected(&store, cx).as_deref(), Some("/probe/beta"));
         assert_eq!(s_tab(&store, cx), BottomBarTab::Issues);
     });
@@ -111,16 +120,19 @@ fn kebab_archive_repository_tags_the_selected_repo(cx: &mut TestAppContext) {
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
-    cx.update_entity(&store, |s, cx| s.select_repo(Some("/probe/alpha".into()), cx));
-    let store_handle = store.clone();
-    let (_window_handle, cx) = cx.add_window_view(|window, cx| {
-        MainWindow::new(store_handle.clone(), window, cx)
+    cx.update_entity(&store, |s, cx| {
+        s.select_repo(Some("/probe/alpha".into()), cx)
     });
+    let store_handle = store.clone();
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(cx.debug_bounds("bar-root").is_some(), "the bar starts open");
 
-    let kebab = cx.debug_bounds("bar-kebab").expect("the kebab button renders");
+    let kebab = cx
+        .debug_bounds("bar-kebab")
+        .expect("the kebab button renders");
     cx.simulate_click(kebab.center(), gpui::Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));

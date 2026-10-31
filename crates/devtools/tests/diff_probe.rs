@@ -7,8 +7,8 @@
 use devtools::theme;
 use gpui::prelude::*;
 use gpui::{
-    div, px, AbsoluteLength, Context, HighlightStyle, Pixels, Render, StyledText, TestAppContext,
-    Window,
+    AbsoluteLength, Context, HighlightStyle, Pixels, Render, StyledText, TestAppContext, Window,
+    div, px,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -96,7 +96,10 @@ fn wrapped_segments_keep_the_code_font(cx: &mut TestAppContext) {
         .clone()
         .expect("the probe's StyledText must have been laid out");
     let lines = layout.line_layouts();
-    println!("lines: {}, code id {code_id:?}, ui id {ui_id:?}", lines.len());
+    println!(
+        "lines: {}, code id {code_id:?}, ui id {ui_id:?}",
+        lines.len()
+    );
     assert!(
         lines.iter().any(|line| !line.wrap_boundaries().is_empty()),
         "the probe text must wrap in the narrow box"

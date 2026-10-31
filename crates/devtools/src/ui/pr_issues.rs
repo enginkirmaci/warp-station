@@ -5,11 +5,11 @@
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::icon;
 use crate::ui::A11y;
+use crate::ui::icon;
 use devtools_core::github::GitHubItem;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 
 pub struct ItemListView {
     pub store: Entity<Store>,
@@ -19,17 +19,31 @@ pub struct ItemListView {
 impl Render for ItemListView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let folder = self.store.read(cx).selected_repo.clone();
-        let snapshot = folder.as_ref().and_then(|f| self.store.read(cx).github_by_folder.get(f).cloned());
-        let title = if self.pull_requests { "pull requests" } else { "issues" };
+        let snapshot = folder
+            .as_ref()
+            .and_then(|f| self.store.read(cx).github_by_folder.get(f).cloned());
+        let title = if self.pull_requests {
+            "pull requests"
+        } else {
+            "issues"
+        };
 
         let Some(snapshot) = snapshot else {
-            return tab_card(empty_state(format!("No GitHub activity loaded — the {title} tab fills after the gh pass settles")));
+            return tab_card(empty_state(format!(
+                "No GitHub activity loaded — the {title} tab fills after the gh pass settles"
+            )));
         };
         if !snapshot.available {
-            return tab_card(empty_state("This repository is not on GitHub (or the gh CLI could not authenticate)".into()));
+            return tab_card(empty_state(
+                "This repository is not on GitHub (or the gh CLI could not authenticate)".into(),
+            ));
         }
 
-        let items = if self.pull_requests { &snapshot.pulls } else { &snapshot.issues };
+        let items = if self.pull_requests {
+            &snapshot.pulls
+        } else {
+            &snapshot.issues
+        };
 
         // header: open-item count + refresh and GitHub shortcuts
         let store = self.store.clone();
@@ -61,7 +75,11 @@ impl Render for ItemListView {
                     .on_click(move |_, _, cx| {
                         store.update(cx, |s, cx| s.refresh_panel(cx));
                     })
-                    .child(icon("icons/icon-refresh.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
+                    .child(icon(
+                        "icons/icon-refresh.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    )),
             )
             .when_some(url.clone(), |row, url| {
                 row.child(
@@ -98,7 +116,11 @@ impl Render for ItemListView {
         }
 
         let mut list = div()
-            .id(if self.pull_requests { "pr-list" } else { "issue-list" })
+            .id(if self.pull_requests {
+                "pr-list"
+            } else {
+                "issue-list"
+            })
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
@@ -127,7 +149,11 @@ impl ItemListView {
         let item = item.clone();
         let url = item.url.clone();
         let kind = if item.is_pull_request { "PR" } else { "Issue" };
-        let glyph_color = if item.is_pull_request { theme::PURPLE_BRIGHT } else { theme::SUCCESS_BRIGHT };
+        let glyph_color = if item.is_pull_request {
+            theme::PURPLE_BRIGHT
+        } else {
+            theme::SUCCESS_BRIGHT
+        };
         let age = item
             .updated_at
             .as_deref()
@@ -202,7 +228,12 @@ impl ItemListView {
 
         // right cluster: author, age, then the decision pill (Review pill in
         // the .NET row; approval states recolor it)
-        let mut right = div().flex().flex_row().items_center().gap_2().flex_shrink_0();
+        let mut right = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .flex_shrink_0();
         right = right.child(
             div()
                 .text_size(px(theme::font_small() - 1.))
@@ -288,10 +319,9 @@ impl ItemListView {
                     .flex_col()
                     .gap_0p5()
                     .child(title_line)
-                    .when(
-                        item.is_pull_request || !item.labels.is_empty(),
-                        |block| block.child(second_line),
-                    ),
+                    .when(item.is_pull_request || !item.labels.is_empty(), |block| {
+                        block.child(second_line)
+                    }),
             )
             .child(right)
     }

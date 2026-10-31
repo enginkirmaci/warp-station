@@ -1,10 +1,13 @@
 //! DevTools — the GPUI repository workbench.
 // no console window behind the packaged Windows exe; debug builds keep it for logs
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
 use devtools::{assets, logging, store::Store, theme, ui::window::MainWindow};
 use gpui::prelude::*;
-use gpui::{px, size, App, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{App, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
 
 fn main() {
@@ -72,7 +75,9 @@ fn main() {
                     match futures_util::future::select(recv.as_mut(), timeout).await {
                         futures_util::future::Either::Left((received, _)) => {
                             let Ok(first) = received else { break };
-                            let Some(store) = event_store.upgrade() else { break };
+                            let Some(store) = event_store.upgrade() else {
+                                break;
+                            };
                             store.update(cx, |s, cx| s.on_net_event(first, cx));
                             let mut batch = 1;
                             while batch < 64 {
@@ -94,17 +99,19 @@ fn main() {
             // toasts expire on a once-per-second beat; the same beat checks
             // the periodic fetch schedule
             let notice_store = store.downgrade();
-            cx.spawn(async move |cx| loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(1))
-                    .await;
-                if let Some(store) = notice_store.upgrade() {
-                    store.update(cx, |s, cx| {
-                        s.tick_notices(cx);
-                        s.check_auto_fetch(cx);
-                    });
-                } else {
-                    break;
+            cx.spawn(async move |cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    if let Some(store) = notice_store.upgrade() {
+                        store.update(cx, |s, cx| {
+                            s.tick_notices(cx);
+                            s.check_auto_fetch(cx);
+                        });
+                    } else {
+                        break;
+                    }
                 }
             })
             .detach();

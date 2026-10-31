@@ -9,12 +9,12 @@
 use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
 use crate::theme;
-use crate::ui::{icon, A11y};
+use crate::ui::{A11y, icon};
 use devtools_core::model::GitChangedFile;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{InputState, Textarea, TextareaState};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use warpui_kit_picker::{
@@ -73,8 +73,7 @@ pub struct ChangesView {
 
 impl ChangesView {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let new_branch_name =
-            cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
+        let new_branch_name = cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
         let branch_ui: Rc<RefCell<BranchUi>> = Rc::new(RefCell::new(BranchUi::default()));
         let branch_picker = build_branch_picker(
             &store,
@@ -87,9 +86,8 @@ impl ChangesView {
         // last child, so picker-internal changes (filter typing, arming,
         // dismissal) must repaint this view too
         cx.observe(&branch_picker, |_, _, cx| cx.notify()).detach();
-        let commit_message = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder("Describe your changes…")
-        });
+        let commit_message =
+            cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe your changes…"));
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
@@ -131,7 +129,8 @@ impl ChangesView {
         }
         self.branch_picker
             .update(cx, |picker, cx| picker.clear_filter(window, cx));
-        self.commit_message.update(cx, |f, cx| f.set_value("", window, cx));
+        self.commit_message
+            .update(cx, |f, cx| f.set_value("", window, cx));
         self.auto_commit_after_draft = false;
         self.history_open = false;
         self.drilled_commit = None;
@@ -151,12 +150,15 @@ impl ChangesView {
         let needs_load = self.store.read(cx).history().is_empty();
         self.history_open = true;
         self.drilled_commit = None;
-        if needs_load
-            && let Some(folder) = self.store.read(cx).selected_repo.clone() {
-                let _ = self.store.read(cx).net.send_blocking(NetCommand::LoadHistory {
+        if needs_load && let Some(folder) = self.store.read(cx).selected_repo.clone() {
+            let _ = self
+                .store
+                .read(cx)
+                .net
+                .send_blocking(NetCommand::LoadHistory {
                     folder: std::path::PathBuf::from(folder),
                 });
-            }
+        }
         cx.notify();
     }
 
@@ -165,10 +167,14 @@ impl ChangesView {
         self.drilled_commit = Some(hash.to_string());
         self.expanded_details.clear();
         if let Some(folder) = self.store.read(cx).selected_repo.clone() {
-            let _ = self.store.read(cx).net.send_blocking(NetCommand::GetCommitDetails {
-                folder: std::path::PathBuf::from(folder),
-                hash: hash.to_string(),
-            });
+            let _ = self
+                .store
+                .read(cx)
+                .net
+                .send_blocking(NetCommand::GetCommitDetails {
+                    folder: std::path::PathBuf::from(folder),
+                    hash: hash.to_string(),
+                });
         }
         cx.notify();
     }
@@ -180,13 +186,18 @@ impl ChangesView {
         } else {
             self.expanded_details.insert(key.clone());
             if !self.detail_patches.contains_key(&key)
-                && let Some(folder) = self.store.read(cx).selected_repo.clone() {
-                    let _ = self.store.read(cx).net.send_blocking(NetCommand::GetCommitFilePatch {
+                && let Some(folder) = self.store.read(cx).selected_repo.clone()
+            {
+                let _ = self
+                    .store
+                    .read(cx)
+                    .net
+                    .send_blocking(NetCommand::GetCommitFilePatch {
                         folder: std::path::PathBuf::from(folder),
                         hash: hash.to_string(),
                         path: path.to_string(),
                     });
-                }
+            }
         }
         cx.notify();
     }
@@ -200,11 +211,15 @@ impl ChangesView {
             if !self.patches.contains_key(&key) {
                 let folder = self.store.read(cx).selected_repo.clone();
                 if let Some(folder) = folder {
-                    let _ = self.store.read(cx).net.send_blocking(NetCommand::GetChangePatch {
-                        folder: std::path::PathBuf::from(folder),
-                        path: path.to_string(),
-                        staged,
-                    });
+                    let _ = self
+                        .store
+                        .read(cx)
+                        .net
+                        .send_blocking(NetCommand::GetChangePatch {
+                            folder: std::path::PathBuf::from(folder),
+                            path: path.to_string(),
+                            staged,
+                        });
                 }
             }
         }
@@ -218,27 +233,42 @@ impl Render for ChangesView {
         // drain freshly loaded patches + the commit wand's draft; patches are
         // \r-stripped once here so the diff renderer never rewrites the text
         // per render
-        if let Some((path, staged, patch)) = self.store.update(cx, |store, _| store.change_patch_result.take()) {
+        if let Some((path, staged, patch)) = self
+            .store
+            .update(cx, |store, _| store.change_patch_result.take())
+        {
             self.patches.insert((path, staged), patch.replace('\r', ""));
         }
         // a settled commit empties the message box (before the draft drain so
         // a wand draft landing in the same pass survives)
-        if self.store.update(cx, |store, _| std::mem::take(&mut store.commit_message_clear)) {
-            self.commit_message.update(cx, |state, cx| state.set_value("", window, cx));
+        if self.store.update(cx, |store, _| {
+            std::mem::take(&mut store.commit_message_clear)
+        }) {
+            self.commit_message
+                .update(cx, |state, cx| state.set_value("", window, cx));
         }
         let mut auto_commit_text: Option<String> = None;
-        if let Some(draft) = self.store.update(cx, |store, _| store.commit_message_draft.take()) {
+        if let Some(draft) = self
+            .store
+            .update(cx, |store, _| store.commit_message_draft.take())
+        {
             let draft = draft.trim().to_string();
-            self.commit_message.update(cx, |state, cx| state.set_value(draft.as_str(), window, cx));
+            self.commit_message
+                .update(cx, |state, cx| state.set_value(draft.as_str(), window, cx));
             if self.auto_commit_after_draft && !draft.is_empty() {
                 self.auto_commit_after_draft = false;
                 auto_commit_text = Some(draft);
             }
         }
         if let Some(message) = auto_commit_text {
-            self.store.update(cx, |store, cx| store.run_git(GitAction::Commit(message), cx));
+            self.store.update(cx, |store, cx| {
+                store.run_git(GitAction::Commit(message), cx)
+            });
         }
-        if let Some((key, patch)) = self.store.update(cx, |store, _| store.commit_file_patch.take()) {
+        if let Some((key, patch)) = self
+            .store
+            .update(cx, |store, _| store.commit_file_patch.take())
+        {
             self.detail_patches.insert(key, patch.replace('\r', ""));
         }
 
@@ -246,7 +276,11 @@ impl Render for ChangesView {
             let store = self.store.read(cx);
             (store.changes_generation(), store.git_busy)
         };
-        if self.groups_cache.as_ref().is_none_or(|(g, _)| *g != generation) {
+        if self
+            .groups_cache
+            .as_ref()
+            .is_none_or(|(g, _)| *g != generation)
+        {
             let groups = self
                 .store
                 .read(cx)
@@ -317,7 +351,11 @@ impl ChangesView {
                     .justify_center()
                     .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_FAINT)
-                    .child(if loaded { "No changes — working tree clean" } else { "Loading…" }),
+                    .child(if loaded {
+                        "No changes — working tree clean"
+                    } else {
+                        "Loading…"
+                    }),
             );
             return list.into_any_element();
         }
@@ -332,9 +370,13 @@ impl ChangesView {
                 false,
                 show_tooltips,
                 vec![
-                    ("discard-all-u", "Discard", GitAction::DiscardUnstaged(
-                        unstaged.iter().map(|f| f.path.clone()).collect(),
-                    )),
+                    (
+                        "discard-all-u",
+                        "Discard",
+                        GitAction::DiscardUnstaged(
+                            unstaged.iter().map(|f| f.path.clone()).collect(),
+                        ),
+                    ),
                     ("stage-all", "Stage All", GitAction::StageAll),
                 ],
                 self.store.clone(),
@@ -350,9 +392,11 @@ impl ChangesView {
                 true,
                 show_tooltips,
                 vec![
-                    ("discard-all-s", "Discard", GitAction::DiscardStaged(
-                        staged.iter().map(|f| f.path.clone()).collect(),
-                    )),
+                    (
+                        "discard-all-s",
+                        "Discard",
+                        GitAction::DiscardStaged(staged.iter().map(|f| f.path.clone()).collect()),
+                    ),
                     ("stage-all-clear", "Unstage All", GitAction::UnstageAll),
                 ],
                 self.store.clone(),
@@ -364,11 +408,18 @@ impl ChangesView {
         list.into_any_element()
     }
 
-    fn render_row(&mut self, file: &GitChangedFile, staged: bool, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_row(
+        &mut self,
+        file: &GitChangedFile,
+        staged: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let key = (file.path.clone(), staged);
         let expanded = self.expanded.contains(&key);
         let status_color = status_color(file.status_code.as_str());
-        let row_id: SharedString = format!("{}-{}", if staged { "s" } else { "u" }, file.path).into();
+        let row_id: SharedString =
+            format!("{}-{}", if staged { "s" } else { "u" }, file.path).into();
 
         let mut row = div()
             .id(row_id)
@@ -394,19 +445,15 @@ impl ChangesView {
                     .py_1()
                     .child(
                         // expander chevron: right when folded, down when open
-                        div()
-                            .w(px(12.))
-                            .flex()
-                            .justify_center()
-                            .child(icon(
-                                if expanded {
-                                    "icons/icon-chevron-down.svg"
-                                } else {
-                                    "icons/icon-chevron-right.svg"
-                                },
-                                px(theme::icon_small() - 2.),
-                                theme::TEXT_FAINT,
-                            )),
+                        div().w(px(12.)).flex().justify_center().child(icon(
+                            if expanded {
+                                "icons/icon-chevron-down.svg"
+                            } else {
+                                "icons/icon-chevron-right.svg"
+                            },
+                            px(theme::icon_small() - 2.),
+                            theme::TEXT_FAINT,
+                        )),
                     )
                     .child(
                         div()
@@ -439,7 +486,10 @@ impl ChangesView {
                             .group_hover("file-row", |s| s.opacity(1.))
                             .child(
                                 div()
-                                    .id(SharedString::from(format!("discard-{staged}-{}", file.path)))
+                                    .id(SharedString::from(format!(
+                                        "discard-{staged}-{}",
+                                        file.path
+                                    )))
                                     .a11y_button(format!("Discard {}", file.path))
                                     .cursor_pointer()
                                     .rounded_md()
@@ -455,13 +505,20 @@ impl ChangesView {
                                             cx.stop_propagation();
                                             store.update(cx, |s, cx| {
                                                 s.run_git(
-                                                    GitAction::DiscardFile { path: path.clone(), is_staged: staged },
+                                                    GitAction::DiscardFile {
+                                                        path: path.clone(),
+                                                        is_staged: staged,
+                                                    },
                                                     cx,
                                                 )
                                             });
                                         }
                                     })
-                                    .child(icon("icons/icon-undo.svg", px(theme::icon_small() - 1.), theme::TEXT_MUTED)),
+                                    .child(icon(
+                                        "icons/icon-undo.svg",
+                                        px(theme::icon_small() - 1.),
+                                        theme::TEXT_MUTED,
+                                    )),
                             )
                             .child(row_action_button(file, staged, self.store.clone())),
                     )
@@ -473,7 +530,10 @@ impl ChangesView {
                                     .flex()
                                     .flex_row()
                                     .gap_1()
-                                    .child(count_pill(format!("+{additions}"), theme::SUCCESS_BRIGHT))
+                                    .child(count_pill(
+                                        format!("+{additions}"),
+                                        theme::SUCCESS_BRIGHT,
+                                    ))
                                     .when_some(deletions, |row, d| {
                                         row.child(count_pill(format!("−{d}"), theme::DANGER))
                                     }),
@@ -600,9 +660,7 @@ impl ChangesView {
                         .child(label.clone()),
                 );
             }
-            let unpushed_mark = unpushed
-                .as_ref()
-                .is_some_and(|set| set.contains(&row.hash));
+            let unpushed_mark = unpushed.as_ref().is_some_and(|set| set.contains(&row.hash));
             list = list.child(
                 div()
                     .id(SharedString::from(format!("commit-{}", row.short_hash)))
@@ -656,7 +714,12 @@ impl ChangesView {
                             ),
                     )
                     .when(unpushed_mark, |row| {
-                        row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::AMBER_BRIGHT).child("● unpushed"))
+                        row.child(
+                            div()
+                                .text_size(px(theme::font_small() - 1.))
+                                .text_color(theme::AMBER_BRIGHT)
+                                .child("● unpushed"),
+                        )
                     })
                     .child(
                         // hash chip: clicking copies the full SHA without
@@ -677,7 +740,9 @@ impl ChangesView {
                                 let short = row.short_hash.clone();
                                 move |_, _, cx| {
                                     cx.stop_propagation();
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full.clone()));
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        full.clone(),
+                                    ));
                                     store.update(cx, |s, cx| {
                                         s.notify_success(format!("Copied {short} to clipboard"));
                                         cx.notify();
@@ -698,7 +763,8 @@ impl ChangesView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let Some(details) = details.filter(|d| d.hash.starts_with(&hash[..hash.len().min(7)])) else {
+        let Some(details) = details.filter(|d| d.hash.starts_with(&hash[..hash.len().min(7)]))
+        else {
             return div()
                 .flex_1()
                 .h_full()
@@ -729,7 +795,11 @@ impl ChangesView {
             .read(cx)
             .history()
             .iter()
-            .find(|c| c.hash == details.hash || c.hash.starts_with(&details.hash[..details.hash.len().min(7)]))
+            .find(|c| {
+                c.hash == details.hash
+                    || c.hash
+                        .starts_with(&details.hash[..details.hash.len().min(7)])
+            })
             .map(|c| {
                 (
                     c.author.clone().unwrap_or_else(|| "Unknown".into()),
@@ -747,11 +817,19 @@ impl ChangesView {
                 .cursor_pointer()
                 .rounded_md()
                 .border_1()
-                .border_color(if armed_now { theme::DANGER } else { theme::HAIRLINE })
+                .border_color(if armed_now {
+                    theme::DANGER
+                } else {
+                    theme::HAIRLINE
+                })
                 .px_2()
                 .py_0p5()
                 .text_size(px(theme::font_small() - 1.))
-                .text_color(if armed_now { theme::DANGER } else { theme::TEXT_DIM })
+                .text_color(if armed_now {
+                    theme::DANGER
+                } else {
+                    theme::TEXT_DIM
+                })
                 .hover(|s| s.bg(theme::HOVER))
                 .child(text.to_string())
         };
@@ -761,35 +839,41 @@ impl ChangesView {
             let store = self.store.clone();
             let full_hash = details.hash.clone();
             let this = cx.entity();
-            action_button("detail-checkout", "Checkout", armed == Some("checkout"))
-                .on_click(move |_, _, cx| {
+            action_button("detail-checkout", "Checkout", armed == Some("checkout")).on_click(
+                move |_, _, cx| {
                     if armed == Some("checkout") {
                         this.update(cx, |this, _| this.detail_armed = None);
-                        store.update(cx, |s, cx| s.run_git(GitAction::Checkout(full_hash.clone()), cx));
+                        store.update(cx, |s, cx| {
+                            s.run_git(GitAction::Checkout(full_hash.clone()), cx)
+                        });
                     } else {
                         this.update(cx, |this, cx| {
                             this.detail_armed = Some("checkout");
                             cx.notify();
                         });
                     }
-                })
+                },
+            )
         });
         actions_row = actions_row.child({
             let store = self.store.clone();
             let full_hash = details.hash.clone();
             let this = cx.entity();
-            action_button("detail-revert", "Revert", armed == Some("revert"))
-                .on_click(move |_, _, cx| {
+            action_button("detail-revert", "Revert", armed == Some("revert")).on_click(
+                move |_, _, cx| {
                     if armed == Some("revert") {
                         this.update(cx, |this, _| this.detail_armed = None);
-                        store.update(cx, |s, cx| s.run_git(GitAction::Revert(full_hash.clone()), cx));
+                        store.update(cx, |s, cx| {
+                            s.run_git(GitAction::Revert(full_hash.clone()), cx)
+                        });
                     } else {
                         this.update(cx, |this, cx| {
                             this.detail_armed = Some("revert");
                             cx.notify();
                         });
                     }
-                })
+                },
+            )
         });
         actions_row = actions_row.child({
             let store = self.store.clone();
@@ -843,7 +927,11 @@ impl ChangesView {
                             this.detail_armed = None;
                             cx.notify();
                         }))
-                        .child(icon("icons/icon-arrow-left.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                        .child(icon(
+                            "icons/icon-arrow-left.svg",
+                            px(theme::icon_small() - 1.),
+                            theme::ACCENT,
+                        ))
                         .child("History"),
                 )
                 .child(
@@ -868,23 +956,26 @@ impl ChangesView {
         );
 
         list = list.child(
-            div()
-                .id("detail-files")
-                .flex()
-                .flex_col()
-                .gap_0p5()
-                .child(
-                    // "N files" summary row mirrors the files' totals
-                    div()
-                        .px_1()
-                        .text_size(px(theme::font_small() - 1.))
-                        .text_color(theme::TEXT_MUTED)
-                        .child(format!(
-                            "+{} −{}",
-                            details.files.iter().filter_map(|f| f.additions).sum::<u32>(),
-                            details.files.iter().filter_map(|f| f.deletions).sum::<u32>()
-                        )),
-                ),
+            div().id("detail-files").flex().flex_col().gap_0p5().child(
+                // "N files" summary row mirrors the files' totals
+                div()
+                    .px_1()
+                    .text_size(px(theme::font_small() - 1.))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!(
+                        "+{} −{}",
+                        details
+                            .files
+                            .iter()
+                            .filter_map(|f| f.additions)
+                            .sum::<u32>(),
+                        details
+                            .files
+                            .iter()
+                            .filter_map(|f| f.deletions)
+                            .sum::<u32>()
+                    )),
+            ),
         );
 
         let mut files = div().flex().flex_col().gap_0p5();
@@ -923,10 +1014,20 @@ impl ChangesView {
                                 .child(file.path.clone()),
                         )
                         .when_some(file.additions, |row, a| {
-                            row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::SUCCESS_BRIGHT).child(format!("+{a}")))
+                            row.child(
+                                div()
+                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_color(theme::SUCCESS_BRIGHT)
+                                    .child(format!("+{a}")),
+                            )
                         })
                         .when_some(file.deletions, |row, d| {
-                            row.child(div().text_size(px(theme::font_small() - 1.)).text_color(theme::DANGER).child(format!("−{d}")))
+                            row.child(
+                                div()
+                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_color(theme::DANGER)
+                                    .child(format!("−{d}")),
+                            )
                         }),
                 );
             if expanded {
@@ -950,12 +1051,12 @@ impl ChangesView {
                         .overflow_hidden()
                         .overflow_y_scroll()
                         .child(warpui_kit_diff::render_diff(
-                        patch,
-                        None,
-                        theme::font_small() - 2.0,
-                        window,
-                        cx,
-                    )),
+                            patch,
+                            None,
+                            theme::font_small() - 2.0,
+                            window,
+                            cx,
+                        )),
                 );
             }
             files = files.child(row);
@@ -1008,7 +1109,12 @@ impl ChangesView {
     /// the wand in its corner, and the outlined commit button. An empty box
     /// turns the button into "Generate & Commit": the wand drafts the
     /// message first, then the commit fires itself.
-    fn render_commit_card(&mut self, busy: bool, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_commit_card(
+        &mut self,
+        busy: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let wand_active = {
             let state = self.store.read(cx);
             state.wand_busy == Some(crate::net::WandKind::Commit)
@@ -1067,7 +1173,9 @@ impl ChangesView {
                                 && !message.read(cx).value().trim().is_empty()
                             {
                                 let text = message.read(cx).value().to_string();
-                                store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
+                                store.update(cx, |s, cx| {
+                                    s.run_git(GitAction::Commit(text.clone()), cx)
+                                });
                             }
                         }
                     })
@@ -1088,9 +1196,15 @@ impl ChangesView {
                                 .flex()
                                 .hover(|s| s.bg(theme::HOVER))
                                 .on_click(move |_, _, cx| {
-                                    store.update(cx, |s, cx| s.run_wand(crate::net::WandKind::Commit, cx));
+                                    store.update(cx, |s, cx| {
+                                        s.run_wand(crate::net::WandKind::Commit, cx)
+                                    });
                                 })
-                                .child(icon("icons/icon-wand.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
+                                .child(icon(
+                                    "icons/icon-wand.svg",
+                                    px(theme::icon_small()),
+                                    theme::TEXT_MUTED,
+                                )),
                         )
                     }),
             );
@@ -1100,9 +1214,17 @@ impl ChangesView {
             let store = self.store.clone();
             let message = self.commit_message.clone();
             let this = cx.entity();
-            let label = if generate_and_commit { "Generate & Commit" } else { "Commit" };
+            let label = if generate_and_commit {
+                "Generate & Commit"
+            } else {
+                "Commit"
+            };
             let can_commit = !busy && (!message_empty || wand_on);
-            let color = if can_commit { theme::ON_ACCENT } else { theme::TEXT_FAINT };
+            let color = if can_commit {
+                theme::ON_ACCENT
+            } else {
+                theme::TEXT_FAINT
+            };
             div()
                 .id("commit-button")
                 .a11y_button(label)
@@ -1143,7 +1265,11 @@ impl ChangesView {
                     store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
                 })
                 .child(icon(
-                    if generate_and_commit { "icons/icon-wand.svg" } else { "icons/icon-check.svg" },
+                    if generate_and_commit {
+                        "icons/icon-wand.svg"
+                    } else {
+                        "icons/icon-check.svg"
+                    },
                     px(theme::icon_small()),
                     color,
                 ))
@@ -1163,7 +1289,11 @@ impl ChangesView {
                     .gap_1()
                     .text_size(px(theme::font_small()))
                     .text_color(theme::ACCENT)
-                    .child(icon("icons/icon-wand.svg", px(theme::icon_small() - 1.), theme::ACCENT))
+                    .child(icon(
+                        "icons/icon-wand.svg",
+                        px(theme::icon_small() - 1.),
+                        theme::ACCENT,
+                    ))
                     .child("working…"),
             );
         }
@@ -1171,15 +1301,32 @@ impl ChangesView {
         card.into_any_element()
     }
 
-    fn render_rail(&mut self, busy: bool, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_rail(
+        &mut self,
+        busy: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let store = self.store.read(cx);
         let branch = store
             .selected_entry()
             .and_then(|e| e.git_branch_name.clone());
-        let has_remote = store.selected_entry().map(|e| e.git_has_remote).unwrap_or(false);
-        let published = store.selected_entry().map(|e| e.git_branch_published).unwrap_or(false);
-        let to_push = store.selected_entry().map(|e| e.git_to_push_count).unwrap_or(0);
-        let to_pull = store.selected_entry().map(|e| e.git_to_pull_count).unwrap_or(0);
+        let has_remote = store
+            .selected_entry()
+            .map(|e| e.git_has_remote)
+            .unwrap_or(false);
+        let published = store
+            .selected_entry()
+            .map(|e| e.git_branch_published)
+            .unwrap_or(false);
+        let to_push = store
+            .selected_entry()
+            .map(|e| e.git_to_push_count)
+            .unwrap_or(0);
+        let to_pull = store
+            .selected_entry()
+            .map(|e| e.git_to_pull_count)
+            .unwrap_or(0);
 
         let mut rail = div()
             .w(px(280.))
@@ -1223,7 +1370,10 @@ impl ChangesView {
             if enabled {
                 if let Some(click) = click {
                     row = row
-                        .when(active, |d| d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD))
+                        .when(active, |d| {
+                            d.text_color(theme::ACCENT)
+                                .font_weight(FontWeight::SEMIBOLD)
+                        })
                         .when(!active, |d| d.text_color(theme::TEXT_DIM))
                         .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
                         .on_click(move |_, _, cx| {
@@ -1282,7 +1432,14 @@ impl ChangesView {
             }};
         }
         let mut action_list = div().flex().flex_col().gap_0p5();
-        rail_action!(action_list, "icons/icon-cloud-download.svg", "Fetch", !busy, None, GitAction::Fetch);
+        rail_action!(
+            action_list,
+            "icons/icon-cloud-download.svg",
+            "Fetch",
+            !busy,
+            None,
+            GitAction::Fetch
+        );
         rail_action!(
             action_list,
             "icons/icon-arrow-down.svg",
@@ -1310,7 +1467,14 @@ impl ChangesView {
             );
         }
         action_list = action_list.child(divider());
-        rail_action!(action_list, "icons/icon-refresh.svg", "Sync", has_remote && !busy, None, GitAction::Sync);
+        rail_action!(
+            action_list,
+            "icons/icon-refresh.svg",
+            "Sync",
+            has_remote && !busy,
+            None,
+            GitAction::Sync
+        );
         let history_toggle = cx.listener(|this, _, _, cx| {
             if this.history_open {
                 this.history_open = false;
@@ -1334,7 +1498,8 @@ impl ChangesView {
                 .gap_2p5()
                 .text_size(px(theme::font_body()))
                 .when(self.history_open, |d| {
-                    d.text_color(theme::ACCENT).font_weight(FontWeight::SEMIBOLD)
+                    d.text_color(theme::ACCENT)
+                        .font_weight(FontWeight::SEMIBOLD)
                 })
                 .when(!self.history_open, |d| d.text_color(theme::TEXT_DIM))
                 .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
@@ -1342,7 +1507,11 @@ impl ChangesView {
                 .child(icon(
                     "icons/icon-clock.svg",
                     px(theme::icon_small()),
-                    if self.history_open { theme::ACCENT } else { theme::TEXT_DIM },
+                    if self.history_open {
+                        theme::ACCENT
+                    } else {
+                        theme::TEXT_DIM
+                    },
                 ))
                 .child("History"),
         );
@@ -1350,9 +1519,9 @@ impl ChangesView {
 
         // the open branch popup rides LAST so later-sibling paint order puts
         // it over the rail without a deferred wrapper
-        if let Some(popup) =
-            self.branch_picker
-                .update(cx, |picker, cx| picker.overlay_popup(window, cx))
+        if let Some(popup) = self
+            .branch_picker
+            .update(cx, |picker, cx| picker.overlay_popup(window, cx))
         {
             rail = rail.child(popup);
         }
@@ -1453,7 +1622,11 @@ fn status_color(code: &str) -> gpui::Rgba {
 
 /// The +/− stage-toggle button per row: unstaged rows stage, staged rows
 /// unstage.
-fn row_action_button(file: &GitChangedFile, staged: bool, store: Entity<Store>) -> impl IntoElement + use<> {
+fn row_action_button(
+    file: &GitChangedFile,
+    staged: bool,
+    store: Entity<Store>,
+) -> impl IntoElement + use<> {
     let action = if staged {
         GitAction::Unstage(file.path.clone())
     } else {
@@ -1559,7 +1732,9 @@ fn build_branch_picker(
         FilteredPicker::new(
             spec,
             PickerTarget::Callback(Box::new(move |value, _window, cx| {
-                pick_store.update(cx, |s, cx| s.run_git(GitAction::Checkout(value.to_string()), cx));
+                pick_store.update(cx, |s, cx| {
+                    s.run_git(GitAction::Checkout(value.to_string()), cx)
+                });
             })),
             Box::new(|_, _, _| unreachable!("the real source lands right after construction")),
             window,
@@ -1578,7 +1753,13 @@ fn build_branch_picker(
                     // a dying entity renders an empty list
                     match data_picker.upgrade() {
                         Some(picker) => branch_data(
-                            &data_store, &data_ui, &data_name, &picker, filter, window, cx,
+                            &data_store,
+                            &data_ui,
+                            &data_name,
+                            &picker,
+                            filter,
+                            window,
+                            cx,
                         ),
                         None => PickerData {
                             body: PickerBody::Rows(Vec::new()),
@@ -1631,7 +1812,6 @@ fn build_branch_picker(
     });
     branch_picker
 }
-
 
 /// One render's worth of the branch list: locals with their delete trash, the
 /// inert "Remote" group label, and — when the form is open — the form as the
@@ -1723,7 +1903,13 @@ fn branch_data(
             badge: None,
             value: current,
         },
-        footer: Some(new_branch_footer(store, branch_ui, new_branch_name, picker, cx)),
+        footer: Some(new_branch_footer(
+            store,
+            branch_ui,
+            new_branch_name,
+            picker,
+            cx,
+        )),
         fonts: theme::font_tokens(),
         accent: theme::ACCENT,
         show_tooltips,

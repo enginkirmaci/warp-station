@@ -56,10 +56,26 @@ impl GitCommitInfo {
         };
         let parts: Vec<&str> = author.split_whitespace().collect();
         match parts.as_slice() {
-            [only] => only[..1.min(only.len())].to_uppercase(),
+            // a byte slice would panic on a multi-byte first char ("Žan")
+            [only] => only
+                .chars()
+                .next()
+                .unwrap_or('?')
+                .to_uppercase()
+                .to_string(),
             [first, .., last] => {
-                let f = first.chars().next().unwrap_or('?').to_uppercase().to_string();
-                let l = last.chars().next().unwrap_or('?').to_uppercase().to_string();
+                let f = first
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string();
+                let l = last
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string();
                 format!("{f}{l}")
             }
             _ => "?".into(),
@@ -111,19 +127,21 @@ impl GitChangeSnapshot {
 
     /// The staged/unstaged split with per-side counts applied.
     pub fn change_groups(&self) -> (Vec<GitChangedFile>, Vec<GitChangedFile>) {
-        let apply = |files: &[GitChangedFile], counts: &std::collections::HashMap<String, (Option<u32>, Option<u32>)>| {
-            files
-                .iter()
-                .map(|file| match counts.get(&file.path) {
-                    Some((additions, deletions)) => GitChangedFile {
-                        additions: *additions,
-                        deletions: *deletions,
-                        ..file.clone()
-                    },
-                    None => file.clone(),
-                })
-                .collect()
-        };
+        let apply =
+            |files: &[GitChangedFile],
+             counts: &std::collections::HashMap<String, (Option<u32>, Option<u32>)>| {
+                files
+                    .iter()
+                    .map(|file| match counts.get(&file.path) {
+                        Some((additions, deletions)) => GitChangedFile {
+                            additions: *additions,
+                            deletions: *deletions,
+                            ..file.clone()
+                        },
+                        None => file.clone(),
+                    })
+                    .collect()
+            };
         (
             apply(&self.staged_files, &self.cached_counts),
             apply(&self.unstaged_files, &self.worktree_counts),
@@ -151,7 +169,11 @@ pub struct GitDayActivity {
 
 impl GitDayActivity {
     pub fn empty() -> Self {
-        Self { branch_name: None, commits: Vec::new(), uncommitted_files: Vec::new() }
+        Self {
+            branch_name: None,
+            commits: Vec::new(),
+            uncommitted_files: Vec::new(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -185,14 +207,52 @@ pub struct GitSyncResult {
 
 impl GitSyncResult {
     pub fn ok() -> Self {
-        Self { success: true, error: None, cancelled: false }
+        Self {
+            success: true,
+            error: None,
+            cancelled: false,
+        }
     }
 
     pub fn err(error: Option<String>) -> Self {
-        Self { success: false, error, cancelled: false }
+        Self {
+            success: false,
+            error,
+            cancelled: false,
+        }
     }
 
     pub fn cancelled() -> Self {
-        Self { success: false, error: None, cancelled: true }
+        Self {
+            success: false,
+            error: None,
+            cancelled: true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(author: Option<&str>) -> GitCommitInfo {
+        GitCommitInfo {
+            hash: "0123456789abcdef".into(),
+            subject: "s".into(),
+            author: author.map(str::to_string),
+            date: Local::now(),
+        }
+    }
+
+    #[test]
+    fn initials_handles_multi_byte_and_missing_authors() {
+        // a byte-slice regression: single-token "Ünal" panicked on a
+        // non-char boundary
+        assert_eq!(commit(Some("Ünal")).initials(), "Ü");
+        assert_eq!(commit(Some("Žan Koder")).initials(), "ŽK");
+        assert_eq!(commit(Some("Emil Detjen")).initials(), "ED");
+        assert_eq!(commit(Some("madonna")).initials(), "M");
+        assert_eq!(commit(Some("   ")).initials(), "?");
+        assert_eq!(commit(None).initials(), "?");
     }
 }

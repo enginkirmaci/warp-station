@@ -31,7 +31,8 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
     } else {
         ES_CONTINUOUS
     };
-    // returns 0 (NULL previous state) on failure
+    // SAFETY: documented kernel32 FFI with no invariants beyond the calling
+    // thread owning the state (the doc contract above); 0 is the failure value
     if unsafe { SetThreadExecutionState(flags) } == 0 {
         return Err("SetThreadExecutionState failed".to_string());
     }

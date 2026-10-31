@@ -37,15 +37,34 @@ pub fn reconcile(enable: bool) {
             // the Run value carries embedded quotes: at logon an unquoted
             // path with spaces parses as program-plus-arguments
             let quoted = format!("\"{exe}\"");
-            command.args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/t", "REG_SZ", "/d", quoted.as_str(), "/f"]);
+            command.args([
+                "add",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "DevTools",
+                "/t",
+                "REG_SZ",
+                "/d",
+                quoted.as_str(),
+                "/f",
+            ]);
         } else {
-            command.args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "DevTools", "/f"]);
+            command.args([
+                "delete",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "DevTools",
+                "/f",
+            ]);
         }
         command.creation_flags(CREATE_NO_WINDOW);
         let result = command.output();
         if let Ok(output) = result {
             if !output.status.success() && enable {
-                tracing::warn!("autostart registration failed: {}", String::from_utf8_lossy(&output.stderr));
+                tracing::warn!(
+                    "autostart registration failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
     }

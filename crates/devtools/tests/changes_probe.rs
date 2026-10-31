@@ -5,7 +5,7 @@
 use devtools::store::Store;
 use devtools::ui::window::MainWindow;
 use gpui::prelude::*;
-use gpui::{point, px, Modifiers, TestAppContext, VisualTestContext};
+use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 /// Serializes the HOME-swapping new-branch probe against its siblings.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -125,7 +125,10 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
 
     // drill into the newest commit (details pre-seeded the way the net would)
     let head_hash = cx.read_entity(&store, |s, _| {
-        s.history().first().map(|c| c.hash.clone()).unwrap_or_default()
+        s.history()
+            .first()
+            .map(|c| c.hash.clone())
+            .unwrap_or_default()
     });
     let details = devtools_core::git::read::commit_details(&here, &head_hash);
     view_handle.update(cx, |view, cx| view.drill_commit(&head_hash, cx));
@@ -152,7 +155,9 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
     cx.update(|window, cx| drop(window.draw(cx)));
 }
 
-fn git_commands(net_rx: &async_channel::Receiver<devtools::net::NetCommand>) -> Vec<devtools::net::NetCommand> {
+fn git_commands(
+    net_rx: &async_channel::Receiver<devtools::net::NetCommand>,
+) -> Vec<devtools::net::NetCommand> {
     let mut git = Vec::new();
     while let Ok(cmd) = net_rx.try_recv() {
         if matches!(cmd, devtools::net::NetCommand::Git { .. }) {
@@ -212,13 +217,15 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         store
     });
 
-    let (_window, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
     click(cx, "branch-button");
-    assert!(cx.debug_bounds("branch-menu").is_some(), "the branch menu opens");
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the branch menu opens"
+    );
 
     // the trash is offered on deletable locals only
     assert!(
@@ -238,7 +245,10 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         cx.debug_bounds("branch-menu").is_some(),
         "arming keeps the menu open"
     );
-    assert!(git_commands(&net_rx).is_empty(), "the arm click must not run git");
+    assert!(
+        git_commands(&net_rx).is_empty(),
+        "the arm click must not run git"
+    );
 
     // an outside press closes the menu and disarms — the reopened menu starts
     // from a single-click arm again
@@ -289,7 +299,8 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("devtools-new-branch-probe-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("devtools-new-branch-probe-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".devtools")).unwrap();
     // SAFETY: process-global env; serialized against the siblings by HOME_ENV_LOCK
@@ -307,7 +318,9 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
     let store = cx.new(|cx| {
         let mut store = Store::with_settings(
             net_tx,
-            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch.clone())),
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
         );
         store.replace_repos(vec![devtools_core::repo_store::RepoEntry {
             name: "probe-repo".into(),
@@ -336,27 +349,38 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
         store
     });
 
-    let (_window, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
     click(cx, "branch-button");
-    assert!(cx.debug_bounds("branch-row-main").is_some(), "the list renders");
+    assert!(
+        cx.debug_bounds("branch-row-main").is_some(),
+        "the list renders"
+    );
 
     // the form swaps in for the list, seeded with the settings prefix (empty
     // here) and focused; nothing is sent by opening it
     click(cx, "new-branch-row");
-    assert!(cx.debug_bounds("new-branch-name").is_some(), "the form renders");
+    assert!(
+        cx.debug_bounds("new-branch-name").is_some(),
+        "the form renders"
+    );
     assert!(
         cx.debug_bounds("branch-row-main").is_none(),
         "the form replaces the rows list"
     );
-    assert!(git_commands(&net_rx).is_empty(), "opening the form sends nothing");
+    assert!(
+        git_commands(&net_rx).is_empty(),
+        "opening the form sends nothing"
+    );
 
     // Cancel returns to the list, still without sending anything
     click(cx, "new-branch-cancel");
-    assert!(cx.debug_bounds("branch-row-main").is_some(), "cancel restores the list");
+    assert!(
+        cx.debug_bounds("branch-row-main").is_some(),
+        "cancel restores the list"
+    );
     assert!(git_commands(&net_rx).is_empty(), "cancel sends nothing");
 
     // reopen: the form field is focused, so typing lands straight in it

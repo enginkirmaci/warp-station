@@ -3,10 +3,12 @@
 //! screenshotted without touching app state. `cargo run -p devtools --example diff_demo`
 
 use devtools::theme;
-use warpui_kit_diff::render_diff;
 use gpui::prelude::*;
-use gpui::{div, px, size, Bounds, Context, Render, TitlebarOptions, Window, WindowBounds, WindowOptions};
+use gpui::{
+    Bounds, Context, Render, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
+};
 use gpui_platform::application;
+use warpui_kit_diff::render_diff;
 
 const RUST_PATCH: &str = r#"diff --git a/crates/devtools-core/src/markdown_live.rs b/crates/devtools-core/src/markdown_live.rs
 index 7c3f9a1..b2e4d55 100644
@@ -97,7 +99,13 @@ impl Render for DiffDemo {
                 .border_color(theme::BORDER_LIGHT)
                 .py_2()
                 .overflow_hidden()
-                .child(render_diff(patch, None, theme::font_small() - 2.0, window, cx))
+                .child(render_diff(
+                    patch,
+                    None,
+                    theme::font_small() - 2.0,
+                    window,
+                    cx,
+                ))
         };
         div()
             .size_full()

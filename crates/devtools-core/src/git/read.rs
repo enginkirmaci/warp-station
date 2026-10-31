@@ -92,8 +92,12 @@ pub fn probe(folder: &Path) -> Option<Probe> {
 
 /// Ahead/behind of the branch against its upstream, as of the last fetch.
 fn ahead_behind(repo: &Repository, reference: &git2::Reference<'_>) -> (u32, u32) {
-    let Some(local_oid) = reference.target() else { return (0, 0) };
-    let Some(branch_ref) = reference.name().ok() else { return (0, 0) };
+    let Some(local_oid) = reference.target() else {
+        return (0, 0);
+    };
+    let Some(branch_ref) = reference.name().ok() else {
+        return (0, 0);
+    };
     let upstream_ref = match repo.branch_upstream_name(branch_ref) {
         Ok(buf) => match buf.as_str().ok().filter(|s| !s.is_empty()) {
             Some(name) => name.to_string(),
@@ -101,7 +105,11 @@ fn ahead_behind(repo: &Repository, reference: &git2::Reference<'_>) -> (u32, u32
         },
         Err(_) => return (0, 0),
     };
-    let Some(upstream_oid) = repo.find_reference(&upstream_ref).ok().and_then(|r| r.target()) else {
+    let Some(upstream_oid) = repo
+        .find_reference(&upstream_ref)
+        .ok()
+        .and_then(|r| r.target())
+    else {
         return (0, 0);
     };
     repo.graph_ahead_behind(local_oid, upstream_oid)
@@ -131,18 +139,20 @@ pub fn change_snapshot(folder: &Path) -> Option<GitChangeSnapshot> {
         let index = repo.index().ok()?;
         let mut diff_opts = diff_options(repo);
         if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))
-            && find_renames(&mut diff).is_ok() {
-                snapshot.worktree_counts = numstat_counts(&diff);
-            }
+            && find_renames(&mut diff).is_ok()
+        {
+            snapshot.worktree_counts = numstat_counts(&diff);
+        }
 
         let head_tree = head_tree(repo);
         let index = repo.index().ok()?;
         let mut diff_opts = diff_options(repo);
         if let Ok(mut diff) =
             repo.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut diff_opts))
-            && find_renames(&mut diff).is_ok() {
-                snapshot.cached_counts = numstat_counts(&diff);
-            }
+            && find_renames(&mut diff).is_ok()
+        {
+            snapshot.cached_counts = numstat_counts(&diff);
+        }
         Some(snapshot)
     })
     .flatten()
@@ -156,7 +166,9 @@ pub fn branches(folder: &Path) -> Option<Vec<GitBranchRef>> {
         let mut remotes: Vec<String> = Vec::new();
         for branch in repo.branches(None).ok()? {
             let Ok((branch, kind)) = branch else { continue };
-            let Some(name) = branch.name().ok().flatten() else { continue };
+            let Some(name) = branch.name().ok().flatten() else {
+                continue;
+            };
             if name.ends_with("/HEAD") {
                 continue;
             }
@@ -170,8 +182,14 @@ pub fn branches(folder: &Path) -> Option<Vec<GitBranchRef>> {
         Some(
             locals
                 .into_iter()
-                .map(|n| GitBranchRef { name: n, kind: GitBranchKind::Local })
-                .chain(remotes.into_iter().map(|n| GitBranchRef { name: n, kind: GitBranchKind::Remote }))
+                .map(|n| GitBranchRef {
+                    name: n,
+                    kind: GitBranchKind::Local,
+                })
+                .chain(remotes.into_iter().map(|n| GitBranchRef {
+                    name: n,
+                    kind: GitBranchKind::Remote,
+                }))
                 .collect(),
         )
     })
@@ -207,9 +225,10 @@ pub fn commit_details(folder: &Path, hash: &str) -> Option<GitCommitDetails> {
             let mut opts = diff_options(repo);
             if let Ok(mut diff) =
                 repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
-                && find_renames(&mut diff).is_ok() {
-                    files = files_from_diff(&diff);
-                }
+                && find_renames(&mut diff).is_ok()
+            {
+                files = files_from_diff(&diff);
+            }
         }
         Some(GitCommitDetails {
             hash: hash.to_string(),
@@ -236,7 +255,11 @@ pub fn commit_file_patch(folder: &Path, hash: &str, path: &str) -> Option<String
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
             .ok()?;
         let patch = patch_for_path(&mut diff, path)?;
-        Some(cap(normalize_patch_prefixes(&patch), FILE_PATCH_READ_CAP, PATCH_TRUNCATION_SUFFIX))
+        Some(cap(
+            normalize_patch_prefixes(&patch),
+            FILE_PATCH_READ_CAP,
+            PATCH_TRUNCATION_SUFFIX,
+        ))
     })
     .flatten()
 }
@@ -259,10 +282,16 @@ pub fn change_file_patch(folder: &Path, path: &str, staged: bool) -> Option<Stri
             let index = repo.index().ok()?;
             let mut opts = diff_options(repo);
             opts.pathspec(path);
-            let mut diff = repo.diff_index_to_workdir(Some(&index), Some(&mut opts)).ok()?;
+            let mut diff = repo
+                .diff_index_to_workdir(Some(&index), Some(&mut opts))
+                .ok()?;
             patch_for_path(&mut diff, path)?
         };
-        Some(cap(normalize_patch_prefixes(&patch), FILE_PATCH_READ_CAP, PATCH_TRUNCATION_SUFFIX))
+        Some(cap(
+            normalize_patch_prefixes(&patch),
+            FILE_PATCH_READ_CAP,
+            PATCH_TRUNCATION_SUFFIX,
+        ))
     })
     .flatten()
 }
@@ -271,12 +300,19 @@ pub fn change_file_patch(folder: &Path, path: &str, staged: bool) -> Option<Stri
 /// No remote refs means not pushed; failures fail open (true).
 pub fn commit_pushed(folder: &Path, hash: &str) -> bool {
     with_repo(folder, |repo| {
-        let Some(commit) = find_commit(repo, hash) else { return Some(true) };
+        let Some(commit) = find_commit(repo, hash) else {
+            return Some(true);
+        };
 
         let remote_tips: Vec<git2::Oid> = repo
             .branches(Some(git2::BranchType::Remote))
             .ok()
-            .map(|branches| branches.flatten().filter_map(|(b, _)| b.get().target()).collect())
+            .map(|branches| {
+                branches
+                    .flatten()
+                    .filter_map(|(b, _)| b.get().target())
+                    .collect()
+            })
             .unwrap_or_default();
         if remote_tips.is_empty() {
             return Some(false);
@@ -309,7 +345,9 @@ pub fn unpushed_hashes(folder: &Path) -> Option<HashSet<String>> {
         let mut remote_tips = Vec::new();
         for branch in repo.branches(None).ok()? {
             let Ok((branch, kind)) = branch else { continue };
-            let Some(target) = branch.get().target() else { continue };
+            let Some(target) = branch.get().target() else {
+                continue;
+            };
             match kind {
                 git2::BranchType::Local => local_tips.push(target),
                 git2::BranchType::Remote => remote_tips.push(target),
@@ -345,8 +383,14 @@ pub fn commit_prompt_context(folder: &Path) -> Option<(String, Vec<String>, Vec<
 
         let mut files = Vec::new();
         for delta in diff.deltas() {
-            let old = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
-            let new = delta.new_file().path().map(|p| p.to_string_lossy().to_string());
+            let old = delta
+                .old_file()
+                .path()
+                .map(|p| p.to_string_lossy().to_string());
+            let new = delta
+                .new_file()
+                .path()
+                .map(|p| p.to_string_lossy().to_string());
             if let Some(path) = delta_prompt_path(old.as_deref(), new.as_deref()) {
                 files.push(path);
             }
@@ -362,7 +406,14 @@ pub fn commit_prompt_context(folder: &Path) -> Option<(String, Vec<String>, Vec<
         walker.push_head().ok()?;
         for oid in walker.take(10).flatten() {
             if let Ok(commit) = repo.find_commit(oid) {
-                subjects.push(commit.summary().ok().flatten().unwrap_or_default().to_string());
+                subjects.push(
+                    commit
+                        .summary()
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                        .to_string(),
+                );
             }
         }
         Some((patch, files, subjects))
@@ -390,7 +441,12 @@ pub fn history_commits(folder: &Path, limit: usize) -> Option<Vec<GitCommitInfo>
             if let Ok(commit) = repo.find_commit(oid) {
                 commits.push(GitCommitInfo {
                     hash: commit.id().to_string(),
-                    subject: commit.summary().ok().flatten().unwrap_or_default().to_string(),
+                    subject: commit
+                        .summary()
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                        .to_string(),
                     author: commit.author().name().ok().map(str::to_string),
                     date: to_local(commit.time()),
                 });
@@ -411,7 +467,12 @@ pub fn recent_commits(folder: &Path) -> Option<Vec<GitCommitInfo>> {
             if let Ok(commit) = repo.find_commit(oid) {
                 commits.push(GitCommitInfo {
                     hash: commit.id().to_string(),
-                    subject: commit.summary().ok().flatten().unwrap_or_default().to_string(),
+                    subject: commit
+                        .summary()
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                        .to_string(),
                     author: commit.author().name().ok().map(str::to_string),
                     date: to_local(commit.time()),
                 });
@@ -433,7 +494,9 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
             if examined >= MAX_DAY_SCAN_COMMITS {
                 break;
             }
-            let Ok(commit) = repo.find_commit(oid.ok()?) else { continue };
+            let Ok(commit) = repo.find_commit(oid.ok()?) else {
+                continue;
+            };
             if to_local(commit.time()).date_naive() != day {
                 continue;
             }
@@ -444,16 +507,22 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
                 let mut opts = diff_options(repo);
                 if let Ok(mut diff) =
                     repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
-                    && find_renames(&mut diff).is_ok() {
-                        files = files_from_diff(&diff)
-                            .into_iter()
-                            .take(MAX_DAY_COMMIT_FILE_ENTRIES)
-                            .collect();
-                    }
+                    && find_renames(&mut diff).is_ok()
+                {
+                    files = files_from_diff(&diff)
+                        .into_iter()
+                        .take(MAX_DAY_COMMIT_FILE_ENTRIES)
+                        .collect();
+                }
             }
             commits.push(GitDayCommit {
                 hash: commit.id().to_string(),
-                subject: commit.summary().ok().flatten().unwrap_or_default().to_string(),
+                subject: commit
+                    .summary()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .to_string(),
                 author: commit.author().name().ok().map(str::to_string),
                 when: to_local(commit.time()),
                 files,
@@ -472,17 +541,19 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
             let index = repo.index().ok()?;
             let mut diff_opts = diff_options(repo);
             if let Ok(mut diff) = repo.diff_index_to_workdir(Some(&index), Some(&mut diff_opts))
-                && find_renames(&mut diff).is_ok() {
-                    snapshot.worktree_counts = numstat_counts(&diff);
-                }
+                && find_renames(&mut diff).is_ok()
+            {
+                snapshot.worktree_counts = numstat_counts(&diff);
+            }
             let head_tree = head_tree(repo);
             if let Ok(index) = repo.index() {
                 let mut diff_opts = diff_options(repo);
                 if let Ok(mut diff) =
                     repo.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut diff_opts))
-                    && find_renames(&mut diff).is_ok() {
-                        snapshot.cached_counts = numstat_counts(&diff);
-                    }
+                    && find_renames(&mut diff).is_ok()
+                {
+                    snapshot.cached_counts = numstat_counts(&diff);
+                }
             }
         }
 
@@ -511,11 +582,17 @@ pub fn day_activity(folder: &Path, day: chrono::NaiveDate) -> Option<GitDayActiv
             if head.symbolic_target().is_err() {
                 Some("(detached)".to_string())
             } else {
-                head.resolve().ok().map(|r| r.shorthand().ok().unwrap_or("HEAD").to_string())
+                head.resolve()
+                    .ok()
+                    .map(|r| r.shorthand().ok().unwrap_or("HEAD").to_string())
             }
         });
 
-        Some(GitDayActivity { branch_name, commits, uncommitted_files: uncommitted })
+        Some(GitDayActivity {
+            branch_name,
+            commits,
+            uncommitted_files: uncommitted,
+        })
     })
     .flatten()
 }
@@ -552,9 +629,10 @@ fn with_repo<T>(folder: &Path, action: impl FnOnce(&Repository) -> Option<T>) ->
 
 fn find_commit<'r>(repo: &'r Repository, hash: &str) -> Option<git2::Commit<'r>> {
     if let Ok(oid) = git2::Oid::from_str(hash)
-        && let Ok(commit) = repo.find_commit(oid) {
-            return Some(commit);
-        }
+        && let Ok(commit) = repo.find_commit(oid)
+    {
+        return Some(commit);
+    }
     // abbreviated hash: resolve by unique prefix
     let (min_len, len) = (4, hash.len());
     if len < min_len || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -616,7 +694,12 @@ fn find_renames(diff: &mut git2::Diff<'_>) -> Result<(), git2::Error> {
 }
 
 fn head_tree(repo: &Repository) -> Option<git2::Tree<'_>> {
-    repo.find_reference("HEAD").ok()?.peel_to_commit().ok()?.tree().ok()
+    repo.find_reference("HEAD")
+        .ok()?
+        .peel_to_commit()
+        .ok()?
+        .tree()
+        .ok()
 }
 
 fn to_local(time: git2::Time) -> DateTime<Local> {
@@ -625,7 +708,10 @@ fn to_local(time: git2::Time) -> DateTime<Local> {
     {
         fixed.with_timezone(&Local)
     } else {
-        Local.timestamp_opt(time.seconds(), 0).single().unwrap_or_else(Local::now)
+        Local
+            .timestamp_opt(time.seconds(), 0)
+            .single()
+            .unwrap_or_else(Local::now)
     }
 }
 
@@ -763,9 +849,10 @@ fn patch_text(diff: &git2::Diff<'_>) -> String {
     let mut text = String::new();
     for idx in 0..diff.deltas().len() {
         if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx)
-            && let Ok(buf) = patch.to_buf() {
-                text.push_str(buf.as_str().unwrap_or_default());
-            }
+            && let Ok(buf) = patch.to_buf()
+        {
+            text.push_str(buf.as_str().unwrap_or_default());
+        }
     }
     text
 }
@@ -774,9 +861,10 @@ fn patch_for_path(diff: &mut git2::Diff<'_>, path: &str) -> Option<String> {
     for (idx, delta) in diff.deltas().enumerate() {
         if delta_path(&delta) == path {
             if let Ok(Some(mut patch)) = git2::Patch::from_diff(diff, idx)
-                && let Ok(buf) = patch.to_buf() {
-                    return Some(buf.as_str().unwrap_or_default().to_string());
-                }
+                && let Ok(buf) = patch.to_buf()
+            {
+                return Some(buf.as_str().unwrap_or_default().to_string());
+            }
             return Some(String::new());
         }
     }
@@ -884,8 +972,10 @@ mod merge_tests {
             }],
             ..Default::default()
         };
-        snap.worktree_counts.insert("a.txt".into(), (Some(1), Some(2)));
-        snap.cached_counts.insert("a.txt".into(), (Some(10), Some(20)));
+        snap.worktree_counts
+            .insert("a.txt".into(), (Some(1), Some(2)));
+        snap.cached_counts
+            .insert("a.txt".into(), (Some(10), Some(20)));
         let merged = snap.merged_files();
         assert_eq!(merged[0].additions, Some(10));
         assert_eq!(merged[0].deletions, Some(20));
@@ -969,9 +1059,18 @@ mod prompt_path_tests {
             delta_prompt_path(Some("old.txt"), Some("new.txt")),
             Some("old.txt -> new.txt".into())
         );
-        assert_eq!(delta_prompt_path(Some("a.rs"), Some("a.rs")), Some("a.rs".into()));
-        assert_eq!(delta_prompt_path(None, Some("added.rs")), Some("added.rs".into()));
-        assert_eq!(delta_prompt_path(Some("gone.rs"), None), Some("gone.rs".into()));
+        assert_eq!(
+            delta_prompt_path(Some("a.rs"), Some("a.rs")),
+            Some("a.rs".into())
+        );
+        assert_eq!(
+            delta_prompt_path(None, Some("added.rs")),
+            Some("added.rs".into())
+        );
+        assert_eq!(
+            delta_prompt_path(Some("gone.rs"), None),
+            Some("gone.rs".into())
+        );
         assert_eq!(delta_prompt_path(None, None), None);
     }
 }

@@ -34,7 +34,6 @@ pub struct CachedRepo {
     pub git_last_fetch_at: Option<String>,
 }
 
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct CachedTag {
@@ -71,11 +70,15 @@ pub struct RepoEntry {
 
 impl RepoEntry {
     pub fn is_favorite(&self) -> bool {
-        self.tags.iter().any(|t| t.eq_ignore_ascii_case(FAVORITES_TAG))
+        self.tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(FAVORITES_TAG))
     }
 
     pub fn is_archived(&self) -> bool {
-        self.tags.iter().any(|t| t.eq_ignore_ascii_case(ARCHIVED_TAG))
+        self.tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(ARCHIVED_TAG))
     }
 }
 
@@ -102,10 +105,12 @@ fn cache_from_entry(repo: &RepoEntry) -> CachedRepo {
         name: repo.name.clone(),
         folder_path: repo.folder_path.to_string_lossy().to_string(),
         solution_path: repo.solution_path.clone(),
-        tags: repo.tags.iter().map(|t| CachedTag { name: t.clone() }).collect(),
-        git_last_commit_at: repo
-            .git_last_commit_at
-            .map(|t| t.to_rfc3339()),
+        tags: repo
+            .tags
+            .iter()
+            .map(|t| CachedTag { name: t.clone() })
+            .collect(),
+        git_last_commit_at: repo.git_last_commit_at.map(|t| t.to_rfc3339()),
         git_last_fetch_at: repo.git_last_fetch_at.map(|t| t.to_rfc3339()),
     }
 }
@@ -120,8 +125,16 @@ pub fn entry_from_cache(cached: &CachedRepo) -> RepoEntry {
         git_modified_count: 0,
         git_to_push_count: 0,
         git_to_pull_count: 0,
-        git_last_commit_at: cached.git_last_commit_at.clone().and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|t| t.with_timezone(&chrono::Local)),
-        git_last_fetch_at: cached.git_last_fetch_at.clone().and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok()).map(|t| t.with_timezone(&chrono::Local)),
+        git_last_commit_at: cached
+            .git_last_commit_at
+            .clone()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+            .map(|t| t.with_timezone(&chrono::Local)),
+        git_last_fetch_at: cached
+            .git_last_fetch_at
+            .clone()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+            .map(|t| t.with_timezone(&chrono::Local)),
         git_has_remote: false,
         git_branch_published: false,
         git_status_loaded: false,
@@ -135,12 +148,18 @@ pub fn entry_from_cache(cached: &CachedRepo) -> RepoEntry {
 /// last-known git status survives so a rescan of an unchanged repo does not
 /// flip its card back to the checking placeholder. Returns the merged list
 /// plus which repos vanished from disk.
-pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoEntry>, Vec<String>) {
+pub fn merge_scan(
+    previous: &[RepoEntry],
+    scanned: &[ScannedRepo],
+) -> (Vec<RepoEntry>, Vec<String>) {
     let mut merged = Vec::with_capacity(scanned.len());
     for repo in scanned {
-        let prev = previous
-            .iter()
-            .find(|p| crate::paths::same_folder_text(&p.folder_path.to_string_lossy(), &repo.folder_path.to_string_lossy()));
+        let prev = previous.iter().find(|p| {
+            crate::paths::same_folder_text(
+                &p.folder_path.to_string_lossy(),
+                &repo.folder_path.to_string_lossy(),
+            )
+        });
         let mut entry = RepoEntry {
             name: repo.name.clone(),
             folder_path: repo.folder_path.clone(),
@@ -184,9 +203,12 @@ pub fn merge_scan(previous: &[RepoEntry], scanned: &[ScannedRepo]) -> (Vec<RepoE
     let removed: Vec<String> = previous
         .iter()
         .filter(|p| {
-            !scanned
-                .iter()
-                .any(|s| crate::paths::same_folder_text(&s.folder_path.to_string_lossy(), &p.folder_path.to_string_lossy()))
+            !scanned.iter().any(|s| {
+                crate::paths::same_folder_text(
+                    &s.folder_path.to_string_lossy(),
+                    &p.folder_path.to_string_lossy(),
+                )
+            })
         })
         .map(|p| p.name.clone())
         .collect();
@@ -219,9 +241,12 @@ pub fn apply_status_probe(entry: &mut RepoEntry, probe: &StatusProbe) {
     entry.git_has_remote = probe.has_remote;
     entry.git_branch_published = probe.branch_on_remote;
     if let Some(fetch_at) = probe.last_fetch_at
-        && entry.git_last_fetch_at.is_none_or(|existing| fetch_at > existing) {
-            entry.git_last_fetch_at = Some(fetch_at);
-        }
+        && entry
+            .git_last_fetch_at
+            .is_none_or(|existing| fetch_at > existing)
+    {
+        entry.git_last_fetch_at = Some(fetch_at);
+    }
     entry.git_status_loaded = true;
 }
 
@@ -269,7 +294,14 @@ mod tests {
         };
         let (merged, removed) = merge_scan(&[prev], &[scanned]);
         assert!(removed.is_empty());
-        assert_eq!(merged[0].tags, vec!["platform".to_string(), "favorites".to_string(), "work".to_string()]);
+        assert_eq!(
+            merged[0].tags,
+            vec![
+                "platform".to_string(),
+                "favorites".to_string(),
+                "work".to_string()
+            ]
+        );
         assert_eq!(merged[0].git_branch_name.as_deref(), Some("main"));
         assert_eq!(merged[0].git_modified_count, 3);
         assert!(merged[0].is_favorite());
@@ -297,7 +329,11 @@ mod tests {
         let newer = chrono::Local::now() - chrono::Duration::hours(1);
         apply_status_probe(
             &mut entry,
-            &StatusProbe { folder_path: "/x/r".into(), last_fetch_at: Some(newer), ..Default::default() },
+            &StatusProbe {
+                folder_path: "/x/r".into(),
+                last_fetch_at: Some(newer),
+                ..Default::default()
+            },
         );
         assert_eq!(entry.git_last_fetch_at, Some(newer));
     }

@@ -14,7 +14,8 @@ const GH_TIMEOUT: Duration = Duration::from_secs(20);
 /// Caps each list fetch (and therefore the chip counts).
 const ITEM_LIMIT: usize = 50;
 
-const PR_FIELDS: &str = "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision,updatedAt";
+const PR_FIELDS: &str =
+    "number,title,url,author,labels,isDraft,headRefName,baseRefName,reviewDecision,updatedAt";
 const ISSUE_FIELDS: &str = "number,title,url,author,labels,updatedAt";
 
 #[derive(Clone, Debug, Default)]
@@ -108,15 +109,32 @@ pub async fn repo_details(folder: &Path, gh_exe: &str) -> Option<GitHubRepoDetai
     let json = run_gh(
         gh_exe,
         folder,
-        &["repo", "view", "--json", "owner,createdAt,primaryLanguage,licenseInfo,repositoryTopics,defaultBranchRef,url"],
+        &[
+            "repo",
+            "view",
+            "--json",
+            "owner,createdAt,primaryLanguage,licenseInfo,repositoryTopics,defaultBranchRef,url",
+        ],
     )
     .await?;
     let v = serde_json::from_str::<serde_json::Value>(&json).ok()?;
     Some(GitHubRepoDetails {
-        owner: v.pointer("/owner/login").and_then(|x| x.as_str()).map(str::to_string),
-        created_at: v.get("createdAt").and_then(|x| x.as_str()).map(str::to_string),
-        primary_language: v.get("primaryLanguage").and_then(|x| x.as_str()).map(str::to_string),
-        license: v.pointer("/licenseInfo/name").and_then(|x| x.as_str()).map(str::to_string),
+        owner: v
+            .pointer("/owner/login")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        created_at: v
+            .get("createdAt")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        primary_language: v
+            .get("primaryLanguage")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        license: v
+            .pointer("/licenseInfo/name")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
         topics: v
             .get("repositoryTopics")
             .and_then(|x| x.as_array())
@@ -126,7 +144,10 @@ pub async fn repo_details(folder: &Path, gh_exe: &str) -> Option<GitHubRepoDetai
                     .collect()
             })
             .unwrap_or_default(),
-        default_branch: v.pointer("/defaultBranchRef/name").and_then(|x| x.as_str()).map(str::to_string),
+        default_branch: v
+            .pointer("/defaultBranchRef/name")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
         url: v.get("url").and_then(|x| x.as_str()).map(str::to_string),
     })
 }
@@ -143,23 +164,51 @@ fn parse_items(json: Option<&str>, is_pull_request: bool) -> Vec<GitHubItem> {
             let number = item.get("number").and_then(|n| n.as_u64())?;
             Some(GitHubItem {
                 number,
-                title: item.get("title").and_then(|t| t.as_str()).unwrap_or_default().to_string(),
-                url: item.get("url").and_then(|u| u.as_str()).unwrap_or_default().to_string(),
-                author: item.pointer("/author/login").and_then(|a| a.as_str()).map(str::to_string),
+                title: item
+                    .get("title")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                author: item
+                    .pointer("/author/login")
+                    .and_then(|a| a.as_str())
+                    .map(str::to_string),
                 labels: item
                     .get("labels")
                     .and_then(|l| l.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|l| l.get("name").and_then(|n| n.as_str()).map(str::to_string))
+                            .filter_map(|l| {
+                                l.get("name").and_then(|n| n.as_str()).map(str::to_string)
+                            })
                             .collect()
                     })
                     .unwrap_or_default(),
-                is_draft: item.get("isDraft").and_then(|d| d.as_bool()).unwrap_or(false),
-                review_decision: item.get("reviewDecision").and_then(|r| r.as_str()).map(str::to_string),
-                updated_at: item.get("updatedAt").and_then(|u| u.as_str()).map(str::to_string),
-                head_ref_name: item.get("headRefName").and_then(|b| b.as_str()).map(str::to_string),
-                base_ref_name: item.get("baseRefName").and_then(|b| b.as_str()).map(str::to_string),
+                is_draft: item
+                    .get("isDraft")
+                    .and_then(|d| d.as_bool())
+                    .unwrap_or(false),
+                review_decision: item
+                    .get("reviewDecision")
+                    .and_then(|r| r.as_str())
+                    .map(str::to_string),
+                updated_at: item
+                    .get("updatedAt")
+                    .and_then(|u| u.as_str())
+                    .map(str::to_string),
+                head_ref_name: item
+                    .get("headRefName")
+                    .and_then(|b| b.as_str())
+                    .map(str::to_string),
+                base_ref_name: item
+                    .get("baseRefName")
+                    .and_then(|b| b.as_str())
+                    .map(str::to_string),
                 is_pull_request,
             })
         })

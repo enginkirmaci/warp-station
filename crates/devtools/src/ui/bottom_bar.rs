@@ -6,16 +6,19 @@
 
 use crate::store::{BottomBarTab, Store};
 use crate::theme;
-use crate::ui::changes::ChangesView;
-use crate::ui::icon;
 use crate::ui::A11y;
 use crate::ui::azure_tab::AzureView;
+use crate::ui::changes::ChangesView;
+use crate::ui::icon;
 use crate::ui::overview::OverviewView;
 use crate::ui::pr_issues::ItemListView;
-use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::Sizable as _;
 use gpui::prelude::*;
-use gpui::{canvas, deferred, div, px, App, ClipboardItem, Context, Entity, FontWeight, MouseButton, SharedString, Window};
+use gpui::{
+    App, ClipboardItem, Context, Entity, FontWeight, MouseButton, SharedString, Window, canvas,
+    deferred, div, px,
+};
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputState};
 
 type MenuAction = Box<dyn Fn(&mut App)>;
 
@@ -42,9 +45,17 @@ impl BottomBar {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let changes_view = cx.new(|cx| ChangesView::new(store.clone(), window, cx));
         let overview_view = cx.new(|cx| OverviewView::new(store.clone(), window, cx));
-        let pr_view = cx.new(|_| ItemListView { store: store.clone(), pull_requests: true });
-        let issue_view = cx.new(|_| ItemListView { store: store.clone(), pull_requests: false });
-        let azure_view = cx.new(|_| AzureView { store: store.clone() });
+        let pr_view = cx.new(|_| ItemListView {
+            store: store.clone(),
+            pull_requests: true,
+        });
+        let issue_view = cx.new(|_| ItemListView {
+            store: store.clone(),
+            pull_requests: false,
+        });
+        let azure_view = cx.new(|_| AzureView {
+            store: store.clone(),
+        });
         let add_tag = cx.new(|cx| InputState::new(window, cx).placeholder("New tag name"));
         Self {
             store,
@@ -96,11 +107,14 @@ impl BottomBar {
             .h(px(6.))
             .cursor_row_resize()
             .hover(|s| s.bg(theme::HOVER))
-            .on_mouse_down(MouseButton::Left, move |event: &gpui::MouseDownEvent, _, cx| {
-                let start_height = store_handle.read(cx).bar_height;
-                drag_state.set(Some((event.position.y, start_height)));
-                cx.stop_propagation();
-            })
+            .on_mouse_down(
+                MouseButton::Left,
+                move |event: &gpui::MouseDownEvent, _, cx| {
+                    let start_height = store_handle.read(cx).bar_height;
+                    drag_state.set(Some((event.position.y, start_height)));
+                    cx.stop_propagation();
+                },
+            )
             .child(
                 canvas(
                     // this gpui rev: on_mouse_event must register from the
@@ -115,12 +129,15 @@ impl BottomBar {
                                     if phase != gpui::DispatchPhase::Bubble {
                                         return;
                                     }
-                                    let Some((start_y, start_height)) = drag.get() else { return };
+                                    let Some((start_y, start_height)) = drag.get() else {
+                                        return;
+                                    };
                                     match event.pressed_button {
                                         Some(MouseButton::Left) => {
                                             // top edge follows the cursor: up = taller
                                             let delta = (event.position.y - start_y).as_f32();
-                                            let value = (start_height - delta).round().clamp(260., 780.);
+                                            let value =
+                                                (start_height - delta).round().clamp(260., 780.);
                                             store.update(cx, |s, cx| {
                                                 if (s.bar_height - value).abs() >= 0.5 {
                                                     s.bar_height = value;
@@ -165,10 +182,8 @@ impl Render for BottomBar {
             .and_then(|d| d.url.clone());
         // the stored height is the user's preference; the rendered height
         // also has to leave the repos list enough room in short windows
-        let max_height = (window.viewport_size().height.as_f32()
-            - theme::TITLEBAR_H
-            - 180.)
-            .max(260.);
+        let max_height =
+            (window.viewport_size().height.as_f32() - theme::TITLEBAR_H - 180.).max(260.);
         let bar_height = bar_height.min(max_height);
 
         // ---- tabs (settings gates; the Changes tab carries the modified count) ----
@@ -202,7 +217,9 @@ impl Render for BottomBar {
                 .items_center()
                 .gap_1()
                 .text_size(px(theme::font_small()))
-                .when(active, |d| d.text_color(theme::TEXT).font_weight(FontWeight::MEDIUM))
+                .when(active, |d| {
+                    d.text_color(theme::TEXT).font_weight(FontWeight::MEDIUM)
+                })
                 .when(!active, |d| d.text_color(theme::TEXT_MUTED))
                 .hover(|s| s.text_color(theme::TEXT))
                 .on_click({
@@ -218,17 +235,14 @@ impl Render for BottomBar {
                         .items_center()
                         .gap_1p5()
                         .child(tab.label())
-                        .when(
-                            tab == BottomBarTab::Changes && modified > 0,
-                            |row| {
-                                row.child(
-                                    div()
-                                        .text_size(px(theme::font_small()))
-                                        .text_color(theme::TEXT_FAINT)
-                                        .child(format!("{modified}")),
-                                )
-                            },
-                        ),
+                        .when(tab == BottomBarTab::Changes && modified > 0, |row| {
+                            row.child(
+                                div()
+                                    .text_size(px(theme::font_small()))
+                                    .text_color(theme::TEXT_FAINT)
+                                    .child(format!("{modified}")),
+                            )
+                        }),
                 )
                 .child(
                     div()
@@ -348,7 +362,9 @@ impl Render for BottomBar {
                                     return;
                                 }
                                 store.update(cx, |s, cx| s.add_repo_tag(&folder, &tag, cx));
-                                add_tag.update(cx, |input, cx| input.set_value(String::new(), window, cx));
+                                add_tag.update(cx, |input, cx| {
+                                    input.set_value(String::new(), window, cx)
+                                });
                             }
                         })
                         .child("Add"),
@@ -409,7 +425,11 @@ impl Render for BottomBar {
                 div()
                     .id("bar-star")
                     .a11y_toggle(
-                        if entry.is_favorite() { "Remove from favorites" } else { "Add to favorites" },
+                        if entry.is_favorite() {
+                            "Remove from favorites"
+                        } else {
+                            "Add to favorites"
+                        },
                         entry.is_favorite(),
                     )
                     .cursor_pointer()
@@ -422,7 +442,11 @@ impl Render for BottomBar {
                     .child(icon(
                         "icons/icon-star.svg",
                         px(theme::icon_small()),
-                        if entry.is_favorite() { theme::GOLD_BRIGHT } else { theme::STAR_MUTED },
+                        if entry.is_favorite() {
+                            theme::GOLD_BRIGHT
+                        } else {
+                            theme::STAR_MUTED
+                        },
                     ))
                     .on_click({
                         let store = self.store.clone();
@@ -526,7 +550,11 @@ impl Render for BottomBar {
                             store.update(cx, |s, cx| s.refresh_panel(cx));
                         }
                     })
-                    .child(icon("icons/icon-refresh.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
+                    .child(icon(
+                        "icons/icon-refresh.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    )),
             )
             // kebab menu
             .child(
@@ -556,7 +584,11 @@ impl Render for BottomBar {
                             });
                         }
                     })
-                    .child(icon("icons/icon-ellipsis-vertical.svg", px(theme::icon_small()), theme::TEXT_MUTED)),
+                    .child(icon(
+                        "icons/icon-ellipsis-vertical.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    )),
             )
             .child(
                 div()
@@ -583,9 +615,11 @@ impl Render for BottomBar {
             // deferred: the header paints before the tabs row and panel —
             // without it those later siblings paint over the open menu and
             // its lower items vanish behind the Overview tiles
-            header = header.child(deferred(
-                self.render_kebab_menu(github_url.clone(), folder.clone(), cx),
-            ));
+            header = header.child(deferred(self.render_kebab_menu(
+                github_url.clone(),
+                folder.clone(),
+                cx,
+            )));
         }
 
         div()
@@ -611,7 +645,12 @@ impl Render for BottomBar {
                     .border_color(theme::BORDER_LIGHT)
                     .child(tabs),
             )
-            .child(div().flex_1().min_h_0().child(self.render_panel(selected_tab)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_panel(selected_tab)),
+            )
             .into_any_element()
     }
 }
@@ -672,42 +711,59 @@ impl BottomBar {
             let url_copy = url.clone();
             let store_copy = store.clone();
             menu = menu
-                .child(make_item("Open in GitHub", Box::new(move |_cx: &mut App| {
-                    let url = url_open.clone();
-                    let _ = devtools_core::terminal::open_folder(&url);
-                })))
-                .child(make_item("Copy GitHub URL", Box::new(move |cx: &mut App| {
-                    Self::copy_text(url_copy.clone(), cx);
-                    store_copy.update(cx, |s, cx| {
-                        s.notify_success("GitHub URL copied");
-                        cx.notify();
-                    });
-                })));
+                .child(make_item(
+                    "Open in GitHub",
+                    Box::new(move |_cx: &mut App| {
+                        let url = url_open.clone();
+                        let _ = devtools_core::terminal::open_folder(&url);
+                    }),
+                ))
+                .child(make_item(
+                    "Copy GitHub URL",
+                    Box::new(move |cx: &mut App| {
+                        Self::copy_text(url_copy.clone(), cx);
+                        store_copy.update(cx, |s, cx| {
+                            s.notify_success("GitHub URL copied");
+                            cx.notify();
+                        });
+                    }),
+                ));
         }
         let folder_copy = folder.clone();
         let store_folder = store.clone();
         let folder_archive = folder.clone();
         let store_archive = store.clone();
-        let archive_name = self.store.read(cx).selected_entry().map(|e| e.name.clone()).unwrap_or_default();
+        let archive_name = self
+            .store
+            .read(cx)
+            .selected_entry()
+            .map(|e| e.name.clone())
+            .unwrap_or_default();
         let folder_remove = folder.clone();
         let store_remove = store.clone();
         let remove_armed = self.remove_armed;
         menu = menu
-            .child(make_item("Copy folder path", Box::new(move |cx: &mut App| {
-                Self::copy_text(folder_copy.clone(), cx);
-                store_folder.update(cx, |s, cx| {
-                    s.notify_success("Folder path copied");
-                    cx.notify();
-                });
-            })))
+            .child(make_item(
+                "Copy folder path",
+                Box::new(move |cx: &mut App| {
+                    Self::copy_text(folder_copy.clone(), cx);
+                    store_folder.update(cx, |s, cx| {
+                        s.notify_success("Folder path copied");
+                        cx.notify();
+                    });
+                }),
+            ))
             // reversible, so no arming like the remove below
-            .child(make_item("Archive repository", Box::new(move |cx: &mut App| {
-                store_archive.update(cx, |s, cx| {
-                    s.set_repo_archived(&folder_archive, true, cx);
-                    s.notify_success(format!("Archived {archive_name}"));
-                    cx.notify();
-                });
-            })))
+            .child(make_item(
+                "Archive repository",
+                Box::new(move |cx: &mut App| {
+                    store_archive.update(cx, |s, cx| {
+                        s.set_repo_archived(&folder_archive, true, cx);
+                        s.notify_success(format!("Archived {archive_name}"));
+                        cx.notify();
+                    });
+                }),
+            ))
             .child(div().h(px(1.)).mx_2().my_1().bg(theme::HAIRLINE))
             .child({
                 let this = this.clone();
@@ -725,12 +781,13 @@ impl BottomBar {
                     .flex_col()
                     .gap_0p5()
                     .text_size(px(theme::font_small()))
-                    .text_color(if remove_armed { theme::DANGER } else { theme::TEXT_DIM })
-                    .when(remove_armed, |d| d.bg(theme::tint(theme::DANGER)))
-                    .hover(|s| {
-                        s.bg(theme::tint(theme::DANGER))
-                            .text_color(theme::DANGER)
+                    .text_color(if remove_armed {
+                        theme::DANGER
+                    } else {
+                        theme::TEXT_DIM
                     })
+                    .when(remove_armed, |d| d.bg(theme::tint(theme::DANGER)))
+                    .hover(|s| s.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER))
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         if remove_armed {

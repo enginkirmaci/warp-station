@@ -7,9 +7,9 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, FontWeight, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui::{App, Context, Entity, FontWeight, Window, div, px};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 pub struct NugetDrawer {
     pub store: Entity<Store>,
@@ -39,7 +39,11 @@ impl NugetDrawer {
         })
         .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store, watch_input, on_close: None }
+        Self {
+            store,
+            watch_input,
+            on_close: None,
+        }
     }
 
     /// Wires the host window's close action into the shared drawer header.
@@ -54,7 +58,8 @@ impl NugetDrawer {
     /// Persists the typed folder and applies it to the service.
     fn apply_watch_folder(&mut self, cx: &mut Context<Self>) {
         let folder = self.watch_input.read(cx).value().trim().to_string();
-        self.store.update(cx, |store, _| store.set_nuget_folder(folder));
+        self.store
+            .update(cx, |store, _| store.set_nuget_folder(folder));
     }
 
     fn toggle_watch(&mut self, cx: &mut Context<Self>) {
@@ -84,7 +89,11 @@ impl NugetDrawer {
 impl Render for NugetDrawer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let snapshot = self.store.read(cx).nuget.clone();
-        let mut activity = div().id("nuget-activity-list").flex().flex_col().overflow_y_scroll();
+        let mut activity = div()
+            .id("nuget-activity-list")
+            .flex()
+            .flex_col()
+            .overflow_y_scroll();
         for (index, line) in snapshot.activity.iter().enumerate() {
             activity = activity.child(
                 div()

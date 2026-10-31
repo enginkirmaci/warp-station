@@ -39,7 +39,6 @@ pub struct ProcessRunOptions<'a> {
     pub environment: Vec<(String, String)>,
 }
 
-
 pub struct ProcessRunResult {
     /// The child's exit code; `None` when it never completed (spawn failure or
     /// timeout).
@@ -63,7 +62,11 @@ pub async fn run(options: ProcessRunOptions<'_>) -> anyhow::Result<ProcessRunRes
         .args(options.args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(if options.close_stdin { Stdio::null() } else { Stdio::inherit() });
+        .stdin(if options.close_stdin {
+            Stdio::null()
+        } else {
+            Stdio::inherit()
+        });
     if let Some(dir) = options.working_dir {
         command.current_dir(dir);
     }
@@ -89,7 +92,9 @@ pub async fn run(options: ProcessRunOptions<'_>) -> anyhow::Result<ProcessRunRes
 
     let stdout_task = tokio::spawn(async move {
         let mut out = Vec::new();
-        let Some(pipe) = stdout_pipe.as_mut() else { return out };
+        let Some(pipe) = stdout_pipe.as_mut() else {
+            return out;
+        };
         let mut buf = [0u8; 8192];
         loop {
             match pipe.read(&mut buf).await {
@@ -149,8 +154,17 @@ pub async fn run(options: ProcessRunOptions<'_>) -> anyhow::Result<ProcessRunRes
         });
     }
 
-    let stdout = stdout_task.await.unwrap_or_default();
-    let stderr = stderr_task.await.unwrap_or_default();
+    // the child exited, but a grandchild that inherited its pipes (a git
+    // hook daemon, a credential helper) can keep them open forever — bound
+    // the drain like the timeout path does, or the net thread wedges here
+    let stdout = match tokio::time::timeout(Duration::from_secs(3), stdout_task).await {
+        Ok(Ok(bytes)) => bytes,
+        _ => Vec::new(),
+    };
+    let stderr = match tokio::time::timeout(Duration::from_secs(3), stderr_task).await {
+        Ok(Ok(bytes)) => bytes,
+        _ => Vec::new(),
+    };
     let truncated = options.max_output_bytes.is_some_and(|c| stdout.len() >= c);
     Ok(ProcessRunResult {
         exit_code: exit.and_then(|s| s.code()),
@@ -167,7 +181,8 @@ pub fn kill_tree(pid: Option<u32>) {
     let Some(pid) = pid else { return };
     #[cfg(unix)]
     {
-        // negative pid = the whole group this spawn created
+        // SAFETY: the spawn put the child in its own process group, so the
+        // negative pid signals the whole tree; SIGKILL needs no preconditions
         unsafe {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }

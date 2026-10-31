@@ -6,9 +6,9 @@ use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 #[derive(Clone, Copy, PartialEq)]
 enum FormatterMode {
@@ -81,7 +81,15 @@ impl FormattersDrawer {
             cx.notify();
         })
         .detach();
-        Self { store, mode: FormatterMode::Base64Encode, input, output: String::new(), history: Vec::new(), pending_clear: false, on_close: None }
+        Self {
+            store,
+            mode: FormatterMode::Base64Encode,
+            input,
+            output: String::new(),
+            history: Vec::new(),
+            pending_clear: false,
+            on_close: None,
+        }
     }
 
     /// Wires the host window's close action into the shared drawer header.
@@ -117,7 +125,8 @@ impl Render for FormattersDrawer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         if self.pending_clear {
             self.pending_clear = false;
-            self.input.update(cx, |state, cx| state.set_value(String::new(), window, cx));
+            self.input
+                .update(cx, |state, cx| state.set_value(String::new(), window, cx));
         }
         let mut modes = div().flex().flex_col().gap_1();
         for row_modes in [
@@ -161,7 +170,12 @@ impl Render for FormattersDrawer {
             modes = modes.child(row);
         }
 
-        let mut history = div().id("fmt-history-list").flex().flex_col().max_h(px(240.)).overflow_y_scroll();
+        let mut history = div()
+            .id("fmt-history-list")
+            .flex()
+            .flex_col()
+            .max_h(px(240.))
+            .overflow_y_scroll();
         for (index, item) in self.history.iter().enumerate() {
             history = history.child(
                 div()
@@ -199,7 +213,9 @@ impl Render for FormattersDrawer {
                                 let item = item.clone();
                                 let store = self.store.clone();
                                 move |_, _, cx| {
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(item.clone()));
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        item.clone(),
+                                    ));
                                     store.update(cx, |s, cx| {
                                         s.notify_success("Copied to clipboard");
                                         cx.notify();
@@ -236,7 +252,12 @@ impl Render for FormattersDrawer {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.input).small()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.input).small()),
+                    )
                     .child(run_button(
                         !self.input.read(cx).value().trim().is_empty(),
                         cx,
@@ -381,21 +402,32 @@ fn b64_encode(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(TABLE[(n >> 18) as usize & 63] as char);
         out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
 
 fn b64_decode(input: &str) -> Result<Vec<u8>, String> {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let value_of = |c: u8| -> Option<u32> {
-        TABLE.iter().position(|&t| t == c).map(|ix| ix as u32)
-    };
+    let value_of =
+        |c: u8| -> Option<u32> { TABLE.iter().position(|&t| t == c).map(|ix| ix as u32) };
     let mut out = Vec::new();
     let mut buffer: u32 = 0;
     let mut bits = 0u32;

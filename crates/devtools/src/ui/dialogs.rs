@@ -6,10 +6,10 @@
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::icon;
 use crate::ui::A11y;
+use crate::ui::icon;
 use gpui::prelude::*;
-use gpui::{div, px, Context, Entity, FontWeight, SharedString, Window};
+use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::ui::repos::ReposPage;
@@ -222,9 +222,8 @@ pub struct AddRepoDialog {
 
 impl AddRepoDialog {
     pub fn new(window: &mut Window, depth: i32, cx: &mut Context<ReposPage>) -> Self {
-        let root = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Pick or type a folder path…")
-        });
+        let root =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Pick or type a folder path…"));
         cx.subscribe(&root, |this: &mut ReposPage, _, event: &InputEvent, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 this.kick_deep_scan(cx);
@@ -233,17 +232,31 @@ impl AddRepoDialog {
             cx.notify();
         })
         .detach();
-        Self { root, depth, scanning: false, scanned: false, found: Vec::new() }
+        Self {
+            root,
+            depth,
+            scanning: false,
+            scanned: false,
+            found: Vec::new(),
+        }
     }
 
     fn render(&mut self, window: &mut Window, cx: &mut Context<ReposPage>) -> gpui::AnyElement {
-        let selectable = self.found.iter().filter(|(_, _, tracked)| !*tracked).count();
+        let selectable = self
+            .found
+            .iter()
+            .filter(|(_, _, tracked)| !*tracked)
+            .count();
         let selected = self
             .found
             .iter()
             .filter(|(_, checked, tracked)| *checked && !*tracked)
             .count();
-        let all_checked = selectable > 0 && self.found.iter().all(|(_, checked, tracked)| *tracked || *checked);
+        let all_checked = selectable > 0
+            && self
+                .found
+                .iter()
+                .all(|(_, checked, tracked)| *tracked || *checked);
 
         // ---- results card -------------------------------------------------
         // leave room for the card chrome and the footer so a long scan result
@@ -331,9 +344,10 @@ impl AddRepoDialog {
                     .hover(|s| s.bg(theme::HOVER))
                     .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
                         if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog
-                            && !dialog.found[index].2 {
-                                dialog.found[index].1 = !dialog.found[index].1;
-                            }
+                            && !dialog.found[index].2
+                        {
+                            dialog.found[index].1 = !dialog.found[index].1;
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -445,11 +459,7 @@ impl AddRepoDialog {
                                     cx.notify();
                                 }
                             }))
-                            .child(icon(
-                                "icons/icon-arrow-up.svg",
-                                px(8.),
-                                theme::TEXT_MUTED,
-                            )),
+                            .child(icon("icons/icon-arrow-up.svg", px(8.), theme::TEXT_MUTED)),
                     )
                     .child(
                         div()
@@ -468,20 +478,17 @@ impl AddRepoDialog {
                                     cx.notify();
                                 }
                             }))
-                            .child(icon(
-                                "icons/icon-arrow-down.svg",
-                                px(8.),
-                                theme::TEXT_MUTED,
-                            )),
+                            .child(icon("icons/icon-arrow-down.svg", px(8.), theme::TEXT_MUTED)),
                     ),
             );
 
-        let body = card_with_close("Add Repositories", cx.listener(
-            |this: &mut ReposPage, _, _, cx| {
+        let body = card_with_close(
+            "Add Repositories",
+            cx.listener(|this: &mut ReposPage, _, _, cx| {
                 this.dialog = None;
                 cx.notify();
-            },
-        ))
+            }),
+        )
         .child(
             div()
                 .flex()
@@ -505,13 +512,16 @@ impl AddRepoDialog {
                                 .flex_1()
                                 .child(Input::new(&self.root)),
                         )
-                        .child(plain_button("Browse…", !self.scanning, cx.listener(
-                            |this: &mut ReposPage, _, _, cx| {
+                        .child(plain_button(
+                            "Browse…",
+                            !self.scanning,
+                            cx.listener(|this: &mut ReposPage, _, _, cx| {
                                 this.store.update(cx, |s, _| {
-                                    let _ = s.net.send_blocking(crate::net::NetCommand::BrowseFolder);
+                                    let _ =
+                                        s.net.send_blocking(crate::net::NetCommand::BrowseFolder);
                                 });
-                            },
-                        ))),
+                            }),
+                        )),
                 ),
         )
         .child(
@@ -520,9 +530,11 @@ impl AddRepoDialog {
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(plain_button("Scan", can_scan, cx.listener(
-                    |this: &mut ReposPage, _, _, cx| this.kick_deep_scan(cx),
-                )))
+                .child(plain_button(
+                    "Scan",
+                    can_scan,
+                    cx.listener(|this: &mut ReposPage, _, _, cx| this.kick_deep_scan(cx)),
+                ))
                 .child(
                     div()
                         .text_size(px(theme::font_small()))
@@ -546,12 +558,14 @@ impl AddRepoDialog {
                 .flex_row()
                 .justify_end()
                 .gap_2()
-                .child(plain_button("Cancel", true, cx.listener(
-                    |this: &mut ReposPage, _, _, cx| {
+                .child(plain_button(
+                    "Cancel",
+                    true,
+                    cx.listener(|this: &mut ReposPage, _, _, cx| {
                         this.dialog = None;
                         cx.notify();
-                    },
-                )))
+                    }),
+                ))
                 .child(accent_button(
                     "Add",
                     !self.scanning && selected > 0,
@@ -574,9 +588,8 @@ pub struct CloneDialog {
 
 impl CloneDialog {
     pub fn new(store: &Entity<Store>, window: &mut Window, cx: &mut Context<ReposPage>) -> Self {
-        let url = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("https://github.com/owner/repo.git")
-        });
+        let url = cx
+            .new(|cx| InputState::new(window, cx).placeholder("https://github.com/owner/repo.git"));
         cx.subscribe(&url, |this: &mut ReposPage, _, event: &InputEvent, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 this.commit_clone(cx);
@@ -608,7 +621,13 @@ impl CloneDialog {
                 .placeholder("path to clone into")
                 .default_value(default_dest)
         });
-        Self { url, name, destination, busy: false, error: None }
+        Self {
+            url,
+            name,
+            destination,
+            busy: false,
+            error: None,
+        }
     }
 
     /// The effective clone folder: the typed Folder Name wins; otherwise the
@@ -627,8 +646,8 @@ impl CloneDialog {
         let error = self.error.clone();
         let busy = self.busy;
         let raw_url = self.url.read(cx).value().to_string();
-        let url_valid = !raw_url.trim().is_empty()
-            && (raw_url.contains('/') || raw_url.contains(':'));
+        let url_valid =
+            !raw_url.trim().is_empty() && (raw_url.contains('/') || raw_url.contains(':'));
         let dest = self.destination.read(cx).value().to_string();
         let target_line = if dest.trim().is_empty() {
             "Enter the destination folder above".to_string()
@@ -671,10 +690,14 @@ impl CloneDialog {
                     .flex_row()
                     .justify_end()
                     .gap_2()
-                    .child(plain_button("Cancel", true, cx.listener(|this: &mut ReposPage, _, _, cx| {
-                        this.dialog = None;
-                        cx.notify();
-                    })))
+                    .child(plain_button(
+                        "Cancel",
+                        true,
+                        cx.listener(|this: &mut ReposPage, _, _, cx| {
+                            this.dialog = None;
+                            cx.notify();
+                        }),
+                    ))
                     .child(accent_button(
                         if busy { "Cloning…" } else { "Clone" },
                         !busy && url_valid,
@@ -700,12 +723,7 @@ fn form_field(id: &'static str, label: &str, input: Input) -> gpui::AnyElement {
                 .text_color(theme::TEXT_MUTED)
                 .child(label.to_string()),
         )
-        .child(
-            div()
-                .id(id)
-                .debug_selector(move || id.into())
-                .child(input),
-        )
+        .child(div().id(id).debug_selector(move || id.into()).child(input))
         .into_any_element()
 }
 
@@ -715,11 +733,23 @@ mod tests {
 
     #[test]
     fn derives_names_from_url_shapes() {
-        assert_eq!(derive_repo_name("https://github.com/owner/repo.git"), "repo");
+        assert_eq!(
+            derive_repo_name("https://github.com/owner/repo.git"),
+            "repo"
+        );
         assert_eq!(derive_repo_name("https://github.com/owner/repo"), "repo");
-        assert_eq!(derive_repo_name("git@github.com:owner/my-repo.git"), "my-repo");
-        assert_eq!(derive_repo_name("https://dev.azure.com/org/proj/_git/Thing"), "Thing");
-        assert_eq!(derive_repo_name("https://github.com/owner/repo.git/"), "repo");
+        assert_eq!(
+            derive_repo_name("git@github.com:owner/my-repo.git"),
+            "my-repo"
+        );
+        assert_eq!(
+            derive_repo_name("https://dev.azure.com/org/proj/_git/Thing"),
+            "Thing"
+        );
+        assert_eq!(
+            derive_repo_name("https://github.com/owner/repo.git/"),
+            "repo"
+        );
         assert_eq!(derive_repo_name(""), "repo");
     }
 }
