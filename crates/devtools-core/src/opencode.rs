@@ -3,6 +3,7 @@
 //! prompts from local git state and remembers the model catalog between
 //! sessions.
 
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
@@ -349,57 +350,171 @@ fn models_cache_path() -> std::path::PathBuf {
     crate::paths::AppPaths::models_cache_file()
 }
 
-/// The cached catalog (no door round-trip); the configured default lands on
-/// top when it is missing from the list.
-pub fn cached_models(default_model: &str) -> Vec<String> {
-    let mut models: Vec<String> = std::fs::read_to_string(models_cache_path())
-        .ok()
-        .and_then(|json| serde_json::from_str(&json).ok())
-        .unwrap_or_default();
-    models.retain(|model| {
-        let model = model.trim();
-        !model.is_empty() && !model.starts_with('(')
-    });
-    merge_default(&mut models, default_model);
-    models
+/// One harness as warp-agent reports it. The door owns this list; these
+/// defaults keep the radio usable before its first answer (or with no cache).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogHarness {
+    pub id: String,
+    pub label: String,
 }
 
-/// Persists a fresh catalog from the door; only a non-empty result is
-/// cached, so a transient failure never clobbers a good catalog.
-pub fn store_models_cache(models: &[String], default_model: &str) {
-    if models.is_empty() {
+/// One model in the door's catalog. The harness matters because the two
+/// catalogs overlap on names, and the variants are what the Variant picker
+/// lists for that exact harness/model pair.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogModel {
+    #[serde(rename = "key")]
+    pub key: String,
+    #[serde(default)]
+    pub harness: String,
+    #[serde(default)]
+    pub variants: Vec<String>,
+    #[serde(default)]
+    pub context_limit: i64,
+}
+
+/// The whole catalog a settings card needs: the harness options plus every
+/// harness-qualified model.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCatalog {
+    #[serde(default)]
+    pub harnesses: Vec<CatalogHarness>,
+    #[serde(default)]
+    pub models: Vec<CatalogModel>,
+}
+
+impl ModelCatalog {
+    /// The door's harness list, or the built-in fallback when this copy came
+    /// from a legacy cache that never stored one.
+    pub fn harnesses_or_default(&self) -> Vec<CatalogHarness> {
+        if self.harnesses.is_empty() {
+            default_harnesses()
+        } else {
+            self.harnesses.clone()
+        }
+    }
+
+    /// The variants for one harness/model pair; empty when the catalog does
+    /// not know the model (or the harness reports none).
+    pub fn variants_for(&self, harness: &str, model: &str) -> Vec<String> {
+        self.models
+            .iter()
+            .find(|entry| entry.harness == harness && entry.key.eq_ignore_ascii_case(model.trim()))
+            .map(|entry| entry.variants.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// warp-agent's current harnesses, used only until its door answers. Kept in
+/// the same order and under the same ids the door reports.
+pub fn default_harnesses() -> Vec<CatalogHarness> {
+    vec![
+        CatalogHarness {
+            id: "opencode".into(),
+            label: "opencode".into(),
+        },
+        CatalogHarness {
+            id: "dsh".into(),
+            label: "DeepSeek (dsh)".into(),
+        },
+    ]
+}
+
+/// The catalog cached between sessions. A missing or unreadable file reads
+/// as empty — the pickers then show the empty-state message until the door
+/// answers.
+pub fn cached_catalog() -> ModelCatalog {
+    let path = models_cache_path();
+    let Ok(json) = std::fs::read_to_string(path) else {
+        return ModelCatalog::default();
+    };
+    parse_cached_catalog(&json)
+}
+
+/// The cached slice for one harness, used when the door is closed.
+pub fn cached_harness_catalog(harness: &str) -> ModelCatalog {
+    let mut catalog = cached_catalog();
+    catalog.models.retain(|model| model.harness == harness);
+    catalog
+}
+
+/// Persists one harness's fresh catalog beside the other harness's entries.
+/// Only a non-empty model list is written, so a transient failure never
+/// clobbers a good cache.
+pub fn store_harness_catalog(harness: &str, incoming: &ModelCatalog) {
+    if incoming.models.is_empty() {
         return;
     }
-    let mut merged: Vec<String> = models
-        .iter()
-        .filter_map(|model| {
-            let model = model.trim();
-            (!model.is_empty() && !model.starts_with('(')).then(|| model.to_string())
-        })
-        .collect();
-    merged.dedup();
-    merge_default(&mut merged, default_model);
+    let mut catalog = cached_catalog();
+    if !incoming.harnesses.is_empty() {
+        catalog.harnesses = incoming.harnesses.clone();
+    }
+    catalog.models.retain(|model| model.harness != harness);
+    for model in &incoming.models {
+        let key = model.key.trim();
+        if key.is_empty() || key.starts_with('(') {
+            continue;
+        }
+        if catalog
+            .models
+            .iter()
+            .any(|known| known.harness == harness && known.key.eq_ignore_ascii_case(key))
+        {
+            continue;
+        }
+        let mut entry = model.clone();
+        entry.key = key.to_string();
+        entry.harness = if entry.harness.trim().is_empty() {
+            harness.to_string()
+        } else {
+            entry.harness
+        };
+        catalog.models.push(entry);
+    }
     let path = models_cache_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(json) = serde_json::to_string_pretty(&merged) {
+    if let Ok(json) = serde_json::to_string_pretty(&catalog) {
         let _ = std::fs::write(&path, json);
     }
 }
 
-fn merge_default(models: &mut Vec<String>, default_model: &str) {
-    let default = default_model.trim();
-    if default.is_empty() {
-        return;
-    }
-    match models.iter().position(|m| m.eq_ignore_ascii_case(default)) {
-        Some(0) => {}
-        Some(ix) => {
-            let entry = models.remove(ix);
-            models.insert(0, entry);
+/// Reads the current object shape, or the released flat `["provider/model"]`
+/// array (all opencode, variants unknown) so upgrading does not empty the
+/// pickers.
+fn parse_cached_catalog(json: &str) -> ModelCatalog {
+    if let Ok(mut catalog) = serde_json::from_str::<ModelCatalog>(json) {
+        if catalog.harnesses.is_empty() {
+            catalog.harnesses = default_harnesses();
         }
-        None => models.insert(0, default.to_string()),
+        for model in &mut catalog.models {
+            if model.harness.trim().is_empty() {
+                model.harness = "opencode".into();
+            }
+        }
+        return catalog;
+    }
+    match serde_json::from_str::<Vec<String>>(json) {
+        Ok(keys) => ModelCatalog {
+            harnesses: default_harnesses(),
+            models: keys
+                .into_iter()
+                .filter_map(|key| {
+                    let key = key.trim().to_string();
+                    (!key.is_empty() && !key.starts_with('(')).then_some(CatalogModel {
+                        key,
+                        harness: "opencode".into(),
+                        variants: Vec::new(),
+                        context_limit: 0,
+                    })
+                })
+                .collect(),
+        },
+        Err(err) => {
+            tracing::warn!("model cache is unreadable ({err}); starting empty");
+            ModelCatalog::default()
+        }
     }
 }
 
@@ -413,15 +528,35 @@ mod tests {
     static TEMPLATE_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
-    fn default_model_floats_to_top() {
-        let mut models = vec!["a/x".to_string(), "b/y".to_string()];
-        merge_default(&mut models, "b/y");
-        assert_eq!(models, vec!["b/y".to_string(), "a/x".to_string()]);
-        merge_default(&mut models, "c/z");
-        assert_eq!(models[0], "c/z");
-        let mut empty: Vec<String> = Vec::new();
-        merge_default(&mut empty, "");
-        assert!(empty.is_empty());
+    fn legacy_flat_cache_loads_as_opencode_without_variants() {
+        let catalog = parse_cached_catalog(r#"["(server default)", "a/x", "b/y"]"#);
+        assert_eq!(catalog.models.len(), 2);
+        assert!(
+            catalog
+                .models
+                .iter()
+                .all(|model| model.harness == "opencode")
+        );
+        assert!(catalog.models.iter().all(|model| model.variants.is_empty()));
+        assert_eq!(catalog.harnesses, default_harnesses());
+    }
+
+    #[test]
+    fn variants_resolve_per_harness_and_model() {
+        let catalog = parse_cached_catalog(
+            r#"{
+                "harnesses": [{"id": "dsh", "label": "DeepSeek (dsh)"}],
+                "models": [
+                    {"key": "zai/glm", "harness": "opencode", "variants": ["low", "high"]},
+                    {"key": "zai/glm", "harness": "dsh", "variants": ["max"]}
+                ]
+            }"#,
+        );
+        assert_eq!(catalog.variants_for("opencode", "zai/glm"), ["low", "high"]);
+        assert_eq!(catalog.variants_for("dsh", "zai/glm"), ["max"]);
+        assert!(catalog.variants_for("opencode", "unknown/model").is_empty());
+        assert_eq!(catalog.harnesses.len(), 1);
+        assert_eq!(catalog.harnesses[0].id, "dsh");
     }
 
     #[test]

@@ -8,6 +8,7 @@ use async_channel::{Receiver, Sender};
 use devtools_core::repo_store::{self, RepoEntry, StatusProbe};
 use devtools_core::scan;
 use devtools_core::settings::ReposSettings;
+use devtools_core::warp::ModelChoice;
 use std::path::{Path, PathBuf};
 
 pub enum NetCommand {
@@ -92,13 +93,13 @@ pub enum NetCommand {
         id: String,
         kind: WandKind,
         folder: PathBuf,
-        model: Option<String>,
+        choice: ModelChoice,
         warp_exe: String,
     },
-    /// The opencode model catalog through the warp-agent door (+ cache).
-    /// Passive: a closed door falls back to the cache, never a launch.
+    /// The warp-agent model catalog for one harness through its door (+
+    /// cache). Passive: a closed door falls back to the cache, never a launch.
     LoadModels {
-        default_model: String,
+        harness: String,
     },
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
@@ -106,7 +107,7 @@ pub enum NetCommand {
         id: String,
         folders: Vec<(String, PathBuf)>,
         day: chrono::NaiveDate,
-        model: Option<String>,
+        choice: ModelChoice,
         warp_exe: String,
         summaries_dir: PathBuf,
     },
@@ -358,7 +359,8 @@ pub enum UiEvent {
         result: Result<String, String>,
     },
     ModelsLoaded {
-        models: Vec<String>,
+        harness: String,
+        catalog: devtools_core::opencode::ModelCatalog,
     },
     /// The summary wand finished (Ok = the written file path).
     SummaryDone {
@@ -654,7 +656,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 id,
                 folders,
                 day,
-                model,
+                choice,
                 warp_exe,
                 summaries_dir,
             } => {
@@ -708,7 +710,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                 .run_prompt(
                                     devtools_core::warp::GENERAL,
                                     &prompt,
-                                    model.as_deref(),
+                                    &choice,
                                     move |line| {
                                         let _ = logs.send_blocking(UiEvent::WandLog {
                                             wand_id: log_id.clone(),
@@ -741,21 +743,21 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     });
                 });
             }
-            NetCommand::LoadModels { default_model } => {
+            NetCommand::LoadModels { harness } => {
                 // passive on purpose: loading the catalog must never launch
-                // warp-agent (this runs at app start); only runs launch it
-                let models = match devtools_core::warp::Client::connect().await {
-                    Ok(mut client) => match client.models().await {
-                        Ok(models) => {
-                            devtools_core::opencode::store_models_cache(&models, &default_model);
-                            models
+                // warp-agent; only runs launch it. A closed door serves the
+                // cache so the settings pickers keep working offline.
+                let catalog = match devtools_core::warp::Client::connect().await {
+                    Ok(mut client) => match client.models(&harness).await {
+                        Ok(catalog) => {
+                            devtools_core::opencode::store_harness_catalog(&harness, &catalog);
+                            catalog
                         }
-                        Err(_) => devtools_core::opencode::cached_models(&default_model),
+                        Err(_) => devtools_core::opencode::cached_harness_catalog(&harness),
                     },
-                    // no door: the cache keeps the pickers working offline
-                    Err(_) => devtools_core::opencode::cached_models(&default_model),
+                    Err(_) => devtools_core::opencode::cached_harness_catalog(&harness),
                 };
-                let _ = evt_tx.send_blocking(UiEvent::ModelsLoaded { models });
+                let _ = evt_tx.send_blocking(UiEvent::ModelsLoaded { harness, catalog });
             }
             NetCommand::NugetStart { config } => nuget.start(config),
             NetCommand::NugetStop => nuget.stop(),
@@ -826,7 +828,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 id,
                 kind,
                 folder,
-                model,
+                choice,
                 warp_exe,
             } => {
                 let evt_tx = evt_tx.clone();
@@ -859,7 +861,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                 .run_prompt(
                                     &workspace,
                                     &prompt,
-                                    model.as_deref(),
+                                    &choice,
                                     move |line| {
                                         let _ = logs.send_blocking(UiEvent::WandLog {
                                             wand_id: log_id.clone(),

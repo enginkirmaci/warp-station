@@ -89,8 +89,12 @@ pub struct Store {
     pub commit_message_clear: bool,
     /// The README wand's draft, rendered by the Overview pane with Save/Discard.
     pub readme_draft: Option<String>,
-    /// The model catalog (settings pickers + wands), cache-backed.
-    pub models: Vec<String>,
+    /// warp-agent's harness options; the door is the source, with a built-in
+    /// fallback until its first answer or a cache exists.
+    pub harnesses: Vec<devtools_core::opencode::CatalogHarness>,
+    /// The model catalog (harness-qualified and carrying each model's
+    /// variants), cache-backed for offline pickers.
+    pub catalog: devtools_core::opencode::ModelCatalog,
     /// The freshest settled prompt template (id, body, customized-vs-default)
     /// from the net thread; the Settings page's editor drains it reactively.
     pub template_loaded: Option<(String, String, bool)>,
@@ -147,10 +151,7 @@ pub struct Store {
 
 impl Store {
     pub fn new(_cx: &App, net: async_channel::Sender<NetCommand>) -> Self {
-        let mut store = Self::with_settings(net, Arc::new(SettingsService::open()));
-        let default_model = store.settings().opencode.default_model;
-        store.models = devtools_core::opencode::cached_models(&default_model);
-        store
+        Self::with_settings(net, Arc::new(SettingsService::open()))
     }
 
     /// The probe seam: probes pass a scratch-backed service so a settings
@@ -160,6 +161,8 @@ impl Store {
         settings: Arc<SettingsService>,
     ) -> Self {
         let app_settings = settings.get();
+        let catalog = devtools_core::opencode::cached_catalog();
+        let harnesses = catalog.harnesses_or_default();
         let cached = repo_store::load_cache(&repo_store::cache_path())
             .map(|c| c.repos.iter().map(repo_store::entry_from_cache).collect())
             .unwrap_or_default();
@@ -209,7 +212,8 @@ impl Store {
             commit_message_draft: None,
             commit_message_clear: false,
             readme_draft: None,
-            models: Vec::new(),
+            harnesses,
+            catalog,
             template_loaded: None,
             summary_busy: false,
             warp_connected: false,
@@ -514,8 +518,8 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::ModelsLoaded { models } => {
-                self.models = models;
+            UiEvent::ModelsLoaded { harness, catalog } => {
+                self.apply_catalog(&harness, catalog);
                 cx.notify();
             }
             UiEvent::TemplateLoaded {
@@ -764,7 +768,7 @@ impl Store {
             cx.notify();
             return;
         };
-        let model = Self::wand_model(&settings);
+        let choice = devtools_core::warp::ModelChoice::from_settings(&settings);
         let folders: Vec<(String, std::path::PathBuf)> = self
             .repos
             .iter()
@@ -785,24 +789,51 @@ impl Store {
             id,
             folders,
             day,
-            model,
+            choice,
             warp_exe: exe.to_string_lossy().to_string(),
             summaries_dir,
         });
         cx.notify();
     }
 
-    /// Loads the model catalog through the door (cache-backed when offline;
-    /// never launches warp-agent).
-    pub fn load_models(&mut self, cx: &mut Context<Self>) {
-        let settings = self.settings();
+    /// Loads one harness's model catalog through the door (cache-backed when
+    /// offline; never launches warp-agent). The settings model picker asks
+    /// for the harness it is showing.
+    pub fn load_models_for(&mut self, harness: String, cx: &mut Context<Self>) {
         if self.warp_ready().is_some() {
-            let _ = self.net.send_blocking(NetCommand::LoadModels {
-                default_model: settings.opencode.default_model.clone(),
-            });
+            let _ = self.net.send_blocking(NetCommand::LoadModels { harness });
         } else {
-            self.models = devtools_core::opencode::cached_models(&settings.opencode.default_model);
+            self.apply_catalog(
+                &harness,
+                devtools_core::opencode::cached_harness_catalog(&harness),
+            );
             cx.notify();
+        }
+    }
+
+    /// Replaces one harness's slice of the catalog; the other harness's
+    /// entries stay so switching the radio never empties a loaded list.
+    fn apply_catalog(&mut self, harness: &str, catalog: devtools_core::opencode::ModelCatalog) {
+        if !catalog.harnesses.is_empty() {
+            self.harnesses = catalog.harnesses.clone();
+        }
+        if self.harnesses.is_empty() {
+            self.harnesses = devtools_core::opencode::default_harnesses();
+        }
+        self.catalog.harnesses = self.harnesses.clone();
+        if catalog.models.is_empty() {
+            // an offline miss keeps the last known list rather than clearing it
+            return;
+        }
+        self.catalog.models.retain(|model| model.harness != harness);
+        for mut model in catalog.models {
+            if model.harness.trim().is_empty() {
+                model.harness = harness.to_string();
+            }
+            model.key = model.key.trim().to_string();
+            if !model.key.is_empty() && !model.key.starts_with('(') {
+                self.catalog.models.push(model);
+            }
         }
     }
 
@@ -815,21 +846,9 @@ impl Store {
         });
     }
 
-    /// Every one-shot wand (commit message, README, summary) runs on the
-    /// commit model when set, falling back to the default model.
-    fn wand_model(settings: &AppSettings) -> Option<String> {
-        settings
-            .opencode
-            .commit_model
-            .clone()
-            .filter(|m| !m.is_empty())
-            .or_else(|| {
-                let m = settings.opencode.default_model.clone();
-                (!m.is_empty()).then_some(m)
-            })
-    }
-
-    /// Kicks one wand run for the selected repo.
+    /// Kicks one wand run for the selected repo on the selected
+    /// harness/model/variant — commit generation included; there is no
+    /// separate commit model.
     pub fn run_wand(&mut self, kind: WandKind, cx: &mut Context<Self>) {
         if self.wand_busy.is_some() {
             return;
@@ -850,7 +869,7 @@ impl Store {
             cx.notify();
             return;
         };
-        let model = Self::wand_model(&settings);
+        let choice = devtools_core::warp::ModelChoice::from_settings(&settings);
         self.wand_busy = Some(kind);
         self.wand_repo = Some(folder.clone());
         self.wand_error = None;
@@ -860,7 +879,7 @@ impl Store {
             id,
             kind,
             folder: std::path::PathBuf::from(folder),
-            model,
+            choice,
             warp_exe: exe.to_string_lossy().to_string(),
         });
         cx.notify();

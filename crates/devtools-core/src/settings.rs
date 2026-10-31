@@ -24,6 +24,8 @@ pub struct AppSettings {
     pub keep_awake: KeepAwakeSettings,
     #[serde(default, rename = "OpenCode")]
     pub opencode: OpenCodeSettings,
+    #[serde(default, rename = "DeepSeek")]
+    pub deepseek: DeepSeekSettings,
     #[serde(default, rename = "WarpAgent")]
     pub warp_agent: WarpAgentSettings,
     #[serde(default, rename = "WarpNotes")]
@@ -68,6 +70,7 @@ pub struct ReposSettings {
     pub terminal_executable: String,
     pub ide_executable: String,
     pub opencode_executable: String,
+    pub deepseek_executable: String,
     pub enable_terminal: bool,
     #[serde(rename = "EnableVSCode")]
     pub enable_vscode: bool,
@@ -121,6 +124,7 @@ impl Default for ReposSettings {
             terminal_executable: "wt".into(),
             ide_executable: String::new(),
             opencode_executable: "opencode".into(),
+            deepseek_executable: "dsh".into(),
             enable_terminal: true,
             enable_vscode: true,
             enable_visual_studio: true,
@@ -191,14 +195,36 @@ impl<'de> Deserialize<'de> for RepoSortMode {
     }
 }
 
+/// The harness a fresh settings file selects. warp-agent reports the real
+/// list over its door; this keeps the model choice usable before the first
+/// reply.
+pub const DEFAULT_HARNESS: &str = "opencode";
+
+fn default_harness() -> String {
+    DEFAULT_HARNESS.into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", default)]
 #[derive(Default)]
 pub struct OpenCodeSettings {
     #[serde(rename = "EnableOpenCode")]
     pub enable_opencode: bool,
-    pub default_model: String,
-    pub commit_model: Option<String>,
+    /// The one model every AI run uses (the wands, commit messages and the
+    /// daily summary). The JSON key stays `DefaultModel` so existing files
+    /// load unchanged; the UI calls it "Model".
+    #[serde(rename = "DefaultModel")]
+    pub model: String,
+}
+
+/// The DeepSeek CLI quick-launch: only arms the repo row's launch button —
+/// the runs themselves happen in warp-agent, never in the dsh binary.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase", default)]
+#[derive(Default)]
+pub struct DeepSeekSettings {
+    #[serde(rename = "EnableDeepSeek")]
+    pub enable_deepseek: bool,
 }
 
 /// The warp-agent integration: DevTools' AI surface runs in warp-agent over
@@ -209,6 +235,25 @@ pub struct WarpAgentSettings {
     #[serde(rename = "EnableWarpAgent")]
     pub enable_warp_agent: bool,
     pub executable: String,
+    /// The warp-agent harness id ("opencode", "dsh", …). The door owns the
+    /// list; an unknown id falls back to the default.
+    #[serde(default = "default_harness")]
+    pub harness: String,
+    /// The variant for the selected model; None = the harness's default.
+    pub variant: Option<String>,
+}
+
+impl WarpAgentSettings {
+    /// The selected harness, never empty: the door treats an absent harness
+    /// as "use warp-agent's default", but settings must always show a pick.
+    pub fn selected_harness(&self) -> &str {
+        let harness = self.harness.trim();
+        if harness.is_empty() {
+            DEFAULT_HARNESS
+        } else {
+            harness
+        }
+    }
 }
 
 impl Default for WarpAgentSettings {
@@ -216,6 +261,8 @@ impl Default for WarpAgentSettings {
         Self {
             enable_warp_agent: true,
             executable: "warp-agent".into(),
+            harness: default_harness(),
+            variant: None,
         }
     }
 }
@@ -406,7 +453,7 @@ mod tests {
             "Repos": {"RepoScanFolders": ["/a", "/b"], "SortMode": 2, "MaxScanDepth": 5,
                       "EnableGitHub": true, "AzureDevOpsPat": "pat"},
             "General": {"ShowTooltips": false},
-            "OpenCode": {"EnableOpenCode": true, "DefaultModel": "x", "CommitModel": null}
+            "OpenCode": {"EnableOpenCode": true, "DefaultModel": "x", "CommitModel": "legacy"}
         }"#;
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(
@@ -417,7 +464,9 @@ mod tests {
         assert_eq!(s.repos.max_scan_depth, 5);
         assert!(!s.general.show_tooltips);
         assert!(s.opencode.enable_opencode);
-        assert_eq!(s.opencode.commit_model, None);
+        assert_eq!(s.opencode.model, "x");
+        assert_eq!(s.warp_agent.selected_harness(), DEFAULT_HARNESS);
+        assert_eq!(s.warp_agent.variant, None);
         // defaults fill absent sections
         assert!(s.nuget_local.enable_nuget);
         assert!(!s.keep_awake.enabled);
@@ -551,11 +600,37 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_keys_round_trip_and_absent_means_off() {
+        // absence (legacy files) = the button is off, through the default binary
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.deepseek.enable_deepseek);
+        assert_eq!(legacy.repos.deepseek_executable, "dsh");
+        let on: AppSettings = serde_json::from_str(
+            r#"{"DeepSeek": {"EnableDeepSeek": true}, "Repos": {"DeepseekExecutable": "dshz"}}"#,
+        )
+        .unwrap();
+        assert!(on.deepseek.enable_deepseek);
+        assert_eq!(on.repos.deepseek_executable, "dshz");
+        let json = serde_json::to_string_pretty(&on).unwrap();
+        assert!(json.contains("\"EnableDeepSeek\": true"));
+        assert!(json.contains("\"DeepseekExecutable\": \"dshz\""));
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert!(back.deepseek.enable_deepseek);
+        assert_eq!(back.repos.deepseek_executable, "dshz");
+    }
+
+    #[test]
     fn warp_agent_defaults_on_with_executable() {
         // absent section = enabled with the default binary name
         let s: AppSettings = serde_json::from_str("{}").unwrap();
         assert!(s.warp_agent.enable_warp_agent);
         assert_eq!(s.warp_agent.executable, "warp-agent");
+        assert_eq!(s.warp_agent.selected_harness(), DEFAULT_HARNESS);
+        assert_eq!(s.warp_agent.variant, None);
+        let configured: AppSettings =
+            serde_json::from_str(r#"{"WarpAgent": {"Harness": "dsh", "Variant": "max"}}"#).unwrap();
+        assert_eq!(configured.warp_agent.selected_harness(), "dsh");
+        assert_eq!(configured.warp_agent.variant.as_deref(), Some("max"));
         // an explicit off round-trips
         let off: AppSettings = serde_json::from_str(
             r#"{"WarpAgent": {"EnableWarpAgent": false, "Executable": "wa"}}"#,

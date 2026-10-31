@@ -16,20 +16,24 @@ into those on startup.
 
 ## warp-agent integration
 
-The AI surface (commit-message / README wands, the daily summary, the model
-catalog) runs in [warp-agent](../warp-agent) over its loopback door
-(`~/.warp-agent/ipc.port` + `ipc.token`) — DevTools no longer spawns
-`opencode serve` itself. Rules: a missing warp-agent binary turns the AI
-features off; a merely closed one is launched on demand. Wand runs happen as
-visible warp-agent chats in the repo's workspace (added when missing), the
+The AI surface (commit-message / README wands, the daily summary, the
+harness/model/variant catalog) runs in [warp-agent](../warp-agent) over its
+loopback door (`~/.warp-agent/ipc.port` + `ipc.token`) — DevTools no longer
+spawns `opencode serve` itself. Rules: a missing warp-agent binary turns the
+AI features off; a merely closed one is launched on demand. Wand runs happen
+as visible warp-agent chats in the repo's workspace (added when missing), the
 daily summary runs in warp-agent's General workspace, and tool-permission
-asks are answered in warp-agent's own UI.
+asks are answered in warp-agent's own UI. Settings picks the harness (the
+door reports the options), one model and that model's variant; commit-message
+generation uses the same selection as every other wand.
 
-The two switches are independent: **Enable warp-agent** arms the whole AI
-surface (wands, summary, model catalog), while **Enable OpenCode** only shows
-the repo row's OpenCode button, which launches the `opencode` CLI itself in a
-terminal (`opencode --model <default>`) — that launch never goes through
-warp-agent, and the AI features never need the opencode binary.
+The switches are independent: **Enable warp-agent** arms the whole AI
+surface (wands, summary, the catalog), while **Enable OpenCode** and
+**Enable DeepSeek** only show the repo rows' CLI buttons, which launch the
+`opencode` / `dsh` CLIs themselves in a terminal (`opencode` with
+`--model <model>` when the opencode harness is selected; `dsh` boots its own
+profile and takes no model) — that launch never goes through warp-agent, and
+the AI features never need the CLI binaries.
 
 ## Package
 

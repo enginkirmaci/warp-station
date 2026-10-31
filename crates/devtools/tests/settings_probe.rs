@@ -33,9 +33,9 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     );
 }
 
-/// The OpenCode filtered picker: the pseudo "(server default)" entry the catalog
-/// door forwards is hidden, the in-dropdown filter narrows the list, a row
-/// click selects and closes, and a click outside the picker dismisses it.
+/// The AI card's Model filtered picker: the pseudo "(server default)" entry the
+/// catalog door forwards is hidden, the in-dropdown filter narrows the list, a
+/// row click selects and closes, and a click outside the picker dismisses it.
 #[gpui_kit::gpui::test]
 fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -73,67 +73,78 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
     wcx.run_until_parked();
     store.update(&mut wcx, |s, _| {
-        let mut models = vec!["(server default)".to_string()];
-        models.extend((0..200).map(|ix| format!("opencode/model-{ix:03}")));
-        models.push("opencode/alpha".into());
-        models.push("other/beta".into());
-        s.models = models;
+        let mut models: Vec<devtools_core::opencode::CatalogModel> = vec![
+            "(server default)".to_string(),
+            "opencode/alpha".into(),
+            "other/beta".into(),
+        ]
+        .into_iter()
+        .map(|key| devtools_core::opencode::CatalogModel {
+            key,
+            harness: "opencode".into(),
+            variants: Vec::new(),
+            context_limit: 0,
+        })
+        .collect();
+        models.extend((0..200).map(|ix| devtools_core::opencode::CatalogModel {
+            key: format!("opencode/model-{ix:03}"),
+            harness: "opencode".into(),
+            variants: Vec::new(),
+            context_limit: 0,
+        }));
+        s.harnesses = devtools_core::opencode::default_harnesses();
+        s.catalog = devtools_core::opencode::ModelCatalog {
+            harnesses: s.harnesses.clone(),
+            models,
+        };
     });
     wcx.update(|window, cx| drop(window.draw(cx)));
 
-    click(&mut wcx, "model-trigger-Default");
+    click(&mut wcx, "model-trigger-Model");
     assert!(
-        wcx.debug_bounds("model-panel-Default").is_some(),
+        wcx.debug_bounds("model-panel-Model").is_some(),
         "the picker opens"
     );
     assert!(
-        wcx.debug_bounds("model-filter-Default").is_some(),
+        wcx.debug_bounds("model-filter-Model").is_some(),
         "the filter renders inside the picker"
     );
+    assert!(wcx.debug_bounds("model-row-opencode/alpha").is_some());
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/alpha")
-            .is_some()
-    );
-    assert!(
-        wcx.debug_bounds("model-row-Default-opencode/model-199")
-            .is_none(),
+        wcx.debug_bounds("model-row-opencode/model-199").is_none(),
         "the virtualized list only lays out visible rows"
     );
     assert!(
-        wcx.debug_bounds("model-row-Default-(server default)")
-            .is_none(),
+        wcx.debug_bounds("model-row-(server default)").is_none(),
         "the catalog sentinel never becomes a row"
     );
 
-    click(&mut wcx, "model-filter-Default");
+    click(&mut wcx, "model-filter-Model");
     wcx.simulate_input("beta");
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        wcx.debug_bounds("model-row-Default-other/beta").is_some(),
+        wcx.debug_bounds("model-row-other/beta").is_some(),
         "the filter keeps a match"
     );
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/alpha")
-            .is_none(),
+        wcx.debug_bounds("model-row-opencode/alpha").is_none(),
         "the filter drops non-matches"
     );
 
-    click(&mut wcx, "model-row-Default-other/beta");
+    click(&mut wcx, "model-row-other/beta");
     assert!(
-        wcx.debug_bounds("model-panel-Default").is_none(),
+        wcx.debug_bounds("model-panel-Model").is_none(),
         "a pick closes the picker"
     );
 
-    click(&mut wcx, "model-trigger-Default");
+    click(&mut wcx, "model-trigger-Model");
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/alpha")
-            .is_some(),
+        wcx.debug_bounds("model-row-opencode/alpha").is_some(),
         "reopening clears the filter"
     );
     assert!(
-        wcx.debug_bounds("model-row-Default-opencode/model-199")
-            .is_none(),
+        wcx.debug_bounds("model-row-opencode/model-199").is_none(),
         "the virtualized list still only lays out visible rows"
     );
     wcx.simulate_click(
@@ -146,8 +157,130 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        wcx.debug_bounds("model-panel-Default").is_none(),
+        wcx.debug_bounds("model-panel-Model").is_none(),
         "an outside click dismisses the picker"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The AI card's harness radio and Variant picker: the door catalog's
+/// harnesses render as radios, switching to dsh scopes the Model picker to
+/// that catalog, picking a model exposes its variants, and Save persists the
+/// harness/model/variant triple — with no CommitModel left behind.
+#[gpui_kit::gpui::test]
+fn harness_model_and_variant_persist(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!("devtools-ai-model-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".devtools")).unwrap();
+    // SAFETY: process-global env; set before the store reads settings; the
+    // sibling tests serialize on HOME_ENV_LOCK
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let scratch = home.join(".devtools").join("settings.json");
+    std::fs::write(
+        &scratch,
+        r#"{"OpenCode":{"DefaultModel":"zai/glm"},"WarpAgent":{"Harness":"opencode"}}"#,
+    )
+    .expect("scratch settings");
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
+        )
+    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(3000.)),
+        |window, cx| SettingsPage::new(store.clone(), window, cx),
+    );
+    let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        wcx.debug_bounds("warp-harness-opencode").is_some(),
+        "the opencode radio renders"
+    );
+    assert!(
+        wcx.debug_bounds("warp-harness-dsh").is_some(),
+        "the dsh radio renders"
+    );
+
+    store.update(&mut wcx, |s, cx| {
+        s.harnesses = devtools_core::opencode::default_harnesses();
+        s.catalog = devtools_core::opencode::ModelCatalog {
+            harnesses: s.harnesses.clone(),
+            models: vec![
+                devtools_core::opencode::CatalogModel {
+                    key: "zai/glm".into(),
+                    harness: "opencode".into(),
+                    variants: vec!["low".into(), "high".into()],
+                    context_limit: 0,
+                },
+                devtools_core::opencode::CatalogModel {
+                    key: "deepseek-account/deepseek-flash".into(),
+                    harness: "dsh".into(),
+                    variants: vec!["max".into()],
+                    context_limit: 0,
+                },
+            ],
+        };
+        cx.notify();
+    });
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    click(&mut wcx, "warp-harness-dsh");
+    click(&mut wcx, "model-trigger-Model");
+    assert!(
+        wcx.debug_bounds("model-row-deepseek-account/deepseek-flash")
+            .is_some(),
+        "the dsh catalog is the only list under the dsh radio"
+    );
+    assert!(
+        wcx.debug_bounds("model-row-zai/glm").is_none(),
+        "the opencode model is filtered out"
+    );
+    click(&mut wcx, "model-row-deepseek-account/deepseek-flash");
+
+    click(&mut wcx, "model-trigger-Variant");
+    assert!(
+        wcx.debug_bounds("variant-row-max").is_some(),
+        "the picked model's variant renders"
+    );
+    click(&mut wcx, "variant-row-max");
+
+    let save = wcx.debug_bounds("settings-save").expect("save button");
+    wcx.simulate_click(save.center(), gpui::Modifiers::default());
+    wcx.run_until_parked();
+
+    let json = std::fs::read_to_string(&scratch).expect("saved settings");
+    assert!(
+        json.contains("\"Harness\": \"dsh\""),
+        "harness persisted: {json}"
+    );
+    assert!(
+        json.contains("\"DefaultModel\": \"deepseek-account/deepseek-flash\""),
+        "model persisted: {json}"
+    );
+    assert!(
+        json.contains("\"Variant\": \"max\""),
+        "variant persisted: {json}"
+    );
+    assert!(
+        !json.contains("CommitModel"),
+        "no commit model remains: {json}"
     );
 
     let _ = std::fs::remove_dir_all(&home);
@@ -612,9 +745,10 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// The two enable switches are independent cards: the OpenCode CLI switch
-/// (with its executable field) and the warp-agent AI switch each render while
-/// the *other* feature is off. Fusing them again would show up here.
+/// The enable switches are independent cards: the OpenCode and DeepSeek CLI
+/// switches (with their executable fields) and the warp-agent AI switch each
+/// render while the *other* features are off. Fusing them again would show up
+/// here.
 #[gpui_kit::gpui::test]
 fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -631,11 +765,11 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
         std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
     }
 
-    // the CLI on, warp-agent off: each switch must own its own controls
+    // the CLIs on, warp-agent off: each switch must own its own controls
     let scratch = home.join(".devtools").join("settings.json");
     std::fs::write(
         &scratch,
-        r#"{"OpenCode": {"EnableOpenCode": true}, "WarpAgent": {"EnableWarpAgent": false, "Executable": "warp-agent"}}"#,
+        r#"{"OpenCode": {"EnableOpenCode": true}, "DeepSeek": {"EnableDeepSeek": true}, "WarpAgent": {"EnableWarpAgent": false, "Executable": "warp-agent"}}"#,
     )
     .expect("scratch settings");
 
@@ -664,6 +798,15 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
         wcx.debug_bounds("settings-field-OpenCode executable")
             .is_some(),
         "the OpenCode executable field sits in the CLI card"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Enable DeepSeek").is_some(),
+        "the DeepSeek CLI switch renders with warp-agent off"
+    );
+    assert!(
+        wcx.debug_bounds("settings-field-DeepSeek executable")
+            .is_some(),
+        "the DeepSeek executable field sits in the CLI card"
     );
     assert!(
         wcx.debug_bounds("settings-row-Enable warp-agent").is_some(),

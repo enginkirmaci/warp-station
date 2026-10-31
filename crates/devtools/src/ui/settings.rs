@@ -1,8 +1,9 @@
 //! The Settings page: every settings section as a card of labeled inputs and
 //! switches, seeded from the live settings when the page opens. Save writes
 //! the whole graph atomically and live-applies (a scan-related change also
-//! kicks a rescan). The filtered model pickers list the opencode catalog with a
-//! refresh button, and the AI features card manages the wand prompt templates.
+//! kicks a rescan). The AI features card's harness radio scopes the Model and
+//! Variant pickers to warp-agent's catalog, and it manages the wand prompt
+//! templates.
 
 use crate::net::TemplateOp;
 use crate::store::Store;
@@ -20,6 +21,13 @@ use warpui_kit_picker::{
     FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
     PickerRow, PickerSpec, PickerTarget, Selection, TriggerScale, model_name, model_provider,
 };
+
+/// The harness the AI card is showing. A tiny entity rather than a page field
+/// because the pickers' data closures outlive a render and cannot read the
+/// page entity that owns them.
+struct HarnessScope {
+    harness: String,
+}
 
 pub struct SettingsPage {
     pub store: Entity<Store>,
@@ -58,16 +66,22 @@ pub struct SettingsPage {
     // OpenCode CLI (the repo row's launch button)
     enable_opencode: bool,
     opencode_executable: Entity<InputState>,
-    // AI features (warp-agent)
+    // DeepSeek CLI (the repo row's launch button)
+    enable_deepseek: bool,
+    deepseek_executable: Entity<InputState>,
+    // AI features (warp-agent). The harness is an entity so both pickers'
+    // data closures can read the current radio pick without borrowing the
+    // page entity (which owns them).
     warp_enabled: bool,
     warp_executable: Entity<InputState>,
+    harness_scope: Entity<HarnessScope>,
+    model: Entity<InputState>,
+    variant: Entity<InputState>,
+    model_picker: Entity<FilteredPicker>,
+    variant_picker: Entity<FilteredPicker>,
     // Notes (warp-notes)
     warp_notes_enabled: bool,
     warp_notes_executable: Entity<InputState>,
-    default_model: Entity<InputState>,
-    commit_model: Entity<InputState>,
-    default_model_picker: Entity<FilteredPicker>,
-    commit_model_picker: Entity<FilteredPicker>,
     // The template being edited inline (registry id); None = the rows list.
     editing_template: Option<&'static str>,
     /// True once the open editor's TemplateLoaded landed and seeded the buffer.
@@ -139,28 +153,18 @@ impl SettingsPage {
         // the open editor redraw from them
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
 
-        let default_model = field(window, cx, &settings.opencode.default_model);
-        let commit_model = field(
+        let harness_scope = cx.new(|_| HarnessScope {
+            harness: settings.warp_agent.selected_harness().to_string(),
+        });
+        let model = field(window, cx, &settings.opencode.model);
+        let variant = field(
             window,
             cx,
-            &settings.opencode.commit_model.clone().unwrap_or_default(),
+            &settings.warp_agent.variant.clone().unwrap_or_default(),
         );
-        let default_model_picker = model_picker(
-            &default_model,
-            &store,
-            "Default",
-            "OpenCode default",
-            window,
-            cx,
-        );
-        let commit_model_picker = model_picker(
-            &commit_model,
-            &store,
-            "Commit",
-            "Use default model",
-            window,
-            cx,
-        );
+        let model_picker = model_picker(&harness_scope, &model, &variant, &store, window, cx);
+        let variant_picker = variant_picker(&harness_scope, &model, &variant, &store, window, cx);
+        let selected_harness = settings.warp_agent.selected_harness().to_string();
 
         let page = Self {
             store: store.clone(),
@@ -193,6 +197,7 @@ impl SettingsPage {
             terminal_executable: field(window, cx, &repos.terminal_executable),
             ide_executable: field(window, cx, &repos.ide_executable),
             opencode_executable: field(window, cx, &repos.opencode_executable),
+            deepseek_executable: field(window, cx, &repos.deepseek_executable),
             enable_code_search: repos.enable_code_search.unwrap_or(true),
             code_search_executable: field(
                 window,
@@ -209,14 +214,16 @@ impl SettingsPage {
             snap_it_executable: field(window, cx, &settings.snap_it.executable),
             keep_awake_enabled: settings.keep_awake.enabled,
             enable_opencode: settings.opencode.enable_opencode,
+            enable_deepseek: settings.deepseek.enable_deepseek,
             warp_enabled: settings.warp_agent.enable_warp_agent,
             warp_executable: field(window, cx, &settings.warp_agent.executable),
+            harness_scope,
+            model,
+            variant,
+            model_picker,
+            variant_picker,
             warp_notes_enabled: settings.warp_notes.enable_warp_notes,
             warp_notes_executable: field(window, cx, &settings.warp_notes.executable),
-            default_model,
-            commit_model,
-            default_model_picker,
-            commit_model_picker,
             editing_template: None,
             template_editor_seeded: false,
             template_editor,
@@ -229,7 +236,7 @@ impl SettingsPage {
             saved_note: None,
             back_requested: false,
         };
-        store.update(cx, |s, cx| s.load_models(cx));
+        store.update(cx, |s, cx| s.load_models_for(selected_harness, cx));
         page
     }
 
@@ -255,7 +262,7 @@ impl SettingsPage {
             .trim()
             .parse::<i32>()
             .unwrap_or(3);
-        let commit_model_text = Self::value(&self.commit_model, cx);
+        let harness = self.harness_scope.read(cx).harness.clone();
         let (notes_path, git_pattern, solution_pattern, platform) = (
             Self::value(&self.notes_store_path, cx),
             Self::value(&self.git_folder_pattern, cx),
@@ -267,12 +274,13 @@ impl SettingsPage {
             Self::value(&self.vscode_profile, cx),
             Self::value(&self.terminal_executable, cx),
         );
-        let (ide_exe, opencode_exe) = (
+        let (ide_exe, opencode_exe, deepseek_exe) = (
             Self::value(&self.ide_executable, cx),
             Self::value(&self.opencode_executable, cx),
+            Self::value(&self.deepseek_executable, cx),
         );
-        let (default_model, github_exe) = (
-            Self::value(&self.default_model, cx),
+        let (model, github_exe) = (
+            Self::value(&self.model, cx),
             Self::value(&self.github_executable, cx),
         );
         let (azure_pat, azure_url) = (
@@ -289,12 +297,15 @@ impl SettingsPage {
             self.enable_opencode,
             self.enable_github,
             self.enable_azure,
+            self.enable_deepseek,
         );
         let snap_it_auto_start = self.snap_it_auto_start;
         let snap_it_exe = Self::value(&self.snap_it_executable, cx);
         let keep_awake_enabled = self.keep_awake_enabled;
         let warp_enabled = self.warp_enabled;
         let warp_exe = Self::value(&self.warp_executable, cx);
+        let variant = Self::value(&self.variant, cx);
+        let harness_for_load = harness.clone();
         let warp_notes_enabled = self.warp_notes_enabled;
         let warp_notes_exe = Self::value(&self.warp_notes_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
@@ -351,17 +362,19 @@ impl SettingsPage {
                 s.repos.terminal_executable = terminal_exe;
                 s.repos.ide_executable = ide_exe;
                 s.repos.opencode_executable = opencode_exe;
+                s.repos.deepseek_executable = deepseek_exe;
                 s.repos.enable_terminal = flags.3;
                 s.repos.enable_vscode = flags.4;
                 s.repos.enable_visual_studio = flags.5;
                 s.opencode.enable_opencode = flags.6;
+                s.deepseek.enable_deepseek = flags.9;
                 s.warp_agent.enable_warp_agent = warp_enabled;
                 s.warp_agent.executable = warp_exe;
+                s.warp_agent.harness = harness;
+                s.warp_agent.variant = (!variant.trim().is_empty()).then_some(variant);
                 s.warp_notes.enable_warp_notes = warp_notes_enabled;
                 s.warp_notes.executable = warp_notes_exe;
-                s.opencode.default_model = default_model;
-                s.opencode.commit_model =
-                    (!commit_model_text.trim().is_empty()).then_some(commit_model_text);
+                s.opencode.model = model;
                 s.repos.enable_git_hub = flags.7;
                 s.repos.git_hub_executable = github_exe;
                 s.repos.enable_azure_dev_ops = flags.8;
@@ -397,7 +410,7 @@ impl SettingsPage {
                 .collect();
             store.kick_github_pass(&folders);
             store.kick_azure_pass(&folders);
-            store.load_models(cx);
+            store.load_models_for(harness_for_load, cx);
             cx.notify();
         });
         // the boot registration follows the saved flag
@@ -645,7 +658,15 @@ impl Render for SettingsPage {
                                             cx.notify();
                                         })))
                                         .child(field_row("OpenCode executable", &this.opencode_executable))
-                                        .child(label("Shows the repo row's OpenCode button: it launches this CLI in a terminal with the default model below. Independent of warp-agent."))
+                                        .child(label("Shows the repo row's OpenCode button: it launches this CLI in a terminal with the selected model when the harness is opencode. Independent of warp-agent runs."))
+                                    }))
+                                    .child(self.card("DeepSeek", cx, |this, cx, card| {
+                                        card.child(switch_row("Enable DeepSeek", this.enable_deepseek, cx.listener(|this, _, _, cx| {
+                                            this.enable_deepseek = !this.enable_deepseek;
+                                            cx.notify();
+                                        })))
+                                        .child(field_row("DeepSeek executable", &this.deepseek_executable))
+                                        .child(label("Shows the repo row's DeepSeek button: it launches this CLI in a terminal. Independent of warp-agent runs."))
                                     }))
                                     .child(self.card("AI features (warp-agent)", cx, |this, cx, card| {
                                         card.child(switch_row("Enable warp-agent", this.warp_enabled, cx.listener(|this, _, _, cx| {
@@ -653,13 +674,14 @@ impl Render for SettingsPage {
                                             cx.notify();
                                         })))
                                         .child(field_row("warp-agent executable", &this.warp_executable))
-                                        .child(label("Default model"))
-                                        .child(this.default_model_picker.clone())
-                                        .child(label("Commit model (wand)"))
-                                        .child(this.commit_model_picker.clone())
+                                        .child(this.harness_row(cx))
+                                        .child(label("Model"))
+                                        .child(this.model_picker.clone())
+                                        .child(label("Variant"))
+                                        .child(this.variant_picker.clone())
                                         .child(label("Prompt templates"))
                                         .child(this.templates_section(cx))
-                                        .child(label("The wands, the daily summary and the model catalog run over warp-agent's door."))
+                                        .child(label("All wands, commit messages and the daily summary run over warp-agent's door with this harness, model and variant. Switching the harness resets the model pick."))
                                     }))
                                     .child(self.card("Notes (warp-notes)", cx, |this, cx, card| {
                                         card.child(switch_row("Enable warp-notes", this.warp_notes_enabled, cx.listener(|this, _, _, cx| {
@@ -1249,7 +1271,85 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
     row.into_any_element()
 }
 
-// ---- model pickers ----------------------------------------------------------
+impl SettingsPage {
+    /// Switches the AI card's harness. The model belongs to the harness, so a
+    /// switch clears the model and variant picks; the door then loads the new
+    /// harness's catalog.
+    fn pick_harness(&mut self, harness: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.harness_scope.read(cx).harness == harness {
+            return;
+        }
+        self.harness_scope.update(cx, |scope, cx| {
+            scope.harness = harness.clone();
+            cx.notify();
+        });
+        self.model
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.variant
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.store
+            .update(cx, |store, cx| store.load_models_for(harness, cx));
+        cx.notify();
+    }
+
+    /// The harness radio row: one round radio per option the door reports.
+    fn harness_row(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let harnesses = self.store.read(cx).harnesses.clone();
+        let selected = self.harness_scope.read(cx).harness.clone();
+        let mut row = div()
+            .id("warp-harness-row")
+            .debug_selector(|| "warp-harness-row".into())
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(label("Harness"));
+        for harness in harnesses {
+            let id = harness.id;
+            let display = harness.label;
+            let is_on = id == selected;
+            let selector = format!("warp-harness-{id}");
+            let marker = if is_on {
+                div()
+                    .size(px(11.))
+                    .rounded_full()
+                    .bg(theme::ACCENT)
+                    .into_any_element()
+            } else {
+                div()
+                    .size(px(11.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme::TEXT_MUTED)
+                    .into_any_element()
+            };
+            let click_id = id.clone();
+            row = row.child(
+                div()
+                    .id(SharedString::from(selector.clone()))
+                    .debug_selector(move || selector.clone())
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(SharedString::from(format!("Harness {display}")))
+                    .aria_selected(is_on)
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick_harness(click_id.clone(), window, cx);
+                    }))
+                    .child(marker)
+                    .child(
+                        div()
+                            .text_size(px(theme::font_small()))
+                            .text_color(theme::TEXT)
+                            .child(display),
+                    ),
+            );
+        }
+        row.into_any_element()
+    }
+}
 
 /// The app's icon paths for the shared picker shell.
 const PICKER_ICONS: PickerIcons = PickerIcons {
@@ -1259,25 +1359,24 @@ const PICKER_ICONS: PickerIcons = PickerIcons {
     refresh: "icons/icon-refresh.svg",
 };
 
-/// One settings model slot: a shared FilteredPicker whose pick writes the
-/// model into `field`; the catalog, grouping and refresh come from the store.
-fn model_picker(
-    field: &Entity<InputState>,
-    store: &Entity<Store>,
+/// The compact settings-slot picker look shared by Model and Variant.
+fn picker_spec(
     key: &'static str,
-    default_label: &'static str,
-    window: &mut Window,
-    cx: &mut Context<SettingsPage>,
-) -> Entity<FilteredPicker> {
-    let spec = PickerSpec {
+    trigger_label: &'static str,
+    filter_placeholder: &'static str,
+    provider_badge: bool,
+    refresh: bool,
+    refresh_label: &'static str,
+) -> PickerSpec {
+    PickerSpec {
         key,
-        trigger_label: key,
-        filter_placeholder: "Filter models",
+        trigger_label,
+        filter_placeholder,
         icons: PICKER_ICONS,
         trigger_icon: None,
-        provider_badge: true,
-        refresh: true,
-        refresh_label: "Refresh models",
+        provider_badge,
+        refresh,
+        refresh_label,
         stop_trigger_mousedown: false,
         visible_rows: 10,
         selected_accent: false,
@@ -1291,51 +1390,119 @@ fn model_picker(
         panel_id: None,
         filter_selector: None,
         list_id: None,
-    };
+    }
+}
+
+/// The Model picker: writes the pick into `field`, clears the variant (it
+/// belongs to the old model), and lists only the selected harness's models.
+fn model_picker(
+    scope: &Entity<HarnessScope>,
+    field: &Entity<InputState>,
+    variant_field: &Entity<InputState>,
+    store: &Entity<Store>,
+    window: &mut Window,
+    cx: &mut Context<SettingsPage>,
+) -> Entity<FilteredPicker> {
+    let spec = picker_spec(
+        "Model",
+        "Model",
+        "Filter models",
+        true,
+        true,
+        "Refresh models",
+    );
     let refresh_store = store.clone();
+    let refresh_scope = scope.clone();
     cx.new(|cx| {
         let data = {
+            let scope = scope.clone();
             let field = field.clone();
             let store = store.clone();
             Box::new(move |filter: &str, window: &gpui::Window, cx: &gpui::App| {
-                model_data(&field, &store, key, default_label, filter, window, cx)
+                model_data(&scope, &field, &store, filter, window, cx)
             }) as Box<dyn Fn(&str, &gpui::Window, &gpui::App) -> PickerData>
         };
-        let mut picker =
-            FilteredPicker::new(spec, PickerTarget::Field(field.clone()), data, window, cx);
+        let target = PickerTarget::Callback(Box::new({
+            let field = field.clone();
+            let variant_field = variant_field.clone();
+            move |value, window, cx| {
+                field.update(cx, |state, cx| state.set_value(value, window, cx));
+                variant_field.update(cx, |state, cx| state.set_value("", window, cx));
+            }
+        }));
+        let mut picker = FilteredPicker::new(spec, target, data, window, cx);
         picker.set_on_refresh(Box::new(move |cx| {
-            refresh_store.update(cx, |s, cx| s.load_models(cx));
+            let harness = refresh_scope.read(cx).harness.clone();
+            refresh_store.update(cx, |store, cx| store.load_models_for(harness, cx));
         }));
         picker.observe_entity(store, cx);
         picker.observe_entity(field, cx);
+        picker.observe_entity(scope, cx);
         picker
     })
 }
 
-/// One render's worth of the model catalog: the default row, provider groups
-/// and the filtered, deduped models.
+/// The Variant picker: the selected model's variants (as reported by the
+/// harness), written straight into the hidden variant field.
+fn variant_picker(
+    scope: &Entity<HarnessScope>,
+    field: &Entity<InputState>,
+    variant_field: &Entity<InputState>,
+    store: &Entity<Store>,
+    window: &mut Window,
+    cx: &mut Context<SettingsPage>,
+) -> Entity<FilteredPicker> {
+    let spec = picker_spec("Variant", "Variant", "Filter variants", false, false, "");
+    cx.new(|cx| {
+        let data = {
+            let scope = scope.clone();
+            let field = field.clone();
+            let variant_field = variant_field.clone();
+            let store = store.clone();
+            Box::new(move |filter: &str, window: &gpui::Window, cx: &gpui::App| {
+                variant_data(&scope, &field, &variant_field, &store, filter, window, cx)
+            }) as Box<dyn Fn(&str, &gpui::Window, &gpui::App) -> PickerData>
+        };
+        let mut picker = FilteredPicker::new(
+            spec,
+            PickerTarget::Field(variant_field.clone()),
+            data,
+            window,
+            cx,
+        );
+        picker.observe_entity(store, cx);
+        picker.observe_entity(field, cx);
+        picker.observe_entity(variant_field, cx);
+        picker.observe_entity(scope, cx);
+        picker
+    })
+}
+
+/// One render's worth of the harness's model catalog: the server-default
+/// row, provider groups and the filtered, deduped models.
 fn model_data(
+    scope: &Entity<HarnessScope>,
     field: &Entity<InputState>,
     store: &Entity<Store>,
-    key: &'static str,
-    default_label: &str,
     filter: &str,
     _window: &gpui::Window,
     cx: &gpui::App,
 ) -> PickerData {
+    let harness = scope.read(cx).harness.clone();
     let selected = field.read(cx).value().trim().to_string();
     let filter = filter.to_lowercase();
     let mut models: Vec<String> = store
         .read(cx)
+        .catalog
         .models
         .iter()
+        .filter(|entry| entry.harness == harness)
+        .map(|entry| entry.key.clone())
         .filter(|model| {
-            let model = model.trim();
             !model.is_empty()
                 && !model.starts_with('(')
                 && (filter.is_empty() || model.to_lowercase().contains(&filter))
         })
-        .cloned()
         .collect();
     models.sort_by(|a, b| {
         model_provider(a)
@@ -1347,18 +1514,18 @@ fn model_data(
 
     let mut rows = Vec::with_capacity(models.len() + 4);
     rows.push(PickerRow::Item(PickerItem {
-        id: format!("model-{key}-default"),
-        selector: format!("model-row-{key}-default"),
+        id: "model-row-default".into(),
+        selector: "model-row-default".into(),
         value: String::new(),
-        label: default_label.to_string(),
+        label: "Default".to_string(),
         selected: selected.is_empty(),
         muted: false,
         trailing_delete: None,
     }));
     if models.is_empty() {
         rows.push(PickerRow::Message {
-            id: format!("model-message-{key}"),
-            label: "No models found. Start warp-agent, then refresh.".to_string(),
+            id: "model-message".into(),
+            label: "No models for this harness. Start warp-agent, then refresh.".to_string(),
         });
     } else {
         let mut last_provider = String::new();
@@ -1366,15 +1533,15 @@ fn model_data(
             let provider = model_provider(&model).to_string();
             if !provider.is_empty() && provider != last_provider {
                 rows.push(PickerRow::Group {
-                    id: format!("model-provider-{key}-{provider}"),
+                    id: format!("model-provider-{provider}"),
                     label: provider.to_uppercase(),
                     selector: None,
                 });
                 last_provider = provider;
             }
             rows.push(PickerRow::Item(PickerItem {
-                id: format!("model-row-{key}-{model}"),
-                selector: format!("model-row-{key}-{model}"),
+                id: format!("model-row-{model}"),
+                selector: format!("model-row-{model}"),
                 value: model.clone(),
                 label: model_name(&model).to_string(),
                 selected: model.eq_ignore_ascii_case(&selected),
@@ -1390,9 +1557,85 @@ fn model_data(
             badge: (!model_provider(&selected).is_empty())
                 .then(|| model_provider(&selected).to_string()),
             label: if selected.is_empty() {
-                default_label.to_string()
+                "Default".to_string()
             } else {
                 model_name(&selected).to_string()
+            },
+            value: selected,
+        },
+        footer: None,
+        fonts: theme::font_tokens(),
+        accent: theme::ACCENT,
+        show_tooltips: store.read(cx).settings().general.show_tooltips,
+    }
+}
+
+/// The selected model's variants for the current harness. An empty model
+/// explains itself; a model without variants says so instead of showing an
+/// empty list.
+fn variant_data(
+    scope: &Entity<HarnessScope>,
+    field: &Entity<InputState>,
+    variant_field: &Entity<InputState>,
+    store: &Entity<Store>,
+    filter: &str,
+    _window: &gpui::Window,
+    cx: &gpui::App,
+) -> PickerData {
+    let harness = scope.read(cx).harness.clone();
+    let model = field.read(cx).value().trim().to_string();
+    let selected = variant_field.read(cx).value().trim().to_string();
+    let filter = filter.to_lowercase();
+    let variants: Vec<String> = store
+        .read(cx)
+        .catalog
+        .variants_for(&harness, &model)
+        .into_iter()
+        .filter(|variant| filter.is_empty() || variant.to_lowercase().contains(&filter))
+        .collect();
+
+    let mut rows = Vec::with_capacity(variants.len() + 2);
+    rows.push(PickerRow::Item(PickerItem {
+        id: "variant-row-default".into(),
+        selector: "variant-row-default".into(),
+        value: String::new(),
+        label: "Default".to_string(),
+        selected: selected.is_empty(),
+        muted: false,
+        trailing_delete: None,
+    }));
+    if model.is_empty() {
+        rows.push(PickerRow::Message {
+            id: "variant-message-pick-model".into(),
+            label: "Pick a model to see its variants.".to_string(),
+        });
+    } else if variants.is_empty() {
+        rows.push(PickerRow::Message {
+            id: "variant-message-empty".into(),
+            label: "This model reports no variants.".to_string(),
+        });
+    } else {
+        for variant in variants {
+            rows.push(PickerRow::Item(PickerItem {
+                id: format!("variant-row-{variant}"),
+                selector: format!("variant-row-{variant}"),
+                value: variant.clone(),
+                label: variant.clone(),
+                selected: variant.eq_ignore_ascii_case(&selected),
+                muted: false,
+                trailing_delete: None,
+            }));
+        }
+    }
+
+    PickerData {
+        body: PickerBody::Rows(rows),
+        selected: Selection {
+            badge: None,
+            label: if selected.is_empty() {
+                "Default".to_string()
+            } else {
+                selected.clone()
             },
             value: selected,
         },

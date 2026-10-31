@@ -771,7 +771,7 @@ fn icon_action(
 }
 
 /// The shortcuts column hugs its button row: 36px buttons, 6px gaps, and the
-/// opencode group's divider (1px + mx_1). Follows the same settings gates as
+/// CLI group's divider (1px + mx_1). Follows the same settings gates as
 /// `shortcuts_cell`.
 fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     let mut buttons = 1usize; // open folder is always present
@@ -787,10 +787,15 @@ fn shortcuts_column_width(settings: &AppSettings) -> Pixels {
     if settings.warp_agent.enable_warp_agent {
         buttons += 1; // the warp-agent door
     }
-    let divider = settings.opencode.enable_opencode;
-    if divider {
-        buttons += 1; // the opencode button itself
+    let mut cli = 0usize;
+    if settings.opencode.enable_opencode {
+        cli += 1;
     }
+    if settings.deepseek.enable_deepseek {
+        cli += 1;
+    }
+    let divider = cli > 0;
+    buttons += cli;
     let children = buttons + divider as usize;
     let gaps = children.saturating_sub(1) as f32 * 6.0;
     px(buttons as f32 * 36.0 + if divider { 9.0 } else { 0.0 } + gaps + 8.0)
@@ -2093,7 +2098,7 @@ fn azure_cell(repo: &RepoEntry, store: &Entity<Store>, cx: &App) -> gpui::AnyEle
 }
 
 /// Per-row buttons: bordered squares, launch order
-/// [opencode][solution][vscode][folder][terminal]. Purely visibility switches from
+/// [opencode][deepseek][solution][vscode][folder][terminal]. Purely visibility switches from
 /// settings — a configured-but-missing executable reports at launch time.
 fn shortcuts_cell(
     repo: &RepoEntry,
@@ -2168,39 +2173,75 @@ fn shortcuts_cell(
         crate::ui::with_tooltip(element, show_tooltips, tip)
     };
 
-    // OpenCode quick-launch: one opencode instance in the repo with the
-    // default model; without a configured default there is nothing to launch
-    if settings.opencode.enable_opencode {
-        let model = settings.opencode.default_model.trim().to_string();
-        let has_model = !model.is_empty();
-        let launch: Box<dyn Fn() -> Result<(), String>> = if has_model {
+    // CLI quick-launch group: OpenCode, then DeepSeek — one instance per
+    // enabled CLI in the repo. The selected model belongs to the AI harness,
+    // so opencode only launches with it when that harness is opencode; the
+    // dsh CLI boots its own profile and takes no model.
+    let harness = settings.warp_agent.selected_harness().to_string();
+    let model = settings.opencode.model.trim().to_string();
+    let term = settings.repos.terminal_executable.clone();
+    let cli_launch = |exe_setting: &str,
+                      fallback: &'static str,
+                      name: &'static str,
+                      pass_model: bool|
+     -> Box<dyn Fn() -> Result<(), String>> {
+        let exe = if exe_setting.trim().is_empty() {
+            fallback.to_string()
+        } else {
+            exe_setting.trim().to_string()
+        };
+        if pass_model && harness == fallback {
+            if model.is_empty() {
+                Box::new(move || Err(format!("No {name} model — set it in Settings")))
+            } else {
+                Box::new({
+                    let folder = folder.clone();
+                    let exe = exe.clone();
+                    let model = model.clone();
+                    let term = term.clone();
+                    move || {
+                        terminal::launch_argv_in_terminal(
+                            &folder,
+                            &[exe.clone(), "--model".into(), model.clone()],
+                            &term,
+                        )
+                    }
+                })
+            }
+        } else {
             Box::new({
                 let folder = folder.clone();
-                let term = settings.repos.terminal_executable.clone();
-                let exe = if settings.repos.opencode_executable.trim().is_empty() {
-                    "opencode".to_string()
-                } else {
-                    settings.repos.opencode_executable.trim().to_string()
-                };
+                let exe = exe.clone();
+                let term = term.clone();
                 move || {
-                    terminal::launch_argv_in_terminal(
-                        &folder,
-                        &[exe.clone(), "--model".into(), model.clone()],
-                        &term,
-                    )
+                    terminal::launch_argv_in_terminal(&folder, std::slice::from_ref(&exe), &term)
                 }
             })
-        } else {
-            Box::new(|| Err("No default OpenCode model — set it in Settings".into()))
-        };
+        }
+    };
+    let mut cli_buttons = 0usize;
+    if settings.opencode.enable_opencode {
         row = row.child(button(
             format!("open-opencode-{row_ix}"),
             "icons/icon-opencode.svg",
             theme::TEXT_MUTED,
-            "Launch OpenCode with the default model",
-            launch,
+            "Launch OpenCode with the selected model",
+            cli_launch(&settings.repos.opencode_executable, "opencode", "OpenCode", true),
         ));
-        // .NET separates the opencode group from the launch buttons
+        cli_buttons += 1;
+    }
+    if settings.deepseek.enable_deepseek {
+        row = row.child(button(
+            format!("open-deepseek-{row_ix}"),
+            "icons/icon-deepseek.svg",
+            theme::BLUE_BRIGHT,
+            "Launch DeepSeek",
+            cli_launch(&settings.repos.deepseek_executable, "dsh", "DeepSeek", false),
+        ));
+        cli_buttons += 1;
+    }
+    if cli_buttons > 0 {
+        // .NET separates the CLI group from the launch buttons
         row = row.child(
             div()
                 .mx_1()
@@ -2317,6 +2358,7 @@ mod tests {
         settings.repos.enable_vscode = launchers.contains(&"vscode");
         settings.repos.enable_visual_studio = launchers.contains(&"sln");
         settings.opencode.enable_opencode = launchers.contains(&"opencode");
+        settings.deepseek.enable_deepseek = launchers.contains(&"deepseek");
         settings.warp_agent.enable_warp_agent = launchers.contains(&"warp");
         settings
     }
@@ -2330,12 +2372,19 @@ mod tests {
             shortcuts_column_width(&settings_with(&["terminal"])),
             px(86.)
         );
-        // full linux set: warp door, opencode button + divider, vscode,
-        // folder, terminal = 5 buttons + divider = 6 children -> 5 gaps +
-        // divider (1px + mx_1 = 9); the solution slot only joins on Windows
-        let full =
-            shortcuts_column_width(&settings_with(&["terminal", "vscode", "opencode", "warp"]));
-        assert_eq!(full, px(5. * 36. + 5. * 6. + 9. + 8.));
+        // deepseek alone keeps the CLI group's divider: folder + deepseek +
+        // divider = 3 children -> 2 gaps + divider (1px + mx_1 = 9)
+        assert_eq!(
+            shortcuts_column_width(&settings_with(&["deepseek"])),
+            px(2. * 36. + 2. * 6. + 9. + 8.)
+        );
+        // full linux set: warp door, opencode + deepseek behind one divider,
+        // vscode, folder, terminal = 6 buttons + divider = 7 children -> 6
+        // gaps + 9; the solution slot only joins on Windows
+        let full = shortcuts_column_width(&settings_with(&[
+            "terminal", "vscode", "opencode", "deepseek", "warp",
+        ]));
+        assert_eq!(full, px(6. * 36. + 6. * 6. + 9. + 8.));
     }
 
     /// Selection can originate outside a row click (global search, the notes
