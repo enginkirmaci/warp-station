@@ -1,7 +1,5 @@
 //! The split main screen's detail rail must dispatch, not just draw: the star
 //! toggles the repo's favourite flag and the sync verbs reach the net thread.
-//! The table probe (repos_probe) pins `DEVTOOLS_UI_TABLE=1`; this one stays on
-//! the default split layout, which is what the app ships.
 
 use devtools::net::{GitAction, NetCommand};
 use devtools::store::{Store, WorkspaceTab};
@@ -331,11 +329,14 @@ fn rail_menu_opens_and_the_tag_chip_switches_to_an_editor(cx: &mut TestAppContex
         "the chip is replaced by the tag editor"
     );
 
-    // the "⋯" menu lists the repo verbs
+    // the "⋯" menu lists the repo verbs, over the rail rather than in it
     assert!(
         cx.debug_bounds("insp-repo-menu").is_none(),
         "the menu starts closed"
     );
+    let primary = cx
+        .debug_bounds("insp-primary")
+        .expect("the primary action renders");
     let more = cx
         .debug_bounds("insp-more")
         .expect("the more button renders");
@@ -344,6 +345,11 @@ fn rail_menu_opens_and_the_tag_chip_switches_to_an_editor(cx: &mut TestAppContex
     assert!(
         cx.debug_bounds("insp-repo-menu").is_some(),
         "the ⋯ button opens the repo menu"
+    );
+    assert_eq!(
+        cx.debug_bounds("insp-primary").map(|bounds| bounds.origin),
+        Some(primary.origin),
+        "opening the menu never reflows the rail"
     );
 
     // "Archive" tags the repo, which drops it from the live list
@@ -1284,7 +1290,7 @@ fn a_moved_selection_closes_the_menu_and_disarms_it(cx: &mut TestAppContext) {
 
     // a search hit, say: anything that moves the selection without a press
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.ensure_repo_selected("/probe/beta", cx);
+        s.select_repo("/probe/beta", cx);
     });
     draw(cx);
     assert!(
@@ -1680,9 +1686,35 @@ fn dragging_the_top_edge_resizes_the_sheet(cx: &mut TestAppContext) {
     );
 }
 
-/// A dialog is a layer on top of the split screen, not a layout switch:
-/// opening Add repo used to skip the split branch entirely and drop the
-/// legacy data table back in behind the card.
+#[gpui::test]
+fn an_empty_list_says_why(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "empty", Vec::new());
+    let cx = open_window(&store, cx);
+
+    assert!(cx.debug_bounds("repos-empty").is_some());
+}
+
+/// Selecting the selected repo changes nothing: it must not throw away the
+/// workspace the rail already loaded.
+#[gpui::test]
+fn selecting_the_selected_repo_keeps_its_workspace(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "reselect", vec![entry("alpha", "/probe/alpha")]);
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo("/probe/alpha", cx);
+        s.changes_loaded_for = Some("/probe/alpha".into());
+        s.select_repo("/probe/alpha", cx);
+    });
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.changes_loaded_for.clone())
+            .as_deref(),
+        Some("/probe/alpha")
+    );
+}
+
+/// A dialog is a layer on top of the split screen: the rail stays behind it,
+/// and Escape closes it.
 #[gpui::test]
 fn dialogs_render_over_the_split_layout(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
@@ -1713,8 +1745,11 @@ fn dialogs_render_over_the_split_layout(cx: &mut TestAppContext) {
         cx.debug_bounds("repos-inspector").is_some(),
         "the detail rail stays behind the dialog"
     );
+
+    cx.simulate_keystrokes("escape");
+    draw(cx);
     assert!(
-        cx.debug_bounds("repos-table-wrap").is_none(),
-        "the legacy table must not come back while a dialog is open"
+        cx.debug_bounds("add-repo-overlay").is_none(),
+        "Escape closes the dialog"
     );
 }

@@ -34,8 +34,8 @@ pub struct RepoMenu {
     pub remove_armed: bool,
 }
 
-/// The right rail for the selected repo; with nothing selected it previews
-/// the first projected repo, so the pane never opens as a bare border.
+/// The right rail for the selected repo. The page keeps a row selected, so it
+/// only falls back to its empty state while the list has nothing to select.
 pub fn render(
     store: &Store,
     entities: &Entity<Store>,
@@ -60,7 +60,7 @@ pub fn render(
         .pt(px(15.))
         .pb(px(14.));
 
-    let Some(repo) = focused_entry(store) else {
+    let Some(repo) = store.selected_entry() else {
         return rail.child(empty_state()).into_any_element();
     };
 
@@ -71,7 +71,7 @@ pub fn render(
         .child(header(repo, entities, page, &folder))
         .child(path_line(repo, entities))
         .child(tag_row(repo, page, tag_draft, entities, &folder))
-        .child(sync_card(repo, entities, &folder))
+        .child(sync_card(repo, entities))
         .children(
             launchers
                 .first()
@@ -94,20 +94,6 @@ pub fn render(
         .children(repo_menu.map(|menu| popup_menu(repo, menu, store, entities, page, &folder)));
 
     rail.into_any_element()
-}
-
-/// The selected repo, or the first row while nothing is selected yet — the
-/// rail is the app's detail surface, so it opens on something, and the list
-/// paints the same row as selected.
-pub fn focused_entry(store: &Store) -> Option<&RepoEntry> {
-    if let Some(repo) = store.selected_entry() {
-        return Some(repo);
-    }
-    store
-        .projected
-        .iter()
-        .find_map(|row| row.repo_index())
-        .and_then(|ix| store.repos.get(ix))
 }
 
 fn empty_state() -> AnyElement {
@@ -213,8 +199,8 @@ fn header(
 
 type MenuAction = Box<dyn Fn(&mut App)>;
 
-/// The header's "⋯" menu: the repo verbs the old bar's kebab held. A popup
-/// hanging from the header, so opening it leaves the rail where it is.
+/// The header's "⋯" menu: the repo verbs, in a popup hanging from the header,
+/// so opening it leaves the rail where it is.
 fn popup_menu(
     repo: &RepoEntry,
     state: &RepoMenu,
@@ -310,7 +296,7 @@ fn popup_menu(
         ));
     }
     menu.child(div().h(px(1.)).mx(px(4.)).my(px(2.)).bg(theme::HAIRLINE))
-        .child(remove_row(state.remove_armed, entities, page, folder))
+        .child(remove_row(state.remove_armed, entities, page))
         .into_any_element()
 }
 
@@ -331,15 +317,9 @@ fn menu_row(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> 
 
 /// Destructive, so it takes two clicks: the first arms the row, the second
 /// removes. Closing the menu disarms it, whatever closed it.
-fn remove_row(
-    armed: bool,
-    entities: &Entity<Store>,
-    page: &Entity<ReposPage>,
-    folder: &str,
-) -> AnyElement {
+fn remove_row(armed: bool, entities: &Entity<Store>, page: &Entity<ReposPage>) -> AnyElement {
     let target = entities.clone();
     let menu = page.clone();
-    let path = folder.to_string();
     div()
         .id("insp-menu-remove")
         .debug_selector(|| "insp-menu-remove".into())
@@ -365,10 +345,7 @@ fn remove_row(
         .hover(|d| d.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER))
         .on_click(move |_, _, cx| {
             if armed {
-                target.update(cx, |s, cx| {
-                    s.ensure_repo_selected(&path, cx);
-                    s.remove_from_repositories(cx);
-                });
+                target.update(cx, |s, cx| s.remove_from_repositories(cx));
                 menu.update(cx, |this, cx| this.close_repo_menu(cx));
             } else {
                 menu.update(cx, |this, cx| this.arm_repo_remove(cx));
@@ -503,7 +480,7 @@ fn tag_row(
 }
 
 /// A user tag. The × stays quiet until the chip is hovered, but its target
-/// runs the full chip height: the old bar's were ~10px.
+/// runs the full chip height.
 fn tag_chip(tag: &str, entities: &Entity<Store>, folder: &str) -> AnyElement {
     let target = entities.clone();
     let path = folder.to_string();
@@ -553,7 +530,7 @@ fn is_system_tag(tag: &str) -> bool {
 }
 
 /// Branch, how far it is from the remote, and the two sync verbs.
-fn sync_card(repo: &RepoEntry, entities: &Entity<Store>, folder: &str) -> AnyElement {
+fn sync_card(repo: &RepoEntry, entities: &Entity<Store>) -> AnyElement {
     let branch = repo
         .git_branch_name
         .clone()
@@ -650,15 +627,8 @@ fn sync_card(repo: &RepoEntry, entities: &Entity<Store>, folder: &str) -> AnyEle
                 .gap(px(4.))
                 .child(small_button("insp-pull", "Pull".into(), {
                     let target = entities.clone();
-                    let path = folder.to_string();
                     move |_, _, cx| {
-                        // the rail may be previewing a repo the store has not
-                        // selected yet; the git verbs always act on the row
-                        // the rail is showing
-                        target.update(cx, |s, cx| {
-                            s.ensure_repo_selected(&path, cx);
-                            s.run_git(GitAction::Pull, cx);
-                        });
+                        target.update(cx, |s, cx| s.run_git(GitAction::Pull, cx));
                     }
                 }))
                 .child(small_button(
@@ -670,12 +640,8 @@ fn sync_card(repo: &RepoEntry, entities: &Entity<Store>, folder: &str) -> AnyEle
                     },
                     {
                         let target = entities.clone();
-                        let path = folder.to_string();
                         move |_, _, cx| {
-                            target.update(cx, |s, cx| {
-                                s.ensure_repo_selected(&path, cx);
-                                s.run_git(GitAction::Push, cx);
-                            });
+                            target.update(cx, |s, cx| s.run_git(GitAction::Push, cx));
                         }
                     },
                 )),
@@ -1181,7 +1147,7 @@ fn details_section(store: &Store) -> Option<AnyElement> {
 }
 
 /// gh returns ISO timestamps; the details show "27 Nov 2023".
-pub(crate) fn format_created(iso: &str) -> String {
+fn format_created(iso: &str) -> String {
     chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
         .map(|d| d.format("%-d %b %Y").to_string())
         .unwrap_or_else(|_| iso.to_string())

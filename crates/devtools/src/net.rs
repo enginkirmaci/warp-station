@@ -76,7 +76,7 @@ pub enum NetCommand {
         folders: Vec<PathBuf>,
         gh_exe: String,
     },
-    /// The Overview sidebar's repo details.
+    /// The rail's repo details.
     GitHubDetails {
         folder: PathBuf,
         gh_exe: String,
@@ -160,7 +160,7 @@ pub enum WandKind {
     Readme,
 }
 
-/// Every state-changing git operation the bottom bar drives. The label rides
+/// Every state-changing git operation the rail and the sheet drive. The label rides
 /// the result for surfacing.
 #[derive(Clone, Debug)]
 pub enum GitAction {
@@ -1328,7 +1328,7 @@ async fn probe_pass(folders: Vec<PathBuf>) -> Vec<StatusProbe> {
     let mut probes = Arc::try_unwrap(collected)
         .map(|m| m.into_inner().unwrap())
         .unwrap_or_default();
-    // keep the table's burst-apply order stable (by folder path)
+    // keep the list's burst-apply order stable (by folder path)
     probes.sort_by(|a, b| a.folder_path.cmp(&b.folder_path));
     probes
 }

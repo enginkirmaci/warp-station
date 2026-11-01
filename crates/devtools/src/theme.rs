@@ -286,17 +286,6 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
         .into();
         t.tokens.scrollbar_thumb = gpui::Hsla::from(TEXT_FAINT).into();
         t.tokens.scrollbar_thumb_hover = gpui::Hsla::from(TEXT_MUTED).into();
-
-        // tables blend into the page: no zebra, no visible grid
-        t.table = CARD.into();
-        t.table_head = CARD.into();
-        t.table_head_foreground = TEXT_FAINT.into();
-        t.table_even = CARD.into();
-        t.table_hover = HOVER;
-        t.table_active = palette::tint(ACCENT);
-        t.table_active_border = ACCENT.into();
-        t.table_row_border = BORDER_LIGHT.into();
-        t.table_foot = CARD.into();
     });
 }
 
@@ -447,12 +436,6 @@ pub fn icon_large() -> f32 {
 
 /// Custom titlebar height (window buttons + search field live here).
 pub const TITLEBAR_H: f32 = 52.0;
-/// One repos toolbar row (title row / filter row).
-pub const TOOLBAR_H: f32 = 46.0;
-/// Compact column-header strip above the repos table.
-pub const TABLE_HEAD_H: f32 = 28.0;
-/// Repos table row height (fits the two-line name + folder path cell).
-pub const TABLE_ROW_H: f32 = 48.0;
 
 // ---- desktop text scaling --------------------------------------------------
 

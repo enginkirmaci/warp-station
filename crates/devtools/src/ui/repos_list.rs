@@ -15,7 +15,7 @@ use gpui::prelude::*;
 use gpui::{Entity, FontWeight, Rgba, SharedString, div, px};
 
 /// The hover group a band's folder glyph swaps its filter mark under.
-const BAND_GROUP: &str = "proto-group-band";
+const BAND_GROUP: &str = "repo-band";
 
 /// What a row shows beyond the entry itself.
 struct RowFacts<'a> {
@@ -30,8 +30,11 @@ struct RowFacts<'a> {
 /// The whole list: one quiet header per folder group, then its rows. Rows
 /// select on click — the rail beside them is useless otherwise.
 pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
+    if store.projected.is_empty() {
+        return empty_list(store);
+    }
     let mut list = div()
-        .id("repos-proto-list")
+        .id("repos-list")
         .flex()
         .flex_col()
         .size_full()
@@ -39,11 +42,6 @@ pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
         .overflow_y_scroll()
         .pt_1();
 
-    // The rail previews the first row when nothing is selected, so the list
-    // has to paint that same row as selected — otherwise the two panes
-    // disagree about which repo the rail describes.
-    let focused = crate::ui::inspector::focused_entry(store)
-        .map(|repo| repo.folder_path.to_string_lossy().to_string());
     let settings = store.settings();
     let soloed = store.group_filter.as_deref();
 
@@ -68,7 +66,7 @@ pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
             ProjectedRow::Repo(ix) => {
                 if let Some(repo) = store.repos.get(*ix) {
                     let folder = repo.folder_path.to_string_lossy();
-                    let selected = focused.as_deref() == Some(folder.as_ref());
+                    let selected = store.selected_repo.as_deref() == Some(folder.as_ref());
                     let azure = store
                         .azure_by_folder
                         .get(folder.as_ref())
@@ -94,6 +92,36 @@ pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
     list.into_any_element()
 }
 
+/// Why the list has no rows.
+fn empty_list(store: &Store) -> gpui::AnyElement {
+    let filtered =
+        !store.tag_filters.is_empty() || store.group_filter.is_some() || store.attention_only;
+    let has_folders = store
+        .settings()
+        .repos
+        .repo_scan_folders
+        .is_some_and(|folders| !folders.is_empty());
+    let text = if store.scanning {
+        "Scanning folders…"
+    } else if filtered {
+        "No repositories match the current filter"
+    } else if has_folders {
+        "No repositories found under the scan folders"
+    } else {
+        "No scan folders yet — add a repository to start"
+    };
+    div()
+        .debug_selector(|| "repos-empty".into())
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(theme::font_meta()))
+        .text_color(theme::TEXT_MUTED)
+        .child(text)
+        .into_any_element()
+}
+
 /// A folder band: the export's 30px row on its own step of the ramp. Pressing
 /// it folds the group; its folder glyph narrows the list to this group, and
 /// turns into the filter mark on hover and for as long as it is soloed.
@@ -113,7 +141,7 @@ fn group_band(
     let solo_key = key.to_string();
 
     let solo = div()
-        .id(SharedString::from(format!("proto-group-solo-{key}")))
+        .id(SharedString::from(format!("repo-band-solo-id-{key}")))
         .debug_selector(move || solo_selector.clone())
         .a11y_toggle("Show only this group", soloed)
         .relative()
@@ -158,7 +186,7 @@ fn group_band(
         );
 
     div()
-        .id(SharedString::from(format!("proto-group-{key}")))
+        .id(SharedString::from(format!("repo-band-id-{key}")))
         .debug_selector(move || band_selector.clone())
         .group(BAND_GROUP)
         .a11y_button(format!("{name} — {count} repositories"))
@@ -225,7 +253,7 @@ fn repo_row(
 
     // archived rows carry no star: Restore in the rail's menu comes first
     let star = div()
-        .id(SharedString::from(format!("proto-star-{row_ix}")))
+        .id(SharedString::from(format!("repo-star-id-{row_ix}")))
         .debug_selector(move || format!("repo-star-{row_ix}"))
         .a11y_toggle(
             if favorite {
@@ -252,7 +280,7 @@ fn repo_row(
                 })
                 .when(!favorite, |star| {
                     star.opacity(0.62)
-                        .group_hover("proto-repo-row", |s| s.opacity(1.))
+                        .group_hover("repo-row", |s| s.opacity(1.))
                         .child(icon("icons/icon-star.svg", px(13.), theme::STAR_MUTED))
                 })
         });
@@ -371,7 +399,7 @@ fn repo_row(
         .when_some(facts.warp_titles.clone(), |line, titles| {
             line.child(crate::ui::with_tooltip(
                 div()
-                    .id(SharedString::from(format!("proto-warp-{row_ix}")))
+                    .id(SharedString::from(format!("repo-warp-id-{row_ix}")))
                     .debug_selector(move || format!("repo-warp-{row_ix}"))
                     .flex_shrink_0()
                     .rounded_full()
@@ -398,14 +426,14 @@ fn repo_row(
         .unwrap_or_else(|| "—".into());
 
     let row = div()
-        .id(SharedString::from(format!("proto-repo-{row_ix}")))
+        .id(SharedString::from(format!("repo-row-id-{row_ix}")))
         .debug_selector(move || format!("repo-row-{row_ix}"))
-        .group("proto-repo-row")
+        .group("repo-row")
         .a11y_button(repo.name.clone())
         .cursor_pointer()
         .on_click(move |_, _, cx| {
             // the rail stays open, so a second press has nothing to toggle
-            select_target.update(cx, |s, cx| s.ensure_repo_selected(&select_folder, cx));
+            select_target.update(cx, |s, cx| s.select_repo(&select_folder, cx));
         })
         .flex()
         .items_center()
@@ -428,7 +456,7 @@ fn repo_row(
                 .font_family(theme::code_font())
                 .text_size(px(theme::font_mono_meta()))
                 .text_color(theme::TEXT_MUTED)
-                .group_hover("proto-repo-row", |s| s.opacity(0.))
+                .group_hover("repo-row", |s| s.opacity(0.))
                 .child(stamp),
         )
         .child(
@@ -436,7 +464,7 @@ fn repo_row(
                 .flex_shrink_0()
                 .w(px(18.))
                 .opacity(0.)
-                .group_hover("proto-repo-row", |s| s.opacity(1.))
+                .group_hover("repo-row", |s| s.opacity(1.))
                 .child(keycap("↵")),
         );
 

@@ -348,7 +348,6 @@ impl Default for GeneralSettings {
 pub struct SettingsService {
     path: PathBuf,
     state: Mutex<AppSettings>,
-    version: std::sync::atomic::AtomicU64,
 }
 
 impl SettingsService {
@@ -364,7 +363,6 @@ impl SettingsService {
         Self {
             path,
             state: Mutex::new(settings),
-            version: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -375,12 +373,6 @@ impl SettingsService {
 
     pub fn get(&self) -> AppSettings {
         self.state.lock().unwrap().clone()
-    }
-
-    /// Cheap change token for hot paths that must not clone the whole graph
-    /// per frame (the repos table's layout cache).
-    pub fn version(&self) -> u64 {
-        self.version.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Apply `mutate` to a clone of the current settings and persist the whole
@@ -394,8 +386,6 @@ impl SettingsService {
             *guard = next.clone();
             (next, self.path.clone())
         };
-        self.version
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         jsonio::write_json_atomically(&path, &updated)?;
         Ok(updated)
     }

@@ -1,7 +1,9 @@
 # DevTools UI: audit and two directions
 
-Status: audit + one spiked direction. Nothing here is final; the shipping
-table is untouched and the prototype only appears with `DEVTOOLS_UI_PROTO=1`.
+Status: historical. The redesign this audit led to has shipped: the split
+screen (list, detail rail, workspace sheet) replaced the table and the bottom
+bar. The findings stay here as the reasoning behind it; `theme.rs` is the source
+of truth for the tokens.
 
 ## How this was produced
 
@@ -76,8 +78,6 @@ One anchor per row, state pushed right, chrome removed.
 - Costs: no sortable headers, no GitHub/PR columns. A real adoption needs a
   sort menu in the toolbar and PR/issue dots on the context line.
 
-Run it: `DEVTOOLS_UI_PROTO=1 cargo run`. Visual only — clicks are not wired.
-
 Best for: the daily "what moved since yesterday" scan.
 
 ## Direction B — "Cockpit"
@@ -119,7 +119,5 @@ below AA for body text — the table's dimmest labels are already borderline.
 
 ## Next
 
-1. Pick A or B (or A's rows inside B's grid).
-2. Wire the chosen list: selection, hover actions, keyboard nav, sort menu.
-3. Rebuild the repo drawer so it never covers the list.
-4. Then Settings and Changes, one surface per PR, with a probe each.
+Move Settings, the dialogs, the tool drawers and the sheet's tabs onto the new
+type scale and tokens, then drop the old palette.

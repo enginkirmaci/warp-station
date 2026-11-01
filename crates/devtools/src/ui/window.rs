@@ -4,11 +4,9 @@
 use crate::store::{Store, WorkspaceTab};
 use crate::theme;
 use crate::ui::A11y;
-use crate::ui::bottom_bar::BottomBar;
 use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
 use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
-use crate::ui::repos::summary_button;
 use crate::ui::workspace_sheet::WorkspaceSheet;
 use gpui::prelude::*;
 use gpui::{
@@ -17,7 +15,7 @@ use gpui::{
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
-/// Which page fills the window body (the bottom bar rides only with Repos).
+/// Which page fills the window body.
 #[derive(Clone, Copy, PartialEq)]
 enum Page {
     Repos,
@@ -39,7 +37,6 @@ pub struct MainWindow {
     page: Page,
     repos_page: Entity<crate::ui::repos::ReposPage>,
     settings_page: Entity<crate::ui::settings::SettingsPage>,
-    bottom_bar: Entity<BottomBar>,
     global_search: Entity<InputState>,
     /// The open tool drawer, if any (one at a time; entities are lazy).
     active_drawer: Option<DrawerKind>,
@@ -59,10 +56,9 @@ pub struct MainWindow {
 
 impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
+        let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), cx));
         let settings_page =
             cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
-        let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
         let global_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search repos, notes, code…"));
         let search_store = store.clone();
@@ -84,7 +80,6 @@ impl MainWindow {
             },
             repos_page,
             settings_page,
-            bottom_bar,
             global_search,
             // E2E hook: DEVTOOLS_TOOLS_OPEN=formatters|nuget|clipboard docks
             // that drawer on launch
@@ -143,16 +138,13 @@ impl Render for MainWindow {
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
             .track_focus(&self.focus_handle)
-            // any press outside the bar's kebab or the rail's menu dismisses
-            // it; the menus themselves and their triggers keep the press from
-            // reaching this handler
+            // any press outside the page's menus dismisses them; the menus
+            // themselves and their triggers keep the press from reaching this
+            // handler
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     gpui_kit::base::GlobalState::suppress_text_selection(cx);
-                    this.bottom_bar.update(cx, |bar, cx| {
-                        bar.dismiss_kebab(cx);
-                    });
                     this.repos_page.update(cx, |page, cx| page.close_popups(cx));
                 }),
             )
@@ -202,10 +194,6 @@ impl Render for MainWindow {
                         cx.stop_propagation();
                         return;
                     }
-                    if this.bottom_bar.update(cx, |bar, cx| bar.dismiss_kebab(cx)) {
-                        cx.stop_propagation();
-                        return;
-                    }
                     if this.page == Page::Repos
                         && this
                             .repos_page
@@ -252,7 +240,7 @@ impl Render for MainWindow {
                         // a held key repeats: only stepping through rows wants that
                         _ if event.is_held => {}
                         "s" => {
-                            let folder = this.store.read(cx).focused_folder();
+                            let folder = this.store.read(cx).selected_repo.clone();
                             if let Some(folder) = folder {
                                 this.store
                                     .update(cx, |s, cx| s.toggle_favorite(&folder, cx));
@@ -277,7 +265,7 @@ impl Render for MainWindow {
             // TextViews (README, notes preview) ignore drags entirely
             .child(gpui_kit::base::TextSelectionLayer)
             .child(self.render_titlebar(window, cx))
-            .child(self.render_body(window, cx))
+            .child(self.render_body())
             .relative();
         if let Some(popup) = self.render_search_popup(window, cx) {
             root = root.child(popup);
@@ -559,9 +547,7 @@ impl MainWindow {
             || self.repos_page.read(cx).layer_open()
     }
 
-    /// Closes the sheet's branch popup. The picker lives on the sheet's own
-    /// view, which the workspace bar's dismissal never reaches. Returns whether
-    /// it was open.
+    /// Closes the sheet's branch popup. Returns whether it was open.
     fn dismiss_sheet_menu(&mut self, cx: &mut Context<Self>) -> bool {
         self.workspace_sheet
             .as_ref()
@@ -993,11 +979,7 @@ impl MainWindow {
         match hit {
             crate::store::GlobalSearchHit::Repo { folder, .. } => {
                 self.page = Page::Repos;
-                // open on Overview without the row-press toggle semantics
-                let folder = folder.clone();
-                self.store.update(cx, |s, cx| {
-                    s.open_repo_tab(&folder, crate::store::BottomBarTab::Overview, cx)
-                });
+                self.store.update(cx, |s, cx| s.select_repo(folder, cx));
             }
             crate::store::GlobalSearchHit::Note { path, .. } => {
                 self.launch_notes(Some(path.clone()), cx);
@@ -1495,29 +1477,13 @@ impl MainWindow {
             .into_any_element()
     }
 
-    fn render_body(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_body(&self) -> gpui::AnyElement {
         match self.page {
-            Page::Repos => {
-                // The Add-repositories / Clone dialogs are page-level overlays.
-                // While one is open the workspace bar would paint over the
-                // dialog's footer (the scan-result card is taller than the
-                // page slice above the bar), so give the page the full body.
-                let dialog_open = self.repos_page.read(cx).dialog.is_some();
-                // The detail rail stands in for the workspace bar — the design
-                // has no bottom sheet on the main screen. Only the old table
-                // (the `DEVTOOLS_UI_TABLE=1` escape hatch) still gets its bar.
-                let split_layout = !crate::ui::repos::table_requested();
-                let mut body = div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .child(div().flex_1().min_h_0().child(self.repos_page.clone()));
-                if !dialog_open && !split_layout {
-                    body = body.child(self.bottom_bar.clone());
-                }
-                body.into_any_element()
-            }
+            Page::Repos => div()
+                .flex_1()
+                .min_h_0()
+                .child(self.repos_page.clone())
+                .into_any_element(),
             Page::Settings => div()
                 .flex_1()
                 .min_h_0()
@@ -1525,4 +1491,51 @@ impl MainWindow {
                 .into_any_element(),
         }
     }
+}
+
+/// The yesterday-summary pill. Lives in the titlebar next to the app name
+/// (rendered by the window), so it works on every page.
+fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
+    let handle = store.clone();
+    div()
+        .id("summary-button")
+        .debug_selector(|| "summary-button".into())
+        .a11y_button(if busy {
+            "Summarizing…"
+        } else {
+            "Daily summary"
+        })
+        .cursor_pointer()
+        // the pill rides in the titlebar's drag region
+        .occlude()
+        .rounded_md()
+        .h(px(30.))
+        .px_2p5()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .text_size(px(theme::font_small()))
+        .text_decoration_none()
+        .when(busy, |d| d.text_color(theme::ACCENT))
+        .when(!busy, |d| d.text_color(theme::TEXT_DIM))
+        .bg(theme::CHIP)
+        .hover(|s| s.opacity(0.9))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click({
+            let store = handle.clone();
+            move |_, _, cx| {
+                store.update(cx, |s, cx| s.run_summary(cx));
+            }
+        })
+        .child(icon(
+            "icons/icon-agent-sparkle.svg",
+            px(theme::icon_small() - 1.),
+            if busy { theme::ACCENT } else { theme::TEXT_DIM },
+        ))
+        .child(if busy {
+            "summarizing…"
+        } else {
+            "Daily summary"
+        })
+        .into_any_element()
 }

@@ -1,10 +1,6 @@
-//! Headless probe for the repos table: a real Store + MainWindow pair drawn
-//! in a test window, driven through the kit's own selection path — the row
-//! click handler, the TableEvent subscription and the store's selection all
-//! verified without a display.
-//!
-//! The app's main screen is the split list + detail rail now, so this binary
-//! asks for the legacy table layout before it draws.
+//! Headless probes for the repos page's flows: real Store + MainWindow pairs
+//! drawn in a test window, covering the toasts, the sheet's branch picker, the
+//! background passes, the dialogs and the folder grouping.
 
 use devtools::store::Store;
 use devtools::store::projection::ProjectedRow;
@@ -14,10 +10,17 @@ use gpui::TestAppContext;
 use gpui::prelude::*;
 use std::path::PathBuf;
 
-/// Every scenario in this file drives the data table, which only renders
-/// behind `DEVTOOLS_UI_TABLE=1` — the main screen is the split layout.
-fn table_layout() {
-    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
+/// Points HOME at a scratch folder: `Store::new` reads the settings file under
+/// it, and what a probe saves must never reach the developer's real one.
+fn scratch_home() {
+    static HOME: std::sync::Once = std::sync::Once::new();
+    HOME.call_once(|| {
+        let home =
+            std::env::temp_dir().join(format!("devtools-repos-probe-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".devtools")).expect("scratch home");
+        // SAFETY: process-global env; every probe here calls this first
+        unsafe { std::env::set_var("HOME", &home) };
+    });
 }
 
 fn entry(name: &str, path: &str, tags: &[&str]) -> RepoEntry {
@@ -57,153 +60,13 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
     })
 }
 
-#[gpui::test]
-fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    // the centering wrapper fills the row minus the kit's own 4+4 cell
-    // padding (48px row → 40px column), rows advance by one row height, and
-    // the name cell sits centered inside its row
-    let wrap0 = cx.debug_bounds("repos-td-wrap-0").expect("row 0 renders");
-    let wrap1 = cx.debug_bounds("repos-td-wrap-1").expect("row 1 renders");
-    assert!(
-        (wrap0.size.height - gpui::px(40.)).abs() < gpui::px(2.),
-        "cells fill the row minus the kit's cell padding (got {:?})",
-        wrap0.size.height
-    );
-    let row_pitch = wrap1.origin.y - wrap0.origin.y;
-    assert!(
-        (row_pitch - gpui::px(48.)).abs() < gpui::px(2.),
-        "rows advance by the 48px row height (got {row_pitch})",
-    );
-    let cell = cx
-        .debug_bounds("repos-name-cell-0")
-        .expect("name cell renders");
-    let cell_mid = cell.origin.y + cell.size.height / 2.;
-    let wrap_mid = wrap0.origin.y + wrap0.size.height / 2.;
-    assert!(
-        (cell_mid - wrap_mid).abs() < gpui::px(2.),
-        "the name cell centers in its row (cell mid {cell_mid} vs row mid {wrap_mid})"
-    );
-
-    // the table's own selected-row API drives the same path a click does
-    let selected_before = cx.read_entity(&store, |s, _| s.selected_repo.clone());
-    assert!(selected_before.is_none());
-
-    // click into the first row through the real event pipeline; the target
-    // comes from the drawn bounds, not a hard-coded offset, so a pane-head
-    // height change cannot silently move the click
-    let target = wrap0.center();
-    cx.simulate_mouse_down(target, gpui::MouseButton::Left, gpui::Modifiers::default());
-    cx.simulate_mouse_up(target, gpui::MouseButton::Left, gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let selected = cx.read_entity(&store, |s, _| s.selected_repo.clone());
-    assert_eq!(
-        selected.as_deref(),
-        Some("/probe/alpha"),
-        "clicking the first row should select alpha (got {selected:?})"
-    );
-}
-
-/// A dialog is a modal over the whole workspace: while it is open the page
-/// takes the body height (the bar would otherwise paint over the dialog's
-/// footer) and Escape brings the bar back.
-#[gpui::test]
-fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx)
-    });
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(cx.debug_bounds("bar-root").is_some(), "bar starts open");
-
-    let add = cx
-        .debug_bounds("add-repo-button")
-        .expect("add-repository button in the toolbar");
-    cx.simulate_click(
-        gpui::point(
-            add.origin.x + add.size.width / 2.,
-            add.origin.y + add.size.height / 2.,
-        ),
-        gpui::Modifiers::default(),
-    );
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    assert!(
-        cx.debug_bounds("add-repo-overlay").is_some(),
-        "dialog is open",
-    );
-    assert!(
-        cx.debug_bounds("bar-root").is_none(),
-        "the bar must yield the body height to the dialog",
-    );
-
-    cx.simulate_keystrokes("escape");
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(
-        cx.debug_bounds("add-repo-overlay").is_none(),
-        "Escape closes the dialog",
-    );
-    assert!(
-        cx.debug_bounds("bar-root").is_some(),
-        "the bar comes back after the dialog closes",
-    );
-}
-
-#[gpui::test]
-fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/beta".into()), cx)
-    });
-    cx.run_until_parked();
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.selected_repo.clone())
-            .as_deref(),
-        Some("/probe/beta")
-    );
-    assert!(cx.read_entity(&store, |s, _| s.selected_entry().is_some()));
-
-    cx.update_entity(&store, |s: &mut Store, cx| s.select_repo(None, cx));
-    assert!(cx.read_entity(&store, |s, _| s.selected_repo.is_none()));
-}
-
 /// App alerts surface as toasts in the window's bottom-right corner, not as
 /// inline header text: a store push renders a severity card, and its close
 /// button removes exactly that card.
 #[gpui::test]
 fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -248,102 +111,6 @@ fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
     );
 }
 
-/// The branch dropdown follows the kebab menu's dismissal contract: Escape
-/// closes it, a click anywhere outside the card closes it, and picking a
-/// branch closes it — only the toggle button reopens it.
-#[gpui::test]
-fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
-    use devtools_core::model::{GitBranchKind, GitBranchRef};
-
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        // the branch selector lives on the Changes tab
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
-        s.branches = vec![
-            GitBranchRef {
-                name: "main".into(),
-                kind: GitBranchKind::Local,
-            },
-            GitBranchRef {
-                name: "feature".into(),
-                kind: GitBranchKind::Local,
-            },
-        ];
-    });
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let open_menu = |cx: &mut gpui::VisualTestContext| {
-        let button = cx
-            .debug_bounds("branch-button")
-            .expect("the branch selector renders in the rail");
-        cx.simulate_click(button.center(), gpui::Modifiers::default());
-        cx.run_until_parked();
-        cx.update(|window, cx| drop(window.draw(cx)));
-    };
-
-    open_menu(cx);
-    assert!(
-        cx.debug_bounds("branch-menu").is_some(),
-        "the dropdown opens"
-    );
-
-    cx.simulate_keystrokes("escape");
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "Escape closes the dropdown"
-    );
-
-    // a click on the tab strip is outside the card: it dismisses the menu
-    open_menu(cx);
-    let bar = cx.debug_bounds("bar-root").expect("the bar renders");
-    cx.simulate_click(
-        gpui::point(bar.origin.x + gpui::px(60.), bar.origin.y + gpui::px(30.)),
-        gpui::Modifiers::default(),
-    );
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "clicking outside the card closes the dropdown"
-    );
-
-    // picking a branch checks it out and closes the dropdown
-    open_menu(cx);
-    let row = cx
-        .debug_bounds("branch-row-feature")
-        .expect("the filtered branch rows render");
-    cx.simulate_click(row.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "picking a branch closes the dropdown"
-    );
-    assert!(
-        cx.read_entity(&store, |s, _| s.git_busy),
-        "the checkout went out"
-    );
-
-    // the toggle button reopens after all of the above
-    open_menu(cx);
-    assert!(
-        cx.debug_bounds("branch-menu").is_some(),
-        "the dropdown reopens from the button"
-    );
-}
-
 /// The dropdown groups local branches first, then an inert "Remote" label,
 /// then the remote-tracking branches.
 #[gpui::test]
@@ -351,7 +118,7 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -360,8 +127,8 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
         cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.select_repo("/probe/alpha", cx);
+        s.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -422,7 +189,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -431,8 +198,8 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
         cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.select_repo("/probe/alpha", cx);
+        s.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -473,7 +240,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
 #[gpui::test]
 fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -482,8 +249,8 @@ fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
         cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.select_repo("/probe/alpha", cx);
+        s.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
     });
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
@@ -510,7 +277,7 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -519,8 +286,8 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
         cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.select_repo("/probe/alpha", cx);
+        s.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -594,20 +361,17 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
     );
 }
 
-/// Long branch names render head-trimmed: the repos pill is narrower than
-/// the untrimmed name's own ink in the same font, the picker lists the row
-/// under its full name, and picking the trimmed row checks out the full
-/// branch — only the display sheds its head.
+/// Long branch names are only ever trimmed for display: the picker lists the
+/// row under its full name and picking it checks out the full branch.
 #[gpui::test]
-fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext) {
+fn a_long_branch_picks_under_its_full_name(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     const LONG: &str = "users/enginkirmaci/test";
-    const PILL: &str = "branch-pill-users/enginkirmaci/test";
     const ROW: &str = "branch-row-users/enginkirmaci/test";
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     // the receiver stays live so the checkout can be read off the channel;
@@ -628,38 +392,9 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    // the pill sheds its head: narrower than the full name's ink plus the
-    // pill chrome (icon + gap + px_2), whatever font the probes shape with
-    let pill = cx.debug_bounds(PILL).expect("the long branch pill renders");
-    let untrimmed = cx.update(|window, _| {
-        let run = gpui::TextRun {
-            len: LONG.len(),
-            font: gpui::font(devtools::theme::code_font()),
-            color: gpui::Hsla::default(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        };
-        window
-            .text_system()
-            .layout_line(LONG, gpui::px(devtools::theme::font_small()), &[run], None)
-            .width
-    });
-    let chrome = gpui::px(devtools::theme::icon_small() - 2. + 4. + 16.);
-    eprintln!(
-        "DEBUG pill={} untrimmed={} chrome={}",
-        pill.size.width, untrimmed, chrome
-    );
-    assert!(
-        pill.size.width < untrimmed + chrome,
-        "the pill trims its head ({} vs untrimmed {} + chrome)",
-        pill.size.width,
-        untrimmed
-    );
-
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
-        s.set_tab(devtools::store::BottomBarTab::Changes, cx);
+        s.select_repo("/probe/alpha", cx);
+        s.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: LONG.into(),
@@ -714,7 +449,7 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
 #[gpui::test]
 fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     let store = fake_store(cx);
     let store_handle = store.clone();
     let (_window_handle, cx) =
@@ -744,7 +479,7 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
     use devtools::net::{UiEvent, WarpWorkspaceStatus};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
@@ -783,21 +518,20 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
 }
 
 /// Switching repos resets the whole per-repo workspace: snapshot, branches,
-/// history, drafts, wand state and the busy flags — the bar never shows the
+/// history, drafts, wand state and the busy flags — the rail never shows the
 /// previous repo's detail.
 #[gpui::test]
 fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
-    use devtools::store::BottomBarTab;
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
 
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.select_repo("/probe/alpha", cx);
         // prime everything the switch must clear (repo A's state)
         s.set_changes(None);
         s.branches = vec![GitBranchRef {
@@ -811,34 +545,30 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
             date: chrono::Local::now(),
         }];
         s.unpushed = Some(["abc".to_string()].into_iter().collect());
-        s.last_git_error = Some("stale".into());
         s.commit_message_draft = Some("A's draft".into());
         s.readme_draft = Some("A's readme".into());
         s.wand_busy = Some(devtools::net::WandKind::Commit);
         s.wand_repo = Some("/probe/alpha".into());
         s.wand_error = Some("stale".into());
         s.git_busy = true;
-        s.selected_tab = BottomBarTab::PullRequests;
     });
 
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/beta".into()), cx);
+        s.select_repo("/probe/beta", cx);
     });
     cx.run_until_parked();
 
     cx.read_entity(&store, |s, _| {
         assert_eq!(s.selected_repo.as_deref(), Some("/probe/beta"));
-        assert_eq!(s.selected_tab, BottomBarTab::Overview);
         assert!(s.branches.is_empty(), "branches reset");
         assert!(s.recent_commits.is_empty(), "history reset");
         assert!(s.unpushed.is_none(), "unpushed reset");
-        assert!(s.last_git_error.is_none(), "git error reset");
         assert!(s.commit_message_draft.is_none(), "commit draft reset");
         assert!(s.readme_draft.is_none(), "readme draft reset");
         assert!(s.wand_error.is_none(), "wand error reset");
         assert!(!s.git_busy, "git busy reset");
         // the in-flight run keeps its busy flag but loses its repo: it can
-        // no longer land a draft into beta's bar
+        // no longer land a draft on beta
         assert_eq!(s.wand_repo, None);
     });
 }
@@ -850,13 +580,13 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
     use devtools::net::{UiEvent, WandKind};
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
 
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/alpha".into()), cx);
+        s.select_repo("/probe/alpha", cx);
     });
     // the run was kicked for alpha, the user has since moved to beta
     cx.update_entity(&store, |s, _| {
@@ -864,7 +594,7 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
         s.wand_repo = Some("/probe/alpha".into());
     });
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo(Some("/probe/beta".into()), cx);
+        s.select_repo("/probe/beta", cx);
         s.wand_busy = Some(WandKind::Commit);
         s.wand_repo = Some("/probe/alpha".into());
     });
@@ -883,7 +613,7 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
         assert!(s.wand_busy.is_none(), "the run ended");
         assert!(
             s.commit_message_draft.is_none(),
-            "alpha's draft never lands in beta's bar"
+            "alpha's draft never lands in beta's commit box"
         );
     });
 
@@ -908,37 +638,6 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
     });
 }
 
-/// Table rows center their content: the first row's name cell sits on the
-/// row's vertical center. The td wrapper must leave the kit's own 4+4 cell
-/// padding free — at the full row height it overflows 8px and everything
-/// rides ~4px low.
-#[gpui::test]
-fn table_rows_center_their_content(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let header = cx
-        .debug_bounds("repos-header")
-        .expect("table header renders");
-    let name = cx
-        .debug_bounds("repos-name-cell-0")
-        .expect("the first row renders");
-    let row_center = header.bottom() + gpui::px(devtools::theme::TABLE_ROW_H / 2.);
-    let cell_center = name.origin.y + name.size.height / 2.;
-    assert!(
-        (cell_center - row_center).abs() <= gpui::px(2.),
-        "row content must sit on the row center (cell {cell_center} vs row {row_center})"
-    );
-}
-
 /// DEVTOOLS_AUTO_FETCH_SECS is process-global and Store construction reads
 /// it, so the auto-fetch probes take turns: a sibling's env window must not
 /// flip another probe's schedule mode.
@@ -955,7 +654,7 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     // SAFETY: process-global env, held exclusively via AUTO_FETCH_ENV
     unsafe { std::env::set_var("DEVTOOLS_AUTO_FETCH_SECS", "1") };
@@ -1043,7 +742,7 @@ fn auto_fetch_focus_gate_holds_the_pass_until_a_window_is_focused(cx: &mut TestA
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     let scratch = std::env::temp_dir().join(format!(
         "devtools-auto-fetch-focus-{}.json",
@@ -1121,7 +820,7 @@ fn auto_fetch_gate_alone_fetches_once(cx: &mut TestAppContext) {
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
 
     let scratch = std::env::temp_dir().join(format!(
         "devtools-auto-fetch-once-{}.json",
@@ -1283,20 +982,20 @@ fn row_selector(prefix: &str, row: usize) -> &'static str {
 
 /// The archiving flow: an archived repo leaves the projection (and every
 /// background pass) by default, the Archive chip counts it and toggles the
-/// limp rows back on below the live ones, pressing an archived row stays
-/// inert, and its hover-revealed restore action drops the tag, re-probes the
-/// folder and confirms with a toast.
+/// limp rows back on below the live ones, and the rail's menu restores the
+/// selected one: the tag drops, the folder re-probes, a toast confirms.
 #[gpui::test]
 fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
 
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let (net_tx, net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| {
         let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
         store.replace_repos(vec![
             entry("alpha", "/probe/alpha", &["favorites"]),
             entry("beta", "/probe/beta", &["archived"]),
@@ -1347,35 +1046,10 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
         beta_row, 2,
         "the archived row sorts below every live repo (favorites first)"
     );
-    assert!(
-        cx.debug_bounds(row_selector("repos-restore-", beta_row))
-            .is_some(),
-        "the archived row carries the hover-revealed restore action"
-    );
-
-    // pressing the archived row must not select it nor open the bar
-    let wrap = cx
-        .debug_bounds(row_selector("repos-td-wrap-", beta_row))
-        .expect("the archived row renders");
-    cx.simulate_click(wrap.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(
-        cx.read_entity(&store, |s, _| s.selected_repo.is_none()),
-        "an archived row press must not select the repo"
-    );
-    assert!(
-        cx.debug_bounds("bar-root").is_none(),
-        "the bar must not open on an archived row"
-    );
-
-    // restore: the tag drops, the folder re-probes, a toast confirms
-    let restore = cx
-        .debug_bounds(row_selector("repos-restore-", beta_row))
-        .expect("the restore action renders");
-    cx.simulate_click(restore.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
+    // restore: the rail's menu acts on the row it opened on
+    dialog_click(cx, row_selector("repo-row-", beta_row));
+    dialog_click(cx, "insp-more");
+    dialog_click(cx, "insp-menu-archive");
     assert!(
         !cx.read_entity(&store, |s, _| s
             .repos
@@ -1398,194 +1072,6 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
         cx.debug_bounds("toast-0").is_some(),
         "restore confirms with a toast"
     );
-}
-
-fn entry_with_branch(name: &str, path: &str, branch: &str) -> RepoEntry {
-    let mut repo = entry(name, path, &[]);
-    repo.git_branch_name = Some(branch.into());
-    repo
-}
-
-/// The columns are sized dynamically: the branch column hugs the widest
-/// branch in the projection and the name column absorbs whatever is left, so
-/// the widths always fill the table's available width exactly.
-#[gpui::test]
-fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-
-    let store = fake_store(cx);
-    cx.update_entity(&store, |s: &mut Store, _| {
-        s.repos.push(entry_with_branch(
-            "delta",
-            "/probe/delta",
-            "release/feature-x",
-        ));
-        // reproject also refreshes the widest-branch width the delegate reads
-        s.reproject_pub();
-    });
-
-    cx.update(|cx| {
-        let available = gpui::px(1100.);
-        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), available);
-        use gpui_kit::component::table::TableDelegate as _;
-
-        let count = delegate.columns_count(cx);
-        let widths: Vec<gpui::Pixels> = (0..count).map(|ix| delegate.column(ix, cx).width).collect();
-        let name = widths[1];
-        let branch = widths[3]; // shortcuts sits between name and branch
-        let others: gpui::Pixels = widths
-            .iter()
-            .enumerate()
-            .filter(|(ix, _)| *ix != 1)
-            .map(|(_, w)| *w)
-            .sum();
-
-        // branch hugs the widest branch: "release/feature-x" = 17 chars
-        assert_eq!(branch, gpui::px(56. + 17. * 7.8));
-        assert!(name >= gpui::px(140.), "the name column keeps its floor (got {name})");
-        assert!(
-            (others + name - available).abs() < gpui::px(1.),
-            "columns must fill the available width exactly (others {others} + name {name} vs {available})"
-        );
-
-        // a huge branch clamps at the ceiling instead of starving the name
-        store.update(cx, |s, _| {
-            if let Some(repo) = s.repos.last_mut() {
-                repo.git_branch_name =
-                    Some("release/an-extremely-long-branch-name-for-clamping".into());
-            }
-            s.reproject_pub();
-        });
-        let branch = delegate.column(3, cx).width;
-        let budget = devtools::ui::BRANCH_LABEL_CHARS as f32;
-        assert_eq!(
-            branch,
-            gpui::px(56. + budget * 7.8),
-            "branch width clamps at the trimmed label budget"
-        );
-    });
-}
-
-/// Narrow windows drop the time/GitHub/Azure columns and finally shrink the
-/// changes cell to its badge-only form; at every width the columns still fit
-/// the table (no horizontal scrollbar) and the name keeps its floor.
-#[gpui::test]
-fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-
-    let store = fake_store(cx);
-    cx.update(|cx| {
-        use gpui_kit::component::table::TableDelegate as _;
-
-        for available in [674., 700., 760., 854., 960., 1100., 1234.] {
-            let delegate =
-                devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(available));
-            let count = delegate.columns_count(cx);
-            let widths: Vec<gpui::Pixels> =
-                (0..count).map(|ix| delegate.column(ix, cx).width).collect();
-            let sum: gpui::Pixels = widths.iter().copied().sum();
-
-            assert!(
-                sum <= gpui::px(available) + gpui::px(1.),
-                "columns must fit {available}px, got {widths:?} (sum {sum})"
-            );
-            assert!(
-                widths[1] >= gpui::px(140.),
-                "the name column keeps its floor at {available}px (got {})",
-                widths[1]
-            );
-            assert!(
-                widths[4] >= gpui::px(80.) && widths[4] <= gpui::px(154.),
-                "the changes column stays usable at {available}px (got {})",
-                widths[4]
-            );
-            assert_eq!(
-                widths[0],
-                gpui::px(36.),
-                "star column leads at {available}px"
-            );
-            assert!(
-                widths[2] > gpui::px(100.),
-                "launcher buttons stay at {available}px (got {})",
-                widths[2]
-            );
-        }
-    });
-}
-
-/// The toolbar's sort dropdown is gone: the table headers are the only sort
-/// controls. A Branch header sort must reach the store as RepoSortMode::Branch
-/// and reorder the projection. The header path persists the mode, so the
-/// probe runs under a temp HOME.
-#[gpui::test]
-fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
-    use devtools_core::settings::RepoSortMode;
-    use gpui_kit::component::table::{ColumnSort, TableDelegate as _};
-
-    let home = std::env::temp_dir().join(format!("devtools-sort-probe-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    std::fs::create_dir_all(home.join(".devtools")).unwrap();
-    // SAFETY: process-global env; other tests in this binary tolerate a
-    // default-settings store, so a racing HOME read is harmless
-    unsafe { std::env::set_var("HOME", &home) };
-
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    cx.update_entity(&store, |s: &mut Store, _| {
-        // alpha ships as a favorite; favorites float above every sort
-        s.repos[0].tags.clear();
-        s.repos[0].git_branch_name = Some("zeta".into());
-        s.repos[1].git_branch_name = Some("alpha".into());
-        // gamma keeps the entry default ("main")
-    });
-
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    cx.update(|window, cx| {
-        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(1100.));
-        let branch_ix = (0..delegate.columns_count(cx))
-            .find(|&ix| delegate.column(ix, cx).key == "branch")
-            .expect("the branch column is visible at 1100px");
-        let table = cx.new(|cx| gpui_kit::component::table::TableState::new(delegate, window, cx));
-        table.update(cx, |state, cx| {
-            state
-                .delegate_mut()
-                .perform_sort(branch_ix, ColumnSort::Ascending, window, cx);
-        });
-    });
-
-    let (mode, ascending) = cx.read_entity(&store, |s, _| (s.sort_mode, s.sort_ascending));
-    assert_eq!(
-        mode,
-        RepoSortMode::Branch,
-        "the branch header maps to the Branch mode"
-    );
-    assert!(ascending, "Ascending lands as ascending");
-    let order = cx.read_entity(&store, |s, _| {
-        s.projected
-            .iter()
-            .map(|row| match row {
-                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
-                ProjectedRow::Group { .. } => panic!("no headers expected while grouping is off"),
-            })
-            .collect::<Vec<_>>()
-    });
-    assert_eq!(
-        order,
-        vec!["beta", "gamma", "alpha"],
-        "branches alpha < main < zeta order the rows"
-    );
-
-    let _ = std::fs::remove_dir_all(&home);
 }
 
 fn scanned(name: &str, path: &str) -> devtools_core::scan::ScannedRepo {
@@ -1617,7 +1103,7 @@ fn dialog_draw(cx: &mut gpui::VisualTestContext) {
 #[gpui::test]
 fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -1744,7 +1230,7 @@ fn register_repos_persists_new_folders_as_scan_roots(cx: &mut TestAppContext) {
 #[gpui::test]
 fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     // a missing scratch file = default settings = NuGet + warp chips on, the
@@ -1826,7 +1312,7 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
 #[gpui::test]
 fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -1877,67 +1363,6 @@ fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("clone-overlay").is_some());
 }
 
-/// The kit's header sort glyphs and click cycle read the cached column
-/// groups, so the delegate must hand back the store's live sort state: the
-/// active column carries the direction, everything else stays unsorted.
-#[gpui::test]
-fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
-    use devtools_core::settings::RepoSortMode;
-    use gpui_kit::component::table::ColumnSort;
-
-    cx.update(gpui_kit::init);
-    table_layout();
-
-    let store = fake_store(cx);
-    cx.update_entity(&store, |s: &mut Store, _| {
-        // in-memory only: the probe must not rewrite the real settings file
-        s.sort_mode = RepoSortMode::LastActivity;
-        s.sort_ascending = false;
-    });
-
-    cx.update(|cx| {
-        let available = gpui::px(1100.);
-        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), available);
-        use gpui_kit::component::table::TableDelegate as _;
-
-        // columns: star, name, shortcuts, branch, changes, …, last activity
-        let activity_ix = delegate.columns_count(cx) - 1;
-        assert!(
-            matches!(
-                delegate.column(activity_ix, cx).sort,
-                Some(ColumnSort::Descending)
-            ),
-            "the active column shows its direction"
-        );
-        assert!(
-            matches!(delegate.column(1, cx).sort, Some(ColumnSort::Default)),
-            "inactive columns stay unsorted"
-        );
-    });
-
-    cx.update_entity(&store, |s: &mut Store, _| {
-        s.sort_mode = RepoSortMode::Name;
-        s.sort_ascending = true;
-    });
-    cx.update(|cx| {
-        let delegate = devtools::ui::repos::ReposDelegate::new(store.clone(), gpui::px(1100.));
-        use gpui_kit::component::table::TableDelegate as _;
-
-        assert!(
-            matches!(delegate.column(1, cx).sort, Some(ColumnSort::Ascending)),
-            "switching modes hands the arrow to the new column"
-        );
-        let activity_ix = delegate.columns_count(cx) - 1;
-        assert!(
-            matches!(
-                delegate.column(activity_ix, cx).sort,
-                Some(ColumnSort::Default)
-            ),
-            "the previous column drops back to unsorted"
-        );
-    });
-}
-
 // ---- repo groups by folder -------------------------------------------------
 
 /// Leaks a per-key selector for debug_bounds (which wants 'static).
@@ -1976,13 +1401,12 @@ fn grouped_store(cx: &mut TestAppContext, probe: &str) -> gpui::Entity<Store> {
     })
 }
 
-/// The grouped table: header rows render keyed by their root with name and
-/// count selectors, the "Other" fallback sorts last, and repo rows keep the
-/// 48px pitch across the interleaved headers.
+/// The grouped list: bands render keyed by their root and interleave before
+/// their repos, and the "Other" fallback sorts last.
 #[gpui::test]
-fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
+fn grouped_bands_render_in_folder_order(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = grouped_store(cx, "render");
@@ -2017,49 +1441,15 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
 
     for key in ["/roots/a", "/second/b", "other"] {
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", key))
-                .is_some(),
-            "the {key} header row renders"
+            cx.debug_bounds(key_selector("repo-band-", key)).is_some(),
+            "the {key} band renders"
         );
         assert!(
-            cx.debug_bounds(key_selector(
-                "repos-group-header-",
-                &format!("{key}-chevron")
-            ))
-            .is_some(),
-            "the {key} chevron renders"
-        );
-        assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-count")))
+            cx.debug_bounds(key_selector("repo-band-solo-", key))
                 .is_some(),
-            "the {key} count chip renders"
-        );
-        assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", &format!("{key}-solo")))
-                .is_some(),
-            "the {key} solo filter renders"
+            "the {key} solo glyph renders"
         );
     }
-
-    // repo rows advance by the 48px row height across the interleaved
-    // headers (row 0 is the /roots/a header, rows 1-2 its repos)
-    let wrap1 = cx.debug_bounds("repos-td-wrap-1").expect("row 1 renders");
-    let wrap2 = cx.debug_bounds("repos-td-wrap-2").expect("row 2 renders");
-    let pitch = wrap2.origin.y - wrap1.origin.y;
-    assert!(
-        (pitch - gpui::px(48.)).abs() < gpui::px(2.),
-        "rows keep the 48px pitch across headers (got {pitch})"
-    );
-    // a header occupies the same 48px band: the cell wrapper leaves the
-    // kit's 4+4 padding free, like every repo row
-    let wrap0 = cx
-        .debug_bounds("repos-td-wrap-0")
-        .expect("header row renders");
-    assert!(
-        (wrap0.size.height - gpui::px(40.)).abs() < gpui::px(2.),
-        "header cells fill the row minus the kit's padding (got {:?})",
-        wrap0.size.height
-    );
 
     let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
         "devtools-groups-render-{}.json",
@@ -2067,98 +1457,14 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
     )));
 }
 
-/// The chevron collapses its group: the header stays with its count, the
-/// group's repo rows leave the projection, the state persists into the
-/// settings, and a second click restores the rows and clears the key.
-#[gpui::test]
-fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = grouped_store(cx, "collapse");
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let names = |store: &gpui::Entity<Store>, cx: &gpui::VisualTestContext| -> Vec<String> {
-        cx.read_entity(store, |s, _| {
-            s.projected
-                .iter()
-                .filter_map(|row| {
-                    let ix = row.repo_index()?;
-                    Some(s.repos[ix].name.clone())
-                })
-                .collect::<Vec<_>>()
-        })
-    };
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.projected.len()),
-        7,
-        "two headers + four repos before collapsing"
-    );
-
-    let chevron = cx
-        .debug_bounds("repos-group-header-/roots/a-chevron")
-        .expect("the /roots/a chevron renders");
-    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.projected.len()),
-        5,
-        "collapsing /roots/a drops exactly its two repo rows"
-    );
-    assert_eq!(
-        names(&store, cx),
-        vec!["gamma", "delta"],
-        "only the other groups' repos remain projected"
-    );
-    assert!(
-        cx.debug_bounds("repos-group-header-/roots/a").is_some(),
-        "the collapsed group keeps its header row"
-    );
-    assert!(
-        cx.read_entity(&store, |s, _| s.selected_repo.is_none()),
-        "a collapse never selects anything"
-    );
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
-        Some(vec!["/roots/a".to_string()]),
-        "the collapsed key persists into the settings"
-    );
-
-    // a second click restores the rows and empties the persisted key
-    let chevron = cx
-        .debug_bounds("repos-group-header-/roots/a-chevron")
-        .expect("the chevron survives the collapse");
-    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 7);
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups.clone()),
-        None,
-        "expanding the last collapsed group clears the key list"
-    );
-
-    let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
-        "devtools-groups-collapse-{}.json",
-        std::process::id()
-    )));
-}
-
 /// Depth-level grouping: depth 1 puts the one header on the scan roots'
-/// shared folder (the default), the chevron persists that key, and
+/// shared folder (the default), pressing it persists that key, and
 /// set_group_depth(2) live-moves the header one folder up without a rescan.
 #[gpui::test]
 fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
     cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     let scratch =
@@ -2204,18 +1510,18 @@ fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext)
         "depth 1 folds every repo under the root into one header"
     );
     assert!(
-        cx.debug_bounds("repos-group-header-/roots").is_none(),
-        "the parent-folder header is not where depth 1 puts it"
+        cx.debug_bounds("repo-band-/roots").is_none(),
+        "the parent-folder band is not where depth 1 puts it"
     );
     assert!(
-        cx.debug_bounds("repos-group-header-/roots/a").is_some(),
-        "the shared-folder header renders"
+        cx.debug_bounds("repo-band-/roots/a").is_some(),
+        "the shared-folder band renders"
     );
 
-    let chevron = cx
-        .debug_bounds("repos-group-header-/roots/a-chevron")
-        .expect("the shared-folder chevron renders");
-    cx.simulate_click(chevron.center(), gpui::Modifiers::default());
+    let band = cx
+        .debug_bounds("repo-band-/roots/a")
+        .expect("the shared-folder band renders");
+    cx.simulate_click(band.center(), gpui::Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     assert_eq!(
@@ -2255,81 +1561,12 @@ fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext)
     );
 }
 
-/// The header's solo filter narrows the table to that one group (and lights
-/// the toolbar's Clear), and the Clear button restores the full projection.
+/// Without the grouping setting the list stays flat: no bands anywhere and one
+/// row per repo.
 #[gpui::test]
-fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
+fn grouping_off_keeps_the_list_flat(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    table_layout();
-    cx.update(devtools::theme::apply_kit_theme);
-
-    let store = grouped_store(cx, "solo");
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    assert!(
-        cx.debug_bounds("clear-button").is_none(),
-        "no Clear before a filter"
-    );
-
-    let solo = cx
-        .debug_bounds("repos-group-header-/roots/a-solo")
-        .expect("the /roots/a solo icon renders");
-    cx.simulate_click(solo.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.group_filter.clone())
-            .as_deref(),
-        Some("/roots/a"),
-        "soloing sets the session group filter"
-    );
-    let sketch = cx.read_entity(&store, |s, _| {
-        s.projected
-            .iter()
-            .map(|row| match row {
-                ProjectedRow::Repo(ix) => s.repos[*ix].name.clone(),
-                ProjectedRow::Group { key, .. } => format!("#{key}"),
-            })
-            .collect::<Vec<_>>()
-    });
-    assert_eq!(
-        sketch,
-        vec!["#/roots/a", "alpha", "beta"],
-        "only the soloed group's rows survive"
-    );
-    assert!(
-        cx.debug_bounds("clear-button").is_some(),
-        "the Clear button appears for a solo filter"
-    );
-
-    // Clear restores the full projection and the filter
-    let clear = cx.debug_bounds("clear-button").expect("Clear renders");
-    cx.simulate_click(clear.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    assert!(cx.read_entity(&store, |s, _| s.group_filter.is_none()));
-    assert_eq!(cx.read_entity(&store, |s, _| s.projected.len()), 7);
-    assert!(
-        cx.debug_bounds("clear-button").is_none(),
-        "Clear retires once nothing is filtered"
-    );
-
-    let _ = std::fs::remove_file(
-        std::env::temp_dir().join(format!("devtools-groups-solo-{}.json", std::process::id())),
-    );
-}
-
-/// Without the grouping setting the table stays flat: no header selectors
-/// anywhere and one row per repo.
-#[gpui::test]
-fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    table_layout();
+    scratch_home();
     cx.update(devtools::theme::apply_kit_theme);
 
     // same scan roots, no GroupReposByRoot — the setting's absence means off
@@ -2369,13 +1606,12 @@ fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
     );
     for key in ["/roots/a", "/roots/b", "other"] {
         assert!(
-            cx.debug_bounds(key_selector("repos-group-header-", key))
-                .is_none(),
-            "no header row renders for {key} while grouping is off"
+            cx.debug_bounds(key_selector("repo-band-", key)).is_none(),
+            "no band renders for {key} while grouping is off"
         );
     }
     assert!(
-        cx.debug_bounds("repos-name-cell-0").is_some(),
+        cx.debug_bounds("repo-row-0").is_some(),
         "row 0 is a repo row, not a header"
     );
 

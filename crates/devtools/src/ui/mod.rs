@@ -1,7 +1,6 @@
 //! ui module: shared helpers + the main window.
 
 pub mod azure_tab;
-pub mod bottom_bar;
 pub mod changes;
 pub mod clipboard_password;
 pub mod dialogs;
@@ -9,11 +8,10 @@ pub mod formatters;
 pub mod inspector;
 pub mod launchers;
 pub mod nuget;
-pub mod overview;
 pub mod pr_issues;
 pub mod readme;
 pub mod repos;
-pub mod repos_proto;
+pub mod repos_list;
 pub mod settings;
 pub mod window;
 pub mod workspace_sheet;
