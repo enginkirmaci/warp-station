@@ -115,9 +115,9 @@ pub struct Store {
     /// E2E hook: DEVTOOLS_NOTES=1 asks for Notes on launch; the main
     /// window's render drains it into a warp-notes launch.
     pub notes_requested: bool,
-    /// Set by the rail's "Commit…" (or the C key); the window drains it into
-    /// the Changes drawer. A flag keeps the rail from knowing the shell.
-    pub changes_requested: bool,
+    /// The workspace sheet tab something asked for; the window drains it, so
+    /// the rail and the keymap never have to know the shell.
+    pub sheet_request: Option<WorkspaceTab>,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -131,6 +131,8 @@ pub struct Store {
     save_generation: u64,
     /// Bottom-panel height in logical px, shared by every tab (drag the top edge).
     pub bar_height: f32,
+    /// The workspace sheet's height in logical px (drag its top edge).
+    pub sheet_height: f32,
     /// Latest NuGet watch service snapshot (watching, count, activity log).
     pub nuget: Arc<devtools_core::nuget::NugetSnapshot>,
     /// Distinct tags across the list (filter chip row), recomputed on
@@ -194,6 +196,7 @@ impl Store {
             projection_generation: 0,
             selected_repo: None,
             bar_height: 440.0,
+            sheet_height: 520.0,
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
@@ -230,7 +233,10 @@ impl Store {
             global_search: Vec::new(),
             // E2E hook: DEVTOOLS_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1"),
-            changes_requested: std::env::var("DEVTOOLS_CHANGES").as_deref() == Ok("1"),
+            // E2E hook: DEVTOOLS_SHEET=<tab> opens the workspace sheet on launch
+            sheet_request: std::env::var("DEVTOOLS_SHEET")
+                .ok()
+                .and_then(|tab| WorkspaceTab::parse(&tab)),
             commit_details: None,
             commit_file_patch: None,
             next_auto_fetch: None,
@@ -1341,6 +1347,12 @@ impl Store {
         cx.notify();
     }
 
+    /// Asks the window to open the workspace sheet on `tab`.
+    pub fn open_sheet(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
+        self.sheet_request = Some(tab);
+        cx.notify();
+    }
+
     /// Selects the repo without the row-press toggle (the row's notes button
     /// must keep the bar open even when the repo is already selected).
     pub fn ensure_repo_selected(&mut self, folder: &str, cx: &mut Context<Self>) {
@@ -1931,6 +1943,54 @@ impl BottomBarTab {
         .into_iter()
         .find(|tab| tab.label().eq_ignore_ascii_case(text.trim()))
         .unwrap_or(BottomBarTab::Overview)
+    }
+}
+
+/// The workspace sheet's tabs, in the strip's order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceTab {
+    Changes,
+    PullRequests,
+    Issues,
+    Pipelines,
+    Readme,
+}
+
+impl WorkspaceTab {
+    pub const ALL: [WorkspaceTab; 5] = [
+        WorkspaceTab::Changes,
+        WorkspaceTab::PullRequests,
+        WorkspaceTab::Issues,
+        WorkspaceTab::Pipelines,
+        WorkspaceTab::Readme,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkspaceTab::Changes => "Changes",
+            WorkspaceTab::PullRequests => "Pull requests",
+            WorkspaceTab::Issues => "Issues",
+            WorkspaceTab::Pipelines => "Pipelines",
+            WorkspaceTab::Readme => "README",
+        }
+    }
+
+    /// The tab's strip element, for its id and the probes' selectors.
+    pub fn selector(self) -> &'static str {
+        match self {
+            WorkspaceTab::Changes => "sheet-tab-changes",
+            WorkspaceTab::PullRequests => "sheet-tab-pulls",
+            WorkspaceTab::Issues => "sheet-tab-issues",
+            WorkspaceTab::Pipelines => "sheet-tab-pipelines",
+            WorkspaceTab::Readme => "sheet-tab-readme",
+        }
+    }
+
+    /// Case-insensitive label lookup.
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|tab| tab.label().eq_ignore_ascii_case(text.trim()))
     }
 }
 

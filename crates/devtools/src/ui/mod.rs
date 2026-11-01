@@ -11,10 +11,12 @@ pub mod launchers;
 pub mod nuget;
 pub mod overview;
 pub mod pr_issues;
+pub mod readme;
 pub mod repos;
 pub mod repos_proto;
 pub mod settings;
 pub mod window;
+pub mod workspace_sheet;
 
 pub use warpui_kit_core::{A11y, icon};
 

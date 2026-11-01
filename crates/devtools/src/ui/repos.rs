@@ -872,21 +872,11 @@ impl ReposPage {
             .child(actions);
 
         // Scope segmented control: one row of filters, counts included.
-        let scope = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_0p5()
-            .h(px(26.))
-            .p(px(2.))
-            .rounded(px(5.))
-            .border_1()
-            .border_color(theme::SEG_BORDER)
-            .bg(theme::SEG_BG)
-            .child(scope_item(
+        let scope = segment_row()
+            .child(segment(
                 "scope-all",
                 "All",
-                stats.total,
+                Some(stats.total),
                 !attention_only && active_tags.is_empty(),
                 cx.listener(|this, _, _, cx| {
                     this.store.update(cx, |s, cx| {
@@ -897,20 +887,20 @@ impl ReposPage {
                     });
                 }),
             ))
-            .child(scope_item(
+            .child(segment(
                 "scope-attention",
                 "Needs attention",
-                stats.attention,
+                Some(stats.attention),
                 attention_only,
                 cx.listener(|this, _, _, cx| {
                     this.store
                         .update(cx, |s, cx| s.set_attention_only(true, cx));
                 }),
             ))
-            .child(scope_item(
+            .child(segment(
                 "scope-favorites",
                 "Favorites",
-                stats.favorites,
+                Some(stats.favorites),
                 active_tags
                     .iter()
                     .any(|t| t.eq_ignore_ascii_case(devtools_core::repo_store::FAVORITES_TAG)),
@@ -920,10 +910,10 @@ impl ReposPage {
                     });
                 }),
             ))
-            .child(scope_item(
+            .child(segment(
                 "archive-chip",
                 "Archive",
-                archived_count,
+                Some(archived_count),
                 show_archived,
                 cx.listener(|this, _, _, cx| {
                     this.store.update(cx, |s, cx| s.toggle_show_archived(cx));
@@ -1239,18 +1229,40 @@ fn toolbar_action(
         .into_any_element()
 }
 
-/// One scope segment: label, count, and the raised fill when it is the
-/// active filter.
-fn scope_item(
+/// The segmented control's trough: the list's scope row and the workspace
+/// sheet's tabs.
+pub(crate) fn segment_row() -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_0p5()
+        .h(px(26.))
+        .p(px(2.))
+        .rounded(px(5.))
+        .border_1()
+        .border_color(theme::SEG_BORDER)
+        .bg(theme::SEG_BG)
+}
+
+/// One segment: label, count when it has one, and the raised fill when it is
+/// the active choice.
+pub(crate) fn segment(
     id: &'static str,
     label: &'static str,
-    count: usize,
+    count: Option<usize>,
     active: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
     div()
         .id(id)
-        .a11y_toggle(format!("{label} ({count})"), active)
+        .a11y_toggle(
+            match count {
+                Some(count) => format!("{label} ({count})"),
+                None => label.to_string(),
+            },
+            active,
+        )
         .debug_selector(move || id.into())
         .cursor_pointer()
         .rounded(px(3.))
@@ -1270,12 +1282,12 @@ fn scope_item(
         })
         .on_click(on_click)
         .child(label)
-        .child(
+        .children(count.map(|count| {
             div()
                 .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_FAINT)
-                .child(format!("{count}")),
-        )
+                .child(format!("{count}"))
+        }))
         .into_any_element()
 }
 

@@ -4,7 +4,7 @@
 //! the default split layout, which is what the app ships.
 
 use devtools::net::{GitAction, NetCommand};
-use devtools::store::Store;
+use devtools::store::{Store, WorkspaceTab};
 use devtools::ui::window::MainWindow;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::RepoSortMode;
@@ -292,10 +292,6 @@ fn commit_key_opens_the_changes_drawer(cx: &mut TestAppContext) {
     );
     cx.simulate_keystrokes("c");
     cx.run_until_parked();
-    assert!(
-        cx.read_entity(&store, |s, _| s.changes_requested),
-        "the C key raises the request flag"
-    );
     draw(cx);
     assert!(
         cx.debug_bounds("drawer-scrim").is_some(),
@@ -708,7 +704,7 @@ fn open_changes_sheet(
     cx.simulate_keystrokes("c");
     draw(cx);
     draw(cx);
-    assert!(cx.debug_bounds("changes-sheet").is_some(), "C opens it");
+    assert!(cx.debug_bounds("workspace-sheet").is_some(), "C opens it");
     (store, cx)
 }
 
@@ -718,9 +714,9 @@ fn open_changes_sheet(
 fn presses_inside_the_changes_sheet_keep_it_open(cx: &mut TestAppContext) {
     let (_store, cx) = open_changes_sheet(cx);
 
-    click(cx, "changes-sheet");
+    click(cx, "workspace-sheet");
     assert!(
-        cx.debug_bounds("changes-sheet").is_some(),
+        cx.debug_bounds("workspace-sheet").is_some(),
         "a press on the panel stays inside it"
     );
 
@@ -731,7 +727,7 @@ fn presses_inside_the_changes_sheet_keep_it_open(cx: &mut TestAppContext) {
     );
     draw(cx);
     assert!(
-        cx.debug_bounds("changes-sheet").is_none(),
+        cx.debug_bounds("workspace-sheet").is_none(),
         "a press on the scrim closes the sheet"
     );
 }
@@ -755,32 +751,32 @@ fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
         "Escape closes the dropdown"
     );
     assert!(
-        cx.debug_bounds("changes-sheet").is_some(),
+        cx.debug_bounds("workspace-sheet").is_some(),
         "the first Escape leaves the sheet open"
     );
 
     click(cx, "branch-button");
-    click(cx, "changes-sheet");
+    click(cx, "workspace-sheet");
     assert!(
         cx.debug_bounds("branch-menu").is_none(),
         "a press elsewhere in the sheet closes the dropdown"
     );
     assert!(
-        cx.debug_bounds("changes-sheet").is_some(),
+        cx.debug_bounds("workspace-sheet").is_some(),
         "and leaves the sheet open"
     );
 
     click(cx, "branch-button");
-    click(cx, "changes-close");
+    click(cx, "sheet-close");
     assert!(
-        cx.debug_bounds("changes-sheet").is_none(),
+        cx.debug_bounds("workspace-sheet").is_none(),
         "the close button closes the sheet"
     );
     cx.simulate_keystrokes("c");
     draw(cx);
     draw(cx);
     assert!(
-        cx.debug_bounds("changes-sheet").is_some(),
+        cx.debug_bounds("workspace-sheet").is_some(),
         "the window's keys survive the dropdown's filter leaving the tree"
     );
     assert!(
@@ -791,7 +787,7 @@ fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(
-        cx.debug_bounds("changes-sheet").is_none(),
+        cx.debug_bounds("workspace-sheet").is_none(),
         "Escape closes the sheet once its dropdown is gone"
     );
 
@@ -805,7 +801,7 @@ fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     draw(cx);
     assert!(
-        cx.debug_bounds("changes-sheet").is_none(),
+        cx.debug_bounds("workspace-sheet").is_none(),
         "two Escapes close the dropdown, then the sheet"
     );
 }
@@ -1424,6 +1420,263 @@ fn selecting_a_row_asks_github_for_its_details(cx: &mut TestAppContext) {
         asked,
         [PathBuf::from("/probe/alpha"), PathBuf::from("/probe/beta")],
         "the row the rail opens on, then the pressed one"
+    );
+}
+
+fn github_item(number: u64, is_pull_request: bool) -> devtools_core::github::GitHubItem {
+    devtools_core::github::GitHubItem {
+        number,
+        title: format!("item {number}"),
+        url: format!("https://example.invalid/{number}"),
+        author: None,
+        labels: Vec::new(),
+        is_draft: false,
+        review_decision: None,
+        updated_at: None,
+        head_ref_name: None,
+        base_ref_name: None,
+        is_pull_request,
+    }
+}
+
+fn seed_github(
+    store: &gpui::Entity<Store>,
+    folder: &str,
+    pulls: u64,
+    issues: u64,
+    cx: &mut TestAppContext,
+) {
+    let snapshot = devtools_core::github::GitHubSnapshot {
+        available: true,
+        pulls: (0..pulls).map(|n| github_item(n, true)).collect(),
+        issues: (0..issues).map(|n| github_item(100 + n, false)).collect(),
+        ..Default::default()
+    };
+    cx.update_entity(store, |s: &mut Store, _| {
+        s.github_by_folder
+            .insert(folder.to_string(), std::sync::Arc::new(snapshot));
+    });
+}
+
+/// A press in the tab strip swaps the panel; every other stays unmounted.
+#[gpui::test]
+fn the_tab_strip_switches_the_sheets_panel(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "tabs", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 1, cx);
+    let cx = open_window(&store, cx);
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_some());
+
+    click(cx, "sheet-tab-pulls");
+    assert!(cx.debug_bounds("sheet-tab-pulls-panel").is_some());
+    assert!(cx.debug_bounds("pr-list").is_some(), "the PR rows mount");
+    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_none());
+
+    click(cx, "sheet-tab-issues");
+    assert!(cx.debug_bounds("issue-list").is_some(), "so do the issues");
+
+    click(cx, "sheet-tab-readme");
+    assert!(cx.debug_bounds("readme-pane").is_some());
+
+    click(cx, "sheet-tab-pipelines");
+    assert!(cx.debug_bounds("sheet-tab-pipelines-panel").is_some());
+}
+
+/// An integration that is off takes its tabs and its rail section along, and
+/// anything still asking for one of those tabs lands on Changes.
+#[gpui::test]
+fn the_integration_switches_take_their_tabs_along(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "tabs-off", vec![entry("alpha", "/probe/alpha")]);
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| {
+            settings.repos.enable_git_hub = false;
+            settings.repos.enable_azure_dev_ops = false;
+        });
+    });
+    let cx = open_window(&store, cx);
+    assert!(
+        cx.debug_bounds("insp-github-open").is_none(),
+        "the rail's GitHub section leaves"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_sheet(WorkspaceTab::Issues, cx);
+    });
+    draw(cx);
+    draw(cx);
+
+    assert!(cx.debug_bounds("sheet-tab-issues").is_none());
+    assert!(cx.debug_bounds("sheet-tab-pulls").is_none());
+    assert!(cx.debug_bounds("sheet-tab-pipelines").is_none());
+    assert!(
+        cx.debug_bounds("sheet-tab-changes-panel").is_some(),
+        "a tab that is gone falls back to Changes"
+    );
+}
+
+#[gpui::test]
+fn the_rails_links_open_the_sheet_on_their_tab(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "links", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 0, 4, cx);
+    let cx = open_window(&store, cx);
+    let visit = |cx: &mut gpui::VisualTestContext, link: &'static str, panel: &'static str| {
+        click(cx, link);
+        draw(cx);
+        assert!(cx.debug_bounds(panel).is_some(), "{link} opens {panel}");
+        cx.simulate_keystrokes("escape");
+        draw(cx);
+    };
+
+    visit(cx, "insp-commit", "sheet-tab-changes-panel");
+    visit(cx, "insp-readme", "sheet-tab-readme-panel");
+    visit(cx, "insp-github-open", "sheet-tab-issues-panel");
+    visit(cx, "insp-more-issues", "sheet-tab-issues-panel");
+}
+
+/// With no issues the rail's GitHub link goes where the content is.
+#[gpui::test]
+fn the_github_link_prefers_the_tab_with_content(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "links-prs", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 2, 0, cx);
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-github-open");
+    draw(cx);
+
+    assert!(cx.debug_bounds("sheet-tab-pulls-panel").is_some());
+}
+
+#[gpui::test]
+fn the_more_files_link_opens_changes(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "links-files", vec![entry("alpha", "/probe/alpha")]);
+    cx.update_entity(&store, |s: &mut Store, _| {
+        let status_files = (0..4)
+            .map(|n| devtools_core::model::GitChangedFile {
+                path: format!("src/file{n}.rs"),
+                status_code: ".M".into(),
+                additions: None,
+                deletions: None,
+            })
+            .collect();
+        s.selected_repo = Some("/probe/alpha".into());
+        s.set_changes(Some(devtools_core::model::GitChangeSnapshot {
+            status_files,
+            ..Default::default()
+        }));
+        s.changes_loaded_for = Some("/probe/alpha".into());
+    });
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more-files");
+    draw(cx);
+
+    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_some());
+}
+
+/// Azure gets a rail section only for a repo with a project behind it.
+#[gpui::test]
+fn the_rail_shows_azure_only_for_a_project(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "azure-rail", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    assert!(cx.debug_bounds("insp-azure-open").is_none());
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        let snapshot = devtools_core::azure::AzureSnapshot {
+            available: true,
+            ..Default::default()
+        };
+        s.azure_by_folder
+            .insert("/probe/alpha".to_string(), std::sync::Arc::new(snapshot));
+        cx.notify();
+    });
+    draw(cx);
+
+    click(cx, "insp-azure-open");
+    draw(cx);
+    assert!(cx.debug_bounds("sheet-tab-pipelines-panel").is_some());
+}
+
+/// The wand's draft renders in place, and only Save touches the file.
+#[gpui::test]
+fn a_readme_draft_saves_or_discards_from_the_sheet(cx: &mut TestAppContext) {
+    let repo_dir = std::env::temp_dir().join(format!(
+        "devtools-probe-split-readme-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&repo_dir).expect("scratch repo");
+    let readme = repo_dir.join("README.md");
+    std::fs::write(&readme, "# Old\n").expect("seed README");
+
+    let folder = repo_dir.to_string_lossy().to_string();
+    let (store, _net_rx) = scratch_store(cx, "readme", vec![entry("alpha", &folder)]);
+    let cx = open_window(&store, cx);
+    click(cx, "insp-readme");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("readme-save").is_none(),
+        "nothing to save without a draft"
+    );
+
+    let draft = |cx: &mut gpui::VisualTestContext, text: &str| {
+        cx.update_entity(&store, |s: &mut Store, cx| {
+            s.readme_draft = Some(text.to_string());
+            cx.notify();
+        });
+        draw(cx);
+    };
+
+    draft(cx, "# Discarded");
+    click(cx, "readme-discard");
+    assert!(cx.read_entity(&store, |s, _| s.readme_draft.is_none()));
+    assert_eq!(std::fs::read_to_string(&readme).unwrap(), "# Old\n");
+
+    draft(cx, "# New");
+    click(cx, "readme-save");
+    assert_eq!(std::fs::read_to_string(&readme).unwrap(), "# New\n");
+    assert!(
+        cx.debug_bounds("readme-save").is_none(),
+        "the draft is spent once saved"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_dir);
+}
+
+#[gpui::test]
+fn dragging_the_top_edge_resizes_the_sheet(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "drag", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+
+    let start = cx
+        .debug_bounds("sheet-splitter")
+        .expect("the top edge renders")
+        .center();
+    let height = cx.read_entity(&store, |s, _| s.sheet_height);
+    let modifiers = gpui::Modifiers::default();
+
+    cx.simulate_mouse_down(start, gpui::MouseButton::Left, modifiers);
+    draw(cx);
+    let target = gpui::point(start.x, start.y - gpui::px(100.));
+    cx.simulate_mouse_move(target, gpui::MouseButton::Left, modifiers);
+    draw(cx);
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.sheet_height),
+        height + 100.,
+        "up makes it taller"
+    );
+
+    cx.simulate_mouse_up(target, gpui::MouseButton::Left, modifiers);
+    draw(cx);
+    cx.simulate_mouse_move(start, None, modifiers);
+    draw(cx);
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.sheet_height),
+        height + 100.,
+        "the release ends the drag"
     );
 }
 

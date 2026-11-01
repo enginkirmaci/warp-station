@@ -4,7 +4,7 @@
 //! uncommitted files, GitHub issues and repo details closing the column.
 
 use crate::net::GitAction;
-use crate::store::Store;
+use crate::store::{Store, WorkspaceTab};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::icon;
@@ -69,7 +69,7 @@ pub fn render(
     let launchers = launchers::launchers(&settings, repo);
     rail = rail
         .child(header(repo, entities, page, &folder))
-        .child(path_line(repo))
+        .child(path_line(repo, entities))
         .child(tag_row(repo, page, tag_draft, entities, &folder))
         .child(sync_card(repo, entities, &folder))
         .children(
@@ -83,7 +83,12 @@ pub fn render(
             entities,
         ))
         .child(files_section(store, repo, &settings, entities))
-        .child(issues_section(store, repo, entities))
+        .when(settings.repos.enable_git_hub, |rail| {
+            rail.child(issues_section(store, repo, entities))
+        })
+        .when(settings.repos.enable_azure_dev_ops, |rail| {
+            rail.children(azure_section(store, repo, entities))
+        })
         .children(details_section(store))
         // last, so it paints over the sections it hangs above
         .children(repo_menu.map(|menu| popup_menu(repo, menu, store, entities, page, &folder)));
@@ -393,13 +398,14 @@ fn copy_with_toast(text: String, toast: &'static str, store: &Entity<Store>, cx:
     });
 }
 
-fn path_line(repo: &RepoEntry) -> AnyElement {
+fn path_line(repo: &RepoEntry, entities: &Entity<Store>) -> AnyElement {
     // the ellipsis needs a definite width: flex_1 inside a row gives it the
     // rail's content width, which a bare column child does not
     div()
         .pt_1()
         .flex()
         .items_center()
+        .gap(px(8.))
         .child(
             div()
                 .flex_1()
@@ -411,6 +417,20 @@ fn path_line(repo: &RepoEntry) -> AnyElement {
                 .whitespace_nowrap()
                 .text_ellipsis()
                 .child(display_path(repo)),
+        )
+        .child(
+            div()
+                .id("insp-readme")
+                .debug_selector(|| "insp-readme".into())
+                .a11y_button("Show README")
+                .cursor_pointer()
+                .flex_shrink_0()
+                .font_family(theme::code_font())
+                .text_size(px(theme::font_micro()))
+                .text_color(theme::MUTED_ICON)
+                .hover(|el| el.text_color(theme::TEXT))
+                .on_click(open_tab(entities, WorkspaceTab::Readme))
+                .child("README ↗"),
         )
         .into_any_element()
 }
@@ -767,9 +787,14 @@ fn launcher_rows(launchers: &[Launcher], folder: &str, entities: &Entity<Store>)
     list.into_any_element()
 }
 
-/// A click handler the rail hands to a shell-free control (the commit action
-/// sets a request flag the window drains).
+/// A click handler the rail hands to a shell-free control.
 type Action = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>;
+
+/// Opens the workspace sheet on `tab`.
+fn open_tab(entities: &Entity<Store>, tab: WorkspaceTab) -> Action {
+    let target = entities.clone();
+    Box::new(move |_, _, cx| target.update(cx, |s, cx| s.open_sheet(tab, cx)))
+}
 
 /// A section's rule and uppercase label.
 fn section_title(label: String) -> gpui::Div {
@@ -791,22 +816,26 @@ fn section_title(label: String) -> gpui::Div {
         )
 }
 
-fn section_head(label: String, action: &'static str, on_click: Option<Action>) -> AnyElement {
+fn section_head(
+    label: String,
+    id: &'static str,
+    action: &'static str,
+    on_click: Action,
+) -> AnyElement {
     section_title(label)
-        .child({
-            let mut button = div()
-                .id(SharedString::from(format!("insp-section-{action}")))
+        .child(
+            div()
+                .id(id)
+                .debug_selector(move || id.into())
                 .a11y_button(action)
+                .cursor_pointer()
                 .font_family(theme::code_font())
                 .text_size(px(theme::font_micro()))
                 .text_color(theme::MUTED_ICON)
                 .hover(|el| el.text_color(theme::TEXT))
-                .child(action);
-            if let Some(handler) = on_click {
-                button = button.cursor_pointer().on_click(handler);
-            }
-            button
-        })
+                .on_click(on_click)
+                .child(action),
+        )
         .into_any_element()
 }
 
@@ -837,13 +866,9 @@ fn files_section(
     };
     let mut section = div().flex().flex_col().child(section_head(
         head,
+        "insp-commit",
         "Commit… C",
-        Some(Box::new({
-            let target = entities.clone();
-            move |_, _, cx| {
-                target.update(cx, |s, _| s.changes_requested = true);
-            }
-        })),
+        open_tab(entities, WorkspaceTab::Changes),
     ));
 
     let Some(files) = files else {
@@ -869,7 +894,11 @@ fn files_section(
         section = section.child(file_row(file, settings, &folder, entities));
     }
     if files.len() > 3 {
-        section = section.child(more_link(format!("and {} more →", files.len() - 3)));
+        section = section.child(more_link(
+            "insp-more-files",
+            format!("and {} more →", files.len() - 3),
+            open_tab(entities, WorkspaceTab::Changes),
+        ));
     }
     section.into_any_element()
 }
@@ -956,10 +985,17 @@ fn issues_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> 
     let issue_count = snapshot.map(|snap| snap.issues.len()).unwrap_or(0);
     let pull_count = snapshot.map(|snap| snap.pulls.len()).unwrap_or(0);
 
+    // the tab with something on it
+    let tab = if issue_count == 0 && pull_count > 0 {
+        WorkspaceTab::PullRequests
+    } else {
+        WorkspaceTab::Issues
+    };
     let mut section = div().flex().flex_col().child(section_head(
         format!("GitHub · {issue_count} issues · {pull_count} PRs"),
+        "insp-github-open",
         "open ↗",
-        None,
+        open_tab(entities, tab),
     ));
 
     let Some(snapshot) = snapshot else {
@@ -1016,12 +1052,50 @@ fn issues_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> 
         );
     }
     if snapshot.issues.len() > 3 {
-        section = section.child(more_link(format!(
-            "and {} more →",
-            snapshot.issues.len() - 3
-        )));
+        section = section.child(more_link(
+            "insp-more-issues",
+            format!("and {} more →", snapshot.issues.len() - 3),
+            open_tab(entities, WorkspaceTab::Issues),
+        ));
     }
     section.into_any_element()
+}
+
+/// Azure DevOps at a glance, for repos with a project behind them.
+fn azure_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> Option<AnyElement> {
+    let folder = repo.folder_path.to_string_lossy();
+    let snapshot = store
+        .azure_by_folder
+        .get(folder.as_ref())
+        .filter(|snapshot| snapshot.available)?;
+    let latest = if snapshot.pipelines.is_empty() {
+        "No pipeline runs"
+    } else if snapshot.pipeline_running() {
+        "Latest run in progress"
+    } else if snapshot.pipeline_failed() {
+        "Latest run failed"
+    } else if snapshot.pipeline_ok() {
+        "Latest run succeeded"
+    } else {
+        "Latest run queued"
+    };
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .child(section_head(
+                format!(
+                    "Azure DevOps · {} PRs · {} work items",
+                    snapshot.pulls.len(),
+                    snapshot.work_items.len()
+                ),
+                "insp-azure-open",
+                "open ↗",
+                open_tab(entities, WorkspaceTab::Pipelines),
+            ))
+            .child(muted(latest))
+            .into_any_element(),
+    )
 }
 
 /// What GitHub says about the repo, in two columns so the rail stays short.
@@ -1121,12 +1195,17 @@ fn muted(label: &'static str) -> AnyElement {
         .into_any_element()
 }
 
-fn more_link(label: String) -> AnyElement {
+fn more_link(id: &'static str, label: String, on_click: Action) -> AnyElement {
     div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label.clone())
+        .cursor_pointer()
         .pt(px(4.))
         .text_size(px(theme::font_row_meta()))
         .text_color(theme::TEXT_MUTED)
         .hover(|el| el.text_color(theme::TEXT))
+        .on_click(on_click)
         .child(label)
         .into_any_element()
 }
