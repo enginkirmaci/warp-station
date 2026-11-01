@@ -104,7 +104,7 @@ pub async fn refresh(folder: &Path, gh_exe: &str) -> GitHubSnapshot {
     }
 }
 
-/// The Overview sidebar's repo metadata (owner, language, license, topics…).
+/// The repo metadata the rail shows (owner, language, license, topics…).
 pub async fn repo_details(folder: &Path, gh_exe: &str) -> Option<GitHubRepoDetails> {
     let json = run_gh(
         gh_exe,
@@ -117,7 +117,11 @@ pub async fn repo_details(folder: &Path, gh_exe: &str) -> Option<GitHubRepoDetai
         ],
     )
     .await?;
-    let v = serde_json::from_str::<serde_json::Value>(&json).ok()?;
+    parse_repo_details(&json)
+}
+
+fn parse_repo_details(json: &str) -> Option<GitHubRepoDetails> {
+    let v = serde_json::from_str::<serde_json::Value>(json).ok()?;
     Some(GitHubRepoDetails {
         owner: v
             .pointer("/owner/login")
@@ -128,7 +132,7 @@ pub async fn repo_details(folder: &Path, gh_exe: &str) -> Option<GitHubRepoDetai
             .and_then(|x| x.as_str())
             .map(str::to_string),
         primary_language: v
-            .get("primaryLanguage")
+            .pointer("/primaryLanguage/name")
             .and_then(|x| x.as_str())
             .map(str::to_string),
         license: v
@@ -213,4 +217,42 @@ fn parse_items(json: Option<&str>, is_pull_request: bool) -> Vec<GitHubItem> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_details_read_the_nested_fields_gh_answers_with() {
+        let json = r#"{
+            "createdAt": "2026-09-18T10:00:00Z",
+            "defaultBranchRef": {"name": "main"},
+            "licenseInfo": {"name": "MIT License"},
+            "owner": {"login": "enginkirmaci"},
+            "primaryLanguage": {"name": "Rust"},
+            "repositoryTopics": [{"name": "gpui"}, {"name": "rust"}],
+            "url": "https://github.com/enginkirmaci/DevTools"
+        }"#;
+
+        let details = parse_repo_details(json).expect("a details object");
+
+        assert_eq!(details.owner.as_deref(), Some("enginkirmaci"));
+        assert_eq!(details.primary_language.as_deref(), Some("Rust"));
+        assert_eq!(details.license.as_deref(), Some("MIT License"));
+        assert_eq!(details.default_branch.as_deref(), Some("main"));
+        assert_eq!(details.topics, ["gpui", "rust"]);
+    }
+
+    /// gh answers `null`, not an empty value, for what a repo doesn't have.
+    #[test]
+    fn repo_details_tolerate_absent_fields() {
+        let json = r#"{"licenseInfo": null, "primaryLanguage": null, "repositoryTopics": null}"#;
+
+        let details = parse_repo_details(json).expect("a details object");
+
+        assert_eq!(details.primary_language, None);
+        assert_eq!(details.license, None);
+        assert!(details.topics.is_empty());
+    }
 }

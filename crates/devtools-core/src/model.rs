@@ -22,13 +22,14 @@ impl GitChangedFile {
     }
 
     /// The status letter as the UI shows it — "U" for untracked (VS Code's
-    /// letter), the porcelain code otherwise.
+    /// letter). A merged two-sided code (".M", "M.") shows the side that
+    /// changed, the index when both did.
     pub fn display_status_code(&self) -> &str {
         if self.status_code == "?" {
-            "U"
-        } else {
-            &self.status_code
+            return "U";
         }
+        let code = self.status_code.trim_matches('.');
+        code.get(..1).unwrap_or(code)
     }
 }
 
@@ -242,6 +243,26 @@ mod tests {
             author: author.map(str::to_string),
             date: Local::now(),
         }
+    }
+
+    #[test]
+    fn the_status_letter_reads_one_side_of_a_merged_code() {
+        let shown = |code: &str| {
+            GitChangedFile {
+                path: "a".into(),
+                status_code: code.into(),
+                additions: None,
+                deletions: None,
+            }
+            .display_status_code()
+            .to_string()
+        };
+
+        assert_eq!(shown(".M"), "M");
+        assert_eq!(shown("A."), "A");
+        assert_eq!(shown("MD"), "M", "the index side wins when both changed");
+        assert_eq!(shown("D"), "D", "a one-sided code passes through");
+        assert_eq!(shown("?"), "U");
     }
 
     #[test]
