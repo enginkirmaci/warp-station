@@ -101,7 +101,7 @@ pub fn open_url(url: &str) -> Result<(), String> {
 }
 
 /// Opens a solution file: a configured IDE wins, else the shell association
-/// (Windows) or the .NET-IDE fallback.
+/// (Windows) or the Rider fallback.
 pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String> {
     let configured = ide_executable.trim();
     if !configured.is_empty() {

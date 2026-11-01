@@ -1,5 +1,0 @@
-<Styles xmlns="https://github.com/avaloniaui">
-
-	<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapArea.xaml" />
-	<StyleInclude Source="avares://Tools.SnapIt/Controls/Styles/SnapFullOverlay.xaml" />
-</Styles>

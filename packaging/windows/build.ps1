@@ -1,20 +1,14 @@
 #Requires -Version 5.1
-# Builds DevTools for Windows and stages the runnable files in out\:
-# devtools.exe, Tools.SnapIt.exe (self-contained single file) and SnapIt's
-# default settings. No zip, no installer - out\ is the deliverable.
+# Builds DevTools for Windows and stages the runnable file in out\:
+# devtools.exe. No zip, no installer - out\ is the deliverable.
 # Run from a Windows machine - GPUI has no Linux->Windows cross build.
-# Requires the .NET 10 SDK on PATH (builds the SnapIt companion) and the Rust
-# toolchain (builds devtools). The Rust snapit port lives in its own repo
-# (warp-snapit) and is not built here.
+# Requires the Rust toolchain on PATH. The SnapIt companion lives in its own
+# repo (warp-snapit) and is not built here.
 $ErrorActionPreference = 'Stop'
 
 $here   = $PSScriptRoot
 $repo   = Split-Path -Parent (Split-Path -Parent $here)   # script lives in packaging\windows
 $outDir = Join-Path $here 'out'
-
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    throw "dotnet not found on PATH - the SnapIt companion needs the .NET 10 SDK"
-}
 
 Push-Location $repo
 try {
@@ -34,18 +28,5 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 Get-ChildItem $outDir -Force | Remove-Item -Recurse -Force
 
 Copy-Item $exe (Join-Path $outDir 'devtools.exe')
-
-# SnapIt companion: self-contained single-file publish - one exe with no
-# runtime install and no loose native dlls (they self-extract at startup).
-$publish = Join-Path $outDir '.snapit-publish'
-dotnet publish (Join-Path $repo 'src\Tools.SnapIt\Tools.SnapIt.csproj') `
-    -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -p:DebugType=None `
-    -o $publish
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish (SnapIt companion) failed with exit code $LASTEXITCODE" }
-Copy-Item (Join-Path $publish 'Tools.SnapIt.exe') $outDir
-Copy-Item (Join-Path $publish 'settings') $outDir -Recurse
-Remove-Item -Recurse -Force $publish
 
 Write-Host "staged in $outDir"

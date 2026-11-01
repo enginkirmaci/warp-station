@@ -8,8 +8,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"   # script lives in packaging/linux
 out_dir="$here/out"
 
-# The Rust snapit port lives in its own repo (warp-snapit) and the
-# Tools.SnapIt companion is .NET - the Linux deliverable is devtools alone.
+# The snapit companion lives in its own repo (warp-snapit) - the Linux
+# deliverable is devtools alone.
 (cd "$repo" && cargo build --release -p devtools)
 # cargo may place artifacts off-repo (e.g. CARGO_TARGET_DIR on a fast
 # local drive while the repo lives elsewhere)

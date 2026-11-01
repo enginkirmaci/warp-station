@@ -138,7 +138,7 @@ impl NugetService {
     }
 
     /// Watch-slot release for the setup-failure paths (disabled in settings,
-    /// invalid folder): silent, like the C# Start's early false returns.
+    /// invalid folder): silent, no error surface.
     fn release(&self) {
         {
             let mut state = self.state.lock().unwrap();
@@ -473,7 +473,7 @@ fn matches_filter(name: &str, filter: &str) -> bool {
 }
 
 /// (id, version) from "Id.Version.nupkg" — the leftmost dot whose remainder
-/// is version-shaped, which is what the C# regex's lazy id produced.
+/// is version-shaped.
 pub fn extract_package_info(file_name: &str) -> Option<(String, String)> {
     let lower = file_name.to_ascii_lowercase();
     if !lower.ends_with(".nupkg") {
