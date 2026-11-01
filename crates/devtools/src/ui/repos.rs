@@ -88,6 +88,8 @@ pub struct ReposPage {
     tag_draft: Option<Entity<InputState>>,
     /// The rail header's "⋯" menu while it is open.
     repo_menu: Option<RepoMenu>,
+    /// The list head's sort menu.
+    sort_menu_open: bool,
 }
 
 impl ReposPage {
@@ -227,6 +229,7 @@ impl ReposPage {
             tag_editing: false,
             tag_draft: None,
             repo_menu: None,
+            sort_menu_open: false,
         }
     }
 }
@@ -258,10 +261,24 @@ impl ReposPage {
         }
     }
 
+    fn toggle_sort_menu(&mut self, cx: &mut Context<Self>) {
+        self.sort_menu_open = !self.sort_menu_open;
+        cx.notify();
+    }
+
+    /// An outside press closes whichever of the page's menus is open.
+    pub fn close_popups(&mut self, cx: &mut Context<Self>) {
+        self.close_repo_menu(cx);
+        if self.sort_menu_open {
+            self.sort_menu_open = false;
+            cx.notify();
+        }
+    }
+
     /// Whether something sits on top of the list right now, so the window's
     /// row keymap stays out of it.
     pub fn layer_open(&self) -> bool {
-        self.dialog.is_some() || self.repo_menu.is_some()
+        self.dialog.is_some() || self.repo_menu.is_some() || self.sort_menu_open
     }
 
     /// The "+ tag" chip asks for the inline editor; the input itself is
@@ -322,6 +339,11 @@ impl ReposPage {
             return true;
         }
         if self.repo_menu.take().is_some() {
+            cx.notify();
+            return true;
+        }
+        if self.sort_menu_open {
+            self.sort_menu_open = false;
             cx.notify();
             return true;
         }
@@ -511,6 +533,7 @@ impl Render for ReposPage {
             self.ensure_tag_editor(window, cx);
             let list_w = window.viewport_size().width - px(crate::ui::inspector::RAIL_W);
             let toolbar = self.render_toolbar(list_w, cx);
+            let sort_menu = self.render_sort_menu(cx);
             let mut page = {
                 let store = self.store.read(cx);
                 let list = crate::ui::repos_proto::render(store, &self.store);
@@ -537,7 +560,15 @@ impl Render for ReposPage {
                                     .flex_col()
                                     .min_h_0()
                                     .child(toolbar)
-                                    .child(div().flex_1().min_h_0().child(list)),
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_h_0()
+                                            .relative()
+                                            .child(list)
+                                            // last, so it paints over the rows
+                                            .children(sort_menu),
+                                    ),
                             )
                             .child(crate::ui::inspector::render(
                                 store,
@@ -899,6 +930,26 @@ impl ReposPage {
                 }),
             ));
 
+        // the table sorts from its headers
+        let sort_button = (!table_requested()).then(|| {
+            let (mode, ascending) = {
+                let store = self.store.read(cx);
+                (store.sort_mode, store.sort_ascending)
+            };
+            div()
+                .flex_shrink_0()
+                // keep the window's outside-click dismissal from seeing this
+                // press: it must toggle, not close-then-reopen
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(toolbar_action(
+                    "sort-button",
+                    format!("{} {}", sort_label(mode), sort_arrow(ascending)),
+                    None,
+                    false,
+                    cx.listener(|this, _, _, cx| this.toggle_sort_menu(cx)),
+                ))
+        });
+
         let store_clear = self.store.clone();
         // the chips wrap under the scope control when the column is narrow
         // instead of clipping at its edge
@@ -932,7 +983,8 @@ impl ReposPage {
                         })
                         .child("Clear"),
                 )
-            });
+            })
+            .children(sort_button);
 
         div()
             .flex()
@@ -942,6 +994,100 @@ impl ReposPage {
             .child(scope_row)
             .into_any_element()
     }
+
+    /// The list head's sort menu, hanging under its button at the list's top
+    /// right. Picking the active mode flips its direction.
+    fn render_sort_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.sort_menu_open {
+            return None;
+        }
+        let (current, ascending, github) = {
+            let store = self.store.read(cx);
+            (
+                store.sort_mode,
+                store.sort_ascending,
+                store.settings().repos.enable_git_hub,
+            )
+        };
+        let mut menu = div()
+            .id("sort-menu")
+            .debug_selector(|| "sort-menu".into())
+            .absolute()
+            .top(px(4.))
+            .right(px(20.))
+            .w(px(170.))
+            .p(px(4.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::POPUP)
+            .shadow_md()
+            // presses inside must not reach the rows under it, or the
+            // window's outside-click dismissal before the row's click lands
+            .occlude()
+            .flex()
+            .flex_col()
+            .gap(px(2.));
+        for (mode, label) in SORT_MODES {
+            if mode == RepoSortMode::GitHub && !github {
+                continue;
+            }
+            let active = mode == current;
+            let selector = format!("sort-mode-{label}");
+            menu = menu.child(
+                div()
+                    .id(SharedString::from(selector.clone()))
+                    .debug_selector(move || selector.clone())
+                    .a11y_toggle(label, active)
+                    .cursor_pointer()
+                    .rounded(px(4.))
+                    .px(px(8.))
+                    .py(px(5.))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_size(px(theme::font_row_meta()))
+                    .text_color(if active { theme::TEXT } else { theme::TEXT_DIM })
+                    .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, cx| {
+                            let ascending = if s.sort_mode == mode {
+                                !s.sort_ascending
+                            } else {
+                                mode.default_ascending()
+                            };
+                            s.set_sort_direction(mode, ascending, cx);
+                        });
+                        this.sort_menu_open = false;
+                        cx.notify();
+                    }))
+                    .child(label)
+                    .when(active, |row| row.child(sort_arrow(ascending))),
+            );
+        }
+        Some(menu.into_any_element())
+    }
+}
+
+/// The sort menu's modes, in its order.
+const SORT_MODES: [(RepoSortMode, &str); 6] = [
+    (RepoSortMode::Attention, "Attention first"),
+    (RepoSortMode::LastActivity, "Last activity"),
+    (RepoSortMode::Changes, "Changes"),
+    (RepoSortMode::GitHub, "GitHub"),
+    (RepoSortMode::Name, "Name"),
+    (RepoSortMode::Branch, "Branch"),
+];
+
+fn sort_label(mode: RepoSortMode) -> &'static str {
+    SORT_MODES
+        .iter()
+        .find(|(candidate, _)| *candidate == mode)
+        .map_or("Name", |(_, label)| label)
+}
+
+fn sort_arrow(ascending: bool) -> &'static str {
+    if ascending { "↑" } else { "↓" }
 }
 
 /// The 2px bullet the export separates the summary parts with.

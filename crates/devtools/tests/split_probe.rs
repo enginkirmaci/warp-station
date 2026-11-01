@@ -7,6 +7,7 @@ use devtools::net::{GitAction, NetCommand};
 use devtools::store::Store;
 use devtools::ui::window::MainWindow;
 use devtools_core::repo_store::RepoEntry;
+use devtools_core::settings::RepoSortMode;
 use gpui::TestAppContext;
 use gpui::prelude::*;
 use std::path::PathBuf;
@@ -74,6 +75,46 @@ fn scratch_store(
         store
     });
     (store, net_rx)
+}
+
+/// Two folder groups, for the probes that drive the bands.
+fn grouped_store(cx: &mut TestAppContext, name: &str) -> gpui::Entity<Store> {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-split-{name}-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &scratch,
+        r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/second/b"], "GroupReposByRoot": true}}"#,
+    )
+    .expect("scratch settings");
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch)),
+        );
+        store.replace_repos(vec![
+            entry("alpha", "/roots/a/alpha"),
+            entry("beta", "/roots/a/beta"),
+            entry("gamma", "/second/b/gamma"),
+        ]);
+        store
+    })
+}
+
+/// The projected repo rows, top to bottom.
+fn row_names(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Vec<String> {
+    cx.read_entity(store, |s, _| {
+        s.projected
+            .iter()
+            .filter_map(|row| row.repo_index())
+            .map(|ix| s.repos[ix].name.clone())
+            .collect()
+    })
 }
 
 fn open_window<'a>(
@@ -855,8 +896,270 @@ fn the_keymap_stays_out_of_open_layers(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     draw(cx);
 
+    click(cx, "sort-button");
+    assert_rows_untouched(cx, "sort menu");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+
     click(cx, "add-repo-button");
     assert_rows_untouched(cx, "Add repo dialog");
+}
+
+#[gpui::test]
+fn pressing_a_band_folds_its_group_and_persists(cx: &mut TestAppContext) {
+    let store = grouped_store(cx, "fold");
+    let cx = open_window(&store, cx);
+    let collapsed = |cx: &mut gpui::VisualTestContext| {
+        cx.read_entity(&store, |s, _| s.settings().repos.collapsed_groups)
+    };
+    assert_eq!(row_names(&store, cx), ["alpha", "beta", "gamma"]);
+
+    click(cx, "repo-band-/roots/a");
+    assert_eq!(row_names(&store, cx), ["gamma"]);
+    assert_eq!(collapsed(cx), Some(vec!["/roots/a".to_string()]));
+
+    click(cx, "repo-band-/roots/a");
+    assert_eq!(row_names(&store, cx), ["alpha", "beta", "gamma"]);
+    assert_eq!(collapsed(cx), None);
+}
+
+/// The folder glyph sits inside the band, so its press must not fold too.
+#[gpui::test]
+fn the_folder_glyph_solos_its_group_without_folding_it(cx: &mut TestAppContext) {
+    let store = grouped_store(cx, "solo");
+    let cx = open_window(&store, cx);
+    let soloed =
+        |cx: &mut gpui::VisualTestContext| cx.read_entity(&store, |s, _| s.group_filter.clone());
+
+    click(cx, "repo-band-solo-/roots/a");
+    assert_eq!(soloed(cx).as_deref(), Some("/roots/a"));
+    assert_eq!(
+        row_names(&store, cx),
+        ["alpha", "beta"],
+        "the group keeps its rows and the others leave"
+    );
+
+    click(cx, "repo-band-solo-/roots/a");
+    assert_eq!(soloed(cx), None, "the same glyph lifts the filter");
+
+    click(cx, "repo-band-solo-/roots/a");
+    click(cx, "clear-button");
+    assert_eq!(soloed(cx), None, "and so does Clear");
+    assert_eq!(row_names(&store, cx), ["alpha", "beta", "gamma"]);
+}
+
+#[gpui::test]
+fn the_sort_menu_reorders_the_list_and_persists(cx: &mut TestAppContext) {
+    let mut old = entry("alpha", "/probe/alpha");
+    old.git_last_commit_at = Some(chrono::Local::now() - chrono::Duration::days(2));
+    let mut new = entry("beta", "/probe/beta");
+    new.git_last_commit_at = Some(chrono::Local::now());
+    let (store, _net_rx) = scratch_store(cx, "sort", vec![old, new]);
+    let cx = open_window(&store, cx);
+    assert_eq!(row_names(&store, cx), ["alpha", "beta"]);
+
+    click(cx, "sort-button");
+    click(cx, "sort-mode-Last activity");
+    assert_eq!(
+        row_names(&store, cx),
+        ["beta", "alpha"],
+        "a new mode starts in its own default direction: newest first"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.sort_mode),
+        RepoSortMode::LastActivity,
+        "the choice is saved"
+    );
+    assert!(
+        cx.debug_bounds("sort-menu").is_none(),
+        "picking closes the menu"
+    );
+
+    click(cx, "sort-button");
+    click(cx, "sort-mode-Last activity");
+    assert_eq!(
+        row_names(&store, cx),
+        ["alpha", "beta"],
+        "picking the active mode flips it"
+    );
+}
+
+/// With GitHub off nothing ranks repos by its counts, so the menu drops it.
+#[gpui::test]
+fn the_sort_menu_follows_the_github_switch(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "sort-github", vec![entry("alpha", "/probe/alpha")]);
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| settings.repos.enable_git_hub = false);
+    });
+    let cx = open_window(&store, cx);
+
+    click(cx, "sort-button");
+
+    assert!(cx.debug_bounds("sort-mode-GitHub").is_none());
+    assert!(cx.debug_bounds("sort-mode-Attention first").is_some());
+}
+
+#[gpui::test]
+fn the_sort_menu_closes_on_outside_presses_and_escape(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "sort-close",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let cx = open_window(&store, cx);
+
+    click(cx, "sort-button");
+    assert!(cx.debug_bounds("sort-menu").is_some(), "it opens");
+    click(cx, "repo-row-1");
+    assert!(
+        cx.debug_bounds("sort-menu").is_none(),
+        "a press elsewhere closes it"
+    );
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/beta"),
+        "and still lands on what it hit"
+    );
+
+    click(cx, "sort-button");
+    click(cx, "sort-button");
+    assert!(
+        cx.debug_bounds("sort-menu").is_none(),
+        "the button toggles rather than closing and reopening"
+    );
+
+    click(cx, "sort-button");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.debug_bounds("sort-menu").is_none());
+}
+
+/// The star sits on the row, but pressing it is not a press on the row.
+#[gpui::test]
+fn the_row_star_toggles_the_favorite_without_selecting(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "row-star",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let cx = open_window(&store, cx);
+
+    click(cx, "repo-star-1");
+
+    assert!(
+        cx.read_entity(&store, |s, _| s.repos[1].is_favorite()),
+        "beta's star marks beta"
+    );
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "the selection stays where it was"
+    );
+}
+
+#[gpui::test]
+fn an_archived_row_has_no_star_to_press(cx: &mut TestAppContext) {
+    let mut archived = entry("beta", "/probe/beta");
+    archived.tags = vec![devtools_core::repo_store::ARCHIVED_TAG.to_string()];
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "row-archived",
+        vec![entry("alpha", "/probe/alpha"), archived],
+    );
+    cx.update_entity(&store, |s: &mut Store, cx| s.toggle_show_archived(cx));
+    let cx = open_window(&store, cx);
+
+    click(cx, "repo-star-1");
+
+    assert!(!cx.read_entity(&store, |s, _| s.repos[1].is_favorite()));
+}
+
+/// "clean" means nothing at all is waiting: a repo with only a PR open or
+/// commits to pull used to read as clean, because the row never showed them.
+#[gpui::test]
+fn a_row_shows_all_that_waits_on_it(cx: &mut TestAppContext) {
+    let quiet = |name: &str, path: &str| {
+        let mut repo = entry(name, path);
+        repo.git_modified_count = 0;
+        repo.git_to_push_count = 0;
+        repo
+    };
+    let mut pulled = quiet("alpha", "/probe/alpha");
+    pulled.git_to_pull_count = 2;
+    let mut reviewed = quiet("beta", "/probe/beta");
+    reviewed.github_pr_count = 1;
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "row-meta",
+        vec![pulled, reviewed, quiet("gamma", "/probe/gamma")],
+    );
+    let cx = open_window(&store, cx);
+
+    assert!(cx.debug_bounds("repo-behind-0").is_some());
+    assert!(cx.debug_bounds("repo-clean-0").is_none());
+    assert!(cx.debug_bounds("repo-prs-1").is_some());
+    assert!(cx.debug_bounds("repo-clean-1").is_none());
+    assert!(cx.debug_bounds("repo-clean-2").is_some());
+}
+
+#[gpui::test]
+fn the_github_switch_takes_its_counts_off_the_row(cx: &mut TestAppContext) {
+    let mut repo = entry("alpha", "/probe/alpha");
+    repo.git_modified_count = 0;
+    repo.git_to_push_count = 0;
+    repo.github_pr_count = 1;
+    let (store, _net_rx) = scratch_store(cx, "row-github", vec![repo]);
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| settings.repos.enable_git_hub = false);
+    });
+    let cx = open_window(&store, cx);
+
+    assert!(cx.debug_bounds("repo-prs-0").is_none());
+    assert!(cx.debug_bounds("repo-clean-0").is_some());
+}
+
+#[gpui::test]
+fn a_row_shows_its_azure_state_while_azure_is_on(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "row-azure", vec![entry("alpha", "/probe/alpha")]);
+    cx.update_entity(&store, |s: &mut Store, _| {
+        let snapshot = devtools_core::azure::AzureSnapshot {
+            available: true,
+            pulls: vec![devtools_core::azure::AzureItem::default()],
+            ..Default::default()
+        };
+        s.azure_by_folder
+            .insert("/probe/alpha".to_string(), std::sync::Arc::new(snapshot));
+    });
+    let cx = open_window(&store, cx);
+    assert!(cx.debug_bounds("repo-azure-0").is_some());
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| settings.repos.enable_azure_dev_ops = false);
+        cx.notify();
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("repo-azure-0").is_none());
+}
+
+#[gpui::test]
+fn a_row_marks_a_running_warp_agent_workspace(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "row-warp", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    assert!(cx.debug_bounds("repo-warp-0").is_none());
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.warp_running.insert(
+            "/probe/alpha".to_string(),
+            devtools::net::WarpWorkspaceStatus {
+                connected: true,
+                running: vec!["chat".into()],
+            },
+        );
+        cx.notify();
+    });
+    draw(cx);
+
+    assert!(cx.debug_bounds("repo-warp-0").is_some());
 }
 
 #[gpui::test]
