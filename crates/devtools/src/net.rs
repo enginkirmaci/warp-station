@@ -500,7 +500,112 @@ async fn listen_clipboard_ping(evt_tx: Sender<UiEvent>) {
     }
 }
 
+/// Reads a repo's workspace off the async threads, as the event the views
+/// take it from.
+async fn workspace_loaded(folder: PathBuf) -> UiEvent {
+    let (snapshot, branches, recent, unpushed) = tokio::task::spawn_blocking({
+        let folder = folder.clone();
+        move || {
+            (
+                devtools_core::git::read::change_snapshot(&folder),
+                devtools_core::git::read::branches(&folder).unwrap_or_default(),
+                devtools_core::git::read::recent_commits(&folder).unwrap_or_default(),
+                devtools_core::git::read::unpushed_hashes(&folder),
+            )
+        }
+    })
+    .await
+    .unwrap_or((None, Vec::new(), Vec::new(), None));
+    UiEvent::ChangesLoaded {
+        folder: folder.to_string_lossy().to_string(),
+        snapshot,
+        branches,
+        recent,
+        unpushed,
+    }
+}
+
+/// Per repo, the newest workspace read asked for. Reads run side by side, so
+/// one that finishes behind a newer read, or behind a mutation of that repo,
+/// must not land: it would put an older snapshot back.
+#[derive(Clone, Default)]
+struct WorkspaceReads(std::sync::Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>>);
+
+impl WorkspaceReads {
+    /// Claims the newest slot for `folder`, staling every read before it.
+    fn begin(&self, folder: &Path) -> u64 {
+        let mut reads = self.0.lock().expect("workspace reads lock");
+        let newest = reads.entry(folder.to_path_buf()).or_default();
+        *newest += 1;
+        *newest
+    }
+
+    fn is_newest(&self, folder: &Path, read: u64) -> bool {
+        self.0.lock().expect("workspace reads lock").get(folder) == Some(&read)
+    }
+}
+
+/// The command loop runs one command at a time and a pass holds it for as long
+/// as the pass takes, so the reads the rail waits on must not queue behind it.
+/// This takes them off the channel as they arrive and hands everything else on
+/// to the loop, in order.
+fn spawn_read_intake(
+    cmd_rx: Receiver<NetCommand>,
+    evt_tx: Sender<UiEvent>,
+    workspace_reads: WorkspaceReads,
+) -> Receiver<NetCommand> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let (queue_tx, queue_rx) = async_channel::unbounded();
+    tokio::spawn(async move {
+        let details_reads = Arc::new(AtomicU64::new(0));
+        while let Ok(cmd) = cmd_rx.recv().await {
+            match cmd {
+                NetCommand::LoadChanges { folder } => {
+                    let read = workspace_reads.begin(&folder);
+                    let reads = workspace_reads.clone();
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let loaded = workspace_loaded(folder.clone()).await;
+                        if reads.is_newest(&folder, read) {
+                            let _ = evt_tx.send_blocking(loaded);
+                        }
+                    });
+                }
+                NetCommand::GitHubDetails { folder, gh_exe } => {
+                    // `gh` is slow and ↑↓ through the list asks once per row,
+                    // so the burst is waited out and only its last row asks
+                    let generation = details_reads.fetch_add(1, Ordering::SeqCst) + 1;
+                    let newest = details_reads.clone();
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                        if newest.load(Ordering::SeqCst) != generation {
+                            return;
+                        }
+                        let details = devtools_core::github::repo_details(&folder, &gh_exe).await;
+                        let _ = evt_tx.send_blocking(UiEvent::GitHubDetailsLoaded {
+                            folder: folder.to_string_lossy().to_string(),
+                            details,
+                        });
+                    });
+                }
+                queued => {
+                    if queue_tx.send(queued).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    queue_rx
+}
+
 async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
+    let workspace_reads = WorkspaceReads::default();
+    let cmd_rx = spawn_read_intake(cmd_rx, evt_tx.clone(), workspace_reads.clone());
+
     // live wand runs: id → the run's kill signal
     let wands: std::sync::Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<()>>>,
@@ -930,13 +1035,8 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     .unwrap_or_default();
                 let _ = evt_tx.send_blocking(UiEvent::AzureSettled { items });
             }
-            NetCommand::GitHubDetails { folder, gh_exe } => {
-                let details = devtools_core::github::repo_details(&folder, &gh_exe).await;
-                let _ = evt_tx.send_blocking(UiEvent::GitHubDetailsLoaded {
-                    folder: folder.to_string_lossy().to_string(),
-                    details,
-                });
-            }
+            // the intake answers these before they reach this queue
+            NetCommand::GitHubDetails { .. } | NetCommand::LoadChanges { .. } => {}
             NetCommand::LoadHistory { folder } => {
                 let (commits, unpushed) = tokio::task::spawn_blocking({
                     let folder = folder.clone();
@@ -988,28 +1088,6 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     patch,
                 });
             }
-            NetCommand::LoadChanges { folder } => {
-                let (snapshot, branches, recent, unpushed) = tokio::task::spawn_blocking({
-                    let folder = folder.clone();
-                    move || {
-                        (
-                            devtools_core::git::read::change_snapshot(&folder),
-                            devtools_core::git::read::branches(&folder).unwrap_or_default(),
-                            devtools_core::git::read::recent_commits(&folder).unwrap_or_default(),
-                            devtools_core::git::read::unpushed_hashes(&folder),
-                        )
-                    }
-                })
-                .await
-                .unwrap_or((None, Vec::new(), Vec::new(), None));
-                let _ = evt_tx.send_blocking(UiEvent::ChangesLoaded {
-                    folder: folder.to_string_lossy().to_string(),
-                    snapshot,
-                    branches,
-                    recent,
-                    unpushed,
-                });
-            }
             NetCommand::Git { folder, action } => {
                 let (ok, error, commit_hash) = run_git_action(&folder, &action).await;
                 let _ = evt_tx.send_blocking(UiEvent::GitDone {
@@ -1020,27 +1098,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     detail: action.detail(),
                 });
                 // every mutation re-checks the repo it touched: the fresh
-                // status and the rebuilt changes snapshot land together
-                let (snapshot, branches, recent, unpushed) = tokio::task::spawn_blocking({
-                    let folder = folder.clone();
-                    move || {
-                        (
-                            devtools_core::git::read::change_snapshot(&folder),
-                            devtools_core::git::read::branches(&folder).unwrap_or_default(),
-                            devtools_core::git::read::recent_commits(&folder).unwrap_or_default(),
-                            devtools_core::git::read::unpushed_hashes(&folder),
-                        )
-                    }
-                })
-                .await
-                .unwrap_or((None, Vec::new(), Vec::new(), None));
-                let _ = evt_tx.send_blocking(UiEvent::ChangesLoaded {
-                    folder: folder.to_string_lossy().to_string(),
-                    snapshot,
-                    branches,
-                    recent,
-                    unpushed,
-                });
+                // status and the rebuilt changes snapshot land together, and
+                // any read still in flight predates them
+                workspace_reads.begin(&folder);
+                let _ = evt_tx.send_blocking(workspace_loaded(folder.clone()).await);
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
                     probes: probe_pass(vec![folder]).await,
                     after_fetch: false,
@@ -1275,6 +1336,22 @@ async fn probe_pass(folders: Vec<PathBuf>) -> Vec<StatusProbe> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mutation stales the reads of its own repo only: dropping another
+    /// repo's read would leave the rail waiting for an answer that never comes.
+    #[test]
+    fn a_mutation_stales_only_its_own_repos_reads() {
+        let reads = WorkspaceReads::default();
+        let mutated = Path::new("/probe/mutated");
+        let other = Path::new("/probe/other");
+        let stale = reads.begin(mutated);
+        let unrelated = reads.begin(other);
+
+        reads.begin(mutated);
+
+        assert!(!reads.is_newest(mutated, stale));
+        assert!(reads.is_newest(other, unrelated));
+    }
 
     /// The availability announcements must ride the real transitions: green
     /// right after a door answers, gray right after the door drops. The old
