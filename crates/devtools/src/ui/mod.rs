@@ -6,6 +6,7 @@ pub mod changes;
 pub mod clipboard_password;
 pub mod dialogs;
 pub mod formatters;
+pub mod inspector;
 pub mod nuget;
 pub mod overview;
 pub mod pr_issues;
@@ -14,13 +15,66 @@ pub mod repos_proto;
 pub mod settings;
 pub mod window;
 
-pub use warpui_kit_core::tooltip::{tooltip_text, with_tooltip};
 pub use warpui_kit_core::{A11y, icon};
 
 use gpui::prelude::*;
-use gpui::{FontWeight, Styled, div, px};
+use gpui::{
+    AnyView, Context, FontWeight, IntoElement, Render, SharedString, Stateful, Styled, Window, div,
+    px,
+};
 
 use crate::theme;
+
+// ---- tooltips --------------------------------------------------------------
+// The family tooltip paints the shared palette, which this app no longer uses;
+// this one draws in the redesign's tokens. Every `tooltip_text` /
+// `with_tooltip` call site in the app goes through here.
+
+struct AppTooltip {
+    text: SharedString,
+}
+
+impl Render for AppTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .rounded(px(4.))
+            .border_1()
+            .border_color(theme::HAIRLINE)
+            .bg(theme::POPUP)
+            .px(px(8.))
+            .py(px(4.))
+            .text_size(px(theme::font_row_meta()))
+            .text_color(theme::TEXT_DIM)
+            .shadow_md()
+            .whitespace_nowrap()
+            .child(self.text.clone())
+    }
+}
+
+/// The app's tooltip body builder (grey-on-popup, 9.5px, 4px corners).
+pub fn tooltip_text(
+    text: impl Into<SharedString>,
+) -> impl Fn(&mut Window, &mut gpui::App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| {
+        let text = text.clone();
+        cx.new(move |_| AppTooltip { text }).into()
+    }
+}
+
+/// Attaches a tooltip when the host's "show tooltips" setting is on.
+pub fn with_tooltip(
+    element: Stateful<gpui::Div>,
+    show: bool,
+    text: impl Into<SharedString> + 'static,
+) -> Stateful<gpui::Div> {
+    if show {
+        let text = text.into();
+        element.tooltip(tooltip_text(text))
+    } else {
+        element
+    }
+}
 
 /// Branch labels display at most this many characters before the head is
 /// trimmed; the repos branch column owns the budget, and the branch picker

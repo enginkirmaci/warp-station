@@ -116,6 +116,10 @@ fn ensure_repo_selected_is_stable_for_the_selected_repo(cx: &mut TestAppContext)
 fn kebab_archive_repository_tags_the_selected_repo(cx: &mut TestAppContext) {
     use devtools::ui::window::MainWindow;
 
+    // The main screen is the split layout now and the workspace bar only
+    // rides with the old table, so this probe asks for that layout.
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
+
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 

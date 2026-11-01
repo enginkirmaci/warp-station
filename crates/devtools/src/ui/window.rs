@@ -29,6 +29,8 @@ enum DrawerKind {
     Formatters,
     Nuget,
     ClipboardPassword,
+    /// The workspace's commit surface, opened from the rail's "Commit…".
+    Changes,
 }
 
 pub struct MainWindow {
@@ -43,6 +45,7 @@ pub struct MainWindow {
     formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
     nuget_drawer: Option<Entity<NugetDrawer>>,
     clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
+    changes_drawer: Option<Entity<crate::ui::changes::ChangesView>>,
     tools_menu_open: bool,
     /// A left press landed on the titlebar background; the first move turns
     /// it into a window drag (Linux/macOS — Windows uses the HTCAPTION path).
@@ -60,7 +63,7 @@ impl MainWindow {
             cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let bottom_bar = cx.new(|cx| BottomBar::new(store.clone(), window, cx));
         let global_search =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search repositories and notes"));
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search repos, notes, code…"));
         let search_store = store.clone();
         cx.subscribe(&global_search, move |_, field, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -93,6 +96,7 @@ impl MainWindow {
             formatters: None,
             nuget_drawer: None,
             clipboard_drawer: None,
+            changes_drawer: None,
             // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
             tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
             titlebar_should_move: false,
@@ -107,6 +111,10 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        if self.store.read(cx).changes_requested {
+            self.store.update(cx, |s, _| s.changes_requested = false);
+            self.active_drawer = Some(DrawerKind::Changes);
+        }
         if self.store.read(cx).notes_requested {
             self.store.update(cx, |s, _| s.notes_requested = false);
             self.launch_notes(None, cx);
@@ -205,6 +213,66 @@ impl Render for MainWindow {
                     }
                 }
 
+                // The split screen's own keymap, exactly what the footer
+                // advertises: ↑↓ move the row selection, ↵ launches the
+                // focused repo, S favorites it. Text inputs keep their keys
+                // (the Input key context owns the focus path).
+                if this.page == Page::Repos
+                    && !modifiers.control
+                    && !modifiers.platform
+                    && !modifiers.function
+                    && !window
+                        .context_stack()
+                        .iter()
+                        .any(|context| context.contains("Input"))
+                {
+                    match key {
+                        "down" | "up" => {
+                            let delta = if key == "down" { 1 } else { -1 };
+                            this.store
+                                .update(cx, |store, cx| store.step_selection(delta, cx));
+                            cx.stop_propagation();
+                            return;
+                        }
+                        "enter" => {
+                            let launch = {
+                                let store = this.store.read(cx);
+                                store.focused_folder().map(|folder| {
+                                    let settings = store.settings();
+                                    (
+                                        folder,
+                                        settings.repos.vscode_executable,
+                                        settings.repos.vscode_profile,
+                                    )
+                                })
+                            };
+                            if let Some((folder, exe, profile)) = launch
+                                && let Err(err) =
+                                    devtools_core::terminal::open_in_vscode(&folder, &exe, &profile)
+                            {
+                                this.store.update(cx, |s, _| s.notify_error(err));
+                            }
+                            cx.stop_propagation();
+                            return;
+                        }
+                        "s" => {
+                            let folder = this.store.read(cx).focused_folder();
+                            if let Some(folder) = folder {
+                                this.store
+                                    .update(cx, |s, cx| s.toggle_favorite(&folder, cx));
+                            }
+                            cx.stop_propagation();
+                            return;
+                        }
+                        "c" => {
+                            this.store.update(cx, |s, _| s.changes_requested = true);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // type-anywhere search: a plain printable character (no
                 // ctrl/meta — those are shortcuts) starts a fresh term when
                 // no text input owns the focus path; every kit text surface
@@ -245,6 +313,9 @@ impl Render for MainWindow {
         }
         if let Some(drawer) = self.render_drawer_overlay(window, cx) {
             root = root.child(drawer);
+        }
+        if let Some(sheet) = self.render_changes_sheet(window, cx) {
+            root = root.child(sheet);
         }
         if let Some(menu) = self.render_tools_menu(cx) {
             root = root.child(menu);
@@ -445,6 +516,50 @@ impl MainWindow {
                 Box::new(open_notes),
             ));
         }
+        menu = menu.child(row(
+            "tools-menu-nuget-watch",
+            "icons/icon-package.svg",
+            if self.store.read(cx).nuget.watching {
+                "NuGet watch: running"
+            } else {
+                "NuGet watch: idle"
+            },
+            Box::new(cx.listener(|this, _, _, cx| {
+                this.tools_menu_open = false;
+                this.store.update(cx, |s, _| {
+                    if s.nuget.watching {
+                        s.stop_nuget();
+                    } else {
+                        s.start_nuget();
+                    }
+                });
+                cx.notify();
+            })),
+        ));
+        menu = menu.child(row(
+            "tools-menu-warp",
+            "icons/icon-app-window.svg",
+            "Open warp-agent",
+            Box::new(cx.listener(|this, _, _, cx| {
+                this.tools_menu_open = false;
+                this.store
+                    .update(cx, |s, cx| s.open_in_warp("general".into(), cx));
+            })),
+        ));
+        menu = menu.child(row(
+            "tools-menu-settings",
+            "icons/icon-cog.svg",
+            "Settings",
+            Box::new(cx.listener(|this, _, _, cx| {
+                this.tools_menu_open = false;
+                this.page = if this.page == Page::Settings {
+                    Page::Repos
+                } else {
+                    Page::Settings
+                };
+                cx.notify();
+            })),
+        ));
         Some(
             div()
                 .absolute()
@@ -468,12 +583,109 @@ impl MainWindow {
 
     /// The docked tool drawer overlay: a full-window scrim plus the right-edge
     /// panel; the drawer entity is created on first open.
+    /// The commit surface: ChangesView was built for the workspace bar, so it
+    /// opens as a bottom sheet with its own ground instead of the narrow
+    /// right-edge drawer (where its three columns fall apart).
+    fn render_changes_sheet(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        if !matches!(self.active_drawer, Some(DrawerKind::Changes)) {
+            return None;
+        }
+        let store = self.store.clone();
+        let view = self
+            .changes_drawer
+            .get_or_insert_with(|| {
+                cx.new(move |cx| crate::ui::changes::ChangesView::new(store, window, cx))
+            })
+            .clone();
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(
+                    div()
+                        .id("drawer-scrim")
+                        .debug_selector(|| "drawer-scrim".into())
+                        .a11y_button("Close changes")
+                        .absolute()
+                        .inset_0()
+                        .bg(theme::rgba(0x00000073))
+                        .occlude()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.active_drawer = None;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .h(px(520.))
+                        .bg(theme::BACKGROUND)
+                        .border_t_1()
+                        .border_color(theme::HAIRLINE)
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .h(px(38.))
+                                .px(px(18.))
+                                .border_b_1()
+                                .border_color(theme::BORDER_LIGHT)
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_rail_title()))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(theme::TEXT)
+                                        .child("Changes"),
+                                )
+                                .child(
+                                    div()
+                                        .id("changes-close")
+                                        .debug_selector(|| "changes-close".into())
+                                        .a11y_button("Close changes")
+                                        .cursor_pointer()
+                                        .size(px(24.))
+                                        .rounded(px(4.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .hover(|d| d.bg(theme::HOVER_BG))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.active_drawer = None;
+                                            cx.notify();
+                                        }))
+                                        .child(icon(
+                                            "icons/icon-close.svg",
+                                            px(13.),
+                                            theme::TEXT_MUTED,
+                                        )),
+                                ),
+                        )
+                        .child(div().flex_1().min_h_0().px(px(18.)).child(view)),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_drawer_overlay(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let kind = self.active_drawer?;
+        // the commit surface is a bottom sheet, not this right-edge panel
+        if matches!(kind, DrawerKind::Changes) {
+            return None;
+        }
         let store = self.store.clone();
         // closing via the drawer's header X routes back into the window
         let close_target = cx.entity();
@@ -484,6 +696,8 @@ impl MainWindow {
             });
         });
         let drawer = match kind {
+            // handled before this point: Changes is a bottom sheet
+            DrawerKind::Changes => return None,
             DrawerKind::Formatters => self
                 .formatters
                 .get_or_insert_with(|| {
@@ -528,6 +742,7 @@ impl MainWindow {
                 .child(
                     div()
                         .id("drawer-scrim")
+                        .debug_selector(|| "drawer-scrim".into())
                         .a11y_button("Close drawer")
                         .absolute()
                         .inset_0()
@@ -890,8 +1105,8 @@ pub(crate) fn window_button(
         // reaching the drag handler, so a click stays a click
         .occlude()
         .flex_shrink_0()
-        .size(px(26.))
-        .rounded_md()
+        .w(px(36.))
+        .h(px(theme::TITLEBAR_H))
         .flex()
         .items_center()
         .justify_center()
@@ -904,76 +1119,40 @@ pub(crate) fn window_button(
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
-/// A titlebar status chip: an 8px state dot + label, transparent until
-/// hovered, clicking toggles the tool. The dot colors follow the .NET
-/// titlebar: green = running/watching, amber = NuGet idle, red = SnapIt
-/// stopped.
-fn status_chip(
-    id: &'static str,
-    label: &'static str,
-    dot_color: gpui::Rgba,
-    tooltip: &'static str,
-    show_tooltip: bool,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-) -> gpui::AnyElement {
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .a11y_button(tooltip)
-        .cursor_pointer()
-        .occlude()
-        .flex_shrink_0()
-        .rounded_md()
-        .h(px(26.))
-        .px_2()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_1p5()
-        .hover(|s| s.bg(theme::HOVER))
-        .when(show_tooltip, |d| {
-            d.tooltip(crate::ui::tooltip_text(tooltip))
-        })
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(on_click)
-        .child(div().size(px(8.)).rounded_full().bg(dot_color))
-        .child(
-            div()
-                .text_size(px(theme::font_small() - 1.))
-                .text_color(theme::TEXT_MUTED)
-                .child(label),
-        )
-        .into_any_element()
-}
-
 /// Both titlebar side columns share this width so the centered search field
-/// sits at the window's true center. The right side is the wider one — status
-/// chips + tool pill + window controls — so the width is computed from what
+/// sits at the window's true center. The right side is the wider one — Notes,
+/// the tool pill, the services pill and the window controls — so the width is
+/// computed from what
 /// the settings actually enable; the old fixed guess sat below the real
 /// content and the flex row crushed the window controls into a fraction of
 /// their pitch.
 fn titlebar_side_w(show_nuget: bool, show_warp: bool, show_windows_chips: bool) -> f32 {
-    // status chip: px_2 padding, 8px dot, gap, ~6.5px per label character
-    let chip = |label: &str| 30.0 + label.chars().count() as f32 * 6.5;
-    let mut widths = Vec::new();
-    if show_nuget {
-        widths.push(chip("NuGet"));
-    }
-    if show_windows_chips {
-        widths.push(chip("SnapIt"));
-        widths.push(chip("Awake"));
-    }
-    if show_warp {
-        widths.push(chip("warp"));
-    }
-    if !widths.is_empty() {
-        widths.push(9.0); // the hairline divider: w 1 + mx_1
-    }
-    widths.push(58.0); // the tool pill: p_0p5 + two 26px buttons + gap_0p5
-    widths.push(9.0);
-    widths.push(78.0); // minimize / maximize / close at 26px each
-    let gaps = (widths.len() - 1) as f32 * 4.0; // the row's gap_1
-    (widths.iter().sum::<f32>() + gaps + 10.0).max(252.0)
+    // Measured against the pieces the right column actually renders: the
+    // Notes text button, the services pill (a dot per service plus the
+    // count), the labelled Tools pill with Settings beside it, and the three
+    // window buttons. The exact numbers only have to keep the centred search
+    // centred — both side columns take this width.
+    let mut width = 0.0;
+    width += 76.0; // Notes: note icon + label + external mark + padding
+    width += 8.0; // gap
+    let services = 24.0 + 12.0 * (show_nuget as u8 + show_warp as u8) as f32;
+    let services = if show_windows_chips {
+        services + 24.0
+    } else {
+        services
+    };
+    width += if show_nuget || show_warp || show_windows_chips {
+        services + 12.0
+    } else {
+        0.0
+    };
+    width += 8.0; // gap
+    width += 9.0; // the hairline divider: w 1 + mx_1
+    width += 84.0; // the utility pill: p_0p5 + Tools (icon + label + chevron)
+    width += 9.0;
+    width += 78.0; // minimize / maximize / close at 26px each
+    width += 4.0 * 6.0; // the row's gap_1 between every child
+    width.max(252.0) + 10.0
 }
 
 impl MainWindow {
@@ -1008,6 +1187,64 @@ impl MainWindow {
             .rounded_md()
             .bg(theme::POPUP)
             .p_0p5();
+        // The services pill: the same state dots the chips carried, on one
+        // row with the healthy count — the mockup's "2/2".
+        let (mut healthy, mut total) = (0u8, 0u8);
+        if show_nuget {
+            total += 1;
+            healthy += u8::from(nuget_watching);
+        }
+        if show_warp {
+            total += 1;
+            healthy += u8::from(self.store.read(cx).warp_connected);
+        }
+        if show_windows_chips {
+            total += 1;
+            healthy += u8::from(devtools_core::snapit::is_running());
+            total += 1;
+            healthy += u8::from(devtools_core::keepawake::is_enabled());
+        }
+        let mut services = div()
+            .id("status-pill")
+            .debug_selector(|| "status-pill".into())
+            .occlude()
+            .flex_shrink_0()
+            .h(px(26.))
+            .px(px(8.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(theme::LINE_STRONG)
+            .bg(theme::GHOST_BG)
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .font_family(theme::code_font())
+            .text_size(px(theme::font_mono_meta()))
+            .text_color(theme::TEXT_DIM)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.tools_menu_open = !this.tools_menu_open;
+                cx.notify();
+            }));
+        // one state dot + the tally, exactly the export's pill; the per-service
+        // switches moved into the Tools menu
+        let health = if total == 0 {
+            theme::TEXT_MUTED
+        } else if healthy == total {
+            theme::SUCCESS_BRIGHT
+        } else if healthy > 0 {
+            theme::AMBER_BRIGHT
+        } else {
+            theme::DANGER
+        };
+        services = services.child(div().size(px(8.)).rounded_full().bg(health));
+        services = services.child(
+            div()
+                .pl_1()
+                .text_color(theme::TEXT_DIM)
+                .child(format!("{healthy}/{total}")),
+        );
+
         // fixed side column: matching the brand column's width keeps the
         // centered search truly centered
         let right_group = div()
@@ -1022,197 +1259,105 @@ impl MainWindow {
             // watch runs; SnapIt red when stopped, green when running — and
             // Windows-only, like the tool itself. Keep awake is Windows-only
             // too: green while it holds the machine awake, muted when off.
-            .when(show_nuget, |d| {
-                let store = self.store.clone();
-                d.child(status_chip(
-                    "nuget-status",
-                    "NuGet",
-                    if nuget_watching {
-                        theme::SUCCESS_BRIGHT
-                    } else {
-                        theme::AMBER_BRIGHT
-                    },
-                    if nuget_watching {
-                        "NuGet watch: running — click to stop"
-                    } else {
-                        "NuGet watch: idle — click to start"
-                    },
-                    show_tooltips,
-                    move |_, _, cx| {
-                        store.update(cx, |s, _| {
-                            if s.nuget.watching {
-                                s.stop_nuget();
-                            } else {
-                                s.start_nuget();
-                            }
-                        });
-                        cx.refresh_windows();
-                    },
-                ))
-            })
-            .when(show_windows_chips, |d| {
-                let running = devtools_core::snapit::is_running();
-                let store = self.store.clone();
-                d.child(status_chip(
-                    "snapit-status",
-                    "SnapIt",
-                    if running {
-                        theme::SUCCESS_BRIGHT
-                    } else {
-                        theme::DANGER
-                    },
-                    if running {
-                        "SnapIt: running — click to stop"
-                    } else {
-                        "SnapIt: stopped — click to start"
-                    },
-                    show_tooltips,
-                    move |_, _, cx| {
-                        let exe = store.read(cx).settings().snap_it.executable;
-                        let result = if devtools_core::snapit::is_running() {
-                            devtools_core::snapit::stop()
-                        } else {
-                            devtools_core::snapit::start(&exe)
-                        };
-                        if let Err(err) = result {
-                            store.update(cx, |s, cx| {
-                                s.notify_error(err);
-                                cx.notify();
-                            });
-                        }
-                        cx.refresh_windows();
-                    },
-                ))
-            })
-            // warp-agent door: green while a running instance answers, muted
-            // when away; click opens (or launches) it on the General workspace
-            .when(show_warp, |d| {
-                let connected = self.store.read(cx).warp_connected;
-                let store = self.store.clone();
-                d.child(status_chip(
-                    "warp-status",
-                    "warp",
-                    if connected { theme::SUCCESS_BRIGHT } else { theme::TEXT_MUTED },
-                    if connected {
-                        "warp-agent: connected — click to open it on General"
-                    } else {
-                        "warp-agent: not running — click to launch it"
-                    },
-                    show_tooltips,
-                    move |_, _, cx| {
-                        store.update(cx, |s, cx| s.open_in_warp("general".into(), cx));
-                    },
-                ))
-            })
-            .when(show_windows_chips, |d| {
-                let awake = devtools_core::keepawake::is_enabled();
-                let store = self.store.clone();
-                d.child(status_chip(
-                    "keepawake-status",
-                    "Awake",
-                    if awake {
-                        theme::SUCCESS_BRIGHT
-                    } else {
-                        theme::TEXT_MUTED
-                    },
-                    if awake {
-                        "Keep awake: on — system and display stay on, click to allow sleep"
-                    } else {
-                        "Keep awake: off — click to prevent sleep and display off"
-                    },
-                    show_tooltips,
-                    move |_, _, cx| {
-                        let enable = !devtools_core::keepawake::is_enabled();
-                        match devtools_core::keepawake::set_enabled(enable) {
-                            Ok(()) => store.update(cx, |s, cx| {
-                                s.update_settings(|settings| {
-                                    settings.keep_awake.enabled = enable;
-                                });
-                                cx.notify();
-                            }),
-                            Err(err) => store.update(cx, |s, cx| {
-                                s.notify_error(err);
-                                cx.notify();
-                            }),
-                        }
-                        cx.refresh_windows();
-                    },
-                ))
-            })
             // the chips group separates from the tool pill only when a chip
             // actually rendered
+            // Notes sits on the right in the design, next to Tools: a text
+            // button with the external mark, not a bare icon on the left.
+            .when(
+                self.store.read(cx).settings().warp_notes.enable_warp_notes,
+                |group| {
+                    group.child(
+                        div()
+                            .id("notes-toggle")
+                            .debug_selector(|| "notes-toggle".into())
+                            .a11y_button("Notes")
+                            .cursor_pointer()
+                            .occlude()
+                            .h(px(26.))
+                            .px_2()
+                            .rounded_md()
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .hover(|d| d.bg(theme::HOVER).text_color(theme::TEXT))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.launch_notes(None, cx);
+                            }))
+                            .when(show_tooltips, |d| {
+                                d.tooltip(crate::ui::tooltip_text(
+                                    "Notes — markdown notes for the selected repo",
+                                ))
+                            })
+                            .child(icon(
+                                "icons/icon-note.svg",
+                                px(theme::icon_small() - 1.),
+                                theme::TEXT_MUTED,
+                            ))
+                            .child("Notes")
+                            .child(icon(
+                                "icons/icon-open-in-new.svg",
+                                px(theme::icon_small() - 3.),
+                                theme::TEXT_FAINT,
+                            )),
+                    )
+                },
+            )
             .when(show_nuget || show_warp || show_windows_chips, |d| {
                 d.child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             })
-            .child(
-                utility_group
-                    .child({
-                        div()
-                            .id("tools-toggle")
-                            .debug_selector(|| "tools-toggle".into())
-                            .a11y_toggle("Tools", self.tools_menu_open)
-                            .cursor_pointer()
-                            .occlude()
-                            .rounded_md()
-                            .size(px(26.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.tools_menu_open = !this.tools_menu_open;
-                                cx.notify();
-                            }))
-                            // the menu itself explains the tools; a tooltip
-                            // hanging over it would just be noise
-                            .when(show_tooltips && !self.tools_menu_open, |d| {
-                                d.tooltip(crate::ui::tooltip_text("Tools — formatters, package manager, clipboard password, notes"))
-                            })
-                            .child(icon(
-                                "icons/icon-tools.svg",
-                                px(theme::icon_medium()),
-                                if self.tools_menu_open { theme::ACCENT } else { theme::TEXT_MUTED },
-                            ))
+            .child(utility_group.child({
+                div()
+                    .id("tools-toggle")
+                    .debug_selector(|| "tools-toggle".into())
+                    .a11y_toggle("Tools", self.tools_menu_open)
+                    .cursor_pointer()
+                    .occlude()
+                    .rounded(px(4.))
+                    .h(px(28.))
+                    .px(px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(4.))
+                    .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
+                    .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.tools_menu_open = !this.tools_menu_open;
+                        cx.notify();
+                    }))
+                    // the menu itself explains the tools; a tooltip
+                    // hanging over it would just be noise
+                    .when(show_tooltips && !self.tools_menu_open, |d| {
+                        d.tooltip(crate::ui::tooltip_text(
+                            "Tools — formatters, package manager, clipboard password, notes",
+                        ))
                     })
-                    .child({
-                        let on_settings = self.page == Page::Settings;
+                    .child(icon(
+                        "icons/icon-tools.svg",
+                        px(theme::icon_small()),
+                        if self.tools_menu_open {
+                            theme::ACCENT
+                        } else {
+                            theme::TEXT_MUTED
+                        },
+                    ))
+                    .child(
                         div()
-                            .id("settings-toggle")
-                            .debug_selector(|| "settings-toggle".into())
-                            .a11y_toggle(
-                                if on_settings { "Back to repositories" } else { "Settings" },
-                                on_settings,
-                            )
-                            .cursor_pointer()
-                            .occlude()
-                            .rounded_md()
-                            .size(px(26.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .when(on_settings, |d| d.bg(theme::tint(theme::ACCENT)))
-                            .hover(|s| s.bg(theme::HOVER))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.page = if this.page == Page::Settings { Page::Repos } else { Page::Settings };
-                                cx.notify();
-                            }))
-                            .when(show_tooltips, |d| {
-                                d.tooltip(crate::ui::tooltip_text(if on_settings {
-                                    "Back to repositories"
-                                } else {
-                                    "Settings"
-                                }))
-                            })
-                            .child(icon(
-                                "icons/icon-cog.svg",
-                                px(theme::icon_medium()),
-                                if on_settings { theme::ACCENT } else { theme::TEXT_MUTED },
-                            ))
-                    }),
-            )
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .child("Tools"),
+                    )
+                    .child(icon(
+                        "icons/icon-chevron-down.svg",
+                        px(theme::icon_small() - 3.),
+                        theme::TEXT_FAINT,
+                    ))
+            }))
+            .child(services)
             .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
             .child(window_button(
                 "minimize-window",
@@ -1230,7 +1375,11 @@ impl MainWindow {
                     "icons/icon-window-maximize.svg"
                 },
                 theme::HOVER,
-                if window.is_maximized() { "Restore" } else { "Maximize" },
+                if window.is_maximized() {
+                    "Restore"
+                } else {
+                    "Maximize"
+                },
                 show_tooltips,
                 cx.listener(|_, _, window, cx| {
                     window.zoom_window();
@@ -1253,7 +1402,7 @@ impl MainWindow {
             .items_center()
             .px_2()
             .gap_1()
-            .bg(theme::STRONG_BACKGROUND)
+            .bg(theme::TOPBAR_BG)
             .border_b_1()
             .border_color(theme::BORDER_LIGHT)
             .debug_selector(|| "titlebar-drag".into())
@@ -1302,60 +1451,28 @@ impl MainWindow {
                     .items_center()
                     .gap_1()
                     .child(
+                        // the export's mark: a navy rounded tile with the
+                        // light-blue bracket glyph on it
                         div()
                             .flex()
                             .items_center()
                             .justify_center()
-                            .size(px(28.))
-                            .child(icon(
-                                "icons/icon-logo-mark.svg",
-                                px(theme::icon_large()),
-                                theme::ACCENT,
-                            )),
+                            .size(px(24.))
+                            .rounded(px(5.))
+                            .bg(theme::rgba(0x1B2536FF))
+                            .border_1()
+                            .border_color(theme::rgba(0x2C3A52FF))
+                            .child(icon("icons/icon-code.svg", px(15.), theme::BLUE_BRIGHT)),
                     )
                     .child(
                         div()
-                            .text_size(px(theme::font_title()))
+                            .text_size(px(theme::font_brand()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
                             .child("Dev Tools"),
                     )
                     // hairline between the app name and the tools that follow
                     .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-                    .when(
-                        self.store.read(cx).settings().warp_notes.enable_warp_notes,
-                        |left| {
-                            left.child({
-                                div()
-                                    .id("notes-toggle")
-                                    .a11y_button("Notes")
-                                    .cursor_pointer()
-                                    .occlude()
-                                    .rounded_md()
-                                    .size(px(26.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .hover(|s| s.bg(theme::HOVER))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation()
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.launch_notes(None, cx);
-                                    }))
-                                    .when(show_tooltips, |d| {
-                                        d.tooltip(crate::ui::tooltip_text(
-                                            "Notes — markdown notes for the selected repo",
-                                        ))
-                                    })
-                                    .child(icon(
-                                        "icons/icon-note.svg",
-                                        px(theme::icon_medium()),
-                                        theme::TEXT_MUTED,
-                                    ))
-                            })
-                        },
-                    )
                     .when(self.store.read(cx).wand_available(), |left| {
                         left.child(summary_button(
                             &self.store,
@@ -1371,7 +1488,7 @@ impl MainWindow {
                     // occlude it for the Windows hit test and keep its press
                     // from starting a window move on Linux
                     .occlude()
-                    .w(px(420.))
+                    .w(px(400.))
                     .min_w(px(160.))
                     .flex_shrink_1()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -1395,7 +1512,7 @@ impl MainWindow {
                                     .py_0p5()
                                     .text_size(px(theme::font_small() - 3.))
                                     .text_color(theme::TEXT_FAINT)
-                                    .child("Ctrl + F"),
+                                    .child("Ctrl K"),
                             ),
                     ),
             )
@@ -1412,13 +1529,17 @@ impl MainWindow {
                 // dialog's footer (the scan-result card is taller than the
                 // page slice above the bar), so give the page the full body.
                 let dialog_open = self.repos_page.read(cx).dialog.is_some();
+                // The detail rail stands in for the workspace bar — the design
+                // has no bottom sheet on the main screen. Only the old table
+                // (the `DEVTOOLS_UI_TABLE=1` escape hatch) still gets its bar.
+                let split_layout = !crate::ui::repos::table_requested();
                 let mut body = div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_col()
                     .child(div().flex_1().min_h_0().child(self.repos_page.clone()));
-                if !dialog_open {
+                if !dialog_open && !split_layout {
                     body = body.child(self.bottom_bar.clone());
                 }
                 body.into_any_element()

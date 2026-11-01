@@ -169,6 +169,9 @@ fn git_commands(
 
 #[gpui_kit::gpui::test]
 fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
+    // The branch picker lives in the workspace bar, which now only rides with
+    // the legacy table layout — the main screen is the split list + rail.
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -296,6 +299,9 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
 #[gpui_kit::gpui::test]
 fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    // The branch picker lives in the workspace bar, which now only rides with
+    // the legacy table layout — the main screen is the split list + rail.
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 

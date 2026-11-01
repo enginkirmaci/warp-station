@@ -74,6 +74,32 @@ pub fn open_folder(folder: &str) -> Result<(), String> {
         .map_err(|err| format!("{command}: {err}"))
 }
 
+/// Opens an http(s) URL in the desktop's default browser — the rail's issue
+/// rows hand GitHub links through here.
+pub fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("start: {err}"))
+    }
+    #[cfg(not(windows))]
+    {
+        #[cfg(target_os = "macos")]
+        let command = "open";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let command = "xdg-open";
+        std::process::Command::new(command)
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("{command}: {err}"))
+    }
+}
+
 /// Opens a solution file: a configured IDE wins, else the shell association
 /// (Windows) or the .NET-IDE fallback.
 pub fn open_solution(solution: &str, ide_executable: &str) -> Result<(), String> {

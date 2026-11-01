@@ -14,12 +14,24 @@ use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
 use gpui::{App, Context, Entity, FontWeight, MouseButton, Pixels, SharedString, Window, div, px};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
 };
 use gpui_kit::component::{Sizable as _, Size};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+/// The pane head's running totals over the live (non-archived) list.
+#[derive(Default)]
+struct ListStats {
+    total: usize,
+    /// Repos with uncommitted work, an open issue, or commits to push.
+    attention: usize,
+    favorites: usize,
+    changes: u32,
+    issues: u32,
+}
 
 /// Everything a table frame needs that depends on width, settings or the
 /// projection: computed once per layout key change and shared with the
@@ -69,6 +81,12 @@ pub struct ReposPage {
     /// The delegate's cached layout, rebuilt by render on key changes (see
     /// [`TableLayout`]).
     table_layout: Rc<RefCell<Option<Rc<TableLayout>>>>,
+    /// The rail's inline tag editor: the flag is set by the "+ tag" chip and
+    /// the input is created on the next frame, where the window is in hand.
+    tag_editing: bool,
+    tag_draft: Option<Entity<InputState>>,
+    /// The rail header's "⋯" menu.
+    repo_menu_open: bool,
 }
 
 impl ReposPage {
@@ -191,16 +209,86 @@ impl ReposPage {
                 sort_ascending: false,
             }),
             table_layout,
+            tag_editing: false,
+            tag_draft: None,
+            repo_menu_open: false,
         }
     }
 }
 
 impl ReposPage {
+    /// The rail's "⋯" menu.
+    pub fn toggle_repo_menu(&mut self, cx: &mut Context<Self>) {
+        self.repo_menu_open = !self.repo_menu_open;
+        cx.notify();
+    }
+
+    pub fn close_repo_menu(&mut self, cx: &mut Context<Self>) {
+        if self.repo_menu_open {
+            self.repo_menu_open = false;
+            cx.notify();
+        }
+    }
+
+    /// The "+ tag" chip asks for the inline editor; the input itself is
+    /// created on the next frame, where the window is available.
+    pub fn begin_tag_edit(&mut self, cx: &mut Context<Self>) {
+        self.tag_editing = true;
+        cx.notify();
+    }
+
+    pub fn cancel_tag_edit(&mut self, cx: &mut Context<Self>) {
+        self.tag_editing = false;
+        self.tag_draft = None;
+        cx.notify();
+    }
+
+    /// Creates the tag input the frame the chip asked for it.
+    fn ensure_tag_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tag_editing || self.tag_draft.is_some() {
+            return;
+        }
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("tag name"));
+        input.update(cx, |state, cx| state.focus(window, cx));
+        cx.subscribe(&input, |this: &mut ReposPage, _, event: &InputEvent, cx| {
+            if !matches!(event, InputEvent::PressEnter { .. }) {
+                return;
+            }
+            let value = this
+                .tag_draft
+                .as_ref()
+                .map(|input| input.read(cx).value().trim().to_string())
+                .unwrap_or_default();
+            let folder = this.store.read(cx).focused_folder();
+            if let (Some(folder), false) = (folder, value.is_empty()) {
+                this.store
+                    .update(cx, |s, cx| s.add_repo_tag(&folder, &value, cx));
+            }
+            this.tag_editing = false;
+            this.tag_draft = None;
+            cx.notify();
+        })
+        .detach();
+        self.tag_draft = Some(input);
+    }
+
     /// Escape closes the topmost page overlay. Returns whether one was
     /// actually open, so the window can fall through to its own layers.
     pub fn dismiss_overlay(&mut self, cx: &mut Context<Self>) -> bool {
         if self.dialog.is_some() {
             self.dialog = None;
+            cx.notify();
+            return true;
+        }
+        // the rail's inline editors close on Escape before anything else
+        if self.tag_editing || self.tag_draft.is_some() {
+            self.tag_editing = false;
+            self.tag_draft = None;
+            cx.notify();
+            return true;
+        }
+        if self.repo_menu_open {
+            self.repo_menu_open = false;
             cx.notify();
             return true;
         }
@@ -316,6 +404,16 @@ impl ReposPage {
     }
 }
 
+/// The old data table stays reachable for comparison while the redesign
+/// lands: `DEVTOOLS_UI_TABLE=1`. Everything else about this page is the list
+/// plus the detail rail, and the workspace bar only rides with the table.
+///
+/// Read per call rather than cached: the probes flip it at runtime, and an
+/// environment lookup next to a full frame layout does not show up.
+pub fn table_requested() -> bool {
+    std::env::var("DEVTOOLS_UI_TABLE").is_ok_and(|value| value == "1")
+}
+
 impl Render for ReposPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         // drain dialog-bound results the moment we are about to draw
@@ -360,22 +458,60 @@ impl Render for ReposPage {
                 dialog.error = result.error.or_else(|| Some("clone failed".into()));
             }
         }
-        // Prototype look (`DEVTOOLS_UI_PROTO=1`): the list replaces the table,
-        // but never while a dialog is open — dialogs stay table-agnostic and
-        // must remain reachable.
-        if crate::ui::repos_proto::enabled() && self.dialog.is_none() {
-            let toolbar = self.render_toolbar(window.viewport_size().width, cx);
-            let store = self.store.read(cx);
-            let list = crate::ui::repos_proto::render(store);
-            return div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .min_h_0()
-                .relative()
-                .child(toolbar)
-                .child(div().flex_1().min_h_0().child(list))
-                .into_any_element();
+        // The split layout is the app: the list on the left, the detail rail
+        // on the right. The old data table stays reachable with
+        // `DEVTOOLS_UI_TABLE=1` while the last behaviours move over.
+        //
+        // A dialog is a layer on top of whichever layout is underneath, never
+        // a reason to swap it: this branch used to be skipped while a dialog
+        // was open, so Add repo / Clone dropped the user back onto the legacy
+        // table until the dialog closed.
+        if !table_requested() {
+            self.ensure_tag_editor(window, cx);
+            let list_w = window.viewport_size().width - px(crate::ui::inspector::RAIL_W);
+            let toolbar = self.render_toolbar(list_w, cx);
+            let mut page = {
+                let store = self.store.read(cx);
+                let list = crate::ui::repos_proto::render(store, &self.store);
+                let footer = key_hints(store);
+                let page = cx.entity();
+                let tag_draft = self.tag_draft.clone();
+                let repo_menu_open = self.repo_menu_open;
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .min_h_0()
+                    .relative()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .min_h_0()
+                                    .child(toolbar)
+                                    .child(div().flex_1().min_h_0().child(list)),
+                            )
+                            .child(crate::ui::inspector::render(
+                                store,
+                                &self.store,
+                                &page,
+                                tag_draft.as_ref(),
+                                repo_menu_open,
+                            )),
+                    )
+                    .child(footer)
+            };
+            if let Some(dialog) = &mut self.dialog {
+                page = page.child(dialog.render(window, cx));
+            }
+            return page.into_any_element();
         }
         // Dynamic columns: the kit's table only re-prepares column widths on
         // refresh(), so feed it the real available width and refresh once per
@@ -458,166 +594,133 @@ impl ReposPage {
             )
         };
 
-        let (total_repos, total_changes, total_prs, total_issues, github_on, filters_active) = {
+        let stats = {
             let store = self.store.read(cx);
             // totals describe the live list: archived repos leave every sum
-            let live = store.repos.iter().filter(|r| !r.is_archived());
-            (
-                live.clone().count(),
-                live.clone().map(|r| r.git_modified_count).sum::<u32>(),
-                live.clone().map(|r| r.github_pr_count).sum::<u32>(),
-                live.map(|r| r.github_issue_count).sum::<u32>(),
-                store.settings().repos.enable_git_hub,
-                !store.tag_filters.is_empty() || store.group_filter.is_some(),
-            )
+            let mut stats = ListStats::default();
+            for repo in store.repos.iter().filter(|r| !r.is_archived()) {
+                stats.total += 1;
+                stats.changes += repo.git_modified_count;
+                stats.issues += repo.github_issue_count;
+                if repo.is_favorite() {
+                    stats.favorites += 1;
+                }
+                if crate::store::projection::needs_attention(repo) {
+                    stats.attention += 1;
+                }
+            }
+            stats
         };
+        let attention_only = self.store.read(cx).attention_only;
+        let filters_active =
+            !active_tags.is_empty() || self.store.read(cx).group_filter.is_some() || attention_only;
 
-        // The header runs out of room before the filter row does; the count
-        // chips are the first thing to go (the table carries the same numbers
-        // per row). The threshold scales with the text size so a large font
-        // does not clip the action buttons. The chips also vary with the data
-        // (remote counts arrive after the first frame), so they drop in
-        // priority order: remote counts first, then the local changes total —
-        // never the action buttons.
+        // The pane head sheds its subtitle first when the list column gets
+        // narrow (the same numbers ride the rows), then the tag chips; the
+        // action buttons never leave.
         let scale = theme::font_small() / 14.0;
-        let compact = viewport_width < px(840.) * scale;
-        let roomy = viewport_width >= px(1000.) * scale;
-        let show_change_chip = !compact;
-        let show_remote_chips = show_change_chip && roomy;
+        // both rows still fit a 620px column: title + three ghost actions on
+        // the head, the scope control + chips below
+        let compact = viewport_width < px(620.) * scale;
+        let show_subtitle = !compact;
+        let show_tag_chips = viewport_width >= px(620.) * scale;
 
-        let count_chip = |count: u32,
-                          label: &'static str,
-                          color: gpui::Rgba,
-                          icon_path: Option<&'static str>| {
-            div()
-                .rounded_full()
-                .px_2()
-                .py_0p5()
-                .text_size(px(theme::font_small() - 1.))
-                .font_weight(FontWeight::MEDIUM)
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_1()
-                .bg(theme::tint(color))
-                .text_color(color)
-                .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 3.), color)))
-                .child(format!("{count} {label}"))
+        // Tag filters read as chips: raised when active, quiet otherwise (OR
+        // semantics across the checked set); each carries its live count.
+        // The export's chip row carries user tags that actually match
+        // something: the derived flags (favourites/archived) have their own
+        // scope segments and a zero-count chip is noise.
+        let tag_counts: Vec<(String, usize)> = {
+            let store = self.store.read(cx);
+            tags.iter()
+                .filter(|tag| {
+                    !tag.eq_ignore_ascii_case(devtools_core::repo_store::FAVORITES_TAG)
+                        && !tag.eq_ignore_ascii_case(devtools_core::repo_store::ARCHIVED_TAG)
+                })
+                .map(|tag| {
+                    let count = store
+                        .repos
+                        .iter()
+                        .filter(|repo| !repo.is_archived())
+                        .filter(|repo| repo.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)))
+                        .count();
+                    (tag.clone(), count)
+                })
+                .filter(|(_, count)| *count > 0)
+                .collect()
         };
-
-        // tag filters read as pills: tinted+bordered when active, quiet
-        // outlines otherwise (OR semantics across the checked set)
         let mut tag_pills = div()
             .flex()
             .flex_row()
             .items_center()
             .gap_1p5()
-            .flex_1()
             .min_w_0()
             .overflow_hidden();
-        for (index, tag) in tags.iter().enumerate() {
+        for (index, (tag, count)) in tag_counts.iter().enumerate() {
             let active = active_tags.iter().any(|t| t.eq_ignore_ascii_case(tag));
             tag_pills = tag_pills.child(
                 div()
                     .id(gpui::ElementId::NamedInteger("filter".into(), index as u64))
                     .a11y_toggle(tag.clone(), active)
                     .cursor_pointer()
-                    .rounded_full()
+                    .rounded_sm()
                     .border_1()
                     .border_color(if active {
-                        theme::ACCENT
+                        theme::LINE_STRONG
                     } else {
                         theme::HAIRLINE
                     })
+                    .bg(if active {
+                        theme::CHIP
+                    } else {
+                        theme::BACKGROUND
+                    })
                     .px_2()
                     .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
-                    .when(active, |d| {
-                        d.bg(theme::tint(theme::ACCENT))
-                            .text_color(theme::ACCENT)
-                            .font_weight(FontWeight::MEDIUM)
-                    })
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(theme::font_meta()))
+                    .when(active, |d| d.text_color(theme::TEXT))
                     .when(!active, |d| d.text_color(theme::TEXT_MUTED))
-                    .hover(|s| s.border_color(theme::TEXT_FAINT).text_color(theme::TEXT))
+                    .hover(|s| s.text_color(theme::TEXT).border_color(theme::LINE_STRONG))
                     .on_click({
                         let tag = tag.clone();
                         cx.listener(move |this, _, _, cx| {
                             this.store.update(cx, |s, cx| s.toggle_tag_filter(&tag, cx));
                         })
                     })
-                    .child(tag.clone()),
+                    .child(tag.clone())
+                    .child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_FAINT)
+                            .child(format!("{count}")),
+                    ),
             );
         }
 
         let store_refresh = self.store.clone();
-        let header_row = div()
-            .h(px(theme::TOOLBAR_H))
+        let actions = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap_2()
-            .px_4()
-            .child(icon(
-                "icons/icon-logo-mark.svg",
-                px(theme::icon_medium()),
-                theme::TEXT_FAINT,
-            ))
-            .child(
-                div()
-                    .text_size(px(theme::font_title() + 1.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::TEXT)
-                    .child("Repositories"),
-            )
-            .child(
-                div()
-                    .text_size(px(theme::font_small()))
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!("{total_repos} repos")),
-            )
-            .when(show_change_chip && total_changes > 0, |row| {
-                row.child(count_chip(
-                    total_changes,
-                    "changes",
-                    theme::AMBER_BRIGHT,
-                    None,
-                ))
-            })
-            .when(show_remote_chips && github_on && total_prs > 0, |row| {
-                row.child(count_chip(
-                    total_prs,
-                    "PRs",
-                    theme::PURPLE_BRIGHT,
-                    Some("icons/icon-git-pull-request.svg"),
-                ))
-            })
-            .when(show_remote_chips && github_on && total_issues > 0, |row| {
-                row.child(count_chip(
-                    total_issues,
-                    "issues",
-                    theme::SUCCESS_BRIGHT,
-                    Some("icons/icon-issue.svg"),
-                ))
-            })
-            .child(div().flex_1())
-            .child(icon_action(
+            .gap_1p5()
+            .flex_shrink_0()
+            .child(toolbar_action(
                 "refresh-button",
-                "Refresh repositories",
-                "icons/icon-refresh.svg",
-                if scanning {
-                    theme::ACCENT
-                } else {
-                    theme::TEXT_MUTED
-                },
+                if scanning { "Refreshing" } else { "Refresh" },
+                Some("icons/icon-refresh.svg"),
+                false,
                 move |_, _, cx| {
                     store_refresh.update(cx, |s, cx| s.refresh(cx));
                 },
             ))
             .child(toolbar_action(
                 "add-repo-button",
-                "Add Repository",
+                "Add repo",
                 Some("icons/icon-plus.svg"),
-                true,
+                false,
                 cx.listener(|this, _, window, cx| {
                     let depth = this.store.read(cx).settings().repos.max_scan_depth;
                     this.dialog = Some(Dialog::AddRepo(AddRepoDialog::new(window, depth, cx)));
@@ -636,48 +739,140 @@ impl ReposPage {
                 }),
             ));
 
-        let store_clear = self.store.clone();
-        // the archived toggle rides the filter row (it is a view filter, and
-        // this row never compacts away): present whenever archived repos
-        // exist or are being shown, pill-styled like the tag chips
-        let archive_chip_visible = archived_count > 0 || show_archived;
-        let archive_chip = div()
-            .id("archive-chip")
-            .debug_selector(|| "archive-chip".into())
-            .a11y_toggle(format!("Archive ({archived_count})"), show_archived)
-            .cursor_pointer()
-            .rounded_full()
-            .border_1()
-            .border_color(if show_archived {
-                theme::ACCENT
-            } else {
-                theme::HAIRLINE
-            })
-            .px_2()
-            .py_0p5()
-            .text_size(px(theme::font_small() - 1.))
-            .when(show_archived, |d| {
-                d.bg(theme::tint(theme::ACCENT))
-                    .text_color(theme::ACCENT)
-                    .font_weight(FontWeight::MEDIUM)
-            })
-            .when(!show_archived, |d| d.text_color(theme::TEXT_MUTED))
-            .hover(|s| s.border_color(theme::TEXT_FAINT).text_color(theme::TEXT))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.store.update(cx, |s, cx| s.toggle_show_archived(cx));
-            }))
-            .child(format!("Archive ({archived_count})"));
-        let filter_row = div()
-            .h(px(theme::TOOLBAR_H))
+        // The subtitle summarises the whole list: what needs a hand first,
+        // then the two totals that make a repo look busy.
+        let mut subtitle = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap_2()
-            .px_4()
-            .border_t_1()
-            .border_color(theme::BORDER_LIGHT)
-            .when(archive_chip_visible, |row| row.child(archive_chip))
-            .child(tag_pills)
+            .gap(px(7.))
+            .text_size(px(theme::font_sub()));
+        if stats.attention > 0 {
+            subtitle = subtitle.child(div().text_color(theme::AMBER_BRIGHT).child(format!(
+                "{} of {} need attention",
+                stats.attention, stats.total
+            )));
+        } else {
+            subtitle = subtitle.child(
+                div()
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!("{} repos", stats.total)),
+            );
+        }
+        subtitle = subtitle
+            .child(dot())
+            .child(
+                div()
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!("{} changes", stats.changes)),
+            )
+            .child(dot())
+            .child(
+                div()
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!("{} issues", stats.issues)),
+            );
+
+        let header_row = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap(px(12.))
+            .px(px(20.))
+            .pt(px(16.))
+            .pb(px(10.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_size(px(theme::font_screen_title()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .child("Repositories"),
+                    )
+                    .when(show_subtitle, |head| head.child(subtitle)),
+            )
+            .child(actions);
+
+        // Scope segmented control: one row of filters, counts included.
+        let scope = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_0p5()
+            .h(px(26.))
+            .p(px(2.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(theme::SEG_BORDER)
+            .bg(theme::SEG_BG)
+            .child(scope_item(
+                "scope-all",
+                "All",
+                stats.total,
+                !attention_only && active_tags.is_empty(),
+                cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| {
+                        s.clear_filters(cx);
+                        if s.show_archived {
+                            s.toggle_show_archived(cx);
+                        }
+                    });
+                }),
+            ))
+            .child(scope_item(
+                "scope-attention",
+                "Needs attention",
+                stats.attention,
+                attention_only,
+                cx.listener(|this, _, _, cx| {
+                    this.store
+                        .update(cx, |s, cx| s.set_attention_only(true, cx));
+                }),
+            ))
+            .child(scope_item(
+                "scope-favorites",
+                "Favorites",
+                stats.favorites,
+                active_tags
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(devtools_core::repo_store::FAVORITES_TAG)),
+                cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| {
+                        s.toggle_tag_filter(devtools_core::repo_store::FAVORITES_TAG, cx);
+                    });
+                }),
+            ))
+            .child(scope_item(
+                "archive-chip",
+                "Archive",
+                archived_count,
+                show_archived,
+                cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| s.toggle_show_archived(cx));
+                }),
+            ));
+
+        let store_clear = self.store.clone();
+        // the chips wrap under the scope control when the column is narrow
+        // instead of clipping at its edge
+        let scope_row = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .h(px(36.))
+            .px(px(20.))
+            .border_b_1()
+            .border_color(theme::HAIRLINE)
+            .child(scope)
+            .child(div().flex_1())
+            .when(show_tag_chips, |row| row.child(tag_pills))
             .when(filters_active, |row| {
                 row.child(
                     div()
@@ -685,12 +880,12 @@ impl ReposPage {
                         .debug_selector(|| "clear-button".into())
                         .a11y_button("Clear filters")
                         .cursor_pointer()
-                        .rounded_md()
+                        .rounded_sm()
                         .px_2()
-                        .py_1()
-                        .text_size(px(theme::font_small()))
+                        .py_0p5()
+                        .text_size(px(theme::font_meta()))
                         .text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                        .hover(|s| s.text_color(theme::TEXT))
                         .on_click(move |_, _, cx| {
                             store_clear.update(cx, |s, cx| s.clear_filters(cx));
                         })
@@ -703,19 +898,123 @@ impl ReposPage {
             .flex_col()
             .relative()
             .child(header_row)
-            .child(filter_row)
+            .child(scope_row)
             .into_any_element()
     }
 }
 
-/// A labelled toolbar button: filled when primary, outlined otherwise.
+/// The 2px bullet the export separates the summary parts with.
+fn dot() -> gpui::AnyElement {
+    div()
+        .size(px(2.))
+        .rounded_full()
+        .bg(theme::TEXT_FAINT)
+        .into_any_element()
+}
+
+/// The footer strip: the keyboard grammar on the left, the same totals the
+/// pane head carries on the right.
+fn key_hints(store: &Store) -> gpui::AnyElement {
+    let mut attention = 0usize;
+    let mut changes = 0u32;
+    let mut issues = 0u32;
+    for repo in store.repos.iter().filter(|repo| !repo.is_archived()) {
+        changes += repo.git_modified_count;
+        issues += repo.github_issue_count;
+        if crate::store::projection::needs_attention(repo) {
+            attention += 1;
+        }
+    }
+
+    let mut hints = div().flex().items_center().gap_3();
+    for (keys, label) in [
+        ("\u{2191}\u{2193}", "Rows"),
+        ("\u{21b5}", "Open"),
+        ("S", "Favorite"),
+        ("C", "Commit"),
+        ("Ctrl K", "Search"),
+    ] {
+        hints = hints.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(keycap(keys))
+                .child(div().text_color(theme::TEXT_MUTED).child(label)),
+        );
+    }
+
+    div()
+        .debug_selector(|| "repos-footer".into())
+        .flex()
+        .items_center()
+        .justify_between()
+        .h(px(26.))
+        .px(px(12.))
+        .border_t_1()
+        .border_color(theme::HAIRLINE)
+        .bg(theme::FOOT_BG)
+        .text_size(px(theme::font_row_meta()))
+        .text_color(theme::TEXT_MUTED)
+        .child(hints)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .when(attention > 0, |right| {
+                    right.child(
+                        div()
+                            .text_color(theme::AMBER_BRIGHT)
+                            .child(format!("{attention} need attention")),
+                    )
+                })
+                .child(div().text_color(theme::TEXT_FAINT).child("\u{00b7}"))
+                .child(
+                    div()
+                        .text_color(theme::TEXT_MUTED)
+                        .child(format!("{changes} changes")),
+                )
+                .child(div().text_color(theme::TEXT_FAINT).child("\u{00b7}"))
+                .child(
+                    div()
+                        .text_color(theme::TEXT_MUTED)
+                        .child(format!("{issues} issues")),
+                ),
+        )
+        .into_any_element()
+}
+
+fn keycap(label: &'static str) -> gpui::AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .justify_center()
+        .h(px(15.))
+        .min_w(px(16.))
+        .px(px(4.))
+        .rounded(px(3.))
+        .border_1()
+        .border_color(theme::KEY_BORDER)
+        .bg(theme::KEY_BG)
+        .font_family(theme::code_font())
+        .text_size(px(theme::font_micro()))
+        .text_color(theme::KEY_FG)
+        .child(label)
+        .into_any_element()
+}
+
+/// A labelled pane-head button: filled when primary, ghost otherwise. The
+/// ghost is the default here — the design has one filled action at a time and
+/// that one lives in the detail rail.
 fn toolbar_action(
     id: &'static str,
-    label: &'static str,
+    label: impl Into<gpui::SharedString>,
     icon_path: Option<&'static str>,
     primary: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
+    let label: gpui::SharedString = label.into();
     let color = if primary {
         theme::ON_ACCENT
     } else {
@@ -723,50 +1022,73 @@ fn toolbar_action(
     };
     div()
         .id(id)
-        .a11y_button(label)
+        .a11y_button(label.clone())
         .cursor_pointer()
-        .rounded_md()
-        .h(px(30.))
-        .px_3()
+        .rounded(px(4.))
+        .h(px(26.))
+        .px(px(8.))
         .flex()
         .flex_row()
         .items_center()
-        .gap_1p5()
-        .text_size(px(theme::font_small()))
+        .gap(px(5.))
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(color)
         .debug_selector(move || id.into())
         .when(primary, |d| d.bg(theme::ACCENT).hover(|s| s.opacity(0.9)))
         .when(!primary, |d| {
-            d.border_1()
-                .border_color(theme::HAIRLINE)
-                .hover(|s| s.bg(theme::HOVER).border_color(theme::TEXT_FAINT))
+            d.bg(theme::GHOST_BG)
+                .border_1()
+                .border_color(theme::GHOST_BORDER)
+                .hover(|s| {
+                    s.bg(theme::HOVER_BG)
+                        .border_color(theme::GHOST_BORDER_HOVER)
+                        .text_color(theme::TEXT)
+                })
         })
         .on_click(on_click)
-        .children(icon_path.map(|path| icon(path, px(theme::icon_small()), color)))
+        .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 1.), color)))
         .child(label)
         .into_any_element()
 }
 
-/// A square, borderless icon button for the toolbar's utility actions.
-fn icon_action(
+/// One scope segment: label, count, and the raised fill when it is the
+/// active filter.
+fn scope_item(
     id: &'static str,
     label: &'static str,
-    icon_path: &'static str,
-    color: gpui::Rgba,
+    count: usize,
+    active: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> gpui::AnyElement {
     div()
         .id(id)
-        .a11y_button(label)
+        .a11y_toggle(format!("{label} ({count})"), active)
+        .debug_selector(move || id.into())
         .cursor_pointer()
-        .rounded_md()
-        .size(px(30.))
+        .rounded(px(3.))
+        .h(px(20.))
+        .px(px(7.))
         .flex()
+        .flex_row()
         .items_center()
-        .justify_center()
-        .hover(|s| s.bg(theme::HOVER))
+        .gap(px(4.))
+        .text_size(px(theme::font_row_meta()))
+        .when(active, |d| {
+            d.bg(theme::SEG_ACTIVE).text_color(theme::SEG_ACTIVE_FG)
+        })
+        .when(!active, |d| {
+            d.text_color(theme::TEXT_MUTED)
+                .hover(|s| s.text_color(theme::TEXT))
+        })
         .on_click(on_click)
-        .child(icon(icon_path, px(theme::icon_small()), color))
+        .child(label)
+        .child(
+            div()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::TEXT_FAINT)
+                .child(format!("{count}")),
+        )
         .into_any_element()
 }
 
@@ -2226,7 +2548,12 @@ fn shortcuts_cell(
             "icons/icon-opencode.svg",
             theme::TEXT_MUTED,
             "Launch OpenCode with the selected model",
-            cli_launch(&settings.repos.opencode_executable, "opencode", "OpenCode", true),
+            cli_launch(
+                &settings.repos.opencode_executable,
+                "opencode",
+                "OpenCode",
+                true,
+            ),
         ));
         cli_buttons += 1;
     }
@@ -2236,7 +2563,12 @@ fn shortcuts_cell(
             "icons/icon-deepseek.svg",
             theme::BLUE_BRIGHT,
             "Launch DeepSeek",
-            cli_launch(&settings.repos.deepseek_executable, "dsh", "DeepSeek", false),
+            cli_launch(
+                &settings.repos.deepseek_executable,
+                "dsh",
+                "DeepSeek",
+                false,
+            ),
         ));
         cli_buttons += 1;
     }
@@ -2317,7 +2649,11 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
     div()
         .id("summary-button")
         .debug_selector(|| "summary-button".into())
-        .a11y_button(if busy { "Summarizing…" } else { "Summary" })
+        .a11y_button(if busy {
+            "Summarizing…"
+        } else {
+            "Daily summary"
+        })
         .cursor_pointer()
         // the pill rides in the titlebar's drag region
         .occlude()
@@ -2328,6 +2664,7 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
         .items_center()
         .gap_1p5()
         .text_size(px(theme::font_small()))
+        .text_decoration_none()
         .when(busy, |d| d.text_color(theme::ACCENT))
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
         .bg(theme::CHIP)
@@ -2344,7 +2681,11 @@ pub(crate) fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElem
             px(theme::icon_small() - 1.),
             if busy { theme::ACCENT } else { theme::TEXT_DIM },
         ))
-        .child(if busy { "summarizing…" } else { "Summary" })
+        .child(if busy {
+            "summarizing…"
+        } else {
+            "Daily summary"
+        })
         .into_any_element()
 }
 
