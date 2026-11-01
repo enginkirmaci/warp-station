@@ -10,6 +10,7 @@ use crate::theme;
 use crate::ui::A11y;
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
+use crate::ui::inspector::RepoMenu;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::{AppSettings, RepoSortMode};
 use gpui::prelude::*;
@@ -85,8 +86,8 @@ pub struct ReposPage {
     /// the input is created on the next frame, where the window is in hand.
     tag_editing: bool,
     tag_draft: Option<Entity<InputState>>,
-    /// The rail header's "⋯" menu.
-    repo_menu_open: bool,
+    /// The rail header's "⋯" menu while it is open.
+    repo_menu: Option<RepoMenu>,
 }
 
 impl ReposPage {
@@ -196,8 +197,17 @@ impl ReposPage {
             cx.notify();
         })
         .detach();
-        cx.observe(&store_for_observe, |_, store, cx| {
+        cx.observe(&store_for_observe, |this, store, cx| {
             keep_row_selected(&store, cx);
+            // the menu belongs to the repo it opened on
+            let selected = store.read(cx).selected_repo.clone();
+            if this
+                .repo_menu
+                .as_ref()
+                .is_some_and(|menu| Some(&menu.folder) != selected.as_ref())
+            {
+                this.close_repo_menu(cx);
+            }
         })
         .detach();
         keep_row_selected(&store_for_observe, cx);
@@ -216,23 +226,42 @@ impl ReposPage {
             table_layout,
             tag_editing: false,
             tag_draft: None,
-            repo_menu_open: false,
+            repo_menu: None,
         }
     }
 }
 
 impl ReposPage {
     /// The rail's "⋯" menu.
-    pub fn toggle_repo_menu(&mut self, cx: &mut Context<Self>) {
-        self.repo_menu_open = !self.repo_menu_open;
+    pub fn toggle_repo_menu(&mut self, folder: &str, cx: &mut Context<Self>) {
+        self.repo_menu = match self.repo_menu {
+            Some(_) => None,
+            None => Some(RepoMenu {
+                folder: folder.to_string(),
+                remove_armed: false,
+            }),
+        };
         cx.notify();
     }
 
     pub fn close_repo_menu(&mut self, cx: &mut Context<Self>) {
-        if self.repo_menu_open {
-            self.repo_menu_open = false;
+        if self.repo_menu.take().is_some() {
             cx.notify();
         }
+    }
+
+    /// The first click on the menu's Remove row; the second one removes.
+    pub fn arm_repo_remove(&mut self, cx: &mut Context<Self>) {
+        if let Some(menu) = &mut self.repo_menu {
+            menu.remove_armed = true;
+            cx.notify();
+        }
+    }
+
+    /// Whether something sits on top of the list right now, so the window's
+    /// row keymap stays out of it.
+    pub fn layer_open(&self) -> bool {
+        self.dialog.is_some() || self.repo_menu.is_some()
     }
 
     /// The "+ tag" chip asks for the inline editor; the input itself is
@@ -292,8 +321,7 @@ impl ReposPage {
             cx.notify();
             return true;
         }
-        if self.repo_menu_open {
-            self.repo_menu_open = false;
+        if self.repo_menu.take().is_some() {
             cx.notify();
             return true;
         }
@@ -489,7 +517,7 @@ impl Render for ReposPage {
                 let footer = key_hints(store);
                 let page = cx.entity();
                 let tag_draft = self.tag_draft.clone();
-                let repo_menu_open = self.repo_menu_open;
+                let repo_menu = self.repo_menu.as_ref();
                 div()
                     .size_full()
                     .flex()
@@ -516,7 +544,7 @@ impl Render for ReposPage {
                                 &self.store,
                                 &page,
                                 tag_draft.as_ref(),
-                                repo_menu_open,
+                                repo_menu,
                             )),
                     )
                     .child(footer)

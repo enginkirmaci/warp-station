@@ -76,7 +76,7 @@ fn repo_hits(store: &gpui::Entity<Store>, cx: &gpui::TestAppContext) -> Vec<Stri
 }
 
 #[gpui::test]
-fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
+fn ctrl_k_opens_the_search_and_a_bare_letter_does_not(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -87,8 +87,19 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
     cx.run_until_parked();
     draw(cx);
 
-    // the window root owns the focus at startup: the first typed character
-    // must start a fresh term in the global search
+    // plain letters belong to the row keymap: with the root focused, one with
+    // no binding goes nowhere
+    cx.simulate_input("x");
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    draw(cx);
+    assert!(
+        cx.debug_bounds("search-popup").is_none(),
+        "a bare letter does not start a search"
+    );
+
+    cx.simulate_keystrokes("ctrl-k");
     cx.simulate_input("a");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));
@@ -100,8 +111,7 @@ fn typing_anywhere_runs_the_global_search(cx: &mut TestAppContext) {
         "the results popup renders under the titlebar field"
     );
 
-    // the field now owns the focus, so the rest of the word lands in it —
-    // and is appended, not treated as another fresh term
+    // the field owns the focus now, so the rest of the word lands in it
     cx.simulate_input("lph");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));
@@ -125,7 +135,7 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
     cx.run_until_parked();
     draw(cx);
 
-    // type-anywhere builds a term and hands the focus to the global field
+    cx.simulate_keystrokes("ctrl-k");
     cx.simulate_input("bet");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));
@@ -133,8 +143,7 @@ fn ctrl_f_selects_the_term_so_typing_replaces_it(cx: &mut TestAppContext) {
     draw(cx);
     assert_eq!(repo_hits(&store, cx), ["beta"]);
 
-    // the field owns the focus now, so characters append to the term instead
-    // of triggering another type-anywhere pass
+    // the field keeps the focus, so characters append to the term
     cx.simulate_input("x");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));
@@ -354,6 +363,7 @@ fn code_rows_render_below_repo_rows_under_the_shared_cap(cx: &mut TestAppContext
 
     // a 3-character term (the code sweep's lower gate) that matches one repo;
     // the debounced run also dispatches the ripgrep sweep when rg resolves
+    cx.simulate_keystrokes("ctrl-k");
     cx.simulate_input("alp");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));

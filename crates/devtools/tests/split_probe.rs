@@ -48,6 +48,53 @@ fn selected(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Op
     cx.read_entity(store, |s, _| s.selected_repo.clone())
 }
 
+/// A store on scratch settings: what a probe saves must not reach the
+/// developer's file, and what it reads must not depend on it.
+fn scratch_store(
+    cx: &mut TestAppContext,
+    name: &str,
+    repos: Vec<RepoEntry>,
+) -> (gpui::Entity<Store>, async_channel::Receiver<NetCommand>) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let scratch = std::env::temp_dir().join(format!(
+        "devtools-probe-split-{name}-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(devtools_core::settings::SettingsService::at(scratch)),
+        );
+        store.group_by_root = false;
+        store.replace_repos(repos);
+        store
+    });
+    (store, net_rx)
+}
+
+fn open_window<'a>(
+    store: &gpui::Entity<Store>,
+    cx: &'a mut TestAppContext,
+) -> &'a mut gpui::VisualTestContext {
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+    cx
+}
+
+fn clipboard_text(cx: &gpui::VisualTestContext) -> Option<String> {
+    cx.read_from_clipboard().and_then(|item| item.text())
+}
+
+fn scan_folders(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Vec<String> {
+    cx.read_entity(store, |s, _| s.settings().repos.repo_scan_folders)
+        .unwrap_or_default()
+}
+
 fn load_changes_folders(net_rx: &async_channel::Receiver<NetCommand>) -> Vec<String> {
     let mut folders = Vec::new();
     while let Ok(command) = net_rx.try_recv() {
@@ -719,6 +766,361 @@ fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("changes-sheet").is_none(),
         "two Escapes close the dropdown, then the sheet"
+    );
+}
+
+/// The rail's keycaps are a promise: a letter runs its row for the repo the
+/// rail shows. warp-agent's row is the one a probe can press: it only messages
+/// the net thread, where the others start real processes.
+#[gpui::test]
+fn a_letter_key_runs_its_launcher(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "letters", vec![entry("alpha", "/probe/alpha")]);
+    let exe = std::env::current_exe().expect("test binary path");
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| settings.warp_agent.executable = exe.display().to_string());
+    });
+    let cx = open_window(&store, cx);
+
+    cx.simulate_keystrokes("a");
+    cx.run_until_parked();
+
+    let mut opened = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::WarpOpen { folder, .. } = command {
+            opened = Some(folder);
+        }
+    }
+    assert_eq!(
+        opened,
+        Some(PathBuf::from("/probe/alpha")),
+        "A runs the warp-agent row"
+    );
+}
+
+/// A held letter repeats; a launcher row must not start once per repeat.
+#[gpui::test]
+fn a_held_letter_does_not_repeat(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "held", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+
+    cx.simulate_event(gpui::KeyDownEvent {
+        keystroke: gpui::Keystroke::parse("s").expect("a keystroke"),
+        is_held: true,
+        prefer_character_input: false,
+    });
+    draw(cx);
+
+    assert!(
+        !cx.read_entity(&store, |s, _| s.repos[0].is_favorite()),
+        "the repeat of a held S is ignored"
+    );
+}
+
+/// The row keys act on the list, so nothing open on top of it may let them
+/// through: they used to star repos and move the selection behind the sheet.
+#[gpui::test]
+fn the_keymap_stays_out_of_open_layers(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "layers",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let cx = open_window(&store, cx);
+
+    let assert_rows_untouched = |cx: &mut gpui::VisualTestContext, layer: &str| {
+        cx.simulate_keystrokes("s");
+        draw(cx);
+        cx.simulate_keystrokes("down");
+        draw(cx);
+        assert_eq!(
+            selected(&store, cx).as_deref(),
+            Some("/probe/alpha"),
+            "↓ stays out of the {layer}"
+        );
+        assert!(
+            !cx.read_entity(&store, |s, _| s.repos[0].is_favorite()),
+            "S stays out of the {layer}"
+        );
+    };
+
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+    assert_rows_untouched(cx, "Changes sheet");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+
+    click(cx, "insp-more");
+    assert_rows_untouched(cx, "repo menu");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+
+    click(cx, "add-repo-button");
+    assert_rows_untouched(cx, "Add repo dialog");
+}
+
+#[gpui::test]
+fn the_repo_menu_copies_the_folder_path(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "copy-path", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more");
+    click(cx, "insp-menu-copy-path");
+
+    assert_eq!(clipboard_text(cx).as_deref(), Some("/probe/alpha"));
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_none(),
+        "the row closes the menu behind its action"
+    );
+}
+
+#[gpui::test]
+fn the_repo_menu_refreshes_the_repo(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "refresh", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    load_changes_folders(&net_rx);
+
+    click(cx, "insp-more");
+    click(cx, "insp-menu-refresh");
+
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/alpha".to_string()],
+        "Refresh reloads the rail's changes"
+    );
+}
+
+/// Nothing links to GitHub before a pass has named the repo's page, and either
+/// pass can be the first to answer.
+#[gpui::test]
+fn the_github_rows_wait_for_a_url(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "github-url", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more");
+    assert!(
+        cx.debug_bounds("insp-menu-github").is_none(),
+        "no URL yet, no GitHub row"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        let snapshot = devtools_core::github::GitHubSnapshot {
+            url: Some("https://example.invalid/alpha".into()),
+            available: true,
+            ..Default::default()
+        };
+        s.github_by_folder
+            .insert("/probe/alpha".to_string(), std::sync::Arc::new(snapshot));
+        cx.notify();
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("insp-menu-github").is_some(),
+        "the activity pass names the page"
+    );
+
+    click(cx, "insp-menu-copy-url");
+    assert_eq!(
+        clipboard_text(cx).as_deref(),
+        Some("https://example.invalid/alpha")
+    );
+}
+
+#[gpui::test]
+fn removing_a_repo_takes_two_clicks(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "remove",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| {
+            settings.repos.repo_scan_folders =
+                Some(vec!["/probe/alpha".into(), "/probe/beta".into()]);
+        });
+    });
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more");
+    click(cx, "insp-menu-remove");
+    assert_eq!(
+        scan_folders(&store, cx).len(),
+        2,
+        "the first click only arms the row"
+    );
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_some(),
+        "and keeps the menu open for the second"
+    );
+
+    click(cx, "insp-menu-remove");
+    assert_eq!(scan_folders(&store, cx), ["/probe/beta"]);
+    assert!(cx.debug_bounds("insp-repo-menu").is_none());
+
+    let mut rescanned = false;
+    while let Ok(command) = net_rx.try_recv() {
+        rescanned |= matches!(command, NetCommand::Scan { .. });
+    }
+    assert!(rescanned, "the list rebuilds without the repo");
+}
+
+/// An armed Remove must never fire on a repo it wasn't armed for.
+#[gpui::test]
+fn a_moved_selection_closes_the_menu_and_disarms_it(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "disarm",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| {
+            settings.repos.repo_scan_folders =
+                Some(vec!["/probe/alpha".into(), "/probe/beta".into()]);
+        });
+    });
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more");
+    click(cx, "insp-menu-remove");
+
+    // a search hit, say: anything that moves the selection without a press
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.ensure_repo_selected("/probe/beta", cx);
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_none(),
+        "the menu belongs to the repo it opened on"
+    );
+
+    click(cx, "insp-more");
+    click(cx, "insp-menu-remove");
+    assert_eq!(
+        scan_folders(&store, cx).len(),
+        2,
+        "the reopened menu starts disarmed"
+    );
+}
+
+#[gpui::test]
+fn the_repo_menu_closes_on_outside_presses_and_escape(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "menu-close",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-more");
+    click(cx, "repo-row-1");
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_none(),
+        "a press elsewhere closes it"
+    );
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/beta"),
+        "and still lands on what it hit"
+    );
+
+    click(cx, "insp-more");
+    click(cx, "insp-more");
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_none(),
+        "the ⋯ button toggles rather than closing and reopening"
+    );
+
+    click(cx, "insp-more");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.debug_bounds("insp-repo-menu").is_none());
+}
+
+#[gpui::test]
+fn a_tag_chip_removes_its_tag(cx: &mut TestAppContext) {
+    let mut tagged = entry("alpha", "/probe/alpha");
+    tagged.tags = vec!["rust".into(), "llm".into()];
+    let (store, _net_rx) = scratch_store(cx, "tags", vec![tagged]);
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-tag-remove-rust");
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.repos[0].tags.clone()),
+        ["llm"]
+    );
+}
+
+#[gpui::test]
+fn the_branch_line_copies_the_branch(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "branch", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+
+    click(cx, "insp-branch");
+
+    assert_eq!(clipboard_text(cx).as_deref(), Some("main"));
+}
+
+/// The rail only shows what GitHub answered: nothing before the answer, and
+/// nothing for a repo it knows no facts about.
+#[gpui::test]
+fn the_details_section_follows_the_github_answer(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "details", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    assert!(cx.debug_bounds("insp-details").is_none());
+
+    let answer = |cx: &mut gpui::VisualTestContext, details| {
+        cx.update_entity(&store, |s: &mut Store, cx| {
+            s.github_details = Some(details);
+            cx.notify();
+        });
+        draw(cx);
+    };
+
+    answer(
+        cx,
+        devtools_core::github::GitHubRepoDetails {
+            owner: Some("enginkirmaci".into()),
+            primary_language: Some("Rust".into()),
+            topics: vec!["gpui".into()],
+            ..Default::default()
+        },
+    );
+    assert!(cx.debug_bounds("insp-details").is_some());
+
+    answer(cx, Default::default());
+    assert!(cx.debug_bounds("insp-details").is_none());
+}
+
+/// The details used to be requested by the Overview tab's view, which only
+/// lived on because the hidden workspace bar held it.
+#[gpui::test]
+fn selecting_a_row_asks_github_for_its_details(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "details-ask",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let exe = std::env::current_exe().expect("test binary path");
+    cx.read_entity(&store, |s, _| {
+        s.update_settings(|settings| {
+            settings.repos.git_hub_executable = exe.display().to_string();
+        });
+    });
+    let cx = open_window(&store, cx);
+
+    click(cx, "repo-row-1");
+
+    let mut asked = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::GitHubDetails { folder, .. } = command {
+            asked.push(folder);
+        }
+    }
+    assert_eq!(
+        asked,
+        [PathBuf::from("/probe/alpha"), PathBuf::from("/probe/beta")],
+        "the row the rail opens on, then the pressed one"
     );
 }
 

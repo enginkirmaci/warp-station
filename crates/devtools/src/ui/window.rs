@@ -141,9 +141,9 @@ impl Render for MainWindow {
             .text_color(theme::TEXT)
             .font_family(theme::ui_font())
             .track_focus(&self.focus_handle)
-            // any press outside the bar's kebab menu dismisses it; the menu
-            // itself and its trigger stop propagation so their own handlers
-            // remain the only ones that see the press
+            // any press outside the bar's kebab or the rail's menu dismisses
+            // it; the menus themselves and their triggers keep the press from
+            // reaching this handler
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -151,14 +151,15 @@ impl Render for MainWindow {
                     this.bottom_bar.update(cx, |bar, cx| {
                         bar.dismiss_kebab(cx);
                     });
+                    this.repos_page
+                        .update(cx, |page, cx| page.close_repo_menu(cx));
                 }),
             )
             // Ctrl+K and Ctrl+F focus the global-search field; Ctrl+Shift+V
             // copies the stored Clipboard Password (fallback for when the
             // system-wide grab in net.rs did not land); Escape dismisses the
             // topmost layer (tools menu, drawer, page dialog, settings, then
-            // search text). Any other typed character starts a fresh global
-            // search when no text input owns the focus.
+            // search text). Plain letters belong to the repo list's keymap.
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let modifiers = event.keystroke.modifiers;
                 let key = event.keystroke.key.as_str();
@@ -226,14 +227,15 @@ impl Render for MainWindow {
                     }
                 }
 
-                // The split screen's own keymap, exactly what the footer
-                // advertises: ↑↓ move the row selection, ↵ launches the
-                // focused repo, S favorites it. Text inputs keep their keys
-                // (the Input key context owns the focus path).
+                // The split screen's own keymap, exactly what the footer and
+                // the rail's keycaps advertise: ↑↓ move the row selection, S
+                // favorites the focused repo, C opens Changes, ↵ and the
+                // letters run its launchers. Text inputs keep their keys (the
+                // Input key context owns the focus path) and so does anything
+                // open on top of the list: these all act on the rows under it.
                 if this.page == Page::Repos
-                    && !modifiers.control
-                    && !modifiers.platform
-                    && !modifiers.function
+                    && !modifiers.modified()
+                    && !this.layer_open(cx)
                     && !window
                         .context_stack()
                         .iter()
@@ -245,29 +247,9 @@ impl Render for MainWindow {
                             this.store
                                 .update(cx, |store, cx| store.step_selection(delta, cx));
                             cx.stop_propagation();
-                            return;
                         }
-                        "enter" => {
-                            let launch = {
-                                let store = this.store.read(cx);
-                                store.focused_folder().map(|folder| {
-                                    let settings = store.settings();
-                                    (
-                                        folder,
-                                        settings.repos.vscode_executable,
-                                        settings.repos.vscode_profile,
-                                    )
-                                })
-                            };
-                            if let Some((folder, exe, profile)) = launch
-                                && let Err(err) =
-                                    devtools_core::terminal::open_in_vscode(&folder, &exe, &profile)
-                            {
-                                this.store.update(cx, |s, _| s.notify_error(err));
-                            }
-                            cx.stop_propagation();
-                            return;
-                        }
+                        // a held key repeats: only stepping through rows wants that
+                        _ if event.is_held => {}
                         "s" => {
                             let folder = this.store.read(cx).focused_folder();
                             if let Some(folder) = folder {
@@ -275,42 +257,16 @@ impl Render for MainWindow {
                                     .update(cx, |s, cx| s.toggle_favorite(&folder, cx));
                             }
                             cx.stop_propagation();
-                            return;
                         }
                         "c" => {
                             this.store.update(cx, |s, _| s.changes_requested = true);
                             cx.stop_propagation();
-                            return;
                         }
-                        _ => {}
-                    }
-                }
-
-                // type-anywhere search: a plain printable character (no
-                // ctrl/meta — those are shortcuts) starts a fresh term when
-                // no text input owns the focus path; every kit text surface
-                // carries the "Input" key context, so a focused field keeps
-                // its characters. Control characters are excluded so Enter,
-                // Tab and friends keep their normal meaning.
-                if !modifiers.control
-                    && !modifiers.platform
-                    && !modifiers.function
-                    && !window
-                        .context_stack()
-                        .iter()
-                        .any(|context| context.contains("Input"))
-                {
-                    let typed = event.keystroke.key_char.clone().filter(|text| {
-                        !text.is_empty() && !text.contains(|ch: char| ch.is_control())
-                    });
-                    if let Some(term) = typed {
-                        this.global_search.update(cx, |state, cx| {
-                            state.set_value(term.as_str(), window, cx);
-                            state.focus(window, cx);
-                        });
-                        this.store
-                            .update(cx, |s, cx| s.run_global_search(&term, cx));
-                        cx.stop_propagation();
+                        _ => {
+                            if crate::ui::launchers::run_key(key, &this.store, cx) {
+                                cx.stop_propagation();
+                            }
+                        }
                     }
                 }
             }))
@@ -592,6 +548,13 @@ impl MainWindow {
                 .child(menu)
                 .into_any_element(),
         )
+    }
+
+    /// Whether something is open over the repo list.
+    fn layer_open(&self, cx: &gpui::App) -> bool {
+        self.active_drawer.is_some()
+            || self.tools_menu_open
+            || self.repos_page.read(cx).layer_open()
     }
 
     /// Closes the Changes sheet's branch popup. The picker lives on the sheet's

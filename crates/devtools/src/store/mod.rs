@@ -281,10 +281,9 @@ impl Store {
                         .get(pattern.parse::<usize>().unwrap_or(usize::MAX))
                 })
         {
-            store.selected_repo = Some(entry.folder_path.to_string_lossy().to_string());
-            let _ = store.net.send_blocking(NetCommand::LoadChanges {
-                folder: entry.folder_path.clone(),
-            });
+            let folder = entry.folder_path.to_string_lossy().to_string();
+            store.load_repo_workspace(&folder);
+            store.selected_repo = Some(folder);
             // companion hook: DEVTOOLS_TAB=<tab label> picks the open tab
             if let Ok(tab) = std::env::var("DEVTOOLS_TAB") {
                 store.selected_tab = BottomBarTab::parse(&tab);
@@ -1291,12 +1290,40 @@ impl Store {
         self.selected_repo = folder;
         self.selected_tab = BottomBarTab::Overview;
         self.reset_repo_workspace();
-        if let Some(folder) = &self.selected_repo {
-            let _ = self.net.send_blocking(NetCommand::LoadChanges {
-                folder: std::path::PathBuf::from(folder),
-            });
+        if let Some(folder) = self.selected_repo.clone() {
+            self.load_repo_workspace(&folder);
         }
         cx.notify();
+    }
+
+    /// Asks the net thread for what the rail and the workspace views show for
+    /// the newly selected repo: its changes, and what GitHub says about it.
+    fn load_repo_workspace(&self, folder: &str) {
+        let path = std::path::PathBuf::from(folder);
+        let _ = self.net.send_blocking(NetCommand::LoadChanges {
+            folder: path.clone(),
+        });
+        let settings = self.settings();
+        if settings.repos.enable_git_hub
+            && let Some(gh) = devtools_core::exe::locate(&settings.repos.git_hub_executable)
+        {
+            let _ = self.net.send_blocking(NetCommand::GitHubDetails {
+                folder: path,
+                gh_exe: gh.to_string_lossy().to_string(),
+            });
+        }
+    }
+
+    /// The selected repo's GitHub page, from whichever pass answered first:
+    /// the details request or the background activity pass.
+    pub fn selected_github_url(&self) -> Option<String> {
+        self.github_details
+            .as_ref()
+            .and_then(|details| details.url.clone())
+            .or_else(|| {
+                let folder = self.selected_repo.as_ref()?;
+                self.github_by_folder.get(folder)?.url.clone()
+            })
     }
 
     /// Selects the repo (if needed) and lands the bar on one specific tab —
@@ -1307,9 +1334,7 @@ impl Store {
             self.selected_repo = Some(folder.to_string());
             self.selected_tab = tab;
             self.reset_repo_workspace();
-            let _ = self.net.send_blocking(NetCommand::LoadChanges {
-                folder: std::path::PathBuf::from(folder),
-            });
+            self.load_repo_workspace(folder);
         } else {
             self.selected_tab = tab;
         }
