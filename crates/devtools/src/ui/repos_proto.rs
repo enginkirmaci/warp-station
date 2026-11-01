@@ -219,11 +219,13 @@ fn repo_row(
 
     let row = div()
         .id(SharedString::from(format!("proto-repo-{row_ix}")))
+        .debug_selector(move || format!("repo-row-{row_ix}"))
         .group("proto-repo-row")
         .a11y_button(repo.name.clone())
         .cursor_pointer()
         .on_click(move |_, _, cx| {
-            select_target.update(cx, |s, cx| s.select_repo(Some(select_folder.clone()), cx));
+            // the rail stays open, so a second press has nothing to toggle
+            select_target.update(cx, |s, cx| s.ensure_repo_selected(&select_folder, cx));
         })
         .flex()
         .items_center()

@@ -36,6 +36,28 @@ fn draw(cx: &mut gpui::VisualTestContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
 }
 
+fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} renders"));
+    cx.simulate_click(bounds.center(), gpui::Modifiers::default());
+    draw(cx);
+}
+
+fn selected(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Option<String> {
+    cx.read_entity(store, |s, _| s.selected_repo.clone())
+}
+
+fn load_changes_folders(net_rx: &async_channel::Receiver<NetCommand>) -> Vec<String> {
+    let mut folders = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::LoadChanges { folder } = command {
+            folders.push(folder.to_string_lossy().to_string());
+        }
+    }
+    folders
+}
+
 #[gpui::test]
 fn rail_star_toggles_the_favourite(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
@@ -131,7 +153,7 @@ fn keymap_steps_rows_and_favorites(cx: &mut TestAppContext) {
     let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
     draw(cx);
 
-    // the rail previews the first row, so the first ↓ lands on the second
+    // the first row starts selected, so the first ↓ lands on the second
     cx.simulate_keystrokes("down");
     cx.run_until_parked();
     assert_eq!(
@@ -352,6 +374,7 @@ fn rail_file_rows_render_from_a_snapshot(cx: &mut TestAppContext) {
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
         }));
+        store.selected_repo = Some("/probe/alpha".into());
         store.changes_loaded_for = Some("/probe/alpha".into());
         store
     });
@@ -405,6 +428,297 @@ fn rail_issue_rows_render_from_a_github_snapshot(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("insp-issue-482").is_some(),
         "the issue row renders from the GitHub snapshot"
+    );
+}
+
+/// The press-again-to-close toggle belongs to the old table's bar. Here the
+/// rail stays open, so pressing the selected row must leave it selected, not
+/// drop the rail back to the first row.
+#[gpui::test]
+fn pressing_the_selected_row_keeps_it_selected(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    click(cx, "repo-row-1");
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/beta"),
+        "a press selects the row"
+    );
+
+    click(cx, "repo-row-1");
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/beta"),
+        "a second press changes nothing"
+    );
+}
+
+/// ↑↓ clamp at the ends of the list; re-selecting the clamped row used to
+/// count as a second press and clear the selection.
+#[gpui::test]
+fn stepping_past_the_list_ends_keeps_the_selection(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/beta"),
+        "↓ on the last row stays there"
+    );
+
+    cx.simulate_keystrokes("up");
+    draw(cx);
+    cx.simulate_keystrokes("up");
+    draw(cx);
+    assert_eq!(
+        selected(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "↑ on the first row stays there"
+    );
+}
+
+/// The rail's sections load per selection, so the row it opens on has to be a
+/// real selection: a rail that only previewed the first row sat on "loading
+/// changes…" forever.
+#[gpui::test]
+fn the_first_row_is_selected_and_loaded_without_a_press(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/alpha"));
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/alpha".to_string()],
+        "the rail's file list loads for the row it opens on"
+    );
+
+    // the selected repo leaving the list hands the rail to the next row
+    click(cx, "insp-more");
+    click(cx, "insp-menu-archive");
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/beta"));
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/beta".to_string()],
+        "the replacement row loads too"
+    );
+
+    // so does a rescan that no longer finds it
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.replace_repos(vec![entry("gamma", "/probe/gamma")]);
+        cx.notify();
+    });
+    draw(cx);
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/gamma"));
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/gamma".to_string()]
+    );
+}
+
+/// A first launch opens on an empty list: the rail picks up the first row as
+/// soon as a scan delivers one.
+#[gpui::test]
+fn the_first_repo_to_arrive_is_selected(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(Vec::new());
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+    assert_eq!(selected(&store, cx), None, "nothing to select yet");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.replace_repos(vec![entry("alpha", "/probe/alpha")]);
+        cx.notify();
+    });
+    draw(cx);
+
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/alpha"));
+    assert_eq!(
+        load_changes_folders(&net_rx),
+        vec!["/probe/alpha".to_string()]
+    );
+}
+
+fn open_changes_sheet(
+    cx: &mut TestAppContext,
+) -> (gpui::Entity<Store>, &mut gpui::VisualTestContext) {
+    use devtools_core::model::{GitBranchKind, GitBranchRef};
+
+    cx.update(gpui_kit::init);
+    cx.update(devtools::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("alpha", "/probe/alpha")]);
+        store.branches = vec![GitBranchRef {
+            name: "main".into(),
+            kind: GitBranchKind::Local,
+        }];
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+    assert!(cx.debug_bounds("changes-sheet").is_some(), "C opens it");
+    (store, cx)
+}
+
+/// The scrim sits under the panel, so a panel that lets presses through closes
+/// the sheet on every click inside it.
+#[gpui::test]
+fn presses_inside_the_changes_sheet_keep_it_open(cx: &mut TestAppContext) {
+    let (_store, cx) = open_changes_sheet(cx);
+
+    click(cx, "changes-sheet");
+    assert!(
+        cx.debug_bounds("changes-sheet").is_some(),
+        "a press on the panel stays inside it"
+    );
+
+    let scrim = cx.debug_bounds("drawer-scrim").expect("the scrim renders");
+    cx.simulate_click(
+        scrim.origin + gpui::point(gpui::px(40.), gpui::px(120.)),
+        gpui::Modifiers::default(),
+    );
+    draw(cx);
+    assert!(
+        cx.debug_bounds("changes-sheet").is_none(),
+        "a press on the scrim closes the sheet"
+    );
+}
+
+/// The sheet is a layer of its own, so the branch popup inside it has to close
+/// first: Escape and outside presses used to route to the hidden workspace
+/// bar's picker, and the sheet's own stayed open across a close and reopen.
+#[gpui::test]
+fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
+    let (_store, cx) = open_changes_sheet(cx);
+
+    click(cx, "branch-button");
+    assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown opens"
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "Escape closes the dropdown"
+    );
+    assert!(
+        cx.debug_bounds("changes-sheet").is_some(),
+        "the first Escape leaves the sheet open"
+    );
+
+    click(cx, "branch-button");
+    click(cx, "changes-sheet");
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "a press elsewhere in the sheet closes the dropdown"
+    );
+    assert!(
+        cx.debug_bounds("changes-sheet").is_some(),
+        "and leaves the sheet open"
+    );
+
+    click(cx, "branch-button");
+    click(cx, "changes-close");
+    assert!(
+        cx.debug_bounds("changes-sheet").is_none(),
+        "the close button closes the sheet"
+    );
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+    assert!(
+        cx.debug_bounds("changes-sheet").is_some(),
+        "the window's keys survive the dropdown's filter leaving the tree"
+    );
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "a reopened sheet starts with its dropdown closed"
+    );
+
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("changes-sheet").is_none(),
+        "Escape closes the sheet once its dropdown is gone"
+    );
+
+    // the dropdown's filter held the focus: the next Escape must still land
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    draw(cx);
+    click(cx, "branch-button");
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("changes-sheet").is_none(),
+        "two Escapes close the dropdown, then the sheet"
     );
 }
 

@@ -196,6 +196,11 @@ impl ReposPage {
             cx.notify();
         })
         .detach();
+        cx.observe(&store_for_observe, |_, store, cx| {
+            keep_row_selected(&store, cx);
+        })
+        .detach();
+        keep_row_selected(&store_for_observe, cx);
         Self {
             store,
             table,
@@ -412,6 +417,14 @@ impl ReposPage {
 /// environment lookup next to a full frame layout does not show up.
 pub fn table_requested() -> bool {
     std::env::var("DEVTOOLS_UI_TABLE").is_ok_and(|value| value == "1")
+}
+
+/// Keeps the split screen's selection alive; the old table stays out of it
+/// because its workspace bar closes by clearing the selection.
+fn keep_row_selected(store: &Entity<Store>, cx: &mut App) {
+    if !table_requested() {
+        store.update(cx, |s, cx| s.ensure_row_selected(cx));
+    }
 }
 
 impl Render for ReposPage {
@@ -2743,6 +2756,8 @@ mod tests {
         // SAFETY: process-global env, set before Store::new; the other tests in
         // this binary don't read HOME.
         unsafe { std::env::set_var("HOME", &home) };
+        // the table's selection starts empty; the split layout selects a row
+        unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
 
         let entry = |name: &str, path: &str| devtools_core::repo_store::RepoEntry {
             name: name.into(),

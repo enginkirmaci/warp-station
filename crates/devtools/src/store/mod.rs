@@ -1372,7 +1372,7 @@ impl Store {
 
     /// Move the selection one row down (`delta = 1`) or up (`-1`) through the
     /// projection: the split screen's footer advertises ↑↓ as the row keymap.
-    /// With nothing selected yet the first press lands on the first row.
+    /// Steps clamp at the ends of the list, where the row stays selected.
     pub fn step_selection(&mut self, delta: i32, cx: &mut Context<Self>) {
         let rows: Vec<usize> = self
             .projected
@@ -1398,20 +1398,35 @@ impl Store {
             return;
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
-        self.select_repo(Some(folder), cx);
+        self.ensure_repo_selected(&folder, cx);
     }
 
     /// The repo the split screen is showing: the selection, or the first
     /// projected row while nothing is selected yet.
     pub fn focused_folder(&self) -> Option<String> {
-        if let Some(folder) = &self.selected_repo {
-            return Some(folder.clone());
-        }
+        self.selected_repo
+            .clone()
+            .or_else(|| self.first_row_folder())
+    }
+
+    fn first_row_folder(&self) -> Option<String> {
         self.projected
             .iter()
             .find_map(|row| row.repo_index())
             .and_then(|ix| self.repos.get(ix))
             .map(|repo| repo.folder_path.to_string_lossy().to_string())
+    }
+
+    /// The split screen's rail describes one repo and loads its sections per
+    /// selection, so a row is always selected there: the first one stands in
+    /// until the user picks another, and again when the selected repo leaves
+    /// the list.
+    pub fn ensure_row_selected(&mut self, cx: &mut Context<Self>) {
+        if self.selected_entry().is_none()
+            && let Some(folder) = self.first_row_folder()
+        {
+            self.select_repo(Some(folder), cx);
+        }
     }
 
     /// The repo index a table row points at, None for group header rows.
