@@ -116,10 +116,6 @@ impl Render for DiffDemo {
 fn main() {
     application().run(|cx| {
         gpui_kit::init(cx);
-        // the fixture should read in the app's mono face, not the fallback
-        cx.text_system()
-            .add_fonts(devtools::assets::brand_fonts())
-            .expect("the bundled TTFs parse");
         theme::apply_kit_theme(cx);
         let bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
         gpui_kit::open_window(

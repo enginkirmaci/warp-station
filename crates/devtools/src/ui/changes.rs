@@ -733,7 +733,7 @@ impl ChangesView {
                             .text_size(px(theme::font_meta()))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_FAINT)
-                            .hover(|s| s.text_color(theme::ACCENT))
+                            .hover(|s| s.text_color(theme::BLUE_BRIGHT))
                             .on_click({
                                 let store = self.store.clone();
                                 let full = row.hash.clone();
@@ -920,7 +920,7 @@ impl ChangesView {
                         .items_center()
                         .gap_1()
                         .text_size(px(theme::font_body()))
-                        .text_color(theme::ACCENT)
+                        .text_color(theme::BLUE_BRIGHT)
                         .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.drilled_commit = None;
@@ -930,7 +930,7 @@ impl ChangesView {
                         .child(icon(
                             "icons/icon-arrow-left.svg",
                             px(theme::icon_small() - 1.),
-                            theme::ACCENT,
+                            theme::BLUE_BRIGHT,
                         ))
                         .child("History"),
                 )
@@ -1179,7 +1179,12 @@ impl ChangesView {
                             }
                         }
                     })
-                    .child(Textarea::new(&self.commit_message).bordered(true).h_full())
+                    .child(
+                        Textarea::new(&self.commit_message)
+                            .bordered(true)
+                            .with_size(theme::field_size())
+                            .h_full(),
+                    )
                     // the corner wand: overlay inside the message box
                     .when(wand_on, |box_area| {
                         let store = self.store.clone();
@@ -1288,11 +1293,11 @@ impl ChangesView {
                     .items_center()
                     .gap_1()
                     .text_size(px(theme::font_body()))
-                    .text_color(theme::ACCENT)
+                    .text_color(theme::BLUE_BRIGHT)
                     .child(icon(
                         "icons/icon-wand.svg",
                         px(theme::icon_small() - 1.),
-                        theme::ACCENT,
+                        theme::BLUE_BRIGHT,
                     ))
                     .child("working…"),
             );
@@ -1371,7 +1376,7 @@ impl ChangesView {
                 if let Some(click) = click {
                     row = row
                         .when(active, |d| {
-                            d.text_color(theme::ACCENT)
+                            d.text_color(theme::BLUE_BRIGHT)
                                 .font_weight(FontWeight::SEMIBOLD)
                         })
                         .when(!active, |d| d.text_color(theme::TEXT_DIM))
@@ -1387,7 +1392,7 @@ impl ChangesView {
                 row = row.text_color(theme::TEXT_FAINT);
             }
             let icon_color = if active {
-                theme::ACCENT
+                theme::BLUE_BRIGHT
             } else if enabled {
                 theme::TEXT_DIM
             } else {
@@ -1498,7 +1503,7 @@ impl ChangesView {
                 .gap_2p5()
                 .text_size(px(theme::font_body()))
                 .when(self.history_open, |d| {
-                    d.text_color(theme::ACCENT)
+                    d.text_color(theme::BLUE_BRIGHT)
                         .font_weight(FontWeight::SEMIBOLD)
                 })
                 .when(!self.history_open, |d| d.text_color(theme::TEXT_DIM))
@@ -1508,7 +1513,7 @@ impl ChangesView {
                     "icons/icon-clock.svg",
                     px(theme::icon_small()),
                     if self.history_open {
-                        theme::ACCENT
+                        theme::BLUE_BRIGHT
                     } else {
                         theme::TEXT_DIM
                     },
@@ -1581,7 +1586,7 @@ fn section_header(
             "icons/icon-undo.svg"
         };
         let color = if stage_action {
-            theme::ACCENT
+            theme::BLUE_BRIGHT
         } else {
             theme::TEXT_MUTED
         };
@@ -1650,13 +1655,17 @@ fn row_action_button(
         .flex()
         .items_center()
         .justify_center()
-        .text_color(theme::ACCENT)
+        .text_color(theme::BLUE_BRIGHT)
         .hover(|s| s.bg(theme::tint(theme::ACCENT)))
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
             store.update(cx, |s, cx| s.run_git(action.clone(), cx));
         })
-        .child(icon(glyph, px(theme::icon_small() - 2.), theme::ACCENT))
+        .child(icon(
+            glyph,
+            px(theme::icon_small() - 2.),
+            theme::BLUE_BRIGHT,
+        ))
 }
 
 /// The rounded +N/−N diff pill: bright count on its tinted ground.
@@ -1765,8 +1774,8 @@ fn build_branch_picker(
                             body: PickerBody::Rows(Vec::new()),
                             selected: Selection::default(),
                             footer: None,
-                            fonts: theme::widget_fonts(),
-                            accent: theme::ACCENT,
+                            fonts: theme::active_tokens(),
+                            accent: theme::BLUE_BRIGHT,
                             show_tooltips: false,
                         },
                     }
@@ -1849,8 +1858,8 @@ fn branch_data(
                 badge: None,
             },
             footer: None,
-            fonts: theme::widget_fonts(),
-            accent: theme::ACCENT,
+            fonts: theme::active_tokens(),
+            accent: theme::BLUE_BRIGHT,
             show_tooltips,
         };
     }
@@ -1910,8 +1919,8 @@ fn branch_data(
             picker,
             cx,
         )),
-        fonts: theme::widget_fonts(),
-        accent: theme::ACCENT,
+        fonts: theme::active_tokens(),
+        accent: theme::BLUE_BRIGHT,
         show_tooltips,
     }
 }
@@ -1943,7 +1952,7 @@ fn new_branch_footer(
         .px_2()
         .py_1()
         .text_size(px(theme::font_body()))
-        .text_color(theme::ACCENT)
+        .text_color(theme::BLUE_BRIGHT)
         .hover(|s| s.bg(theme::HOVER_BG))
         .on_click(move |_, window, cx| {
             // the form always opens seeded with the repo's prefix and
@@ -1978,11 +1987,9 @@ fn new_branch_form(
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            div()
-                .debug_selector(|| "new-branch-name".into())
-                .child(gpui_kit::component::input::Input::new(new_branch_name).small()),
-        )
+        .child(div().debug_selector(|| "new-branch-name".into()).child(
+            gpui_kit::component::input::Input::new(new_branch_name).with_size(theme::field_size()),
+        ))
         .child(
             div()
                 .flex()

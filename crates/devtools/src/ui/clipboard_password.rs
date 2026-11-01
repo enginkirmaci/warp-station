@@ -179,7 +179,7 @@ impl Render for ClipboardPasswordDrawer {
                             .text_color(theme::TEXT_MUTED)
                             .child("Password"),
                     )
-                    .child(Input::new(&self.password).small().mask_toggle()),
+                    .child(Input::new(&self.password).with_size(theme::field_size()).mask_toggle()),
             )
             .child(
                 div()
@@ -228,7 +228,7 @@ impl Render for ClipboardPasswordDrawer {
                     .child(ghost_button(
                         "clipboard-copy",
                         "Copy",
-                        theme::ACCENT,
+                        theme::BLUE_BRIGHT,
                         stored,
                         false,
                         cx.listener(|this, _, _, cx| this.copy(cx)),
@@ -278,7 +278,7 @@ fn ghost_button(
         } else {
             theme::tint(color)
         })
-        .text_color(if emphasized { theme::ON_ACCENT } else { color })
+        .text_color(if emphasized { theme::ON_DANGER } else { color })
         .map(|d| {
             if enabled {
                 d.hover(|s| s.opacity(0.85))

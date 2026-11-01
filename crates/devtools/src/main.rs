@@ -35,17 +35,13 @@ fn main() {
             // onto their theme tokens — must run before any kit component renders
             gpui_kit::init(cx);
 
-            // the bundled IBM Plex faces register before the theme resolves a
-            // family, so the design's type wins even on a machine without them
-            if let Err(err) = cx.text_system().add_fonts(assets::brand_fonts()) {
-                tracing::warn!("bundled brand fonts failed to load: {err}");
-            }
-
             let (_net_handle, net_sender, event_rx) = devtools::net::spawn_net_thread();
             let store = cx.new(|cx| Store::new(cx, net_sender));
-            theme::set_font_scale(store.read(cx).settings().general.font_scale.as_deref());
+            warpui_kit_core::adopt_text_size(
+                store.read(cx).settings().general.font_scale.as_deref(),
+            );
             theme::apply_kit_theme(cx);
-            theme::init_system_font_scale(cx);
+            warpui_kit_core::follow_ui_scale(cx, theme::apply_kit_theme);
 
             // the companion watches this process (--parent) and exits when DevTools dies
             #[cfg(windows)]

@@ -155,7 +155,7 @@ impl Render for FormattersDrawer {
                         .text_size(px(theme::font_body()))
                         .when(active, |d| {
                             d.bg(theme::tint(theme::ACCENT))
-                                .text_color(theme::ACCENT)
+                                .text_color(theme::BLUE_BRIGHT)
                                 .font_weight(FontWeight::SEMIBOLD)
                         })
                         .when(!active, |d| d.bg(theme::CHIP).text_color(theme::TEXT_MUTED))
@@ -208,7 +208,7 @@ impl Render for FormattersDrawer {
                             .px_1()
                             .text_size(px(theme::font_control()))
                             .text_color(theme::TEXT_MUTED)
-                            .hover(|s| s.text_color(theme::ACCENT))
+                            .hover(|s| s.text_color(theme::BLUE_BRIGHT))
                             .on_click({
                                 let item = item.clone();
                                 let store = self.store.clone();
@@ -256,7 +256,7 @@ impl Render for FormattersDrawer {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.input).small()),
+                            .child(Input::new(&self.input).with_size(theme::field_size())),
                     )
                     .child(run_button(
                         !self.input.read(cx).value().trim().is_empty(),

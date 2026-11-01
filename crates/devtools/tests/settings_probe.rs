@@ -25,6 +25,10 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
 
     assert!(
+        cx.debug_bounds("text-size-normal").is_some(),
+        "General carries the shared text size control"
+    );
+    assert!(
         cx.update(|_, _| devtools_core::settings::SettingsService::open()
             .get()
             .repos

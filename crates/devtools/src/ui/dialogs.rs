@@ -65,7 +65,7 @@ fn overlay_shell(
         .absolute()
         .inset_0()
         .occlude()
-        .bg(theme::rgba(0x00000073))
+        .bg(theme::SCRIM)
         .flex()
         .items_center()
         .justify_center()
@@ -179,7 +179,7 @@ fn field_label(label: &str) -> gpui::Div {
 fn dialog_field(id: &'static str, input: &Entity<InputState>) -> gpui::Stateful<gpui::Div> {
     div().id(id).debug_selector(move || id.into()).child(
         Input::new(input)
-            .small()
+            .with_size(theme::field_size())
             .h(px(30.))
             .px(px(8.))
             .rounded(px(4.))

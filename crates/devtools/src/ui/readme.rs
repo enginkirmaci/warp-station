@@ -192,7 +192,7 @@ impl Render for ReadmeView {
                 row.child(div().rounded_md().p_1().flex().items_center().child(icon(
                     "icons/icon-wand.svg",
                     px(theme::icon_small()),
-                    theme::ACCENT,
+                    theme::BLUE_BRIGHT,
                 )))
             });
 
@@ -252,7 +252,7 @@ impl Render for ReadmeView {
                                     .items_center()
                                     .gap_1p5()
                                     .text_size(px(theme::font_body()))
-                                    .text_color(theme::ACCENT)
+                                    .text_color(theme::BLUE_BRIGHT)
                                     .hover(|s| s.bg(theme::tint(theme::ACCENT)))
                                     .on_click(move |_, _, cx| {
                                         store_for_empty
@@ -261,7 +261,7 @@ impl Render for ReadmeView {
                                     .child(icon(
                                         "icons/icon-wand.svg",
                                         px(theme::icon_small()),
-                                        theme::ACCENT,
+                                        theme::BLUE_BRIGHT,
                                     ))
                                     .child("Draft with OpenCode"),
                             )
