@@ -1,7 +1,7 @@
 //! The main window: custom titlebar + page content. Hosts the Repos page;
 //! Settings swaps content and Notes launches the external warp-notes app.
 
-use crate::store::Store;
+use crate::store::{Store, WorkspaceTab};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::bottom_bar::BottomBar;
@@ -9,6 +9,7 @@ use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_passwor
 use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::repos::summary_button;
+use crate::ui::workspace_sheet::WorkspaceSheet;
 use gpui::prelude::*;
 use gpui::{
     App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea, div, px,
@@ -29,8 +30,8 @@ enum DrawerKind {
     Formatters,
     Nuget,
     ClipboardPassword,
-    /// The workspace's commit surface, opened from the rail's "Commit…".
-    Changes,
+    /// The workspace sheet, a bottom sheet rather than an edge drawer.
+    Sheet,
 }
 
 pub struct MainWindow {
@@ -45,7 +46,7 @@ pub struct MainWindow {
     formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
     nuget_drawer: Option<Entity<NugetDrawer>>,
     clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
-    changes_drawer: Option<Entity<crate::ui::changes::ChangesView>>,
+    workspace_sheet: Option<Entity<WorkspaceSheet>>,
     tools_menu_open: bool,
     /// A left press landed on the titlebar background; the first move turns
     /// it into a window drag (Linux/macOS — Windows uses the HTCAPTION path).
@@ -96,7 +97,7 @@ impl MainWindow {
             formatters: None,
             nuget_drawer: None,
             clipboard_drawer: None,
-            changes_drawer: None,
+            workspace_sheet: None,
             // E2E hook: DEVTOOLS_TOOLS_MENU=1 opens the tools dropdown on launch
             tools_menu_open: std::env::var("DEVTOOLS_TOOLS_MENU").as_deref() == Ok("1"),
             titlebar_should_move: false,
@@ -117,9 +118,10 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        if self.store.read(cx).changes_requested {
-            self.store.update(cx, |s, _| s.changes_requested = false);
-            self.active_drawer = Some(DrawerKind::Changes);
+        if let Some(tab) = self.store.update(cx, |s, _| s.sheet_request.take()) {
+            let sheet = self.sheet(window, cx);
+            sheet.update(cx, |sheet, _| sheet.show(tab));
+            self.active_drawer = Some(DrawerKind::Sheet);
         }
         if self.store.read(cx).notes_requested {
             self.store.update(cx, |s, _| s.notes_requested = false);
@@ -189,7 +191,7 @@ impl Render for MainWindow {
                         return;
                     }
                     // the sheet's popup closes before the sheet does
-                    if matches!(this.active_drawer, Some(DrawerKind::Changes))
+                    if matches!(this.active_drawer, Some(DrawerKind::Sheet))
                         && this.dismiss_sheet_menu(cx)
                     {
                         cx.stop_propagation();
@@ -258,7 +260,8 @@ impl Render for MainWindow {
                             cx.stop_propagation();
                         }
                         "c" => {
-                            this.store.update(cx, |s, _| s.changes_requested = true);
+                            this.store
+                                .update(cx, |s, cx| s.open_sheet(WorkspaceTab::Changes, cx));
                             cx.stop_propagation();
                         }
                         _ => {
@@ -282,7 +285,7 @@ impl Render for MainWindow {
         if let Some(drawer) = self.render_drawer_overlay(window, cx) {
             root = root.child(drawer);
         }
-        if let Some(sheet) = self.render_changes_sheet(window, cx) {
+        if let Some(sheet) = self.render_sheet_overlay(window, cx) {
             root = root.child(sheet);
         }
         if let Some(menu) = self.render_tools_menu(cx) {
@@ -556,43 +559,51 @@ impl MainWindow {
             || self.repos_page.read(cx).layer_open()
     }
 
-    /// Closes the Changes sheet's branch popup. The picker lives on the sheet's
-    /// own view, which the workspace bar's dismissal never reaches. Returns
-    /// whether it was open.
+    /// Closes the sheet's branch popup. The picker lives on the sheet's own
+    /// view, which the workspace bar's dismissal never reaches. Returns whether
+    /// it was open.
     fn dismiss_sheet_menu(&mut self, cx: &mut Context<Self>) -> bool {
-        self.changes_drawer.as_ref().is_some_and(|view| {
-            view.update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu)
-        })
+        self.workspace_sheet
+            .as_ref()
+            .is_some_and(|sheet| sheet.update(cx, |sheet, cx| sheet.dismiss_branch_menu(cx)))
     }
 
-    /// Closes the Changes sheet, popup included: the view outlives the sheet,
-    /// so an open popup would come back with it.
-    fn close_changes_sheet(&mut self, cx: &mut Context<Self>) {
+    /// Closes the sheet, popup included: the entity outlives the sheet, so an
+    /// open popup would come back with it.
+    fn close_sheet(&mut self, cx: &mut Context<Self>) {
         self.dismiss_sheet_menu(cx);
         self.active_drawer = None;
         cx.notify();
     }
 
-    /// The docked tool drawer overlay: a full-window scrim plus the right-edge
-    /// panel; the drawer entity is created on first open.
-    /// The commit surface: ChangesView was built for the workspace bar, so it
-    /// opens as a bottom sheet with its own ground instead of the narrow
-    /// right-edge drawer (where its three columns fall apart).
-    fn render_changes_sheet(
+    /// The sheet's entity, built the first time something opens it.
+    fn sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<WorkspaceSheet> {
+        if let Some(sheet) = &self.workspace_sheet {
+            return sheet.clone();
+        }
+        let store = self.store.clone();
+        let target = cx.weak_entity();
+        let on_close: crate::ui::DrawerCloseHandler = std::rc::Rc::new(move |_, cx| {
+            let _ = target.update(cx, |this, cx| this.close_sheet(cx));
+        });
+        let sheet = cx.new(|cx| WorkspaceSheet::new(store, on_close, window, cx));
+        self.workspace_sheet = Some(sheet.clone());
+        sheet
+    }
+
+    /// The workspace sheet over its scrim, at the height its top edge was
+    /// dragged to, or what a short window leaves of it.
+    fn render_sheet_overlay(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !matches!(self.active_drawer, Some(DrawerKind::Changes)) {
+        if !matches!(self.active_drawer, Some(DrawerKind::Sheet)) {
             return None;
         }
-        let store = self.store.clone();
-        let view = self
-            .changes_drawer
-            .get_or_insert_with(|| {
-                cx.new(move |cx| crate::ui::changes::ChangesView::new(store, window, cx))
-            })
-            .clone();
+        let sheet = self.sheet(window, cx);
+        let room = window.viewport_size().height.as_f32() - theme::TITLEBAR_H;
+        let height = self.store.read(cx).sheet_height.min(room);
         Some(
             div()
                 .absolute()
@@ -601,23 +612,23 @@ impl MainWindow {
                     div()
                         .id("drawer-scrim")
                         .debug_selector(|| "drawer-scrim".into())
-                        .a11y_button("Close changes")
+                        .a11y_button("Close sheet")
                         .absolute()
                         .inset_0()
                         .bg(theme::rgba(0x00000073))
                         .occlude()
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.close_changes_sheet(cx);
+                            this.close_sheet(cx);
                         })),
                 )
                 .child(
                     div()
-                        .debug_selector(|| "changes-sheet".into())
+                        .debug_selector(|| "workspace-sheet".into())
                         .absolute()
                         .left_0()
                         .right_0()
                         .bottom_0()
-                        .h(px(520.))
+                        .h(px(height))
                         .bg(theme::BACKGROUND)
                         .border_t_1()
                         .border_color(theme::HAIRLINE)
@@ -631,60 +642,22 @@ impl MainWindow {
                                 this.dismiss_sheet_menu(cx);
                             }),
                         )
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .h(px(38.))
-                                .px(px(18.))
-                                .border_b_1()
-                                .border_color(theme::BORDER_LIGHT)
-                                .child(
-                                    div()
-                                        .text_size(px(theme::font_rail_title()))
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(theme::TEXT)
-                                        .child("Changes"),
-                                )
-                                .child(
-                                    div()
-                                        .id("changes-close")
-                                        .debug_selector(|| "changes-close".into())
-                                        .a11y_button("Close changes")
-                                        .cursor_pointer()
-                                        .size(px(24.))
-                                        .rounded(px(4.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .hover(|d| d.bg(theme::HOVER_BG))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.close_changes_sheet(cx);
-                                        }))
-                                        .child(icon(
-                                            "icons/icon-close.svg",
-                                            px(13.),
-                                            theme::TEXT_MUTED,
-                                        )),
-                                ),
-                        )
-                        .child(div().flex_1().min_h_0().px(px(18.)).child(view)),
+                        .child(sheet),
                 )
                 .into_any_element(),
         )
     }
 
+    /// The docked tool drawer overlay: a full-window scrim plus the right-edge
+    /// panel; the drawer entity is created on first open.
     fn render_drawer_overlay(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let kind = self.active_drawer?;
-        // the commit surface is a bottom sheet, not this right-edge panel
-        if matches!(kind, DrawerKind::Changes) {
+        // the workspace sheet docks to the bottom, not to this right edge
+        if matches!(kind, DrawerKind::Sheet) {
             return None;
         }
         let store = self.store.clone();
@@ -697,8 +670,8 @@ impl MainWindow {
             });
         });
         let drawer = match kind {
-            // handled before this point: Changes is a bottom sheet
-            DrawerKind::Changes => return None,
+            // handled before this point
+            DrawerKind::Sheet => return None,
             DrawerKind::Formatters => self
                 .formatters
                 .get_or_insert_with(|| {

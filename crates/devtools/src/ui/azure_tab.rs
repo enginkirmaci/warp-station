@@ -33,6 +33,7 @@ impl Render for AzureView {
 
         let mut list = div()
             .id("azure-list")
+            .debug_selector(|| "azure-list".into())
             .size_full()
             .overflow_y_scroll()
             .flex()

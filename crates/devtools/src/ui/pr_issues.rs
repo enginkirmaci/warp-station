@@ -115,12 +115,14 @@ impl Render for ItemListView {
             );
         }
 
+        let list_id = if self.pull_requests {
+            "pr-list"
+        } else {
+            "issue-list"
+        };
         let mut list = div()
-            .id(if self.pull_requests {
-                "pr-list"
-            } else {
-                "issue-list"
-            })
+            .id(list_id)
+            .debug_selector(move || list_id.into())
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
