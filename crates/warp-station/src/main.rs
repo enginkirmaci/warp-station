@@ -22,8 +22,8 @@ fn main() {
         return;
     }
 
-    let _log_guard = logging::initialize();
-
+    // migrations run before logging so the fresh ~/.warp/logs never collides
+    // with the legacy one being absorbed
     // the data root moved to the shared ~/.warp suite root: absorb the
     // legacy ~/.devtools once
     warp_station_core::paths::migrate_legacy_data();
@@ -31,6 +31,8 @@ fn main() {
     // the prompts and the catalog cache shared one folder (`opencode`, briefly
     // `ai`) before the AI surface moved to warp-agent: split them out once
     warp_station_core::paths::migrate_legacy_ai_data();
+
+    let _log_guard = logging::initialize();
 
     application()
         .with_assets(assets::EmbedAssets::new())
