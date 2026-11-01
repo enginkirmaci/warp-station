@@ -2,6 +2,9 @@
 //! in a test window, driven through the kit's own selection path — the row
 //! click handler, the TableEvent subscription and the store's selection all
 //! verified without a display.
+//!
+//! The app's main screen is the split list + detail rail now, so this binary
+//! asks for the legacy table layout before it draws.
 
 use devtools::store::Store;
 use devtools::store::projection::ProjectedRow;
@@ -10,6 +13,12 @@ use devtools_core::repo_store::RepoEntry;
 use gpui::TestAppContext;
 use gpui::prelude::*;
 use std::path::PathBuf;
+
+/// Every scenario in this file drives the data table, which only renders
+/// behind `DEVTOOLS_UI_TABLE=1` — the main screen is the split layout.
+fn table_layout() {
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
+}
 
 fn entry(name: &str, path: &str, tags: &[&str]) -> RepoEntry {
     RepoEntry {
@@ -51,6 +60,7 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
 #[gpui::test]
 fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -89,17 +99,12 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
     let selected_before = cx.read_entity(&store, |s, _| s.selected_repo.clone());
     assert!(selected_before.is_none());
 
-    // click into the first row through the real event pipeline
-    cx.simulate_mouse_down(
-        gpui::point(px_col(), px_row()),
-        gpui::MouseButton::Left,
-        gpui::Modifiers::default(),
-    );
-    cx.simulate_mouse_up(
-        gpui::point(px_col(), px_row()),
-        gpui::MouseButton::Left,
-        gpui::Modifiers::default(),
-    );
+    // click into the first row through the real event pipeline; the target
+    // comes from the drawn bounds, not a hard-coded offset, so a pane-head
+    // height change cannot silently move the click
+    let target = wrap0.center();
+    cx.simulate_mouse_down(target, gpui::MouseButton::Left, gpui::Modifiers::default());
+    cx.simulate_mouse_up(target, gpui::MouseButton::Left, gpui::Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
@@ -117,6 +122,7 @@ fn row_selection_reaches_the_store(cx: &mut TestAppContext) {
 #[gpui::test]
 fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -167,6 +173,7 @@ fn add_dialog_covers_the_workspace_and_escape_restores_it(cx: &mut TestAppContex
 #[gpui::test]
 fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -196,6 +203,7 @@ fn selection_survives_and_closes_via_the_store(cx: &mut TestAppContext) {
 #[gpui::test]
 fn toasts_render_stack_and_dismiss(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -248,6 +256,7 @@ fn branch_menu_closes_on_escape_outside_and_select(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -342,6 +351,7 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -412,6 +422,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -462,6 +473,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
 #[gpui::test]
 fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -498,6 +510,7 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -594,6 +607,7 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
     const ROW: &str = "branch-row-users/enginkirmaci/test";
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     // the receiver stays live so the checkout can be read off the channel;
@@ -700,6 +714,7 @@ fn long_branch_labels_trim_but_pick_keeps_the_full_name(cx: &mut TestAppContext)
 #[gpui::test]
 fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     let store = fake_store(cx);
     let store_handle = store.clone();
     let (_window_handle, cx) =
@@ -729,6 +744,7 @@ fn warp_status_tracks_running_workspaces(cx: &mut TestAppContext) {
     use devtools::net::{UiEvent, WarpWorkspaceStatus};
 
     cx.update(gpui_kit::init);
+    table_layout();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
@@ -775,6 +791,7 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
     use devtools_core::model::{GitBranchKind, GitBranchRef};
 
     cx.update(gpui_kit::init);
+    table_layout();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
@@ -833,6 +850,7 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
     use devtools::net::{UiEvent, WandKind};
 
     cx.update(gpui_kit::init);
+    table_layout();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
@@ -897,6 +915,7 @@ fn wand_done_for_a_switched_away_repo_lands_nothing(cx: &mut TestAppContext) {
 #[gpui::test]
 fn table_rows_center_their_content(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -936,6 +955,7 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
+    table_layout();
 
     // SAFETY: process-global env, held exclusively via AUTO_FETCH_ENV
     unsafe { std::env::set_var("DEVTOOLS_AUTO_FETCH_SECS", "1") };
@@ -1023,6 +1043,7 @@ fn auto_fetch_focus_gate_holds_the_pass_until_a_window_is_focused(cx: &mut TestA
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
+    table_layout();
 
     let scratch = std::env::temp_dir().join(format!(
         "devtools-auto-fetch-focus-{}.json",
@@ -1100,6 +1121,7 @@ fn auto_fetch_gate_alone_fetches_once(cx: &mut TestAppContext) {
 
     let _env_turn = AUTO_FETCH_ENV.lock().unwrap_or_else(|e| e.into_inner());
     cx.update(gpui_kit::init);
+    table_layout();
 
     let scratch = std::env::temp_dir().join(format!(
         "devtools-auto-fetch-once-{}.json",
@@ -1168,10 +1190,6 @@ fn auto_fetch_gate_alone_fetches_once(cx: &mut TestAppContext) {
     }
 
     let _ = std::fs::remove_file(&scratch);
-}
-
-fn px_col() -> gpui::Pixels {
-    gpui::px(120.)
 }
 
 /// Drains the store's net channel for LoadChanges requests.
@@ -1273,6 +1291,7 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let (net_tx, net_rx) = async_channel::unbounded();
@@ -1381,12 +1400,6 @@ fn archived_repos_hide_toggle_and_restore(cx: &mut TestAppContext) {
     );
 }
 
-fn px_row() -> gpui::Pixels {
-    // titlebar 38 + two 46px toolbar rows + 28px column header + row center
-    // (48px rows)
-    gpui::px(182.)
-}
-
 fn entry_with_branch(name: &str, path: &str, branch: &str) -> RepoEntry {
     let mut repo = entry(name, path, &[]);
     repo.git_branch_name = Some(branch.into());
@@ -1399,6 +1412,7 @@ fn entry_with_branch(name: &str, path: &str, branch: &str) -> RepoEntry {
 #[gpui::test]
 fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
 
     let store = fake_store(cx);
     cx.update_entity(&store, |s: &mut Store, _| {
@@ -1459,6 +1473,7 @@ fn columns_distribute_the_available_width(cx: &mut TestAppContext) {
 #[gpui::test]
 fn columns_fit_narrow_widths(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
 
     let store = fake_store(cx);
     cx.update(|cx| {
@@ -1517,6 +1532,7 @@ fn branch_header_sort_reorders_the_projection(cx: &mut TestAppContext) {
     unsafe { std::env::set_var("HOME", &home) };
 
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -1601,6 +1617,7 @@ fn dialog_draw(cx: &mut gpui::VisualTestContext) {
 #[gpui::test]
 fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -1727,6 +1744,7 @@ fn register_repos_persists_new_folders_as_scan_roots(cx: &mut TestAppContext) {
 #[gpui::test]
 fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     // a missing scratch file = default settings = NuGet + warp chips on, the
@@ -1750,21 +1768,19 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    // the chips must actually render, or this probe exercises the compact
-    // layout and proves nothing about the overflow
+    // the services pill must actually render, or this probe exercises the
+    // compact layout and proves nothing about the overflow
     assert!(
-        cx.debug_bounds("nuget-status").is_some(),
-        "NuGet chip renders"
-    );
-    assert!(
-        cx.debug_bounds("warp-status").is_some(),
-        "warp chip renders"
+        cx.debug_bounds("status-pill").is_some(),
+        "the services pill renders"
     );
 
     let right = cx
         .debug_bounds("titlebar-right")
         .expect("right group renders");
-    let nuget = cx.debug_bounds("nuget-status").expect("NuGet bounds");
+    let nuget = cx
+        .debug_bounds("status-pill")
+        .expect("services pill bounds");
     let minimize = cx
         .debug_bounds("minimize-window")
         .expect("minimize renders");
@@ -1774,29 +1790,29 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     // spills the chips out of its start edge and collapses the row's gaps
     assert!(
         nuget.origin.x >= right.origin.x - gpui::px(0.5),
-        "the chips fit inside the right group (chip at {:?}, group at {:?})",
+        "the status pill fits inside the right group (pill at {:?}, group at {:?})",
         nuget.origin.x,
         right.origin.x
     );
     for (name, bounds) in [("minimize", minimize), ("zoom", zoom), ("close", close)] {
         assert!(
-            (bounds.size.width - gpui::px(26.)).abs() < gpui::px(0.5),
-            "{name} keeps its 26px box (got {:?})",
+            (bounds.size.width - gpui::px(36.)).abs() < gpui::px(0.5),
+            "{name} keeps its 36px box (got {:?})",
             bounds.size.width
         );
     }
-    // adjacent caption buttons: glyph centers one 26px box apart — under the
-    // old fixed width the overflow squeezed the boxes themselves below this
+    // adjacent caption buttons: glyph centers one 36px box apart — the
+    // export's caption box, and the pitch has to survive the right column
     let pitch = |a: gpui::Bounds<gpui::Pixels>, b: gpui::Bounds<gpui::Pixels>| {
         (b.center().x - a.center().x).abs()
     };
     assert!(
-        (pitch(minimize, zoom) - gpui::px(26.)).abs() < gpui::px(1.),
+        (pitch(minimize, zoom) - gpui::px(36.)).abs() < gpui::px(1.),
         "minimize/maximize sit box-to-box (got {:?})",
         pitch(minimize, zoom)
     );
     assert!(
-        (pitch(zoom, close) - gpui::px(26.)).abs() < gpui::px(1.),
+        (pitch(zoom, close) - gpui::px(36.)).abs() < gpui::px(1.),
         "maximize/close sit box-to-box (got {:?})",
         pitch(zoom, close)
     );
@@ -1810,6 +1826,7 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
 #[gpui::test]
 fn clone_dialog_editable_destination_feeds_validation(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = fake_store(cx);
@@ -1869,6 +1886,7 @@ fn header_columns_mirror_the_active_sort(cx: &mut TestAppContext) {
     use gpui_kit::component::table::ColumnSort;
 
     cx.update(gpui_kit::init);
+    table_layout();
 
     let store = fake_store(cx);
     cx.update_entity(&store, |s: &mut Store, _| {
@@ -1964,6 +1982,7 @@ fn grouped_store(cx: &mut TestAppContext, probe: &str) -> gpui::Entity<Store> {
 #[gpui::test]
 fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = grouped_store(cx, "render");
@@ -2054,6 +2073,7 @@ fn grouped_headers_render_with_counts_and_pitch_holds(cx: &mut TestAppContext) {
 #[gpui::test]
 fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = grouped_store(cx, "collapse");
@@ -2138,6 +2158,7 @@ fn chevron_collapse_hides_the_group_and_persists(cx: &mut TestAppContext) {
 fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext) {
     use devtools::net::NetCommand;
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let scratch =
@@ -2239,6 +2260,7 @@ fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext)
 #[gpui::test]
 fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     let store = grouped_store(cx, "solo");
@@ -2307,6 +2329,7 @@ fn solo_filter_narrows_to_one_group_until_cleared(cx: &mut TestAppContext) {
 #[gpui::test]
 fn grouping_off_keeps_the_flat_table(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
+    table_layout();
     cx.update(devtools::theme::apply_kit_theme);
 
     // same scan roots, no GroupReposByRoot — the setting's absence means off

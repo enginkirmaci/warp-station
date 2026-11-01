@@ -63,6 +63,7 @@ pub const OTHER_GROUP_KEY: &str = "other";
 /// Display name of the fallback group.
 pub const OTHER_GROUP_NAME: &str = "Other";
 
+/// The projection every legacy caller wants: no attention scope.
 pub fn project(
     repos: &[RepoEntry],
     checked_tags: &[String],
@@ -71,10 +72,39 @@ pub fn project(
     show_archived: bool,
     grouping: Option<&Grouping>,
 ) -> Vec<ProjectedRow> {
+    project_scoped(
+        repos,
+        checked_tags,
+        sort,
+        ascending,
+        show_archived,
+        false,
+        grouping,
+    )
+}
+
+/// The projection with the scope row's attention filter: `attention_only`
+/// keeps just the repos something is waiting on.
+pub fn project_scoped(
+    repos: &[RepoEntry],
+    checked_tags: &[String],
+    sort: RepoSortMode,
+    ascending: bool,
+    show_archived: bool,
+    attention_only: bool,
+    grouping: Option<&Grouping>,
+) -> Vec<ProjectedRow> {
     // One shared sort for both shapes: the comparators (favorites first,
     // archived last, mode order, name tiebreak) are identical, so grouping
     // only re-buckets the sorted rows — a group's repos keep the flat order.
-    let sorted = sort_indices(repos, checked_tags, sort, ascending, show_archived);
+    let sorted = sort_indices(
+        repos,
+        checked_tags,
+        sort,
+        ascending,
+        show_archived,
+        attention_only,
+    );
     let Some(grouping) = grouping else {
         return sorted.into_iter().map(ProjectedRow::Repo).collect();
     };
@@ -340,12 +370,19 @@ fn is_under(folder: &str, root: &str) -> bool {
 
 /// The flat pipeline: archived exclusion → OR-tag filter → sort. Returns
 /// indices into `repos`; grouping re-buckets these without re-sorting.
+/// A repo the "Needs attention" scope keeps: something is waiting on the
+/// developer — uncommitted work, an open issue, or commits still to push.
+pub fn needs_attention(repo: &RepoEntry) -> bool {
+    repo.git_modified_count > 0 || repo.github_issue_count > 0 || repo.git_to_push_count > 0
+}
+
 fn sort_indices(
     repos: &[RepoEntry],
     checked_tags: &[String],
     sort: RepoSortMode,
     ascending: bool,
     show_archived: bool,
+    attention_only: bool,
 ) -> Vec<usize> {
     let mut rows: Vec<usize> = repos
         .iter()
@@ -354,6 +391,7 @@ fn sort_indices(
         // exclusion is independent of the OR-tag filter so an archived repo
         // never satisfies a checked chip
         .filter(|(_, repo)| show_archived || !repo.is_archived())
+        .filter(|(_, repo)| !attention_only || needs_attention(repo))
         .filter(|(_, repo)| {
             // OR semantics: a repo matches when it carries any checked tag
             checked_tags.is_empty()

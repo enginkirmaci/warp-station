@@ -7876,9 +7876,13 @@ dependencies = [
 name = "warpui-kit-markdown"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "gpui-kit",
  "gpui-pre",
+ "log",
+ "unicode-segmentation",
  "warpui-kit-core",
+ "warpui-kit-diff",
 ]
 
 [[package]]

@@ -268,7 +268,7 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
         "titlebar-brand",
         "titlebar-right",
         "tools-toggle",
-        "settings-toggle",
+        "status-pill",
     ] {
         let bounds = wcx
             .debug_bounds(selector)
@@ -281,9 +281,8 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
     }
 }
 
-/// The titlebar's right section reads left to right: status chips (NuGet,
-/// SnapIt on Windows), a separator, the Tools+Settings pill, another
-/// separator, then the window controls.
+/// The titlebar's right section reads left to right: the Notes button, the
+/// services pill, the Tools pill, then the window controls.
 #[gpui::test]
 fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
@@ -312,25 +311,20 @@ fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext
     draw(cx);
     let _ = std::fs::remove_file(&scratch);
 
-    let nuget = cx.debug_bounds("nuget-status").expect("nuget chip renders");
+    let pill = cx.debug_bounds("status-pill").expect("services pill");
     let tools = cx.debug_bounds("tools-toggle").expect("tools button");
-    let settings = cx.debug_bounds("settings-toggle").expect("settings button");
     let minimize = cx.debug_bounds("minimize-window").expect("minimize button");
 
     assert!(
-        nuget.right() <= tools.origin.x,
-        "the NuGet chip sits left of the tool pill ({:?} vs {:?})",
-        nuget,
-        tools
+        tools.right() <= pill.origin.x,
+        "the tools pill sits left of the services pill ({:?} vs {:?})",
+        tools,
+        pill
     );
     assert!(
-        tools.right() <= settings.origin.x,
-        "tools and settings share the pill, tools first"
-    );
-    assert!(
-        settings.right() <= minimize.origin.x,
-        "the window controls come after a separator ({:?} vs {:?})",
-        settings,
+        pill.right() <= minimize.origin.x,
+        "the window controls come after the services pill ({:?} vs {:?})",
+        pill,
         minimize
     );
 

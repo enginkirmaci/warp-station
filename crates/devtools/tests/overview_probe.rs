@@ -91,6 +91,9 @@ fn close(a: Pixels, b: Pixels) -> bool {
 /// system text scale grew the unwrapped label).
 #[gpui::test]
 fn sidebar_tiles_share_the_width(cx: &mut TestAppContext) {
+    // The workspace bar only rides with the legacy table layout now, and this
+    // probe measures the Overview tiles inside it.
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
 
     // isolate the probe stores from the developer's real ~/.devtools
@@ -147,6 +150,9 @@ fn sidebar_tiles_share_the_width(cx: &mut TestAppContext) {
 /// the frame with that geometry after its button is pressed.
 #[gpui::test]
 fn kebab_menu_opens_with_anchored_geometry(cx: &mut TestAppContext) {
+    // The kebab lives in the workspace bar, which now only rides with the
+    // legacy table layout.
+    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
 
     let tmp = std::env::temp_dir().join(format!("devtools-kebab-probe-{}", std::process::id()));

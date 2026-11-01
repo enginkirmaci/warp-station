@@ -19,6 +19,9 @@ pub struct Store {
     /// Session-only: while on, archived repos join the table below the live
     /// ones. Never persisted.
     pub show_archived: bool,
+    /// Session-only scope: only repos that need attention — uncommitted work,
+    /// an open issue, or commits still to push. Never persisted.
+    pub attention_only: bool,
     pub sort_mode: RepoSortMode,
     /// false = the mode's default "best-first" read, true = flipped. Seeded
     /// from the persisted direction when set, else the mode's default.
@@ -112,6 +115,9 @@ pub struct Store {
     /// E2E hook: DEVTOOLS_NOTES=1 asks for Notes on launch; the main
     /// window's render drains it into a warp-notes launch.
     pub notes_requested: bool,
+    /// Set by the rail's "Commit…" (or the C key); the window drains it into
+    /// the Changes drawer. A flag keeps the rail from knowing the shell.
+    pub changes_requested: bool,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<devtools_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -173,6 +179,7 @@ impl Store {
             repos: cached,
             tag_filters: Vec::new(),
             show_archived: false,
+            attention_only: false,
             sort_mode: app_settings.repos.sort_mode,
             sort_ascending: app_settings
                 .repos
@@ -223,6 +230,7 @@ impl Store {
             global_search: Vec::new(),
             // E2E hook: DEVTOOLS_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("DEVTOOLS_NOTES").as_deref() == Ok("1"),
+            changes_requested: std::env::var("DEVTOOLS_CHANGES").as_deref() == Ok("1"),
             commit_details: None,
             commit_file_patch: None,
             next_auto_fetch: None,
@@ -1168,6 +1176,18 @@ impl Store {
     pub fn clear_filters(&mut self, cx: &mut Context<Self>) {
         self.tag_filters.clear();
         self.group_filter = None;
+        self.attention_only = false;
+        self.reproject();
+        cx.notify();
+    }
+
+    /// The scope row's "Needs attention" filter: uncommitted work, an open
+    /// issue, or commits still to push. Session-only, like the tag chips.
+    pub fn set_attention_only(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.attention_only == on {
+            return;
+        }
+        self.attention_only = on;
         self.reproject();
         cx.notify();
     }
@@ -1350,6 +1370,50 @@ impl Store {
         self.reproject();
     }
 
+    /// Move the selection one row down (`delta = 1`) or up (`-1`) through the
+    /// projection: the split screen's footer advertises ↑↓ as the row keymap.
+    /// With nothing selected yet the first press lands on the first row.
+    pub fn step_selection(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let rows: Vec<usize> = self
+            .projected
+            .iter()
+            .filter_map(|row| row.repo_index())
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        let current = self
+            .selected_repo
+            .as_deref()
+            .and_then(|folder| {
+                rows.iter().position(|ix| {
+                    self.repos
+                        .get(*ix)
+                        .is_some_and(|repo| repo.folder_path.to_string_lossy() == folder)
+                })
+            })
+            .unwrap_or(0);
+        let next = (current as i32 + delta).clamp(0, rows.len() as i32 - 1) as usize;
+        let Some(repo) = rows.get(next).and_then(|ix| self.repos.get(*ix)) else {
+            return;
+        };
+        let folder = repo.folder_path.to_string_lossy().to_string();
+        self.select_repo(Some(folder), cx);
+    }
+
+    /// The repo the split screen is showing: the selection, or the first
+    /// projected row while nothing is selected yet.
+    pub fn focused_folder(&self) -> Option<String> {
+        if let Some(folder) = &self.selected_repo {
+            return Some(folder.clone());
+        }
+        self.projected
+            .iter()
+            .find_map(|row| row.repo_index())
+            .and_then(|ix| self.repos.get(ix))
+            .map(|repo| repo.folder_path.to_string_lossy().to_string())
+    }
+
     /// The repo index a table row points at, None for group header rows.
     pub fn repo_row(&self, row_ix: usize) -> Option<usize> {
         match self.projected.get(row_ix) {
@@ -1383,12 +1447,13 @@ impl Store {
             collapsed: &collapsed,
             solo: solo.as_deref(),
         });
-        self.projected = projection::project(
+        self.projected = projection::project_scoped(
             &self.repos,
             &self.tag_filters,
             self.sort_mode,
             self.sort_ascending,
             self.show_archived,
+            self.attention_only,
             grouping.as_ref(),
         );
         self.projection_generation += 1;
