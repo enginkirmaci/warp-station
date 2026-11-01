@@ -8,33 +8,33 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Rust: devtools (Windows — cppvsdbg)",
+            "name": "Rust: warp-station (Windows — cppvsdbg)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${userHome}/.cargo-targets/devtools/debug/devtools.exe",
+            "program": "${userHome}/.cargo-targets/warp-station/debug/warp-station.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "preLaunchTask": "cargo build (devtools)"
+            "preLaunchTask": "cargo build (warp-station)"
         },
         {
             // webfreak.debug uses non-standard field names: "target" (not
             // "program") and "arguments" (a string, not "args") — a missing
             // "target" crashes the adapter with ERR_INVALID_ARG_TYPE.
-            "name": "Rust: devtools (Linux — gdb)",
+            "name": "Rust: warp-station (Linux — gdb)",
             "type": "gdb",
             "request": "launch",
-            "target": "${workspaceFolder}/target/debug/devtools",
+            "target": "${workspaceFolder}/target/debug/warp-station",
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "cargo build (devtools)"
+            "preLaunchTask": "cargo build (warp-station)"
         },
         {
-            "name": "Rust: devtools (lldb — wedges on NVIDIA)",
+            "name": "Rust: warp-station (lldb — wedges on NVIDIA)",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/devtools",
+            "program": "${workspaceFolder}/target/debug/warp-station",
             "args": [],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "cargo build (devtools)"
+            "preLaunchTask": "cargo build (warp-station)"
         }
     ]
 }
