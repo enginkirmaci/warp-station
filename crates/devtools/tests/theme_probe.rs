@@ -16,9 +16,6 @@ fn palette_survives_the_mode_flip(cx: &mut TestAppContext) {
         let t = Theme::global(cx);
         assert_eq!(t.mode, ThemeMode::Dark);
         assert_eq!(t.background, gpui::Hsla::from(theme::BACKGROUND));
-        // the redesigned ramp: tables are cards on the near-black page, not
-        // the page itself
-        assert_eq!(t.table, gpui::Hsla::from(theme::CARD));
         assert_eq!(t.popover, gpui::Hsla::from(theme::POPUP));
         assert_eq!(t.primary, gpui::Hsla::from(theme::ACCENT));
         assert_eq!(t.link, gpui::Hsla::from(theme::BLUE_BRIGHT));

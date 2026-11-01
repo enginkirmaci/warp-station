@@ -16,7 +16,7 @@ pub struct Store {
     pub repos: Vec<RepoEntry>,
     /// Checked tag-filter chips (OR semantics: a repo matches when it has any).
     pub tag_filters: Vec<String>,
-    /// Session-only: while on, archived repos join the table below the live
+    /// Session-only: while on, archived repos join the list below the live
     /// ones. Never persisted.
     pub show_archived: bool,
     /// Session-only scope: only repos that need attention — uncommitted work,
@@ -39,13 +39,10 @@ pub struct Store {
     /// Collapsed group keys (folder paths, or "other"); mirrored into
     /// `ReposSettings::collapsed_groups` on every toggle.
     pub collapsed_groups: Option<Vec<String>>,
-    /// The table's rows: folder group headers interleaved with repo
+    /// The list's rows: folder group headers interleaved with repo
     /// indices (flat repo rows when grouping is off).
     pub projected: Vec<projection::ProjectedRow>,
-    /// Bumped on every reproject; views use it to skip rescans when an
-    /// unrelated field notified.
-    projection_generation: u64,
-    /// Folder path of the repo the bottom bar is attached to.
+    /// Folder path of the repo the rail and the workspace sheet describe.
     pub selected_repo: Option<String>,
     pub scanning: bool,
     /// Dialog-bound net results, drained by the page's render pass.
@@ -55,8 +52,7 @@ pub struct Store {
     /// dialog's path field.
     pub folder_pick_result: Option<String>,
 
-    // ---- bottom bar (the selected repo's workspace) ----
-    pub selected_tab: BottomBarTab,
+    // ---- the selected repo's workspace ----
     changes: Option<devtools_core::model::GitChangeSnapshot>,
     /// Bumped on every `changes` replacement; views cache derived lists
     /// against it instead of re-cloning the snapshot each frame.
@@ -66,13 +62,12 @@ pub struct Store {
     pub recent_commits: Vec<devtools_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
     pub git_busy: bool,
-    pub last_git_error: Option<String>,
     /// One freshly loaded change-row patch, drained by the Changes view.
     pub change_patch_result: Option<(String, bool, String)>,
     history: Vec<devtools_core::model::GitCommitInfo>,
     history_generation: u64,
     /// GitHub activity per folder — feeds the PR/Issues tabs; the entry
-    /// counts on the repos table come from these snapshots. Arc-shared so a
+    /// counts on the repo rows come from these snapshots. Arc-shared so a
     /// view render clones a pointer, not the whole snapshot.
     pub github_by_folder:
         std::collections::HashMap<String, Arc<devtools_core::github::GitHubSnapshot>>,
@@ -90,7 +85,7 @@ pub struct Store {
     pub commit_message_draft: Option<String>,
     /// Set when a commit succeeded: the view drains it to empty the box.
     pub commit_message_clear: bool,
-    /// The README wand's draft, rendered by the Overview pane with Save/Discard.
+    /// The README wand's draft, rendered by the README tab with Save/Discard.
     pub readme_draft: Option<String>,
     /// warp-agent's harness options; the door is the source, with a built-in
     /// fallback until its first answer or a cache exists.
@@ -129,8 +124,6 @@ pub struct Store {
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
     save_generation: u64,
-    /// Bottom-panel height in logical px, shared by every tab (drag the top edge).
-    pub bar_height: f32,
     /// The workspace sheet's height in logical px (drag its top edge).
     pub sheet_height: f32,
     /// Latest NuGet watch service snapshot (watching, count, activity log).
@@ -138,9 +131,6 @@ pub struct Store {
     /// Distinct tags across the list (filter chip row), recomputed on
     /// reproject so the toolbar does not rescan every render.
     tags_cache: Vec<String>,
-    /// Widest branch name in the projection, in characters — the table's
-    /// branch column width; recomputed on reproject.
-    pub widest_branch_chars: usize,
     /// Debounce sequence for the global search; a keystroke invalidates any
     /// in-flight background search.
     search_generation: u32,
@@ -193,15 +183,12 @@ impl Store {
             group_depth: app_settings.repos.group_root_depth.unwrap_or(1).clamp(1, 4) as usize,
             collapsed_groups: app_settings.repos.collapsed_groups.clone(),
             projected: Vec::new(),
-            projection_generation: 0,
             selected_repo: None,
-            bar_height: 440.0,
             sheet_height: 520.0,
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
             folder_pick_result: None,
-            selected_tab: BottomBarTab::Overview,
             changes: None,
             changes_generation: 0,
             changes_loaded_for: None,
@@ -209,7 +196,6 @@ impl Store {
             recent_commits: Vec::new(),
             unpushed: None,
             git_busy: false,
-            last_git_error: None,
             change_patch_result: None,
             history: Vec::new(),
             history_generation: 0,
@@ -243,7 +229,6 @@ impl Store {
             save_generation: 0,
             nuget: Arc::new(Default::default()),
             tags_cache: Vec::new(),
-            widest_branch_chars: 6,
             search_generation: 0,
             global_search_pending: false,
             code_search_hits: Vec::new(),
@@ -274,8 +259,8 @@ impl Store {
             previous: store.repos.clone(),
         });
 
-        // E2E hook: DEVTOOLS_SELECT=<index-or-name-substring> opens the bottom
-        // bar on launch so automation can verify the workspace surfaces
+        // E2E hook: DEVTOOLS_SELECT=<index-or-name-substring> picks the repo the
+        // app opens on, so automation can verify the workspace surfaces
         if let Ok(pattern) = std::env::var("DEVTOOLS_SELECT")
             && let Some(entry) = store
                 .repos
@@ -290,10 +275,6 @@ impl Store {
             let folder = entry.folder_path.to_string_lossy().to_string();
             store.load_repo_workspace(&folder);
             store.selected_repo = Some(folder);
-            // companion hook: DEVTOOLS_TAB=<tab label> picks the open tab
-            if let Ok(tab) = std::env::var("DEVTOOLS_TAB") {
-                store.selected_tab = BottomBarTab::parse(&tab);
-            }
         }
         // Notes stay closed until the user asks for them (titlebar button,
         // repo-row note icon, tools menu, or a global-search hit).
@@ -304,15 +285,7 @@ impl Store {
         self.settings.get()
     }
 
-    pub fn settings_version(&self) -> u64 {
-        self.settings.version()
-    }
-
     // ---- derived-cache change tokens + guarded snapshots ----
-
-    pub fn projection_generation(&self) -> u64 {
-        self.projection_generation
-    }
 
     pub fn changes(&self) -> Option<&devtools_core::model::GitChangeSnapshot> {
         self.changes.as_ref()
@@ -433,7 +406,7 @@ impl Store {
                     }
                 }
                 // a fetch pass ends here: the selected repo's open workspace
-                // re-reads so the bar's file list and branches show the
+                // re-reads so the rail's file list and branches show the
                 // post-fetch state without a manual reselect
                 if after_fetch
                     && let Some(selected) = self.selected_repo.clone()
@@ -669,14 +642,12 @@ impl Store {
                     .unwrap_or_else(|| folder.clone());
                 if let Some(err) = error {
                     tracing::warn!("git {label} failed in {folder}: {err}");
-                    self.last_git_error = Some(err.clone());
                     self.notify_error(format!(
                         "{} failed for {}: {err}",
                         capitalized_label(label),
                         name
                     ));
                 } else {
-                    self.last_git_error = None;
                     self.notify_success(match (label, commit_hash.as_deref()) {
                         ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
                         ("fetch", _) => format!("Fetched {name}"),
@@ -924,16 +895,10 @@ impl Store {
             return;
         };
         self.git_busy = true;
-        self.last_git_error = None;
         let _ = self.net.send_blocking(NetCommand::Git {
             folder: std::path::PathBuf::from(folder),
             action,
         });
-        cx.notify();
-    }
-
-    pub fn set_tab(&mut self, tab: BottomBarTab, cx: &mut Context<Self>) {
-        self.selected_tab = tab;
         cx.notify();
     }
 
@@ -1032,7 +997,7 @@ impl Store {
         }];
         self.register_repos(&scanned, cx);
         self.kick_scan(&self.settings());
-        self.open_repo_tab(&folder_str, BottomBarTab::Overview, cx);
+        self.select_repo(&folder_str, cx);
     }
 
     // ---- toasts -------------------------------------------------------------
@@ -1284,21 +1249,15 @@ impl Store {
         cx.notify();
     }
 
-    /// Row press: selects the repo and opens the bar on Overview; pressing
-    /// the already-highlighted row closes the bar.
-    /// Chip presses route through [open_repo_tab] instead.
-    pub fn select_repo(&mut self, folder: Option<String>, cx: &mut Context<Self>) {
-        if self.selected_repo.as_deref() == folder.as_deref() {
-            // same row pressed again → close the bar entirely
-            self.close_bar(cx);
+    /// Selects the repo and asks for its workspace. Selecting the selected
+    /// repo changes nothing, so it keeps what the rail already loaded.
+    pub fn select_repo(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if self.selected_repo.as_deref() == Some(folder) {
             return;
         }
-        self.selected_repo = folder;
-        self.selected_tab = BottomBarTab::Overview;
+        self.selected_repo = Some(folder.to_string());
         self.reset_repo_workspace();
-        if let Some(folder) = self.selected_repo.clone() {
-            self.load_repo_workspace(&folder);
-        }
+        self.load_repo_workspace(folder);
         cx.notify();
     }
 
@@ -1332,39 +1291,16 @@ impl Store {
             })
     }
 
-    /// Selects the repo (if needed) and lands the bar on one specific tab —
-    /// the table's clickable chips (branch, changes count, PR/issue/pipeline
-    /// cells) come through here.
-    pub fn open_repo_tab(&mut self, folder: &str, tab: BottomBarTab, cx: &mut Context<Self>) {
-        if self.selected_repo.as_deref() != Some(folder) {
-            self.selected_repo = Some(folder.to_string());
-            self.selected_tab = tab;
-            self.reset_repo_workspace();
-            self.load_repo_workspace(folder);
-        } else {
-            self.selected_tab = tab;
-        }
-        cx.notify();
-    }
-
     /// Asks the window to open the workspace sheet on `tab`.
     pub fn open_sheet(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
         self.sheet_request = Some(tab);
         cx.notify();
     }
 
-    /// Selects the repo without the row-press toggle (the row's notes button
-    /// must keep the bar open even when the repo is already selected).
-    pub fn ensure_repo_selected(&mut self, folder: &str, cx: &mut Context<Self>) {
-        if self.selected_repo.as_deref() != Some(folder) {
-            self.select_repo(Some(folder.to_string()), cx);
-        }
-    }
-
-    /// Closes the bar and clears the row highlight.
-    pub fn close_bar(&mut self, cx: &mut Context<Self>) {
+    /// Drops the selection. The page's next pass picks a row again, so this is
+    /// how the selected repo leaves the rail.
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selected_repo = None;
-        self.selected_tab = BottomBarTab::Overview;
         self.reset_repo_workspace();
         cx.notify();
     }
@@ -1376,7 +1312,6 @@ impl Store {
         self.recent_commits.clear();
         self.set_history(Vec::new());
         self.unpushed = None;
-        self.last_git_error = None;
         self.commit_details = None;
         self.commit_file_patch = None;
         self.github_details = None;
@@ -1400,10 +1335,6 @@ impl Store {
     /// dialog's adoption path).
     pub fn replace_repos(&mut self, repos: Vec<RepoEntry>) {
         self.repos = repos;
-        self.reproject();
-    }
-
-    pub fn reproject_pub(&mut self) {
         self.reproject();
     }
 
@@ -1435,15 +1366,7 @@ impl Store {
             return;
         };
         let folder = repo.folder_path.to_string_lossy().to_string();
-        self.ensure_repo_selected(&folder, cx);
-    }
-
-    /// The repo the split screen is showing: the selection, or the first
-    /// projected row while nothing is selected yet.
-    pub fn focused_folder(&self) -> Option<String> {
-        self.selected_repo
-            .clone()
-            .or_else(|| self.first_row_folder())
+        self.select_repo(&folder, cx);
     }
 
     fn first_row_folder(&self) -> Option<String> {
@@ -1454,32 +1377,15 @@ impl Store {
             .map(|repo| repo.folder_path.to_string_lossy().to_string())
     }
 
-    /// The split screen's rail describes one repo and loads its sections per
-    /// selection, so a row is always selected there: the first one stands in
-    /// until the user picks another, and again when the selected repo leaves
-    /// the list.
+    /// The rail describes one repo and loads its sections per selection, so a
+    /// row is always selected: the first one stands in until the user picks
+    /// another, and again when the selected repo leaves the list.
     pub fn ensure_row_selected(&mut self, cx: &mut Context<Self>) {
         if self.selected_entry().is_none()
             && let Some(folder) = self.first_row_folder()
         {
-            self.select_repo(Some(folder), cx);
+            self.select_repo(&folder, cx);
         }
-    }
-
-    /// The repo index a table row points at, None for group header rows.
-    pub fn repo_row(&self, row_ix: usize) -> Option<usize> {
-        match self.projected.get(row_ix) {
-            Some(projection::ProjectedRow::Repo(ix)) => Some(*ix),
-            _ => None,
-        }
-    }
-
-    /// True when the row renders a folder group header (never selectable).
-    pub fn row_is_group(&self, row_ix: usize) -> bool {
-        matches!(
-            self.projected.get(row_ix),
-            Some(projection::ProjectedRow::Group { .. })
-        )
     }
 
     fn reproject(&mut self) {
@@ -1508,19 +1414,6 @@ impl Store {
             self.attention_only,
             grouping.as_ref(),
         );
-        self.projection_generation += 1;
-        // the table's branch column hugs the widest branch in the projection;
-        // computing it here keeps the per-frame layout path O(1) (header rows
-        // carry no branch, so they skip the scan)
-        self.widest_branch_chars = self
-            .projected
-            .iter()
-            .filter_map(|row| self.repos.get(row.repo_index()?))
-            .filter_map(|repo| repo.git_branch_name.as_deref())
-            .filter(|branch| !branch.is_empty())
-            .map(|branch| branch.chars().count())
-            .max()
-            .unwrap_or(6);
         self.tags_cache = projection::all_tags(&self.repos);
     }
 
@@ -1606,7 +1499,7 @@ impl Store {
             }
         });
         self.notify_success(format!("Removed \"{name}\" from repositories"));
-        self.close_bar(cx);
+        self.clear_selection(cx);
         self.kick_scan(&self.settings());
     }
 
@@ -1692,7 +1585,7 @@ impl Store {
         self.reproject();
         if archived {
             if self.selected_repo.as_deref() == Some(folder) {
-                self.close_bar(cx);
+                self.clear_selection(cx);
             }
         } else {
             let _ = self.net.send_blocking(NetCommand::ProbeAll {
@@ -1908,42 +1801,6 @@ pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
     born: std::time::Instant,
-}
-
-/// The bottom bar's tabs. Azure is labelled Pipelines in the UI.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BottomBarTab {
-    Overview,
-    Changes,
-    PullRequests,
-    Issues,
-    Azure,
-}
-
-impl BottomBarTab {
-    pub fn label(&self) -> &'static str {
-        match self {
-            BottomBarTab::Overview => "Overview",
-            BottomBarTab::Changes => "Changes",
-            BottomBarTab::PullRequests => "Pull Requests",
-            BottomBarTab::Issues => "Issues",
-            BottomBarTab::Azure => "Pipelines",
-        }
-    }
-
-    /// Case-insensitive label lookup; unknown names fall back to Overview.
-    pub fn parse(text: &str) -> Self {
-        [
-            BottomBarTab::Overview,
-            BottomBarTab::Changes,
-            BottomBarTab::PullRequests,
-            BottomBarTab::Issues,
-            BottomBarTab::Azure,
-        ]
-        .into_iter()
-        .find(|tab| tab.label().eq_ignore_ascii_case(text.trim()))
-        .unwrap_or(BottomBarTab::Overview)
-    }
 }
 
 /// The workspace sheet's tabs, in the strip's order.

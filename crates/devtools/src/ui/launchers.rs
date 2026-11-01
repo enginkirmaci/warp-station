@@ -1,13 +1,12 @@
 //! The repo launchers: one list behind the rail's rows and the window's letter
 //! keys, so a row can never advertise a key that does nothing. The first entry
-//! is the primary action (the rail's filled row, on ↵); the rest follow the
-//! settings' enable flags the way the old table's icons did.
+//! is the primary action (the rail's filled row, on ↵); the list follows the
+//! settings' enable flags.
 //!
 //! An entry describes its launch as a plain value: building the list starts
 //! nothing, which is what lets a test pin it.
 
 use crate::store::Store;
-use crate::ui::inspector;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::AppSettings;
 use devtools_core::terminal;
@@ -222,7 +221,7 @@ fn cli_launch(
 pub fn run_key(key: &str, store: &Entity<Store>, cx: &mut App) -> bool {
     let hit = {
         let state = store.read(cx);
-        inspector::focused_entry(state).and_then(|repo| {
+        state.selected_entry().and_then(|repo| {
             let mut list = launchers(&state.settings(), repo).into_iter();
             let launcher = if key == "enter" {
                 list.next()

@@ -49,7 +49,7 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
             github_pr_count: 0,
             github_issue_count: 0,
         }]);
-        store.select_repo(Some(here.to_string_lossy().to_string()), cx);
+        store.select_repo(&here.to_string_lossy(), cx);
         store.set_changes(snapshot);
         store.changes_loaded_for = Some(here.to_string_lossy().to_string());
         store.branches = branches;
@@ -100,7 +100,7 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
             github_pr_count: 0,
             github_issue_count: 0,
         }]);
-        store.select_repo(Some(here.to_string_lossy().to_string()), cx);
+        store.select_repo(&here.to_string_lossy(), cx);
         store.set_changes(devtools_core::git::read::change_snapshot(&here));
         store.changes_loaded_for = Some(here.to_string_lossy().to_string());
         store.set_history(devtools_core::git::read::history_commits(&here, 30).unwrap_or_default());
@@ -169,9 +169,6 @@ fn git_commands(
 
 #[gpui_kit::gpui::test]
 fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
-    // The branch picker lives in the workspace bar, which now only rides with
-    // the legacy table layout — the main screen is the split list + rail.
-    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -196,8 +193,8 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
             github_pr_count: 0,
             github_issue_count: 0,
         }]);
-        store.select_repo(Some("/probe/alpha".into()), cx);
-        store.selected_tab = devtools::store::BottomBarTab::Changes;
+        store.select_repo("/probe/alpha", cx);
+        store.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         store.changes_loaded_for = Some("/probe/alpha".into());
         store.branches = vec![
             devtools_core::model::GitBranchRef {
@@ -253,9 +250,12 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         "the arm click must not run git"
     );
 
-    // an outside press closes the menu and disarms — the reopened menu starts
-    // from a single-click arm again
-    cx.simulate_click(point(px(4.), px(4.)), Modifiers::default());
+    // a press elsewhere in the sheet closes the menu and disarms — the reopened
+    // menu starts from a single-click arm again
+    let sheet = cx
+        .debug_bounds("workspace-sheet")
+        .expect("the sheet renders");
+    cx.simulate_click(sheet.origin + point(px(4.), px(20.)), Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
@@ -299,9 +299,6 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
 #[gpui_kit::gpui::test]
 fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // The branch picker lives in the workspace bar, which now only rides with
-    // the legacy table layout — the main screen is the split list + rail.
-    unsafe { std::env::set_var("DEVTOOLS_UI_TABLE", "1") };
     cx.update(gpui_kit::init);
     cx.update(devtools::theme::apply_kit_theme);
 
@@ -345,8 +342,8 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
             github_pr_count: 0,
             github_issue_count: 0,
         }]);
-        store.select_repo(Some("/probe/alpha".into()), cx);
-        store.selected_tab = devtools::store::BottomBarTab::Changes;
+        store.select_repo("/probe/alpha", cx);
+        store.open_sheet(devtools::store::WorkspaceTab::Changes, cx);
         store.changes_loaded_for = Some("/probe/alpha".into());
         store.branches = vec![devtools_core::model::GitBranchRef {
             name: "main".into(),

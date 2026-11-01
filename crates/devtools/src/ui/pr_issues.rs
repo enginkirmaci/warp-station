@@ -1,4 +1,4 @@
-//! The Pull Requests / Issues tabs, in the .NET bar's shape: an "N open …"
+//! The workspace sheet's Pull requests and Issues tabs: an "N open …"
 //! header with refresh + GitHub shortcuts, then one row per item — the item
 //! glyph, bold #number + title, a head → base branch line (PRs) or label
 //! chips (issues), and an author / age / Review pill cluster on the right.
@@ -330,7 +330,7 @@ impl ItemListView {
 }
 
 /// The Changes tab's raised-card recipe: the tab's content sits on one
-/// rounded dark card floating on the bar surface, inset by the same 8px
+/// rounded dark card floating on the sheet, inset by the same 8px
 /// padding the Changes sections use.
 fn tab_card(content: impl IntoElement) -> gpui::AnyElement {
     div()

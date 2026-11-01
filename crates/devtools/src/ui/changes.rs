@@ -1,5 +1,5 @@
 //! The Changes tab: the selected repo's commit workspace, mirroring the .NET
-//! original — three raised cards on the bar's dark surface: the merged
+//! original — three raised cards on the sheet's dark surface: the merged
 //! staged/unstaged file list with per-row actions and expandable patches on
 //! the left, the commit-message card in the middle, and the branch selector +
 //! git rail (Fetch/Pull/Push/Sync/History) on the right. The heavy data lives
@@ -109,7 +109,7 @@ impl ChangesView {
         }
     }
 
-    /// One-time reset when the selected repo changed: the bar must never show
+    /// One-time reset when the selected repo changed: the sheet must never show
     /// the previous repo's draft, expansion, menu or drill-down state.
     fn sync_repo_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let repo = self.store.read(cx).selected_repo.clone();
@@ -140,7 +140,7 @@ impl ChangesView {
     }
 
     /// Closes the branch picker from an outside click or Escape. Returns
-    /// whether it was actually open so the bar can stop propagating.
+    /// whether it was actually open so the window can stop propagating.
     pub fn dismiss_branch_menu(&mut self, cx: &mut Context<Self>) -> bool {
         self.branch_picker.update(cx, FilteredPicker::dismiss)
     }
@@ -293,7 +293,7 @@ impl Render for ChangesView {
         let groups = self.groups_cache.as_ref().expect("groups cached").1.clone();
 
         // the .NET Changes tab: three raised cards — file list, commit box,
-        // git rail — on the bar's dark surface
+        // git rail — on the sheet's dark surface
         let left = div()
             .flex_1()
             .min_w_0()

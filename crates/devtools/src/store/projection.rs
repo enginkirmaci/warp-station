@@ -10,7 +10,7 @@ use devtools_core::paths::same_folder_text;
 use devtools_core::repo_store::{ARCHIVED_TAG, FAVORITES_TAG, RepoEntry};
 use devtools_core::settings::RepoSortMode;
 
-/// One row of the table: either a repo entry or a collapsible folder group
+/// One row of the list: either a repo entry or a collapsible folder group
 /// header. Grouping is a pure projection — the header rows interleave with
 /// the repo rows, so no per-row heights are needed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,7 +39,7 @@ impl ProjectedRow {
     }
 }
 
-/// Grouping inputs: the scan roots that admit repos into the table, the
+/// Grouping inputs: the scan roots that admit repos into the list, the
 /// folder level the headers sit at, the persisted collapsed keys, and the
 /// session-only solo filter. A `None` grouping keeps the historical flat
 /// list (repo rows only, no headers).
@@ -63,7 +63,8 @@ pub const OTHER_GROUP_KEY: &str = "other";
 /// Display name of the fallback group.
 pub const OTHER_GROUP_NAME: &str = "Other";
 
-/// The projection every legacy caller wants: no attention scope.
+/// The projection without an attention scope.
+#[cfg(test)]
 pub fn project(
     repos: &[RepoEntry],
     checked_tags: &[String],

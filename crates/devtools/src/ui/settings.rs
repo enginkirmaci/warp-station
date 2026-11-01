@@ -91,7 +91,7 @@ pub struct SettingsPage {
     /// The row whose Reset is armed (a second click confirms; arming another
     /// row disarms this one).
     reset_armed: Option<&'static str>,
-    // Columns
+    // Integrations
     enable_github: bool,
     github_executable: Entity<InputState>,
     enable_azure: bool,
@@ -386,14 +386,14 @@ impl SettingsPage {
             });
             // the interval may have changed: re-arm the periodic fetch
             store.refresh_auto_fetch_schedule();
-            // grouping only reshapes the table: re-project, never rescan —
+            // grouping only reshapes the list: re-project, never rescan —
             // the repos and their folders did not change
             store.set_group_by_root(group_by_root);
             store.set_group_depth(group_depth);
             // a scan-input change live-applies with a rescan; a text-size
             // change re-runs the kit theme (which refreshes every window, so
             // tokens and the kit rem base resize together); every save
-            // re-probes activity so column toggles take effect immediately
+            // re-probes activity so the integration switches take effect immediately
             if store.settings().repos.repo_scan_folders != old_scan_folders {
                 let settings = store.settings();
                 store.kick_scan(&settings);
@@ -691,13 +691,13 @@ impl Render for SettingsPage {
                                         .child(field_row("warp-notes executable", &this.warp_notes_executable))
                                         .child(label("The notes toggle, the tools menu and the rows' note icons launch this app over the shared notes store set above."))
                                     }))
-                                    .child(self.card("Columns", cx, |this, cx, card| {
-                                        card.child(switch_row("GitHub column", this.enable_github, cx.listener(|this, _, _, cx| {
+                                    .child(self.card("Integrations", cx, |this, cx, card| {
+                                        card.child(switch_row("GitHub", this.enable_github, cx.listener(|this, _, _, cx| {
                                             this.enable_github = !this.enable_github;
                                             cx.notify();
                                         })))
                                         .child(field_row("GitHub CLI executable", &this.github_executable))
-                                        .child(switch_row("Azure DevOps column", this.enable_azure, cx.listener(|this, _, _, cx| {
+                                        .child(switch_row("Azure DevOps", this.enable_azure, cx.listener(|this, _, _, cx| {
                                             this.enable_azure = !this.enable_azure;
                                             cx.notify();
                                         })))
