@@ -105,6 +105,12 @@ impl MainWindow {
         // keep the root focus handle live so Escape / Ctrl+K work before the
         // first input click; inputs take focus back when the user clicks them
         window.focus(&this.focus_handle, cx);
+        // a focused field can leave the tree with its popup, sheet or drawer,
+        // and the window's keys would die with it until the next root click
+        cx.on_focus_lost(window, |this, window, cx| {
+            window.focus(&this.focus_handle, cx);
+        })
+        .detach();
         this
     }
 }
@@ -179,6 +185,13 @@ impl Render for MainWindow {
                     if this.tools_menu_open {
                         this.tools_menu_open = false;
                         cx.notify();
+                        cx.stop_propagation();
+                        return;
+                    }
+                    // the sheet's popup closes before the sheet does
+                    if matches!(this.active_drawer, Some(DrawerKind::Changes))
+                        && this.dismiss_sheet_menu(cx)
+                    {
                         cx.stop_propagation();
                         return;
                     }
@@ -581,6 +594,23 @@ impl MainWindow {
         )
     }
 
+    /// Closes the Changes sheet's branch popup. The picker lives on the sheet's
+    /// own view, which the workspace bar's dismissal never reaches. Returns
+    /// whether it was open.
+    fn dismiss_sheet_menu(&mut self, cx: &mut Context<Self>) -> bool {
+        self.changes_drawer.as_ref().is_some_and(|view| {
+            view.update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu)
+        })
+    }
+
+    /// Closes the Changes sheet, popup included: the view outlives the sheet,
+    /// so an open popup would come back with it.
+    fn close_changes_sheet(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_sheet_menu(cx);
+        self.active_drawer = None;
+        cx.notify();
+    }
+
     /// The docked tool drawer overlay: a full-window scrim plus the right-edge
     /// panel; the drawer entity is created on first open.
     /// The commit surface: ChangesView was built for the workspace bar, so it
@@ -615,12 +645,12 @@ impl MainWindow {
                         .bg(theme::rgba(0x00000073))
                         .occlude()
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.active_drawer = None;
-                            cx.notify();
+                            this.close_changes_sheet(cx);
                         })),
                 )
                 .child(
                     div()
+                        .debug_selector(|| "changes-sheet".into())
                         .absolute()
                         .left_0()
                         .right_0()
@@ -629,6 +659,16 @@ impl MainWindow {
                         .bg(theme::BACKGROUND)
                         .border_t_1()
                         .border_color(theme::HAIRLINE)
+                        // the scrim runs under the panel: without occlusion
+                        // every press inside would also close the sheet, and
+                        // none reaches the window's outside-click dismissal
+                        .occlude()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.dismiss_sheet_menu(cx);
+                            }),
+                        )
                         .flex()
                         .flex_col()
                         .child(
@@ -660,8 +700,7 @@ impl MainWindow {
                                         .justify_center()
                                         .hover(|d| d.bg(theme::HOVER_BG))
                                         .on_click(cx.listener(|this, _, _, cx| {
-                                            this.active_drawer = None;
-                                            cx.notify();
+                                            this.close_changes_sheet(cx);
                                         }))
                                         .child(icon(
                                             "icons/icon-close.svg",
