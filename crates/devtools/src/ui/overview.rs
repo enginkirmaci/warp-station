@@ -29,22 +29,7 @@ impl OverviewView {
                     .as_ref()
                     .and_then(|folder| read_readme(folder))
                     .map(SharedString::from);
-                this.readme_loaded_for = selected.clone();
-                // details probe rides along with the pane's first open
-                if let Some(folder) = selected {
-                    let settings = store.read(cx).settings();
-                    if settings.repos.enable_git_hub
-                        && let Some(gh) =
-                            devtools_core::exe::locate(&settings.repos.git_hub_executable)
-                    {
-                        let _ = store.read(cx).net.send_blocking(
-                            crate::net::NetCommand::GitHubDetails {
-                                folder: std::path::PathBuf::from(folder),
-                                gh_exe: gh.to_string_lossy().to_string(),
-                            },
-                        );
-                    }
-                }
+                this.readme_loaded_for = selected;
                 cx.notify();
             }
         })
@@ -466,7 +451,10 @@ fn render_sidebar(
             side = side.child(detail_row("Owner", owner.clone()));
         }
         if let Some(created) = &details.created_at {
-            side = side.child(detail_row("Created", format_created(created)));
+            side = side.child(detail_row(
+                "Created",
+                crate::ui::inspector::format_created(created),
+            ));
         }
         if let Some(language) = &details.primary_language {
             side = side.child(detail_row("Language", language.clone()));
@@ -521,13 +509,6 @@ fn read_readme(folder: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// gh returns ISO timestamps; the details card shows "27 Nov 2023".
-fn format_created(iso: &str) -> String {
-    chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
-        .map(|d| d.format("%-d %b %Y").to_string())
-        .unwrap_or_else(|_| iso.to_string())
 }
 
 /// The .NET details card: muted label column on the left, value on the right.

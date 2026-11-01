@@ -1,29 +1,38 @@
 //! The repo detail rail: everything the floating drawer used to hold, docked
 //! beside the list instead of over it. Identity and tags at the top, then the
-//! sync card, the one primary launch above five secondary launchers, and the
-//! uncommitted files and GitHub issues closing the column.
-//!
-//! Visual only for now: the rail follows the selection, its buttons land in
-//! the wiring pass.
+//! sync card, the one primary launch above the secondary launchers, and the
+//! uncommitted files, GitHub issues and repo details closing the column.
 
 use crate::net::GitAction;
 use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::icon;
+use crate::ui::launchers::{self, Launcher};
 use crate::ui::repos::ReposPage;
 use devtools_core::rel_time;
 use devtools_core::repo_store::RepoEntry;
 use devtools_core::settings::AppSettings;
 use devtools_core::terminal;
 use gpui::prelude::*;
-use gpui::{AnyElement, Entity, FontWeight, Rgba, SharedString, div, px};
+use gpui::{
+    AnyElement, App, ClipboardItem, Entity, FontWeight, MouseButton, Rgba, SharedString, div, px,
+    relative,
+};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputState};
 
 /// Rail width. The mockup asks for roughly a third of a 1280 window; a fixed
 /// rail keeps the list from reflowing as the inspector's content changes.
 pub const RAIL_W: f32 = 540.;
+
+/// The open "⋯" menu: the repo it opened on, because a moved selection closes
+/// it and it must never act on another one, and whether Remove took its first
+/// click.
+pub struct RepoMenu {
+    pub folder: String,
+    pub remove_armed: bool,
+}
 
 /// The right rail for the selected repo; with nothing selected it previews
 /// the first projected repo, so the pane never opens as a bare border.
@@ -32,11 +41,12 @@ pub fn render(
     entities: &Entity<Store>,
     page: &Entity<ReposPage>,
     tag_draft: Option<&Entity<InputState>>,
-    repo_menu_open: bool,
+    repo_menu: Option<&RepoMenu>,
 ) -> AnyElement {
     let mut rail = div()
         .id("repos-inspector")
         .debug_selector(|| "repos-inspector".into())
+        .relative()
         .flex()
         .flex_col()
         .flex_shrink_0()
@@ -56,18 +66,27 @@ pub fn render(
 
     let folder = repo.folder_path.to_string_lossy().to_string();
     let settings = store.settings();
+    let launchers = launchers::launchers(&settings, repo);
     rail = rail
         .child(header(repo, entities, page, &folder))
-        .when(repo_menu_open, |rail| {
-            rail.child(repo_menu(repo, entities, page, &folder))
-        })
         .child(path_line(repo))
         .child(tag_row(repo, page, tag_draft, entities, &folder))
         .child(sync_card(repo, entities, &folder))
-        .child(primary_action(&settings, &folder, entities))
-        .child(launchers(&settings, &folder, entities, &repo.name))
+        .children(
+            launchers
+                .first()
+                .map(|primary| primary_action(primary, &folder, entities)),
+        )
+        .child(launcher_rows(
+            launchers.get(1..).unwrap_or_default(),
+            &folder,
+            entities,
+        ))
         .child(files_section(store, repo, &settings, entities))
-        .child(issues_section(store, repo, entities));
+        .child(issues_section(store, repo, entities))
+        .children(details_section(store))
+        // last, so it paints over the sections it hangs above
+        .children(repo_menu.map(|menu| popup_menu(repo, menu, store, entities, page, &folder)));
 
     rail.into_any_element()
 }
@@ -168,10 +187,14 @@ fn header(
                 .items_center()
                 .justify_center()
                 .hover(|d| d.bg(theme::HOVER_BG))
+                // keep the window's outside-click dismissal from seeing this
+                // press: it must toggle, not close-then-reopen
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click({
                     let target = page.clone();
+                    let path = folder.to_string();
                     move |_, _, cx| {
-                        target.update(cx, |this, cx| this.toggle_repo_menu(cx));
+                        target.update(cx, |this, cx| this.toggle_repo_menu(&path, cx));
                     }
                 })
                 .child(icon(
@@ -183,90 +206,191 @@ fn header(
         .into_any_element()
 }
 
-/// The header's "⋯" menu: the repo verbs that used to hide in the table row.
-fn repo_menu(
+type MenuAction = Box<dyn Fn(&mut App)>;
+
+/// The header's "⋯" menu: the repo verbs the old bar's kebab held. A popup
+/// hanging from the header, so opening it leaves the rail where it is.
+fn popup_menu(
     repo: &RepoEntry,
+    state: &RepoMenu,
+    store: &Store,
     entities: &Entity<Store>,
     page: &Entity<ReposPage>,
     folder: &str,
 ) -> AnyElement {
     let archived = repo.is_archived();
-    let favorite = repo.is_favorite();
     let mut menu = div()
         .id("insp-repo-menu")
         .debug_selector(|| "insp-repo-menu".into())
-        .mt(px(6.))
+        .absolute()
+        .top(px(42.))
+        .right(px(18.))
+        .w(px(220.))
         .p(px(4.))
         .rounded(px(6.))
         .border_1()
         .border_color(theme::HAIRLINE)
         .bg(theme::POPUP)
+        .shadow_md()
+        // presses inside must not reach the rail under it, or the window's
+        // outside-click dismissal before the row's own click lands
+        .occlude()
         .flex()
         .flex_col()
         .gap(px(2.));
 
-    let item = |id: &'static str, label: &'static str| {
-        div()
-            .id(id)
-            .debug_selector(move || id.into())
-            .a11y_button(label)
-            .cursor_pointer()
-            .rounded(px(4.))
-            .px(px(8.))
-            .py(px(5.))
-            .text_size(px(theme::font_row_meta()))
-            .text_color(theme::TEXT_DIM)
-            .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
-            .child(label)
+    // every row closes the menu behind its action
+    let item = |id: &'static str, label: &'static str, action: MenuAction| {
+        let close = page.clone();
+        menu_row(id, label).on_click(move |_, _, cx| {
+            action(cx);
+            close.update(cx, |this, cx| this.close_repo_menu(cx));
+        })
     };
 
-    {
+    if let Some(url) = store.selected_github_url() {
         let target = entities.clone();
-        let path = folder.to_string();
-        let close = page.clone();
-        menu = menu.child(
-            item("insp-menu-folder", "Open folder").on_click(move |_, _, cx| {
-                let _ = terminal::open_folder(&path);
-                close.update(cx, |this, cx| this.close_repo_menu(cx));
-                let _ = &target;
+        let page_url = url.clone();
+        menu = menu.child(item(
+            "insp-menu-github",
+            "Open in GitHub",
+            Box::new(move |cx| {
+                if let Err(err) = terminal::open_url(&page_url) {
+                    target.update(cx, |s, _| s.notify_error(err));
+                }
             }),
-        );
+        ));
+        let target = entities.clone();
+        menu = menu.child(item(
+            "insp-menu-copy-url",
+            "Copy GitHub URL",
+            Box::new(move |cx| copy_with_toast(url.clone(), "GitHub URL copied", &target, cx)),
+        ));
     }
     {
         let target = entities.clone();
         let path = folder.to_string();
-        let close = page.clone();
-        menu = menu.child(
-            item(
-                "insp-menu-star",
-                if favorite {
-                    "Remove favorite"
-                } else {
-                    "Add favorite"
-                },
+        menu = menu.child(item(
+            "insp-menu-copy-path",
+            "Copy folder path",
+            Box::new(move |cx| copy_with_toast(path.clone(), "Folder path copied", &target, cx)),
+        ));
+    }
+    {
+        let target = entities.clone();
+        menu = menu.child(item(
+            "insp-menu-refresh",
+            "Refresh repository",
+            Box::new(move |cx| target.update(cx, |s, cx| s.refresh_panel(cx))),
+        ));
+    }
+    {
+        let target = entities.clone();
+        let path = folder.to_string();
+        let name = repo.name.clone();
+        menu = menu.child(item(
+            "insp-menu-archive",
+            if archived { "Restore" } else { "Archive" },
+            Box::new(move |cx| {
+                target.update(cx, |s, cx| {
+                    s.set_repo_archived(&path, !archived, cx);
+                    s.notify_success(if archived {
+                        format!("Restored {name}")
+                    } else {
+                        format!("Archived {name}")
+                    });
+                    cx.notify();
+                });
+            }),
+        ));
+    }
+    menu.child(div().h(px(1.)).mx(px(4.)).my(px(2.)).bg(theme::HAIRLINE))
+        .child(remove_row(state.remove_armed, entities, page, folder))
+        .into_any_element()
+}
+
+fn menu_row(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .cursor_pointer()
+        .rounded(px(4.))
+        .px(px(8.))
+        .py(px(5.))
+        .text_size(px(theme::font_row_meta()))
+        .text_color(theme::TEXT_DIM)
+        .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
+        .child(label)
+}
+
+/// Destructive, so it takes two clicks: the first arms the row, the second
+/// removes. Closing the menu disarms it, whatever closed it.
+fn remove_row(
+    armed: bool,
+    entities: &Entity<Store>,
+    page: &Entity<ReposPage>,
+    folder: &str,
+) -> AnyElement {
+    let target = entities.clone();
+    let menu = page.clone();
+    let path = folder.to_string();
+    div()
+        .id("insp-menu-remove")
+        .debug_selector(|| "insp-menu-remove".into())
+        .a11y_button(if armed {
+            "Confirm remove from repositories"
+        } else {
+            "Remove from repositories"
+        })
+        .cursor_pointer()
+        .rounded(px(4.))
+        .px(px(8.))
+        .py(px(5.))
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .text_size(px(theme::font_row_meta()))
+        .text_color(if armed {
+            theme::DANGER
+        } else {
+            theme::TEXT_DIM
+        })
+        .when(armed, |row| row.bg(theme::tint(theme::DANGER)))
+        .hover(|d| d.bg(theme::tint(theme::DANGER)).text_color(theme::DANGER))
+        .on_click(move |_, _, cx| {
+            if armed {
+                target.update(cx, |s, cx| {
+                    s.ensure_repo_selected(&path, cx);
+                    s.remove_from_repositories(cx);
+                });
+                menu.update(cx, |this, cx| this.close_repo_menu(cx));
+            } else {
+                menu.update(cx, |this, cx| this.arm_repo_remove(cx));
+            }
+        })
+        .child(if armed {
+            "Remove from repositories?"
+        } else {
+            "Remove from repositories"
+        })
+        .when(armed, |row| {
+            row.child(
+                div()
+                    .text_size(px(theme::font_mono_meta()))
+                    .child("Click again to confirm"),
             )
-            .on_click(move |_, _, cx| {
-                target.update(cx, |s, cx| s.toggle_favorite(&path, cx));
-                close.update(cx, |this, cx| this.close_repo_menu(cx));
-            }),
-        );
-    }
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        let close = page.clone();
-        menu = menu.child(
-            item(
-                "insp-menu-archive",
-                if archived { "Restore" } else { "Archive" },
-            )
-            .on_click(move |_, _, cx| {
-                target.update(cx, |s, cx| s.set_repo_archived(&path, !archived, cx));
-                close.update(cx, |this, cx| this.close_repo_menu(cx));
-            }),
-        );
-    }
-    menu.into_any_element()
+        })
+        .into_any_element()
+}
+
+/// Copies `text` and confirms it with a toast.
+fn copy_with_toast(text: String, toast: &'static str, store: &Entity<Store>, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string(text));
+    store.update(cx, |s, cx| {
+        s.notify_success(toast);
+        cx.notify();
+    });
 }
 
 fn path_line(repo: &RepoEntry) -> AnyElement {
@@ -311,8 +435,8 @@ fn tag_row(
     repo: &RepoEntry,
     page: &Entity<ReposPage>,
     tag_draft: Option<&Entity<InputState>>,
-    _entities: &Entity<Store>,
-    _folder: &str,
+    entities: &Entity<Store>,
+    folder: &str,
 ) -> AnyElement {
     let mut row = div()
         .flex()
@@ -322,20 +446,7 @@ fn tag_row(
         .mt(px(8.))
         .min_h(px(22.));
     for tag in repo.tags.iter().filter(|tag| !is_system_tag(tag)) {
-        row = row.child(
-            div()
-                .h(px(20.))
-                .px(px(7.))
-                .flex()
-                .items_center()
-                .rounded(px(4.))
-                .border_1()
-                .border_color(theme::HAIRLINE)
-                .bg(theme::SYNC_BG)
-                .text_size(px(theme::font_row_meta()))
-                .text_color(theme::TEXT_DIM)
-                .child(SharedString::from(tag.clone())),
-        );
+        row = row.child(tag_chip(tag, entities, folder));
     }
     if let Some(input) = tag_draft {
         row = row.child(div().w(px(120.)).child(Input::new(input).small()));
@@ -369,6 +480,49 @@ fn tag_row(
         );
     }
     row.into_any_element()
+}
+
+/// A user tag. The × stays quiet until the chip is hovered, but its target
+/// runs the full chip height: the old bar's were ~10px.
+fn tag_chip(tag: &str, entities: &Entity<Store>, folder: &str) -> AnyElement {
+    let target = entities.clone();
+    let path = folder.to_string();
+    let name = tag.to_string();
+    let selector = format!("insp-tag-remove-{tag}");
+    div()
+        .group("insp-tag")
+        .h(px(20.))
+        .pl(px(7.))
+        .flex()
+        .items_center()
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::HAIRLINE)
+        .bg(theme::SYNC_BG)
+        .text_size(px(theme::font_row_meta()))
+        .text_color(theme::TEXT_DIM)
+        .child(SharedString::from(tag.to_string()))
+        .child(
+            div()
+                .id(SharedString::from(selector.clone()))
+                .debug_selector(move || selector.clone())
+                .a11y_button(format!("Remove tag {tag}"))
+                .cursor_pointer()
+                .w(px(18.))
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(theme::TEXT_MUTED)
+                .opacity(0.45)
+                .group_hover("insp-tag", |d| d.opacity(1.))
+                .hover(|d| d.text_color(theme::TEXT))
+                .on_click(move |_, _, cx| {
+                    target.update(cx, |s, cx| s.toggle_repo_tag(&path, &name, cx));
+                })
+                .child("×"),
+        )
+        .into_any_element()
 }
 
 /// `favorites` and `archived` are derived flags, not user tags — showing them
@@ -407,12 +561,23 @@ fn sync_card(repo: &RepoEntry, entities: &Entity<Store>, folder: &str) -> AnyEle
     note.push_str(&format!(" · fetched {fetched}"));
 
     let branch_line = div()
+        .id("insp-branch")
+        .debug_selector(|| "insp-branch".into())
         .flex()
         .items_center()
         .gap(px(4.))
         .font_family(theme::code_font())
         .text_size(px(11.))
         .text_color(theme::TEXT_DIM)
+        .when_some(repo.git_branch_name.clone(), |line, name| {
+            let target = entities.clone();
+            line.a11y_button(format!("Copy branch name {name}"))
+                .cursor_pointer()
+                .hover(|d| d.text_color(theme::TEXT))
+                .on_click(move |_, _, cx| {
+                    copy_with_toast(name.clone(), "Branch name copied", &target, cx);
+                })
+        })
         .child(icon(
             "icons/icon-source-branch.svg",
             px(12.),
@@ -524,16 +689,16 @@ fn small_button(
         .into_any_element()
 }
 
-/// The one filled control in the app: launch the default editor.
-fn primary_action(settings: &AppSettings, folder: &str, entities: &Entity<Store>) -> AnyElement {
+/// The one filled control in the app: the first launcher, the default editor
+/// unless the settings turned it off.
+fn primary_action(launcher: &Launcher, folder: &str, entities: &Entity<Store>) -> AnyElement {
     let target = entities.clone();
     let path = folder.to_string();
-    let exe = settings.repos.vscode_executable.clone();
-    let profile = settings.repos.vscode_profile.clone();
+    let launch = launcher.launch.clone();
     div()
         .id("insp-primary")
         .debug_selector(|| "insp-primary".into())
-        .a11y_button("Open in VS Code")
+        .a11y_button(launcher.label)
         .cursor_pointer()
         .mt(px(9.))
         .h(px(38.))
@@ -549,13 +714,9 @@ fn primary_action(settings: &AppSettings, folder: &str, entities: &Entity<Store>
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::ON_ACCENT)
         .hover(|el| el.bg(theme::ACCENT_HOVER))
-        .on_click(move |_, _, cx| {
-            if let Err(err) = terminal::open_in_vscode(&path, &exe, &profile) {
-                target.update(cx, |s, _| s.notify_error(err));
-            }
-        })
-        .child(icon("icons/icon-code.svg", px(14.), theme::ON_ACCENT))
-        .child("Open in VS Code")
+        .on_click(move |_, _, cx| launch.run(&path, &target, cx))
+        .child(icon(launcher.icon, px(14.), theme::ON_ACCENT))
+        .child(launcher.label)
         .child(div().flex_1())
         .child(keycap(
             "↵",
@@ -565,98 +726,20 @@ fn primary_action(settings: &AppSettings, folder: &str, entities: &Entity<Store>
         .into_any_element()
 }
 
-/// Secondary verbs: one row each, keycap flush right, all wired to the same
-/// launchers the table row's icons use.
-fn launchers(
-    settings: &AppSettings,
-    folder: &str,
-    entities: &Entity<Store>,
-    repo_name: &str,
-) -> AnyElement {
-    type Handler = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>;
-    let mut items: Vec<(&'static str, &'static str, &'static str, Handler)> = Vec::new();
-
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        items.push((
-            "icons/icon-app-window.svg",
-            "Open in warp-agent",
-            "A",
-            Box::new(move |_, _, cx| {
-                target.update(cx, |s, cx| s.open_in_warp(path.clone(), cx));
-            }),
-        ));
-    }
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        let term = settings.repos.terminal_executable.clone();
-        let exe = if settings.repos.opencode_executable.trim().is_empty() {
-            "opencode".to_string()
-        } else {
-            settings.repos.opencode_executable.clone()
-        };
-        items.push((
-            "icons/icon-command.svg",
-            "Launch OpenCode CLI",
-            "O",
-            Box::new(move |_, _, cx| {
-                if let Err(err) =
-                    terminal::launch_argv_in_terminal(&path, std::slice::from_ref(&exe), &term)
-                {
-                    target.update(cx, |s, _| s.notify_error(err));
-                }
-            }),
-        ));
-    }
-    {
-        let path = folder.to_string();
-        items.push((
-            "icons/icon-folder.svg",
-            "Open folder",
-            "F",
-            Box::new(move |_, _, _| {
-                let _ = terminal::open_folder(&path);
-            }),
-        ));
-    }
-    {
-        let path = folder.to_string();
-        let term = settings.repos.terminal_executable.clone();
-        items.push((
-            "icons/icon-terminal.svg",
-            "Open terminal",
-            "T",
-            Box::new(move |_, _, _| {
-                let _ = terminal::open_terminal(&path, &term);
-            }),
-        ));
-    }
-    {
-        let target = entities.clone();
-        let exe = settings.warp_notes.executable.clone();
-        let root = devtools_core::notes::resolve_store_root(&settings.general.notes_store_path);
-        let name = repo_name.to_string();
-        items.push((
-            "icons/icon-note.svg",
-            "Notes for this repo",
-            "N",
-            Box::new(move |_, _, cx| {
-                if let Err(err) = devtools_core::warp_notes::launch(&exe, &root, Some(&name), None)
-                {
-                    target.update(cx, |s, _| s.notify_error(err));
-                }
-            }),
-        ));
-    }
-
+/// Secondary verbs: one row each, keycap flush right.
+fn launcher_rows(launchers: &[Launcher], folder: &str, entities: &Entity<Store>) -> AnyElement {
     let mut list = div().flex().flex_col().pt(px(8.));
-    for (icon_path, label, key, handler) in items {
+    for launcher in launchers {
+        let target = entities.clone();
+        let path = folder.to_string();
+        let launch = launcher.launch.clone();
         list = list.child(
             div()
-                .id(SharedString::from(format!("insp-launch-{key}")))
-                .a11y_button(label)
+                .id(SharedString::from(format!(
+                    "insp-launch-{}",
+                    launcher.label
+                )))
+                .a11y_button(launcher.label)
                 .cursor_pointer()
                 .flex()
                 .items_center()
@@ -666,15 +749,19 @@ fn launchers(
                 .rounded(px(4.))
                 .text_color(theme::TEXT_DIM)
                 .hover(|el| el.bg(theme::HOVER_BG).text_color(theme::TEXT))
-                .on_click(handler)
-                .child(icon(icon_path, px(14.), theme::MUTED_ICON))
+                .on_click(move |_, _, cx| launch.run(&path, &target, cx))
+                .child(icon(launcher.icon, px(14.), theme::MUTED_ICON))
                 .child(
                     div()
                         .flex_1()
                         .text_size(px(theme::font_launcher()))
-                        .child(label),
+                        .child(launcher.label),
                 )
-                .child(keycap(key, theme::TEXT_MUTED, theme::KEY_BORDER)),
+                .children(
+                    launcher
+                        .key
+                        .map(|key| keycap(key, theme::TEXT_MUTED, theme::KEY_BORDER)),
+                ),
         );
     }
     list.into_any_element()
@@ -684,7 +771,8 @@ fn launchers(
 /// sets a request flag the window drains).
 type Action = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>;
 
-fn section_head(label: String, action: &'static str, on_click: Option<Action>) -> AnyElement {
+/// A section's rule and uppercase label.
+fn section_title(label: String) -> gpui::Div {
     div()
         .flex()
         .items_center()
@@ -701,6 +789,10 @@ fn section_head(label: String, action: &'static str, on_click: Option<Action>) -
                 .text_color(theme::MUTED_ICON)
                 .child(label.to_uppercase()),
         )
+}
+
+fn section_head(label: String, action: &'static str, on_click: Option<Action>) -> AnyElement {
+    section_title(label)
         .child({
             let mut button = div()
                 .id(SharedString::from(format!("insp-section-{action}")))
@@ -930,6 +1022,95 @@ fn issues_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> 
         )));
     }
     section.into_any_element()
+}
+
+/// What GitHub says about the repo, in two columns so the rail stays short.
+/// Absent until the details request answers, and for repos not on GitHub.
+fn details_section(store: &Store) -> Option<AnyElement> {
+    let details = store.github_details.as_ref()?;
+    let facts = [
+        ("Owner", details.owner.clone()),
+        ("Language", details.primary_language.clone()),
+        ("License", details.license.clone()),
+        ("Default", details.default_branch.clone()),
+        ("Created", details.created_at.as_deref().map(format_created)),
+    ];
+
+    let mut grid = div().flex().flex_wrap().pt(px(2.));
+    let mut empty = true;
+    for (label, value) in facts {
+        let Some(value) = value else { continue };
+        empty = false;
+        grid = grid.child(
+            div()
+                .w(relative(0.5))
+                .h(px(20.))
+                .pr(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(theme::font_row_meta()))
+                .child(
+                    div()
+                        .w(px(56.))
+                        .flex_shrink_0()
+                        .text_color(theme::TEXT_MUTED)
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_color(theme::TEXT_DIM)
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(value),
+                ),
+        );
+    }
+    if empty && details.topics.is_empty() {
+        return None;
+    }
+
+    let topics =
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(4.))
+            .pt(px(4.))
+            .children(details.topics.iter().map(|topic| {
+                div()
+                    .h(px(18.))
+                    .px(px(6.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(theme::HAIRLINE)
+                    .bg(theme::SYNC_BG)
+                    .text_size(px(theme::font_mono_meta()))
+                    .text_color(theme::TEXT_DIM)
+                    .child(SharedString::from(topic.clone()))
+            }));
+
+    Some(
+        div()
+            .debug_selector(|| "insp-details".into())
+            .flex()
+            .flex_col()
+            .child(section_title("Details".to_string()))
+            .child(grid)
+            .child(topics)
+            .into_any_element(),
+    )
+}
+
+/// gh returns ISO timestamps; the details show "27 Nov 2023".
+pub(crate) fn format_created(iso: &str) -> String {
+    chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
+        .map(|d| d.format("%-d %b %Y").to_string())
+        .unwrap_or_else(|_| iso.to_string())
 }
 
 fn muted(label: &'static str) -> AnyElement {
