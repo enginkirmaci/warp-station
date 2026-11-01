@@ -151,8 +151,7 @@ impl Render for MainWindow {
                     this.bottom_bar.update(cx, |bar, cx| {
                         bar.dismiss_kebab(cx);
                     });
-                    this.repos_page
-                        .update(cx, |page, cx| page.close_repo_menu(cx));
+                    this.repos_page.update(cx, |page, cx| page.close_popups(cx));
                 }),
             )
             // Ctrl+K and Ctrl+F focus the global-search field; Ctrl+Shift+V
