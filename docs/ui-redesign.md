@@ -1,4 +1,4 @@
-# DevTools UI: audit and two directions
+# Warp Station UI: audit and two directions
 
 Status: historical. The redesign this audit led to has shipped: the split
 screen (list, detail rail, workspace sheet) replaced the table and the bottom

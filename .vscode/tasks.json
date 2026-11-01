@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "cargo build (devtools)",
+            "label": "cargo build (warp-station)",
             "type": "shell",
             "command": "cargo",
             "args": ["build"],
