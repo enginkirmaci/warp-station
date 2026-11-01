@@ -3,19 +3,16 @@
 //! app-only layout constants and the desktop text-scaling follow (gsettings
 //! org.gnome.desktop.interface text-scaling-factor).
 //!
-//! The palette is app-local on purpose. `warpui-kit-core` still owns the
-//! family ramp, but warp-agent and warp-notes consume it too, so this app's
-//! redesign must not move their colours; the local constants below shadow the
-//! shared ones (`pub use ...::*` is shadowed by an explicit item) while the
-//! rest of the family palette stays reachable for anything not redesigned yet.
+//! The palette is app-local on purpose. `warpui-kit-core` owns the family ramp,
+//! but warp-agent and warp-notes consume it too, so this app's redesign must
+//! not move their colours. Nothing here reaches the family's constants, and
+//! the shared widgets that would paint them get this app's palette installed.
 
 pub use warpui_kit_core::fonts::{
     CODE_FONT, FONT_COMPACT, FONT_LARGE, FONT_NORMAL, FONT_UI, normalize_font_scale, resolve_fonts,
 };
-pub use warpui_kit_core::palette;
-// the family constants stay reachable as `theme::X`; the ones below override
-// the redesigned surfaces, text and accents
-pub use warpui_kit_core::palette::*;
+use warpui_kit_core::palette;
+pub use warpui_kit_core::palette::tint;
 
 use gpui::Rgba;
 
@@ -79,7 +76,6 @@ pub const fn rgba(hex: u32) -> Rgba {
 // points apart, so a card reads as raised without a heavy border.
 
 pub const BACKGROUND: Rgba = rgba(0x0C0E11FF);
-pub const STRONG_BACKGROUND: Rgba = BACKGROUND;
 pub const CARD: Rgba = rgba(0x0F1216FF);
 pub const POPUP: Rgba = rgba(0x12161CFF);
 pub const INPUT: Rgba = rgba(0x12161CFF);
@@ -93,7 +89,6 @@ pub const SELECTED: Rgba = rgba(0x141B25FF);
 /// Row/pill hover fill: the mockup's opaque `#151a21` instead of a white wash,
 /// so hover reads the same over any surface step.
 pub const HOVER_BG: Rgba = rgba(0x151A21FF);
-pub const HOVER: gpui::Hsla = gpui::hsla(0.0, 0.0, 1.0, 0.045);
 
 // ---- chrome steps the mockup names explicitly ------------------------------
 // The titlebar, the segmented control's trough, the folder band, the sync
@@ -114,14 +109,12 @@ pub const SYNC_BG: Rgba = rgba(0x0B0E12FF);
 pub const FOOT_BG: Rgba = rgba(0x0A0C0FFF);
 pub const KEY_BG: Rgba = rgba(0x11151AFF);
 pub const KEY_BORDER: Rgba = rgba(0x2A323DFF);
-pub const KEY_BORDER_BOTTOM: Rgba = rgba(0x3A4451FF);
 pub const KEY_FG: Rgba = rgba(0xC0C9D5FF);
 pub const ROW_LINE: Rgba = rgba(0x181D24FF);
 pub const ROWS_RULE: Rgba = rgba(0x1F252DFF);
 pub const MUTED_ICON: Rgba = rgba(0x8D97A4FF);
 pub const ACCENT_HOVER: Rgba = rgba(0x245BC7FF);
 pub const ACCENT_BORDER: Rgba = rgba(0x3B78E8FF);
-pub const CLOSE_HOVER: Rgba = rgba(0xA33B3BFF);
 
 // ---- text ------------------------------------------------------------------
 // Three steps plus the faintest hint: hierarchy comes from weight and size,
@@ -140,8 +133,6 @@ pub const ACCENT: Rgba = rgba(0x2A68DFFF);
 pub const ON_ACCENT: Rgba = rgba(0xFFFFFFFF);
 pub const BLUE_BRIGHT: Rgba = rgba(0x78A9FFFF);
 pub const AMBER_BRIGHT: Rgba = rgba(0xEFB264FF);
-pub const WARN: Rgba = rgba(0xEFB264FF);
-pub const GOLD_BRIGHT: Rgba = rgba(0xEFB264FF);
 pub const STAR_MUTED: Rgba = rgba(0x7F8997FF);
 pub const STAR_ON: Rgba = rgba(0xC8D2E0FF);
 pub const SEG_ACTIVE_FG: Rgba = rgba(0xDCE7F8FF);
@@ -228,8 +219,9 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
     resolve_fonts(cx);
     // the bundled IBM Plex faces win over the family chain when present
     resolve_brand_fonts(cx);
-    // the diff renderer falls back to the family ramp without this
+    // the shared widgets fall back to the family ramp without these
     cx.set_global(diff_palette());
+    cx.set_global(picker_palette());
     // A mode flip inside the color-edit closure makes the kit reload its
     // registered theme's colors AFTER the closure, wiping every override —
     // flip first, then edit.
@@ -244,7 +236,7 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
         t.secondary_foreground = TEXT.into();
         t.muted = INPUT.into();
         t.muted_foreground = TEXT_MUTED.into();
-        t.accent = HOVER;
+        t.accent = HOVER_BG.into();
         t.accent_foreground = TEXT.into();
         t.danger = DANGER.into();
         t.danger_foreground = ON_ACCENT.into();
@@ -303,6 +295,22 @@ fn diff_palette() -> warpui_kit_diff::DiffPalette {
     }
 }
 
+/// What `warpui-kit-picker` paints its trigger and popup with.
+fn picker_palette() -> warpui_kit_picker::PickerPalette {
+    warpui_kit_picker::PickerPalette {
+        text: TEXT,
+        text_dim: TEXT_DIM,
+        text_muted: TEXT_MUTED,
+        text_faint: TEXT_FAINT,
+        hairline: HAIRLINE,
+        input: INPUT,
+        popup: POPUP,
+        chip: CHIP,
+        hover: HOVER_BG.into(),
+        danger: DANGER,
+    }
+}
+
 /// The one accent family the app paints with; the preset system is not wired
 /// to the redesign yet, so this is the mockup's blue.
 fn accent_colors() -> palette::AccentColors {
@@ -314,9 +322,9 @@ fn accent_colors() -> palette::AccentColors {
     }
 }
 
-/// The tokens the kit mapping and shared shells ride: the settings text-size
-/// variant × the desktop text-scaling factor.
-pub fn font_tokens() -> warpui_kit_core::FontTokens {
+/// The tokens the kit mapping rides: the settings text-size variant × the
+/// desktop text-scaling factor.
+fn font_tokens() -> warpui_kit_core::FontTokens {
     let scale = match FACTOR_SCALE.load(std::sync::atomic::Ordering::Relaxed) {
         SCALE_COMPACT => Some(FONT_COMPACT),
         SCALE_LARGE => Some(FONT_LARGE),
@@ -345,43 +353,30 @@ pub fn set_font_scale(scale: Option<&str>) {
     warpui_kit_core::set_font_scale(scale);
 }
 
+/// What the shared widgets size their text from, on this app's scale.
+pub fn widget_fonts() -> warpui_kit_core::FontTokens {
+    warpui_kit_core::FontTokens {
+        font_small: font_body(),
+        font_body: font_heading(),
+        ..font_tokens()
+    }
+}
+
 // ---- token getters ---------------------------------------------------------
-// The bases are the sizes the const era pinned; the kit rem base rides the
-// same factor.
+// The export's scale: 8 section label / 9 mono meta / 9.5 row meta / 10 controls
+// and labels / 10.5 sub / 11 meta / 11.5 body / 12.5 headings / 13 brand /
+// 20 titles. Every step rides the settings text size and the desktop scaling.
+
+/// The settings text size × the desktop text-scaling factor, for layout
+/// thresholds that have to move with the text.
+pub fn text_scale() -> f32 {
+    warpui_kit_core::font_factor()
+}
 
 fn scaled(v: f32) -> f32 {
-    (v * warpui_kit_core::font_factor() * 100.0).round() / 100.0
+    (v * text_scale() * 100.0).round() / 100.0
 }
 
-pub fn font_small() -> f32 {
-    scaled(12.0)
-}
-
-pub fn font_body() -> f32 {
-    scaled(13.0)
-}
-
-pub fn font_title() -> f32 {
-    scaled(15.0)
-}
-
-/// The redesigned screens' scale: 10 label / 11 meta / 18 rail title. They
-/// ride the same factor, so the settings text size still reaches them.
-pub fn font_label() -> f32 {
-    scaled(10.0)
-}
-
-pub fn font_meta() -> f32 {
-    scaled(11.0)
-}
-
-pub fn font_rail_title() -> f32 {
-    scaled(18.0)
-}
-
-// The export's exact scale on the main screen: 8 section label / 9 mono meta /
-// 9.5 row meta / 10 controls / 10.5 sub / 11.5 launcher / 12.5 repo name /
-// 13 brand / 20 titles.
 pub fn font_micro() -> f32 {
     scaled(8.0)
 }
@@ -398,15 +393,23 @@ pub fn font_control() -> f32 {
     scaled(10.0)
 }
 
+pub fn font_label() -> f32 {
+    scaled(10.0)
+}
+
 pub fn font_sub() -> f32 {
     scaled(10.5)
 }
 
-pub fn font_launcher() -> f32 {
+pub fn font_meta() -> f32 {
+    scaled(11.0)
+}
+
+pub fn font_body() -> f32 {
     scaled(11.5)
 }
 
-pub fn font_repo_name() -> f32 {
+pub fn font_heading() -> f32 {
     scaled(12.5)
 }
 

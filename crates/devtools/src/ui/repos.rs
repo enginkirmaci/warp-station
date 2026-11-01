@@ -430,12 +430,9 @@ impl ReposPage {
         // The pane head sheds its subtitle first when the list column gets
         // narrow (the same numbers ride the rows), then the tag chips; the
         // action buttons never leave.
-        let scale = theme::font_small() / 14.0;
-        // both rows still fit a 620px column: title + three ghost actions on
-        // the head, the scope control + chips below
-        let compact = viewport_width < px(620.) * scale;
+        let compact = viewport_width < px(530.) * theme::text_scale();
         let show_subtitle = !compact;
-        let show_tag_chips = viewport_width >= px(620.) * scale;
+        let show_tag_chips = !compact;
 
         // Tag filters read as chips: raised when active, quiet otherwise (OR
         // semantics across the checked set); each carries its live count.

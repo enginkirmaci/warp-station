@@ -75,7 +75,7 @@ impl Render for ReadmeView {
             .border_color(theme::BORDER_LIGHT)
             .child(
                 div()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_MUTED)
                     .child(if has_draft {
                         "README.md (unsaved)"
@@ -98,11 +98,11 @@ impl Render for ReadmeView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .text_color(theme::TEXT_DIM)
                         .border_1()
                         .border_color(theme::HAIRLINE)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.store.update(cx, |s: &mut Store, cx| {
                                 s.readme_draft = None;
@@ -128,7 +128,7 @@ impl Render for ReadmeView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .bg(theme::ACCENT)
                         .text_color(theme::ON_ACCENT)
@@ -177,7 +177,7 @@ impl Render for ReadmeView {
                         .p_1()
                         .flex()
                         .items_center()
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(move |_, _, cx| {
                             store.update(cx, |s, cx| s.run_wand(WandKind::Readme, cx));
                         })
@@ -225,14 +225,14 @@ impl Render for ReadmeView {
                         ))
                         .child(
                             div()
-                                .text_size(px(theme::font_body() + 1.))
+                                .text_size(px(theme::font_heading()))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::TEXT_DIM)
                                 .child("No README yet"),
                         )
                         .child(
                             div()
-                                .text_size(px(theme::font_small()))
+                                .text_size(px(theme::font_body()))
                                 .text_color(theme::TEXT_FAINT)
                                 .child("Create a README.md in the repository root to see it here."),
                         )
@@ -251,7 +251,7 @@ impl Render for ReadmeView {
                                     .flex_row()
                                     .items_center()
                                     .gap_1p5()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .text_color(theme::ACCENT)
                                     .hover(|s| s.bg(theme::tint(theme::ACCENT)))
                                     .on_click(move |_, _, cx| {

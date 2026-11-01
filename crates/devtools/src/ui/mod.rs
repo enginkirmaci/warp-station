@@ -99,7 +99,7 @@ pub fn branch_label(branch: &str, window: &gpui::Window) -> String {
     };
     let width = window
         .text_system()
-        .layout_line(branch, px(theme::font_small()), &[run], None)
+        .layout_line(branch, px(theme::font_body()), &[run], None)
         .width;
     if width <= px(LABEL_MAX_PX) {
         branch.to_string()
@@ -151,7 +151,7 @@ pub fn drawer_header(
             .gap_2()
             .child(
                 div()
-                    .text_size(px(theme::font_title()))
+                    .text_size(px(theme::font_heading()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::TEXT)
                     .child(title),
@@ -168,7 +168,7 @@ pub fn drawer_header(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(move |_, window, cx| close(window, cx))
                         .child(icon(
                             "icons/icon-close.svg",
@@ -181,7 +181,7 @@ pub fn drawer_header(
     if !hint.is_empty() {
         header = header.child(
             div()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_FAINT)
                 .child(hint),
         );
