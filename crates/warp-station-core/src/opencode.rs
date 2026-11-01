@@ -562,6 +562,14 @@ mod tests {
     #[test]
     fn templates_fill_placeholders() {
         let _guard = TEMPLATE_HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        // the builders seed their template files on first load — keep that
+        // off the real ~/.warp
+        let home = tempfile::tempdir().expect("scratch home");
+        // SAFETY: process-global env, held only for this test's body; the
+        // lock keeps the sibling builder test from reading this HOME
+        let original = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", home.path()) };
+
         let prompt = commit_message_prompt("a.cs", "@@ -1 +1 @@", "tone: stuff");
         assert!(prompt.contains("Changed files: a.cs"));
         assert!(prompt.contains("@@ -1 +1 @@"));
@@ -578,6 +586,11 @@ mod tests {
         let summary = daily_summary_prompt("Oct 8", "- **repo**: things");
         assert!(summary.contains("Day: Oct 8"));
         assert!(summary.ends_with(NO_TOOLS_SUFFIX));
+
+        match original {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
     }
 
     #[test]
