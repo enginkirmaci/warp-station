@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=DevTools
+Name=Warp Station
 GenericName=Repository workbench
 Comment=Repositories, git changes, pull requests and notes
-Exec=$HOME/Developments/DevTools/packaging/linux/out/devtools
-Icon=devtools
+Exec=$HOME/Developments/warp-station/packaging/linux/out/warp-station
+Icon=warp-station
 Terminal=false
 Categories=Development;RevisionControl;
-StartupWMClass=devtools
+StartupWMClass=warp-station
