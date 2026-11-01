@@ -446,7 +446,11 @@ fn tag_row(
         row = row.child(tag_chip(tag, entities, folder));
     }
     if let Some(input) = tag_draft {
-        row = row.child(div().w(px(120.)).child(Input::new(input).small()));
+        row = row.child(
+            div()
+                .w(px(120.))
+                .child(Input::new(input).with_size(theme::field_size())),
+        );
     } else {
         let target = page.clone();
         row = row.child(
@@ -704,11 +708,7 @@ fn primary_action(launcher: &Launcher, folder: &str, entities: &Entity<Store>) -
         .child(icon(launcher.icon, px(14.), theme::ON_ACCENT))
         .child(launcher.label)
         .child(div().flex_1())
-        .child(keycap(
-            "↵",
-            theme::rgba(0xFFFFFFFF),
-            theme::rgba(0xFFFFFF47),
-        ))
+        .child(keycap("↵", theme::ON_ACCENT, theme::ON_ACCENT_BORDER))
         .into_any_element()
 }
 

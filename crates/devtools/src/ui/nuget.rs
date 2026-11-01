@@ -155,12 +155,12 @@ impl Render for NugetDrawer {
                             .child(action_button(
                                 "nuget-register",
                                 "Register source",
-                                theme::ACCENT,
+                                theme::BLUE_BRIGHT,
                                 false,
                                 cx.listener(|this, _, _, cx| this.register(cx)),
                             )),
                     )
-                    .child(Input::new(&self.watch_input).small())
+                    .child(Input::new(&self.watch_input).with_size(theme::field_size()))
                     .child(
                         div()
                             .text_size(px(theme::font_control()))

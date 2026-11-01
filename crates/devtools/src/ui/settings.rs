@@ -36,7 +36,6 @@ pub struct SettingsPage {
     show_tooltips: bool,
     start_minimized: bool,
     start_at_boot: bool,
-    text_size: &'static str,
     // Scanning
     scan_folders: Entity<TextareaState>,
     excluded_folders: Entity<TextareaState>,
@@ -180,7 +179,6 @@ impl SettingsPage {
             show_tooltips: general.show_tooltips,
             start_minimized: general.start_minimized,
             start_at_boot: general.start_at_boot,
-            text_size: theme::normalize_font_scale(general.font_scale.as_deref()),
             scan_folders: area(window, cx, &line_list(&repos.repo_scan_folders)),
             excluded_folders: area(window, cx, &line_list(&repos.excluded_folders)),
             git_folder_pattern: field(window, cx, &repos.git_folder_pattern),
@@ -324,7 +322,6 @@ impl SettingsPage {
             .repos
             .repo_scan_folders
             .clone();
-        let old_font_scale = self.store.read(cx).settings().general.font_scale.clone();
 
         self.store.update(cx, |store, cx| {
             store.update_settings(|s| {
@@ -332,7 +329,6 @@ impl SettingsPage {
                 s.general.show_tooltips = flags.0;
                 s.general.start_minimized = flags.1;
                 s.general.start_at_boot = flags.2;
-                s.general.font_scale = Some(self.text_size.to_string());
                 s.repos.repo_scan_folders = if scan_folders.is_empty() {
                     None
                 } else {
@@ -398,10 +394,6 @@ impl SettingsPage {
                 let settings = store.settings();
                 store.kick_scan(&settings);
             }
-            if store.settings().general.font_scale != old_font_scale {
-                theme::set_font_scale(store.settings().general.font_scale.as_deref());
-                theme::apply_kit_theme(cx);
-            }
             let folders: Vec<std::path::PathBuf> = store
                 .repos
                 .iter()
@@ -448,7 +440,7 @@ impl Render for SettingsPage {
         // Side-by-side cards stop working before the window gets truly narrow:
         // each card halves, then each field halves again, and the switch
         // labels run into their neighbours. Below this the cards stack.
-        let stack = window.viewport_size().width < px(1010.) * theme::text_scale();
+        let stack = window.viewport_size().width < px(1010.) * theme::font_factor();
 
         div()
             .id("settings-scroll")
@@ -567,14 +559,14 @@ impl Render for SettingsPage {
                                             cx.notify();
                                         })))
                                         .child(field_row("Notes store path", &this.notes_store_path))
-                                        .child(text_size_row(this, cx))
-                                        .child(label("Applied across the app as soon as it's saved."))
+                                        .child(text_size_row())
+                                        .child(label("Applied right away. The other Warp apps follow when they next open."))
                                     }))
                                     .child(self.card("Repository scanning", cx, |this, cx, card| {
                                         card.child(label("Scan folders (one per line)"))
-                                            .child(Textarea::new(&this.scan_folders).bordered(true).small().h(px(240.)).aria_label("Scan folders"))
+                                            .child(Textarea::new(&this.scan_folders).bordered(true).with_size(theme::field_size()).h(px(240.)).aria_label("Scan folders"))
                                             .child(label("Excluded folders (one per line)"))
-                                            .child(Textarea::new(&this.excluded_folders).bordered(true).small().h(px(100.)).aria_label("Excluded folders"))
+                                            .child(Textarea::new(&this.excluded_folders).bordered(true).with_size(theme::field_size()).h(px(100.)).aria_label("Excluded folders"))
                                             .child(two_col(
                                                 field_row("Git folder pattern", &this.git_folder_pattern),
                                                 field_row("Solution file pattern", &this.solution_file_pattern),
@@ -761,7 +753,7 @@ impl SettingsPage {
                                         .debug_selector(move || format!("template-customized-{id}"))
                                         .rounded_full()
                                         .bg(theme::tint(theme::ACCENT))
-                                        .text_color(theme::ACCENT)
+                                        .text_color(theme::BLUE_BRIGHT)
                                         .text_size(px(theme::font_control()))
                                         .px_1p5()
                                         .child("customized"),
@@ -1065,7 +1057,11 @@ fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement +
         .flex_col()
         .gap_1()
         .child(label(label_text))
-        .child(Input::new(field).small().aria_label(label_text))
+        .child(
+            Input::new(field)
+                .with_size(theme::field_size())
+                .aria_label(label_text),
+        )
 }
 
 fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
@@ -1141,45 +1137,15 @@ fn switch_row(
         .into_any_element()
 }
 
-fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
-    let options = [
-        (theme::FONT_COMPACT, "Small"),
-        (theme::FONT_NORMAL, "Normal"),
-        (theme::FONT_LARGE, "Large"),
-    ];
-    let mut row = div()
+fn text_size_row() -> gpui::AnyElement {
+    div()
         .flex()
         .flex_row()
         .items_center()
         .gap_2()
-        .child(label("Text size"));
-    for (key, name) in options {
-        let selected = this.text_size == key;
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("text-size-{key}")))
-                .a11y_toggle(format!("Text size {name}"), selected)
-                .cursor_pointer()
-                .rounded_md()
-                .px_3()
-                .py_1()
-                .text_size(px(theme::font_body()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .when(selected, |d| {
-                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
-                })
-                .when(!selected, |d| {
-                    d.text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.bg(theme::HOVER_BG))
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.text_size = key;
-                    cx.notify();
-                }))
-                .child(name),
-        );
-    }
-    row.into_any_element()
+        .child(label("Text size"))
+        .child(warpui_kit_core::text_size_control())
+        .into_any_element()
 }
 
 /// The group-depth picker: 1/2/3/4 segmented buttons; 1 = the scan roots'
@@ -1209,7 +1175,8 @@ fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui:
                 .text_size(px(theme::font_body()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(selected, |d| {
-                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
+                    d.bg(theme::tint(theme::ACCENT))
+                        .text_color(theme::BLUE_BRIGHT)
                 })
                 .when(!selected, |d| {
                     d.text_color(theme::TEXT_MUTED)
@@ -1255,7 +1222,8 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
                 .text_size(px(theme::font_body()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(selected, |d| {
-                    d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
+                    d.bg(theme::tint(theme::ACCENT))
+                        .text_color(theme::BLUE_BRIGHT)
                 })
                 .when(!selected, |d| {
                     d.text_color(theme::TEXT_MUTED)
@@ -1564,8 +1532,8 @@ fn model_data(
             value: selected,
         },
         footer: None,
-        fonts: theme::widget_fonts(),
-        accent: theme::ACCENT,
+        fonts: theme::active_tokens(),
+        accent: theme::BLUE_BRIGHT,
         show_tooltips: store.read(cx).settings().general.show_tooltips,
     }
 }
@@ -1640,8 +1608,8 @@ fn variant_data(
             value: selected,
         },
         footer: None,
-        fonts: theme::widget_fonts(),
-        accent: theme::ACCENT,
+        fonts: theme::active_tokens(),
+        accent: theme::BLUE_BRIGHT,
         show_tooltips: store.read(cx).settings().general.show_tooltips,
     }
 }

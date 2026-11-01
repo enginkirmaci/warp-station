@@ -601,7 +601,7 @@ impl MainWindow {
                         .a11y_button("Close sheet")
                         .absolute()
                         .inset_0()
-                        .bg(theme::rgba(0x00000073))
+                        .bg(theme::SCRIM)
                         .occlude()
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_sheet(cx);
@@ -786,7 +786,7 @@ impl MainWindow {
             shown += 1;
             let (title, detail, kind_color) = match hit {
                 crate::store::GlobalSearchHit::Repo { name, folder } => {
-                    (name.clone(), folder.clone(), theme::ACCENT)
+                    (name.clone(), folder.clone(), theme::BLUE_BRIGHT)
                 }
                 crate::store::GlobalSearchHit::Note { title, excerpt, .. } => {
                     (title.clone(), excerpt.clone(), theme::BLUE_BRIGHT)
@@ -927,7 +927,7 @@ impl MainWindow {
                                     .whitespace_nowrap()
                                     .text_size(px(theme::font_control()))
                                     .child(div().text_color(theme::TEXT_FAINT).child(before))
-                                    .child(div().text_color(theme::ACCENT).child(matched))
+                                    .child(div().text_color(theme::BLUE_BRIGHT).child(matched))
                                     .child(div().text_color(theme::TEXT_FAINT).child(after)),
                             ),
                     )
@@ -1296,7 +1296,7 @@ impl MainWindow {
                         "icons/icon-tools.svg",
                         px(theme::icon_small()),
                         if self.tools_menu_open {
-                            theme::ACCENT
+                            theme::BLUE_BRIGHT
                         } else {
                             theme::TEXT_MUTED
                         },
@@ -1415,9 +1415,9 @@ impl MainWindow {
                             .justify_center()
                             .size(px(24.))
                             .rounded(px(5.))
-                            .bg(theme::rgba(0x1B2536FF))
+                            .bg(theme::BRAND_BG)
                             .border_1()
-                            .border_color(theme::rgba(0x2C3A52FF))
+                            .border_color(theme::BRAND_BORDER)
                             .child(icon("icons/icon-code.svg", px(15.), theme::BLUE_BRIGHT)),
                     )
                     .child(
@@ -1450,7 +1450,7 @@ impl MainWindow {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         Input::new(&self.global_search)
-                            .small()
+                            .with_size(theme::field_size())
                             .cleanable(true)
                             .prefix(icon(
                                 "icons/icon-search.svg",
@@ -1516,7 +1516,7 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         .gap_1p5()
         .text_size(px(theme::font_body()))
         .text_decoration_none()
-        .when(busy, |d| d.text_color(theme::ACCENT))
+        .when(busy, |d| d.text_color(theme::BLUE_BRIGHT))
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
         .bg(theme::CHIP)
         .hover(|s| s.opacity(0.9))
@@ -1530,7 +1530,11 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         .child(icon(
             "icons/icon-agent-sparkle.svg",
             px(theme::icon_small() - 1.),
-            if busy { theme::ACCENT } else { theme::TEXT_DIM },
+            if busy {
+                theme::BLUE_BRIGHT
+            } else {
+                theme::TEXT_DIM
+            },
         ))
         .child(if busy {
             "summarizing…"
