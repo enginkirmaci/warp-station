@@ -565,7 +565,7 @@ impl ChangesView {
                     .child(warpui_kit_diff::render_diff(
                         patch,
                         None,
-                        theme::font_small() - 2.0,
+                        theme::font_control(),
                         window,
                         cx,
                     )),
@@ -1053,7 +1053,7 @@ impl ChangesView {
                         .child(warpui_kit_diff::render_diff(
                             patch,
                             None,
-                            theme::font_small() - 2.0,
+                            theme::font_control(),
                             window,
                             cx,
                         )),

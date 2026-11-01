@@ -154,6 +154,64 @@ pub const PURPLE_BRIGHT: Rgba = rgba(0xA78BFAFF);
 
 pub const DIFF_ADD_BG: gpui::Hsla = gpui::hsla(0.42, 0.45, 0.45, 0.18);
 pub const DIFF_DEL_BG: gpui::Hsla = gpui::hsla(0.0, 0.65, 0.68, 0.16);
+/// The hunk band: the muted text's cool hue, so it stays on the near-black ramp.
+pub const DIFF_HUNK_BG: gpui::Hsla = gpui::hsla(0.6, 0.12, 0.6, 0.10);
+pub const DIFF_GUTTER: Rgba = TEXT_FAINT;
+
+// ---- syntax highlight theme ------------------------------------------------
+
+/// Syntax token colors for diffs and markdown code fences: the family mapping
+/// on this app's hues (comment TEXT_FAINT italic, punctuation TEXT_MUTED,
+/// string SUCCESS_BRIGHT, keyword PURPLE_BRIGHT, function BLUE_BRIGHT, and the
+/// one amber the redesign keeps for numbers, types and attributes).
+const HIGHLIGHT_THEME_JSON: &str = r##"{
+  "name": "devtools",
+  "appearance": "dark",
+  "style": {
+    "editor.foreground": "#E9ECF1",
+    "syntax": {
+      "attribute": { "color": "#EFB264" },
+      "boolean": { "color": "#EFB264" },
+      "comment": { "color": "#6E7987", "font_style": "italic" },
+      "comment.doc": { "color": "#6E7987", "font_style": "italic" },
+      "constant": { "color": "#EFB264" },
+      "constructor": { "color": "#EFB264" },
+      "function": { "color": "#78A9FF" },
+      "keyword": { "color": "#A78BFA" },
+      "number": { "color": "#EFB264" },
+      "operator": { "color": "#818B99" },
+      "preproc": { "color": "#A78BFA" },
+      "property": { "color": "#E9ECF1" },
+      "punctuation": { "color": "#818B99" },
+      "punctuation.bracket": { "color": "#818B99" },
+      "punctuation.delimiter": { "color": "#818B99" },
+      "punctuation.list_marker": { "color": "#818B99" },
+      "string": { "color": "#64D2A2" },
+      "string.escape": { "color": "#EFB264" },
+      "tag": { "color": "#EFB264" },
+      "type": { "color": "#EFB264" },
+      "variable": { "color": "#E9ECF1" },
+      "variable.special": { "color": "#EFB264" }
+    }
+  }
+}"##;
+
+static HIGHLIGHT_THEME: std::sync::OnceLock<
+    std::sync::Arc<gpui_kit::component::highlighter::HighlightTheme>,
+> = std::sync::OnceLock::new();
+
+/// The installed token theme; built once so it stays pointer-stable for the
+/// process lifetime (the highlight caches key on the Arc).
+pub fn highlight_theme() -> std::sync::Arc<gpui_kit::component::highlighter::HighlightTheme> {
+    HIGHLIGHT_THEME
+        .get_or_init(|| {
+            serde_json::from_str(HIGHLIGHT_THEME_JSON).unwrap_or_else(|err| {
+                tracing::warn!("highlight theme JSON unparsable ({err}); using the family theme");
+                palette::highlight_theme()
+            })
+        })
+        .clone()
+}
 
 // ---- gpui-kit theme mapping ------------------------------------------------
 
@@ -170,6 +228,8 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
     resolve_fonts(cx);
     // the bundled IBM Plex faces win over the family chain when present
     resolve_brand_fonts(cx);
+    // the diff renderer falls back to the family ramp without this
+    cx.set_global(diff_palette());
     // A mode flip inside the color-edit closure makes the kit reload its
     // registered theme's colors AFTER the closure, wiping every override —
     // flip first, then edit.
@@ -215,7 +275,7 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
         t.font_size = gpui::px(16. * factor);
         t.mono_font_size = gpui::px(13. * factor);
 
-        t.highlight_theme = palette::highlight_theme();
+        t.highlight_theme = highlight_theme();
 
         // scrollbars ride the same ramp: no stock light-grey thumb on a
         // near-black page
@@ -238,6 +298,20 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
         t.table_row_border = BORDER_LIGHT.into();
         t.table_foot = CARD.into();
     });
+}
+
+/// What `warpui-kit-diff` paints patches with: this app's text and edit hues.
+fn diff_palette() -> warpui_kit_diff::DiffPalette {
+    warpui_kit_diff::DiffPalette {
+        code_fg: TEXT,
+        muted_fg: TEXT_MUTED,
+        gutter: DIFF_GUTTER,
+        add: ADD,
+        del: DEL,
+        add_bg: DIFF_ADD_BG,
+        del_bg: DIFF_DEL_BG,
+        hunk_bg: DIFF_HUNK_BG,
+    }
 }
 
 /// The one accent family the app paints with; the preset system is not wired
