@@ -1,5 +1,5 @@
 //! The Clipboard Password drawer: stores a password (Base64 over UTF-8 in the
-//! settings file — the C# build's exact format) and copies it back via the
+//! settings file — the exact legacy format) and copies it back via the
 //! Copy button or the system-wide Ctrl+Shift+V (net.rs registers the grab).
 
 use crate::store::Store;
@@ -175,7 +175,7 @@ impl Render for ClipboardPasswordDrawer {
                     .gap_1()
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .text_color(theme::TEXT_MUTED)
                             .child("Password"),
                     )
@@ -242,13 +242,13 @@ impl Render for ClipboardPasswordDrawer {
             )
             .child(
                 div()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_DIM)
                     .child(self.status.clone()),
             )
             .child(
                 div()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_FAINT)
                     .child("Ctrl+Shift+V copies the stored password system-wide while DevTools runs (focused-only where the OS refuses a global grab)."),
             )
@@ -270,7 +270,7 @@ fn ghost_button(
         .rounded_md()
         .px_2p5()
         .py_1()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .font_weight(FontWeight::SEMIBOLD)
         // emphasized = the destructive confirm state: solid danger fill
         .bg(if emphasized {
@@ -304,7 +304,7 @@ fn accent_button(
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)

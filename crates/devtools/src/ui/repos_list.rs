@@ -388,7 +388,7 @@ fn repo_row(
         .child(
             div()
                 .min_w_0()
-                .text_size(px(theme::font_repo_name()))
+                .text_size(px(theme::font_heading()))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(name_color)
                 .overflow_hidden()

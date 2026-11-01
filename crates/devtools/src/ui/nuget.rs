@@ -101,7 +101,7 @@ impl Render for NugetDrawer {
                     .rounded_md()
                     .px_1p5()
                     .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .font_family(gpui::SharedString::from(theme::code_font()))
                     .text_color(theme::TEXT_FAINT)
                     .overflow_hidden()
@@ -147,7 +147,7 @@ impl Render for NugetDrawer {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_size(px(theme::font_meta()))
                                     .text_color(theme::TEXT_MUTED)
                                     .child("Watch directory"),
                             )
@@ -163,7 +163,7 @@ impl Render for NugetDrawer {
                     .child(Input::new(&self.watch_input).small())
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 2.))
+                            .text_size(px(theme::font_control()))
                             .text_color(theme::TEXT_FAINT)
                             .child("Enter applies the folder to a running watch."),
                     )
@@ -186,7 +186,7 @@ impl Render for NugetDrawer {
                     .gap_0p5()
                     .child(
                         div()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("How it works"),
                     )
@@ -216,7 +216,7 @@ impl Render for NugetDrawer {
                             .items_center()
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("Activity Log"),
                             )
@@ -227,7 +227,7 @@ impl Render for NugetDrawer {
                                     .bg(theme::CHIP)
                                     .px_2()
                                     .py_0p5()
-                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_size(px(theme::font_meta()))
                                     .text_color(theme::TEXT_MUTED)
                                     .child(format!("{} refreshed", snapshot.count)),
                             ),
@@ -239,7 +239,7 @@ impl Render for NugetDrawer {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(theme::font_small()))
+                                .text_size(px(theme::font_body()))
                                 .text_color(theme::TEXT_FAINT)
                                 .child("No activity yet — start the watch and build something."),
                         )
@@ -282,7 +282,7 @@ fn path_row(label: &str, value: Option<&str>) -> gpui::AnyElement {
         .child(
             div()
                 .w(px(90.))
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_MUTED)
                 .child(label.to_string()),
         )
@@ -290,7 +290,7 @@ fn path_row(label: &str, value: Option<&str>) -> gpui::AnyElement {
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_DIM)
                 .overflow_hidden()
                 .whitespace_nowrap()
@@ -301,7 +301,7 @@ fn path_row(label: &str, value: Option<&str>) -> gpui::AnyElement {
 
 fn explain_line(text: &str) -> gpui::AnyElement {
     div()
-        .text_size(px(theme::font_small() - 1.))
+        .text_size(px(theme::font_meta()))
         .text_color(theme::TEXT_DIM)
         .child(text.to_string())
         .into_any_element()
@@ -321,7 +321,7 @@ fn action_button(
         .rounded_md()
         .px_3()
         .py_1()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::tint(color))
         .text_color(color)

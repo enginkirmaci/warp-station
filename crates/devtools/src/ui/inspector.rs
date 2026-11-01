@@ -740,7 +740,7 @@ fn launcher_rows(launchers: &[Launcher], folder: &str, entities: &Entity<Store>)
                 .child(
                     div()
                         .flex_1()
-                        .text_size(px(theme::font_launcher()))
+                        .text_size(px(theme::font_body()))
                         .child(launcher.label),
                 )
                 .children(

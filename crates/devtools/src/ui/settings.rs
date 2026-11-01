@@ -448,7 +448,7 @@ impl Render for SettingsPage {
         // Side-by-side cards stop working before the window gets truly narrow:
         // each card halves, then each field halves again, and the switch
         // labels run into their neighbours. Below this the cards stack.
-        let stack = window.viewport_size().width < px(1180.) * (theme::font_small() / 14.0);
+        let stack = window.viewport_size().width < px(1010.) * theme::text_scale();
 
         div()
             .id("settings-scroll")
@@ -485,7 +485,7 @@ impl Render for SettingsPage {
                                     .px_1()
                                     .py_1()
                                     .ml(px(-4.))
-                                    .hover(|s| s.bg(theme::HOVER))
+                                    .hover(|s| s.bg(theme::HOVER_BG))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.back_requested = true;
                                         cx.notify();
@@ -497,7 +497,7 @@ impl Render for SettingsPage {
                                     ))
                                     .child(
                                         div()
-                                            .text_size(px(theme::font_title() + 2.))
+                                            .text_size(px(theme::font_screen_title()))
                                             .font_weight(FontWeight::BOLD)
                                             .child("Settings"),
                                     ),
@@ -506,7 +506,7 @@ impl Render for SettingsPage {
                             .when(just_saved, |row| {
                                 row.child(
                                     div()
-                                        .text_size(px(theme::font_small()))
+                                        .text_size(px(theme::font_body()))
                                         .text_color(theme::SUCCESS_BRIGHT)
                                         .child("saved ✓"),
                                 )
@@ -523,9 +523,9 @@ impl Render for SettingsPage {
                                     .flex_row()
                                     .items_center()
                                     .gap_1p5()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .text_color(theme::TEXT_MUTED)
-                                    .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                                    .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
                                     .on_click(|_, _, _| {
                                         let folder = devtools_core::paths::AppPaths::user_data_root();
                                         let _ = std::fs::create_dir_all(&folder);
@@ -750,7 +750,7 @@ impl SettingsPage {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .text_color(theme::TEXT)
                                     .child(template.title),
                             )
@@ -762,7 +762,7 @@ impl SettingsPage {
                                         .rounded_full()
                                         .bg(theme::tint(theme::ACCENT))
                                         .text_color(theme::ACCENT)
-                                        .text_size(px(theme::font_small() - 2.))
+                                        .text_size(px(theme::font_control()))
                                         .px_1p5()
                                         .child("customized"),
                                 )
@@ -867,7 +867,7 @@ impl SettingsPage {
             .h_full()
             .aria_label(format!("{title} template body"))
             .font_family(SharedString::from(theme::ui_font()))
-            .text_size(px(theme::font_body() + 1.))
+            .text_size(px(theme::font_heading()))
             .line_height(relative(1.7));
         div()
             .id(SharedString::from(format!("template-editor-{id}")))
@@ -883,13 +883,13 @@ impl SettingsPage {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .text_color(theme::TEXT)
                             .child(title),
                     )
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .text_color(theme::TEXT_FAINT)
                             .child(if self.template_editor_seeded {
                                 "re-read by every wand run"
@@ -957,7 +957,7 @@ impl SettingsPage {
             .gap_3()
             .child(
                 div()
-                    .text_size(px(theme::font_title()))
+                    .text_size(px(theme::font_heading()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(title.to_string()),
             );
@@ -975,7 +975,7 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .bg(theme::ACCENT)
         .px_4()
         .py_1p5()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::ON_ACCENT)
         .hover(|s| s.opacity(0.9))
@@ -986,7 +986,7 @@ fn save_button(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
 
 fn label(text: &str) -> impl IntoElement + use<> {
     div()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .text_color(theme::TEXT_MUTED)
         .child(text.to_string())
 }
@@ -1014,13 +1014,13 @@ fn template_action_button(
         })
         .px_2()
         .py_0p5()
-        .text_size(px(theme::font_small() - 1.))
+        .text_size(px(theme::font_meta()))
         .text_color(if armed {
             theme::DANGER
         } else {
             theme::TEXT_DIM
         })
-        .hover(|s| s.bg(theme::HOVER))
+        .hover(|s| s.bg(theme::HOVER_BG))
         .on_click(on_click)
         .child(text.to_string())
         .into_any_element()
@@ -1036,7 +1036,7 @@ fn placeholder_chips(placeholders: &[&'static str]) -> impl IntoElement + use<> 
                 .bg(theme::CHIP)
                 .px_1p5()
                 .py_0p5()
-                .text_size(px(theme::font_small() - 2.))
+                .text_size(px(theme::font_control()))
                 .text_color(theme::TEXT_MUTED)
                 .font_family(SharedString::from(theme::code_font()))
                 .child(placeholder.to_string()),
@@ -1084,13 +1084,13 @@ fn snapit_run_control(cx: &mut Context<SettingsPage>) -> gpui::AnyElement {
         .border_color(theme::HAIRLINE)
         .px_3()
         .py_1p5()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .text_color(if running {
             theme::DANGER
         } else {
             theme::SUCCESS_BRIGHT
         })
-        .hover(|s| s.bg(theme::HOVER))
+        .hover(|s| s.bg(theme::HOVER_BG))
         .on_click(cx.listener(|this, _, _, cx| {
             // the live field value, so a new binary can be tried without
             // saving the page first
@@ -1163,14 +1163,14 @@ fn text_size_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::A
                 .rounded_md()
                 .px_3()
                 .py_1()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(selected, |d| {
                     d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
                 })
                 .when(!selected, |d| {
                     d.text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.text_size = key;
@@ -1206,14 +1206,14 @@ fn group_depth_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui:
                 .rounded_md()
                 .px_3()
                 .py_1()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(selected, |d| {
                     d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
                 })
                 .when(!selected, |d| {
                     d.text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.group_depth = level;
@@ -1252,14 +1252,14 @@ fn auto_fetch_row(this: &SettingsPage, cx: &mut Context<SettingsPage>) -> gpui::
                 .rounded_md()
                 .px_3()
                 .py_1()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(selected, |d| {
                     d.bg(theme::tint(theme::ACCENT)).text_color(theme::ACCENT)
                 })
                 .when(!selected, |d| {
                     d.text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.auto_fetch_minutes = value;
@@ -1341,7 +1341,7 @@ impl SettingsPage {
                     .child(marker)
                     .child(
                         div()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .text_color(theme::TEXT)
                             .child(display),
                     ),
@@ -1564,7 +1564,7 @@ fn model_data(
             value: selected,
         },
         footer: None,
-        fonts: theme::font_tokens(),
+        fonts: theme::widget_fonts(),
         accent: theme::ACCENT,
         show_tooltips: store.read(cx).settings().general.show_tooltips,
     }
@@ -1640,7 +1640,7 @@ fn variant_data(
             value: selected,
         },
         footer: None,
-        fonts: theme::font_tokens(),
+        fonts: theme::widget_fonts(),
         accent: theme::ACCENT,
         show_tooltips: store.read(cx).settings().general.show_tooltips,
     }

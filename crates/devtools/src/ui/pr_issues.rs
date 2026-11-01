@@ -56,7 +56,7 @@ impl Render for ItemListView {
             .py_1()
             .child(
                 div()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_MUTED)
                     .child(format!("{} open {title}", items.len())),
             )
@@ -71,7 +71,7 @@ impl Render for ItemListView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .hover(|s| s.bg(theme::HOVER_BG))
                     .on_click(move |_, _, cx| {
                         store.update(cx, |s, cx| s.refresh_panel(cx));
                     })
@@ -92,7 +92,7 @@ impl Render for ItemListView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(move |_, _, _| {
                             let _ = devtools_core::terminal::open_folder(&url);
                         })
@@ -170,7 +170,7 @@ impl ItemListView {
             .min_w_0()
             .child(
                 div()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::TEXT)
                     .child(format!("#{}", item.number)),
@@ -178,7 +178,7 @@ impl ItemListView {
             .child(
                 div()
                     .min_w_0()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT)
                     .overflow_hidden()
                     .whitespace_nowrap()
@@ -199,7 +199,7 @@ impl ItemListView {
                         .items_center()
                         .gap_1p5()
                         .min_w_0()
-                        .text_size(px(theme::font_small() - 1.))
+                        .text_size(px(theme::font_meta()))
                         .font_family(gpui::SharedString::from(theme::code_font()))
                         .text_color(theme::TEXT_MUTED)
                         .overflow_hidden()
@@ -222,14 +222,14 @@ impl ItemListView {
                     .rounded_md()
                     .bg(theme::tint(theme::BLUE_BRIGHT))
                     .px_1p5()
-                    .text_size(px(theme::font_small() - 2.))
+                    .text_size(px(theme::font_control()))
                     .text_color(theme::BLUE_BRIGHT)
                     .child(label.clone()),
             );
         }
 
-        // right cluster: author, age, then the decision pill (Review pill in
-        // the .NET row; approval states recolor it)
+        // right cluster: author, age, then the decision pill (approval
+        // states recolor it)
         let mut right = div()
             .flex()
             .flex_row()
@@ -238,14 +238,14 @@ impl ItemListView {
             .flex_shrink_0();
         right = right.child(
             div()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_FAINT)
                 .child(item.author.clone().unwrap_or_else(|| "—".into())),
         );
         if let Some(age) = age {
             right = right.child(
                 div()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_FAINT)
                     .child(age),
             );
@@ -257,7 +257,7 @@ impl ItemListView {
                     .bg(theme::CHIP)
                     .px_2()
                     .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_MUTED)
                     .child("draft"),
             );
@@ -275,7 +275,7 @@ impl ItemListView {
                     .bg(theme::tint(color))
                     .px_2()
                     .py_0p5()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(color)
                     .child(label),
             );
@@ -298,7 +298,7 @@ impl ItemListView {
             .rounded_md()
             .px_2()
             .py_1p5()
-            .hover(|s| s.bg(theme::HOVER))
+            .hover(|s| s.bg(theme::HOVER_BG))
             .on_click(move |_, _, _| {
                 if !url.is_empty() {
                     let _ = devtools_core::terminal::open_folder(&url);
@@ -344,7 +344,7 @@ fn tab_card(content: impl IntoElement) -> gpui::AnyElement {
                 .flex_1()
                 .min_h_0()
                 .rounded_lg()
-                .bg(theme::STRONG_BACKGROUND)
+                .bg(theme::BACKGROUND)
                 .overflow_hidden()
                 .flex()
                 .flex_col()

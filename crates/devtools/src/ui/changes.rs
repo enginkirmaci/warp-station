@@ -1,5 +1,5 @@
-//! The Changes tab: the selected repo's commit workspace, mirroring the .NET
-//! original — three raised cards on the sheet's dark surface: the merged
+//! The Changes tab: the selected repo's commit workspace — three raised cards
+//! on the sheet's dark surface: the merged
 //! staged/unstaged file list with per-row actions and expandable patches on
 //! the left, the commit-message card in the middle, and the branch selector +
 //! git rail (Fetch/Pull/Push/Sync/History) on the right. The heavy data lives
@@ -292,15 +292,15 @@ impl Render for ChangesView {
         }
         let groups = self.groups_cache.as_ref().expect("groups cached").1.clone();
 
-        // the .NET Changes tab: three raised cards — file list, commit box,
-        // git rail — on the sheet's dark surface
+        // three raised cards — file list, commit box, git rail — on the
+        // sheet's dark surface
         let left = div()
             .flex_1()
             .min_w_0()
             .min_h_0()
             .h_full()
             .rounded_lg()
-            .bg(theme::STRONG_BACKGROUND)
+            .bg(theme::BACKGROUND)
             .overflow_hidden()
             .flex()
             .flex_col()
@@ -431,7 +431,7 @@ impl ChangesView {
             .rounded_md()
             .px_1()
             .when(expanded, |d| d.bg(theme::tint(theme::ACCENT)))
-            .hover(|s| s.bg(theme::HOVER))
+            .hover(|s| s.bg(theme::HOVER_BG))
             .on_click({
                 let path = file.path.clone();
                 cx.listener(move |this, _, _, cx| this.toggle_expanded(&path, staged, cx))
@@ -460,7 +460,7 @@ impl ChangesView {
                             .rounded_md()
                             .bg(theme::tint(status_color))
                             .text_color(status_color)
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .px_1()
                             .w(px(20.))
                             .flex()
@@ -471,12 +471,12 @@ impl ChangesView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_DIM)
                             .child(file.path.clone()),
                     )
-                    // hover-revealed stage toggle + discard, like the .NET rows
+                    // hover-revealed stage toggle + discard
                     .child(
                         div()
                             .flex()
@@ -654,7 +654,7 @@ impl ChangesView {
                     div()
                         .py_1()
                         .px_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::TEXT_MUTED)
                         .child(label.clone()),
@@ -673,7 +673,7 @@ impl ChangesView {
                     .px_1()
                     .py_1()
                     .rounded_md()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .hover(|s| s.bg(theme::HOVER_BG))
                     .on_click({
                         let hash = row.hash.clone();
                         cx.listener(move |this, _, _, cx| this.drill_commit(&hash, cx))
@@ -687,7 +687,7 @@ impl ChangesView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(theme::font_small() - 3.))
+                            .text_size(px(theme::font_mono_meta()))
                             .text_color(theme::TEXT_MUTED)
                             .child(row.initials.clone()),
                     )
@@ -699,7 +699,7 @@ impl ChangesView {
                             .flex_col()
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .text_color(theme::TEXT_DIM)
                                     .overflow_hidden()
                                     .whitespace_nowrap()
@@ -708,7 +708,7 @@ impl ChangesView {
                             )
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_size(px(theme::font_control()))
                                     .text_color(theme::TEXT_FAINT)
                                     .child(format!("{} • {}", row.author, row.rel)),
                             ),
@@ -716,7 +716,7 @@ impl ChangesView {
                     .when(unpushed_mark, |row| {
                         row.child(
                             div()
-                                .text_size(px(theme::font_small() - 1.))
+                                .text_size(px(theme::font_meta()))
                                 .text_color(theme::AMBER_BRIGHT)
                                 .child("● unpushed"),
                         )
@@ -730,7 +730,7 @@ impl ChangesView {
                             .cursor_pointer()
                             .rounded_md()
                             .px_1()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .font_family(gpui::SharedString::from(theme::code_font()))
                             .text_color(theme::TEXT_FAINT)
                             .hover(|s| s.text_color(theme::ACCENT))
@@ -824,13 +824,13 @@ impl ChangesView {
                 })
                 .px_2()
                 .py_0p5()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(if armed_now {
                     theme::DANGER
                 } else {
                     theme::TEXT_DIM
                 })
-                .hover(|s| s.bg(theme::HOVER))
+                .hover(|s| s.bg(theme::HOVER_BG))
                 .child(text.to_string())
         };
 
@@ -887,9 +887,9 @@ impl ChangesView {
                 .border_color(theme::HAIRLINE)
                 .px_2()
                 .py_0p5()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_DIM)
-                .hover(|s| s.bg(theme::HOVER))
+                .hover(|s| s.bg(theme::HOVER_BG))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full_hash.clone()));
                     store.update(cx, |s, cx| {
@@ -919,9 +919,9 @@ impl ChangesView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .text_color(theme::ACCENT)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.drilled_commit = None;
                             this.detail_armed = None;
@@ -936,7 +936,7 @@ impl ChangesView {
                 )
                 .child(
                     div()
-                        .text_size(px(theme::font_small() - 1.))
+                        .text_size(px(theme::font_meta()))
                         .font_family(gpui::SharedString::from(theme::code_font()))
                         .text_color(theme::TEXT_FAINT)
                         .child(details.hash[..7.min(details.hash.len())].to_string()),
@@ -945,7 +945,7 @@ impl ChangesView {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(theme::font_body()))
+                        .text_size(px(theme::font_heading()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .overflow_hidden()
                         .whitespace_nowrap()
@@ -960,7 +960,7 @@ impl ChangesView {
                 // "N files" summary row mirrors the files' totals
                 div()
                     .px_1()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_MUTED)
                     .child(format!(
                         "+{} −{}",
@@ -991,7 +991,7 @@ impl ChangesView {
                 .rounded_md()
                 .px_1()
                 .when(expanded, |d| d.bg(theme::tint(theme::ACCENT)))
-                .hover(|s| s.bg(theme::HOVER))
+                .hover(|s| s.bg(theme::HOVER_BG))
                 .on_click({
                     let hash = details.hash.clone();
                     let path = file.path.clone();
@@ -1008,7 +1008,7 @@ impl ChangesView {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(px(theme::font_small()))
+                                .text_size(px(theme::font_body()))
                                 .font_family(gpui::SharedString::from(theme::code_font()))
                                 .text_color(theme::TEXT_DIM)
                                 .child(file.path.clone()),
@@ -1016,7 +1016,7 @@ impl ChangesView {
                         .when_some(file.additions, |row, a| {
                             row.child(
                                 div()
-                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_size(px(theme::font_meta()))
                                     .text_color(theme::SUCCESS_BRIGHT)
                                     .child(format!("+{a}")),
                             )
@@ -1024,7 +1024,7 @@ impl ChangesView {
                         .when_some(file.deletions, |row, d| {
                             row.child(
                                 div()
-                                    .text_size(px(theme::font_small() - 1.))
+                                    .text_size(px(theme::font_meta()))
                                     .text_color(theme::DANGER)
                                     .child(format!("−{d}")),
                             )
@@ -1071,7 +1071,7 @@ impl ChangesView {
                 .border_1()
                 .border_color(theme::BORDER_LIGHT)
                 .p_2()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_DIM)
                 .child(body.clone());
             if let Some((author, when)) = history_meta {
@@ -1082,7 +1082,7 @@ impl ChangesView {
                         .flex_row()
                         .items_center()
                         .gap_1p5()
-                        .text_size(px(theme::font_small() - 2.))
+                        .text_size(px(theme::font_control()))
                         .text_color(theme::TEXT_FAINT)
                         .child(div().child(author))
                         .child(div().child(when)),
@@ -1096,7 +1096,7 @@ impl ChangesView {
                     .flex_row()
                     .items_center()
                     .gap_1p5()
-                    .text_size(px(theme::font_small() - 2.))
+                    .text_size(px(theme::font_control()))
                     .text_color(theme::TEXT_FAINT)
                     .child(div().child(author))
                     .child(div().child(when)),
@@ -1129,7 +1129,7 @@ impl ChangesView {
             .h_full()
             .min_h_0()
             .rounded_lg()
-            .bg(theme::STRONG_BACKGROUND)
+            .bg(theme::BACKGROUND)
             .p_2()
             .flex()
             .flex_col()
@@ -1142,7 +1142,7 @@ impl ChangesView {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
                             .child("Commit message"),
@@ -1150,7 +1150,7 @@ impl ChangesView {
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 2.))
+                            .text_size(px(theme::font_control()))
                             .text_color(theme::TEXT_FAINT)
                             .child(if generate_and_commit {
                                 "empty = auto-generate"
@@ -1180,7 +1180,7 @@ impl ChangesView {
                         }
                     })
                     .child(Textarea::new(&self.commit_message).bordered(true).h_full())
-                    // .NET's corner wand: overlay inside the message box
+                    // the corner wand: overlay inside the message box
                     .when(wand_on, |box_area| {
                         let store = self.store.clone();
                         box_area.child(
@@ -1194,7 +1194,7 @@ impl ChangesView {
                                 .rounded_md()
                                 .p_1()
                                 .flex()
-                                .hover(|s| s.bg(theme::HOVER))
+                                .hover(|s| s.bg(theme::HOVER_BG))
                                 .on_click(move |_, _, cx| {
                                     store.update(cx, |s, cx| {
                                         s.run_wand(crate::net::WandKind::Commit, cx)
@@ -1275,7 +1275,7 @@ impl ChangesView {
                 ))
                 .child(
                     div()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color)
                         .child(label),
@@ -1287,7 +1287,7 @@ impl ChangesView {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::ACCENT)
                     .child(icon(
                         "icons/icon-wand.svg",
@@ -1333,7 +1333,7 @@ impl ChangesView {
             .h_full()
             .min_h_0()
             .rounded_lg()
-            .bg(theme::STRONG_BACKGROUND)
+            .bg(theme::BACKGROUND)
             .p_2()
             .flex()
             .flex_col()
@@ -1345,8 +1345,8 @@ impl ChangesView {
         rail = rail.child(self.branch_picker.clone());
         rail = rail.child(divider());
 
-        // git rail: the .NET vertical icon list — Fetch/Pull/Push above a
-        // divider, then Sync/History
+        // git rail: a vertical icon list — Fetch/Pull/Push above a divider,
+        // then Sync/History
         type RailAction = Box<dyn Fn(&mut gpui::App) + 'static>;
         let action_row = |icon_path: &str,
                           label: &'static str,
@@ -1375,7 +1375,7 @@ impl ChangesView {
                                 .font_weight(FontWeight::SEMIBOLD)
                         })
                         .when(!active, |d| d.text_color(theme::TEXT_DIM))
-                        .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                        .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
                             click(cx);
@@ -1408,7 +1408,7 @@ impl ChangesView {
                             .bg(theme::tint(color))
                             .px_1p5()
                             .py_0p5()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(color)
                             .child(format!("{count}")),
@@ -1502,7 +1502,7 @@ impl ChangesView {
                         .font_weight(FontWeight::SEMIBOLD)
                 })
                 .when(!self.history_open, |d| d.text_color(theme::TEXT_DIM))
-                .hover(|s| s.bg(theme::HOVER).text_color(theme::TEXT))
+                .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
                 .on_click(history_toggle)
                 .child(icon(
                     "icons/icon-clock.svg",
@@ -1554,14 +1554,14 @@ fn section_header(
         })
         .child(
             div()
-                .text_size(px(theme::font_body()))
+                .text_size(px(theme::font_heading()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::TEXT)
                 .child(label.to_string()),
         )
         .child(
             div()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_FAINT)
                 .child(format!("({count})")),
         )
@@ -1569,8 +1569,8 @@ fn section_header(
     for (id, action_label, action) in actions {
         let store = store.clone();
         let stage_action = action_label.starts_with("Stage") || action_label.starts_with("Unstage");
-        // the .NET header pair as bare glyphs: undo arrow for discard,
-        // plus/minus for (un)staging — the label survives as the tooltip
+        // header actions as bare glyphs: undo arrow for discard, plus/minus
+        // for (un)staging — the label survives as the tooltip
         let glyph = if stage_action {
             if action_label.starts_with("Unstage") {
                 "icons/icon-minus.svg"
@@ -1615,7 +1615,7 @@ fn status_color(code: &str) -> gpui::Rgba {
         "U" | "?" | "A" => theme::SUCCESS_BRIGHT,
         "D" => theme::DANGER,
         "R" => theme::BLUE_BRIGHT,
-        "C" => theme::WARN,
+        "C" => theme::AMBER_BRIGHT,
         _ => theme::AMBER_BRIGHT,
     }
 }
@@ -1665,7 +1665,7 @@ fn count_pill(text: String, color: gpui::Rgba) -> impl IntoElement + use<> {
         .rounded_full()
         .bg(theme::tint(color))
         .px_1p5()
-        .text_size(px(theme::font_small() - 1.))
+        .text_size(px(theme::font_meta()))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color)
         .child(text)
@@ -1765,7 +1765,7 @@ fn build_branch_picker(
                             body: PickerBody::Rows(Vec::new()),
                             selected: Selection::default(),
                             footer: None,
-                            fonts: theme::font_tokens(),
+                            fonts: theme::widget_fonts(),
                             accent: theme::ACCENT,
                             show_tooltips: false,
                         },
@@ -1849,7 +1849,7 @@ fn branch_data(
                 badge: None,
             },
             footer: None,
-            fonts: theme::font_tokens(),
+            fonts: theme::widget_fonts(),
             accent: theme::ACCENT,
             show_tooltips,
         };
@@ -1910,7 +1910,7 @@ fn branch_data(
             picker,
             cx,
         )),
-        fonts: theme::font_tokens(),
+        fonts: theme::widget_fonts(),
         accent: theme::ACCENT,
         show_tooltips,
     }
@@ -1942,9 +1942,9 @@ fn new_branch_footer(
         .rounded_md()
         .px_2()
         .py_1()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .text_color(theme::ACCENT)
-        .hover(|s| s.bg(theme::HOVER))
+        .hover(|s| s.bg(theme::HOVER_BG))
         .on_click(move |_, window, cx| {
             // the form always opens seeded with the repo's prefix and
             // focused, ready to type the branch name
@@ -1997,11 +1997,11 @@ fn new_branch_form(
                         .rounded_md()
                         .px_2()
                         .py_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .text_color(theme::TEXT_DIM)
                         .border_1()
                         .border_color(theme::HAIRLINE)
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(move |_, _, cx| {
                             cancel_ui.borrow_mut().new_branch_open = false;
                             let _ = cancel_picker.update(cx, |_, cx| cx.notify());
@@ -2017,7 +2017,7 @@ fn new_branch_form(
                         .rounded_md()
                         .px_2()
                         .py_1()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .bg(theme::ACCENT)
                         .text_color(theme::ON_ACCENT)

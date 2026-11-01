@@ -44,7 +44,7 @@ impl Render for AzureView {
         if !snapshot.pipelines.is_empty() {
             list = list.child(section("Pipelines"));
             for run in &snapshot.pipelines {
-                // .NET pipeline glyphs: play = running, close = failed, check = ok
+                // pipeline glyphs: play = running, close = failed, check = ok
                 let (glyph, color, label) = if run.is_running() {
                     ("icons/icon-play.svg", theme::BLUE_BRIGHT, "running")
                 } else if run.is_failed() {
@@ -71,7 +71,7 @@ impl Render for AzureView {
                         .rounded_md()
                         .px_2()
                         .py_1p5()
-                        .hover(|s| s.bg(theme::HOVER))
+                        .hover(|s| s.bg(theme::HOVER_BG))
                         .on_click(move |_, _, _| {
                             if !url.is_empty() {
                                 let _ = devtools_core::terminal::open_folder(&url);
@@ -86,13 +86,13 @@ impl Render for AzureView {
                                 .flex_col()
                                 .child(
                                     div()
-                                        .text_size(px(theme::font_small()))
+                                        .text_size(px(theme::font_body()))
                                         .text_color(theme::TEXT_DIM)
                                         .child(run.build_number.clone()),
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(theme::font_small() - 1.))
+                                        .text_size(px(theme::font_meta()))
                                         .text_color(theme::TEXT_FAINT)
                                         .child(run.definition_name.clone().unwrap_or_default()),
                                 ),
@@ -103,14 +103,14 @@ impl Render for AzureView {
                                     .rounded_md()
                                     .bg(theme::tint(theme::PURPLE_BRIGHT))
                                     .px_1p5()
-                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_size(px(theme::font_control()))
                                     .text_color(theme::PURPLE_BRIGHT)
                                     .child(branch),
                             )
                         })
                         .child(
                             div()
-                                .text_size(px(theme::font_small() - 1.))
+                                .text_size(px(theme::font_meta()))
                                 .text_color(color)
                                 .child(label),
                         ),
@@ -145,7 +145,7 @@ fn section(label: &str) -> impl IntoElement + use<> {
     div()
         .px_1()
         .py_1()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::TEXT_MUTED)
         .child(label.to_string())
@@ -154,7 +154,7 @@ fn section(label: &str) -> impl IntoElement + use<> {
 fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
     let item = item.clone();
     let url = item.url.clone();
-    // .NET row glyphs: purple PR, green work item
+    // row glyphs: purple PR, green work item
     let (kind_icon, kind_color) = if kind == "PR" {
         ("icons/icon-git-pull-request.svg", theme::PURPLE_BRIGHT)
     } else {
@@ -171,7 +171,7 @@ fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
         .rounded_md()
         .px_2()
         .py_1p5()
-        .hover(|s| s.bg(theme::HOVER))
+        .hover(|s| s.bg(theme::HOVER_BG))
         .on_click(move |_, _, _| {
             if !url.is_empty() {
                 let _ = devtools_core::terminal::open_folder(&url);
@@ -186,21 +186,21 @@ fn item_row(item: &AzureItem, kind: &str) -> impl IntoElement + use<> {
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(theme::font_small()))
+                .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_DIM)
                 .child(format!("#{} {}", item.number, item.title.clone())),
         )
         .when_some(item.state.clone(), |row, state| {
             row.child(
                 div()
-                    .text_size(px(theme::font_small() - 1.))
+                    .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_FAINT)
                     .child(state),
             )
         })
         .child(
             div()
-                .text_size(px(theme::font_small() - 1.))
+                .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_FAINT)
                 .child(item.author.clone().unwrap_or_default()),
         )

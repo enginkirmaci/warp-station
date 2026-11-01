@@ -343,7 +343,7 @@ impl MainWindow {
                     .child(
                         div()
                             .min_w_0()
-                            .text_size(px(theme::font_small()))
+                            .text_size(px(theme::font_body()))
                             .text_color(if notice.kind == crate::store::NoticeKind::Error {
                                 theme::TEXT
                             } else {
@@ -360,7 +360,7 @@ impl MainWindow {
                             .flex_shrink_0()
                             .rounded_md()
                             .p_0p5()
-                            .hover(|s| s.bg(theme::HOVER))
+                            .hover(|s| s.bg(theme::HOVER_BG))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 store.update(cx, |s, cx| s.dismiss_notice(id, cx));
@@ -413,12 +413,12 @@ impl MainWindow {
                 .flex()
                 .items_center()
                 .gap_2()
-                .hover(|s| s.bg(theme::HOVER))
+                .hover(|s| s.bg(theme::HOVER_BG))
                 .on_click(on_click)
                 .child(icon(icon_path, px(theme::icon_small()), theme::TEXT_MUTED))
                 .child(
                     div()
-                        .text_size(px(theme::font_small()))
+                        .text_size(px(theme::font_body()))
                         .text_color(theme::TEXT)
                         .child(label),
                 )
@@ -764,7 +764,7 @@ impl MainWindow {
                     .bg(theme::POPUP)
                     .shadow_lg()
                     .p_2()
-                    .text_size(px(theme::font_small()))
+                    .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_FAINT)
                     .child(if pending || code_searching {
                         "Searching…"
@@ -807,13 +807,13 @@ impl MainWindow {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .hover(|s| s.bg(theme::HOVER_BG))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_search_hit(&hit_for_click, window, cx);
                     }))
                     .child(
                         div()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .text_color(kind_color)
                             .child(match hit {
                                 crate::store::GlobalSearchHit::Repo { .. } => "repo",
@@ -826,13 +826,13 @@ impl MainWindow {
                             .flex_col()
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small()))
+                                    .text_size(px(theme::font_body()))
                                     .text_color(theme::TEXT_DIM)
                                     .child(title),
                             )
                             .child(
                                 div()
-                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_size(px(theme::font_control()))
                                     .text_color(theme::TEXT_FAINT)
                                     .child(detail),
                             ),
@@ -877,14 +877,14 @@ impl MainWindow {
                     .items_center()
                     .gap_2()
                     .overflow_hidden()
-                    .hover(|s| s.bg(theme::HOVER))
+                    .hover(|s| s.bg(theme::HOVER_BG))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_code_hit(hit_for_click.clone(), window, cx);
                     }))
                     .child(
                         div()
                             .flex_shrink_0()
-                            .text_size(px(theme::font_small() - 1.))
+                            .text_size(px(theme::font_meta()))
                             .text_color(theme::PURPLE_BRIGHT)
                             .child("code"),
                     )
@@ -903,14 +903,14 @@ impl MainWindow {
                                     .whitespace_nowrap()
                                     .child(
                                         div()
-                                            .text_size(px(theme::font_small()))
+                                            .text_size(px(theme::font_body()))
                                             .text_color(theme::TEXT_DIM)
                                             .child(file_name),
                                     )
                                     .when(!dir.is_empty(), |title| {
                                         title.child(
                                             div()
-                                                .text_size(px(theme::font_small() - 2.))
+                                                .text_size(px(theme::font_control()))
                                                 .text_color(theme::TEXT_FAINT)
                                                 .child(dir),
                                         )
@@ -925,7 +925,7 @@ impl MainWindow {
                                     .flex_row()
                                     .overflow_hidden()
                                     .whitespace_nowrap()
-                                    .text_size(px(theme::font_small() - 2.))
+                                    .text_size(px(theme::font_control()))
                                     .child(div().text_color(theme::TEXT_FAINT).child(before))
                                     .child(div().text_color(theme::ACCENT).child(matched))
                                     .child(div().text_color(theme::TEXT_FAINT).child(after)),
@@ -935,7 +935,7 @@ impl MainWindow {
                         div()
                             .flex_shrink_0()
                             .ml_auto()
-                            .text_size(px(theme::font_small() - 2.))
+                            .text_size(px(theme::font_control()))
                             .text_color(theme::TEXT_FAINT)
                             .child(format!(":{}", hit.line)),
                     ),
@@ -962,7 +962,7 @@ impl MainWindow {
                 div()
                     .px_2()
                     .py_1()
-                    .text_size(px(theme::font_small() - 2.))
+                    .text_size(px(theme::font_control()))
                     .text_color(theme::TEXT_FAINT)
                     .child("searching code…"),
             );
@@ -1210,8 +1210,8 @@ impl MainWindow {
             .flex()
             .items_center()
             .justify_end()
-            // status chips mirror the .NET titlebar: an 8px state dot + label,
-            // click toggles the tool. NuGet amber when idle, green while the
+            // status chips: an 8px state dot + label, click toggles the tool.
+            // NuGet amber when idle, green while the
             // watch runs; SnapIt red when stopped, green when running — and
             // Windows-only, like the tool itself. Keep awake is Windows-only
             // too: green while it holds the machine awake, muted when off.
@@ -1237,7 +1237,7 @@ impl MainWindow {
                             .gap_1p5()
                             .text_size(px(theme::font_meta()))
                             .text_color(theme::TEXT_MUTED)
-                            .hover(|d| d.bg(theme::HOVER).text_color(theme::TEXT))
+                            .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.launch_notes(None, cx);
@@ -1318,7 +1318,7 @@ impl MainWindow {
             .child(window_button(
                 "minimize-window",
                 "icons/icon-window-minimize.svg",
-                theme::HOVER,
+                theme::HOVER_BG.into(),
                 "Minimize",
                 show_tooltips,
                 |_, window, _| window.minimize_window(),
@@ -1330,7 +1330,7 @@ impl MainWindow {
                 } else {
                     "icons/icon-window-maximize.svg"
                 },
-                theme::HOVER,
+                theme::HOVER_BG.into(),
                 if window.is_maximized() {
                     "Restore"
                 } else {
@@ -1466,7 +1466,7 @@ impl MainWindow {
                                     .mx_1()
                                     .px_1p5()
                                     .py_0p5()
-                                    .text_size(px(theme::font_small() - 3.))
+                                    .text_size(px(theme::font_mono_meta()))
                                     .text_color(theme::TEXT_FAINT)
                                     .child("Ctrl K"),
                             ),
@@ -1514,7 +1514,7 @@ fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
         .flex()
         .items_center()
         .gap_1p5()
-        .text_size(px(theme::font_small()))
+        .text_size(px(theme::font_body()))
         .text_decoration_none()
         .when(busy, |d| d.text_color(theme::ACCENT))
         .when(!busy, |d| d.text_color(theme::TEXT_DIM))
