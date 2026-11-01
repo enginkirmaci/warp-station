@@ -7,14 +7,28 @@ use warp_station::ui::settings::SettingsPage;
 use gpui::TestAppContext;
 use gpui::prelude::*;
 
-/// Serializes the two HOME-swapping probes against each other (the plain
-/// draws test never writes and tolerates either HOME).
+/// Serializes the HOME-swapping probes against each other.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[gpui_kit::gpui::test]
 fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
+
+    // the template rows seed their prompt bodies on first render — keep that
+    // off the real ~/.warp
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-settings-draw-probe-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".warp")).unwrap();
+    // SAFETY: process-global env; serialized against the sibling HOME probes
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| Store::new(cx, net_tx));
