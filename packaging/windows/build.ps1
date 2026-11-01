@@ -1,6 +1,6 @@
 #Requires -Version 5.1
-# Builds DevTools for Windows and stages the runnable file in out\:
-# devtools.exe. No zip, no installer - out\ is the deliverable.
+# Builds Warp Station for Windows and stages the runnable file in out\:
+# warp-station.exe. No zip, no installer - out\ is the deliverable.
 # Run from a Windows machine - GPUI has no Linux->Windows cross build.
 # Requires the Rust toolchain on PATH. The SnapIt companion lives in its own
 # repo (warp-snapit) and is not built here.
@@ -12,7 +12,7 @@ $outDir = Join-Path $here 'out'
 
 Push-Location $repo
 try {
-    cargo build --release -p devtools
+    cargo build --release -p warp-station
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
     # cargo may place artifacts off-repo (e.g. CARGO_TARGET_DIR on a fast
     # local drive while the repo lives on a network share)
@@ -21,12 +21,12 @@ try {
     Pop-Location
 }
 
-$exe = Join-Path $targetDir 'release\devtools.exe'
+$exe = Join-Path $targetDir 'release\warp-station.exe'
 if (-not (Test-Path $exe)) { throw "release exe not found: $exe" }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 Get-ChildItem $outDir -Force | Remove-Item -Recurse -Force
 
-Copy-Item $exe (Join-Path $outDir 'devtools.exe')
+Copy-Item $exe (Join-Path $outDir 'warp-station.exe')
 
 Write-Host "staged in $outDir"
