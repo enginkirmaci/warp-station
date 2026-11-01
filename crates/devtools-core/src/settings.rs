@@ -164,6 +164,9 @@ pub enum RepoSortMode {
     GitHub = 3,
     /// Alphabetical by branch name; repos without a known branch last.
     Branch = 5,
+    /// Repos with something waiting on the developer first, newest commit
+    /// first on either side of that line.
+    Attention = 6,
 }
 
 impl RepoSortMode {
@@ -190,6 +193,7 @@ impl<'de> Deserialize<'de> for RepoSortMode {
             2 => RepoSortMode::Changes,
             3 => RepoSortMode::GitHub,
             5 => RepoSortMode::Branch,
+            6 => RepoSortMode::Attention,
             _ => RepoSortMode::Name,
         })
     }
@@ -485,6 +489,21 @@ mod tests {
         let json2 = r#"{"OpenCode": {"Enabled": true, "EnableOpenCode": false}}"#;
         let s2: AppSettings = serde_json::from_str(&migrate_legacy_enable_keys(json2)).unwrap();
         assert!(!s2.opencode.enable_opencode);
+    }
+
+    #[test]
+    fn sort_modes_survive_the_settings_file() {
+        for mode in [
+            RepoSortMode::Name,
+            RepoSortMode::LastActivity,
+            RepoSortMode::Changes,
+            RepoSortMode::GitHub,
+            RepoSortMode::Branch,
+            RepoSortMode::Attention,
+        ] {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(serde_json::from_str::<RepoSortMode>(&json).unwrap(), mode);
+        }
     }
 
     #[test]

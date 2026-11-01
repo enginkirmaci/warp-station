@@ -443,6 +443,11 @@ fn sort_indices(
                     ra.github_pr_count + ra.github_issue_count,
                     rb.github_pr_count + rb.github_issue_count,
                 ),
+                RepoSortMode::Attention => {
+                    order_key(ascending, needs_attention(ra), needs_attention(rb)).then_with(|| {
+                        order_opt(false, ra.git_last_commit_at, rb.git_last_commit_at)
+                    })
+                }
             })
             .then_with(|| names_lower[a].cmp(&names_lower[b]))
     });
@@ -643,6 +648,31 @@ mod tests {
         assert_eq!(
             repo_names(&flat(&all, &[], RepoSortMode::Name, false, false), &all),
             vec!["alpha", "gamma", "beta"]
+        );
+    }
+
+    #[test]
+    fn attention_sort_leads_with_waiting_repos_newest_first() {
+        let mut all = repos();
+        all[0].tags.clear();
+        // alpha is quiet but the newest; beta and gamma wait on the developer
+        all[0].git_last_commit_at = Some(chrono::Local::now());
+        all[1].git_modified_count = 1;
+        all[1].git_last_commit_at = Some(chrono::Local::now() - chrono::Duration::days(2));
+        all[2].git_to_push_count = 1;
+        all[2].git_last_commit_at = Some(chrono::Local::now() - chrono::Duration::days(1));
+        assert_eq!(
+            repo_names(
+                &flat(&all, &[], RepoSortMode::Attention, false, false),
+                &all
+            ),
+            vec!["gamma", "beta", "alpha"],
+            "waiting repos lead, newest first"
+        );
+        assert_eq!(
+            repo_names(&flat(&all, &[], RepoSortMode::Attention, true, false), &all),
+            vec!["alpha", "gamma", "beta"],
+            "the flip moves the line, not the recency inside each side"
         );
     }
 
