@@ -442,7 +442,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_the_csharp_file_shape() {
+    fn reads_the_legacy_file_shape() {
         let json = r#"{
             "Repos": {"RepoScanFolders": ["/a", "/b"], "SortMode": 2, "MaxScanDepth": 5,
                       "EnableGitHub": true, "AzureDevOpsPat": "pat"},

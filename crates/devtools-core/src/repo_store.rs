@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_round_trip_ignores_extra_csharp_fields() {
+    fn cache_round_trip_ignores_extra_fields() {
         let json = r#"{"Repos":[{"Name":"r","FolderPath":"/x/r","SolutionPath":"/x/r/a.sln",
             "Tags":[{"Name":"favorites"}],"GitBranchName":"main","GitModifiedCount":7,
             "IsFavorite":true,"FavoriteTooltip":"x","GitLastActivity":"2w ago"}]}"#;

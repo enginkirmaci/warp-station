@@ -1,5 +1,5 @@
 //! Clipboard Password storage codec: the settings file keeps the password as
-//! Base64 over UTF-8 — the exact shape the C# build wrote — and the hotkey and
+//! Base64 over UTF-8 — the exact legacy shape — and the hotkey and
 //! drawer decode it right before the clipboard write.
 
 /// Base64 (standard alphabet, padded) over UTF-8.
