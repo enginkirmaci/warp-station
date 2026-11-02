@@ -48,12 +48,13 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
         "Appearance names the fixed Copper palette"
     );
 
-    // the switch applies at once, with no Save
+    // the switch applies at once, with no Save; the design's row puts it at
+    // the end of the row, opposite the label
     let reduce = cx
         .debug_bounds("settings-row-Reduce motion")
         .expect("Appearance carries Reduce motion");
     cx.simulate_click(
-        gpui::point(reduce.origin.x + gpui::px(20.), reduce.center().y),
+        gpui::point(reduce.right() - gpui::px(20.), reduce.center().y),
         gpui::Modifiers::default(),
     );
     cx.run_until_parked();
@@ -605,12 +606,13 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
         "the grouping switch row renders in the scanning card"
     );
 
-    // the Switch leads the row: a click near its start edge flips it
+    // the design's row ends with its control: a click near the right edge
+    // flips the switch
     let row = wcx
         .debug_bounds("settings-row-Group repos by folder")
         .expect("grouping switch row bounds");
     wcx.simulate_click(
-        gpui::point(row.origin.x + gpui::px(20.), row.center().y),
+        gpui::point(row.right() - gpui::px(20.), row.center().y),
         gpui::Modifiers::default(),
     );
     wcx.run_until_parked();
@@ -764,12 +766,13 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
         "the ripgrep executable field row renders"
     );
 
-    // the Switch leads the row: a click near its start edge flips it off
+    // the design's row ends with its control: a click near the right edge
+    // flips it off
     let row = wcx
         .debug_bounds("settings-row-Cross-repo code search")
         .expect("code search switch row bounds");
     wcx.simulate_click(
-        gpui::point(row.origin.x + gpui::px(20.), row.center().y),
+        gpui::point(row.right() - gpui::px(20.), row.center().y),
         gpui::Modifiers::default(),
     );
     wcx.run_until_parked();
@@ -778,11 +781,9 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     let field = wcx
         .debug_bounds("settings-field-ripgrep executable")
         .expect("ripgrep field bounds");
+    // the design's row puts the field at the end, opposite its label
     wcx.simulate_click(
-        gpui::point(
-            field.center().x,
-            field.origin.y + field.size.height - gpui::px(12.),
-        ),
+        gpui::point(field.right() - gpui::px(120.), field.center().y),
         gpui::Modifiers::default(),
     );
     wcx.run_until_parked();
