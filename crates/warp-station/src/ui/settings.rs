@@ -1144,18 +1144,24 @@ fn two_col(a: impl IntoElement, b: impl IntoElement) -> gpui::AnyElement {
 }
 
 fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement + use<> {
-    // a stable per-row selector so probes can reach the field through its row
+    // a stable per-row selector so probes can reach the field through its row.
+    // The design's setting is one row: label left, control right, 60 high
+    // (multi-line fields are the ones that stack, and they have their own row).
     let selector = format!("settings-field-{label_text}");
     div()
         .debug_selector(move || selector.clone())
         .flex()
-        .flex_col()
-        .gap_1()
-        .child(label(label_text))
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .min_h(px(60.))
+        .child(div().flex_1().min_w_0().child(label(label_text)))
         .child(
-            Input::new(field)
-                .with_size(theme::field_size())
-                .aria_label(label_text),
+            div().w(px(240.)).flex_shrink_0().child(
+                Input::new(field)
+                    .with_size(theme::field_size())
+                    .aria_label(label_text),
+            ),
         )
 }
 
@@ -1171,16 +1177,16 @@ fn switch_row(
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
+        .gap_3()
+        .min_h(px(60.))
+        // label left, control right, like every other setting row
+        .child(div().flex_1().min_w_0().child(label(label_text)))
         .child(
             Switch::new(SharedString::from(format!("switch-{label_text}")))
                 .checked(checked)
                 .accessibility_label(label_text)
                 .on_click(on_click),
         )
-        // the label gives up room (and wraps) instead of running under the
-        // neighbouring column when the card is narrow
-        .child(div().flex_1().min_w_0().child(label(label_text)))
         .into_any_element()
 }
 
@@ -1193,7 +1199,8 @@ fn fixed_row(label_text: &str, value: &str) -> gpui::AnyElement {
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
+        .gap_3()
+        .min_h(px(60.))
         .child(div().flex_1().min_w_0().child(label(label_text)))
         .child(
             div()
@@ -1209,8 +1216,9 @@ fn text_size_row() -> gpui::AnyElement {
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
-        .child(label("Text size"))
+        .gap_3()
+        .min_h(px(60.))
+        .child(div().flex_1().min_w_0().child(label("Text size")))
         .child(warpui_kit_core::text_size_control())
         .into_any_element()
 }
