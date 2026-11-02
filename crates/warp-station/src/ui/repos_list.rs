@@ -1,18 +1,20 @@
-//! The repos list, the split screen's left pane. Rows are two lines, identity
-//! over context, with no column chrome, and colour on a row only means state:
-//! the favorite star, work waiting, a pipeline's result. The launchers and the
-//! repo verbs live in the rail beside it; folder bands fold their group away.
+//! The repos list, the shell's list pane. Rows are two lines, identity over
+//! context, and colour on a row only means state: each entity keeps one hue, so
+//! a healthy row stays quiet and a row that needs a person stands out. Folder
+//! bands fold their group away.
 
 use crate::store::Store;
 use crate::store::projection::ProjectedRow;
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::icon;
+use crate::ui::launchers::{self, Launcher};
+use gpui::prelude::*;
+use gpui::{Entity, FontWeight, Rgba, SharedString, div, px};
 use warp_station_core::azure::AzureSnapshot;
 use warp_station_core::rel_time;
 use warp_station_core::repo_store::RepoEntry;
-use gpui::prelude::*;
-use gpui::{Entity, FontWeight, Rgba, SharedString, div, px};
+use warpui_kit_core::motion;
 
 /// The hover group a band's folder glyph swaps its filter mark under.
 const BAND_GROUP: &str = "repo-band";
@@ -25,10 +27,54 @@ struct RowFacts<'a> {
     /// The workspaces warp-agent is running in this repo, when it has any.
     warp_titles: Option<String>,
     show_tooltips: bool,
+    /// The repo has a tab of its own.
+    tabbed: bool,
+    /// What runs on this repository right now.
+    job: Option<&'static str>,
+    /// Bumped by each press on this repo's star, so only that press jumps.
+    star_press: Option<u64>,
+    /// What the row's open button runs.
+    primary: Option<Launcher>,
+}
+
+/// A clone in flight: the row it will become, until the scan brings the real one.
+fn cloning_row(ix: usize, name: &str) -> impl IntoElement + use<> {
+    div()
+        .debug_selector(move || format!("repo-cloning-{ix}"))
+        .flex_shrink_0()
+        .h(px(64.))
+        .px(px(14.))
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(theme::font_name()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT_DIM)
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(name.to_string()),
+        )
+        .child(motion::spinner(
+            SharedString::from(format!("repo-cloning-spinner-{ix}")),
+            "icons/icon-spinner.svg",
+            px(theme::icon_tiny()),
+            theme::TEXT_DIM,
+        ))
+        .child(
+            div()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::TEXT_DIM)
+                .child("Cloning…"),
+        )
 }
 
 /// The whole list: one quiet header per folder group, then its rows. Rows
-/// select on click — the rail beside them is useless otherwise.
+/// select on click, and the detail pane follows.
 pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
     if store.projected.is_empty() {
         return empty_list(store);
@@ -41,6 +87,9 @@ pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
         .min_h_0()
         .overflow_y_scroll()
         .pt_1();
+    for (ix, name) in store.cloning.iter().enumerate() {
+        list = list.child(cloning_row(ix, name));
+    }
 
     let settings = store.settings();
     let soloed = store.group_filter.as_deref();
@@ -82,6 +131,17 @@ pub fn render(store: &Store, store_entity: &Entity<Store>) -> gpui::AnyElement {
                         azure,
                         warp_titles,
                         show_tooltips: settings.general.show_tooltips,
+                        tabbed: store
+                            .repo_tabs
+                            .iter()
+                            .any(|tab| tab.folder == folder.as_ref()),
+                        job: store.git_jobs.get(folder.as_ref()).copied(),
+                        star_press: store
+                            .star_pressed
+                            .as_ref()
+                            .filter(|(pressed, _)| pressed == folder.as_ref())
+                            .map(|(_, presses)| *presses),
+                        primary: launchers::launchers(&settings, repo).into_iter().next(),
                     };
                     list = list.child(repo_row(repo, row_ix, selected, &facts, store_entity));
                 }
@@ -196,12 +256,9 @@ fn group_band(
         .flex()
         .items_center()
         .gap(px(6.))
-        .h(px(30.))
-        .px(px(20.))
-        .border_b_1()
-        .border_color(theme::BORDER_LIGHT)
-        .bg(theme::GROUP_BG)
-        .hover(|d| d.bg(theme::HOVER_BG))
+        .h(px(34.))
+        .px_4()
+        .hover(|d| d.bg(theme::PANEL))
         .on_click(move |_, _, cx| {
             fold_target.update(cx, |s, cx| s.toggle_group_collapse(&fold_key, cx));
         })
@@ -218,6 +275,7 @@ fn group_band(
         .child(
             div()
                 .text_size(px(theme::font_sub()))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::TEXT_DIM)
                 .child(name.to_lowercase()),
         )
@@ -230,8 +288,145 @@ fn group_band(
         .into_any_element()
 }
 
+/// A row's quiet button, shown while the row is hovered.
+fn row_action(
+    id: String,
+    label: &'static str,
+    icon_path: &'static str,
+    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    let selector = id.clone();
+    div()
+        .id(SharedString::from(id))
+        .debug_selector(move || selector.clone())
+        .a11y_button(label)
+        .cursor_pointer()
+        .flex_shrink_0()
+        .w(px(26.))
+        .h(px(22.))
+        .rounded(px(4.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|d| d.bg(theme::OVERLAY))
+        .on_click(on_click)
+        .child(icon(icon_path, px(theme::icon_small()), theme::TEXT_DIM))
+        .into_any_element()
+}
+
+/// The context line: branch, then what is waiting, each in its own hue. Zero
+/// counts leave, so a healthy repo reads as branch and clean. `row_ix` names the
+/// parts for the probes on a list row; the detail head passes `None`.
+pub fn stats(repo: &RepoEntry, github: bool, row_ix: Option<usize>) -> gpui::Div {
+    let branch = repo.git_branch_name.clone().unwrap_or_else(|| "—".into());
+    let mut meta = div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .min_w_0()
+        .text_size(px(theme::font_row_meta()))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .min_w_0()
+                .child(icon(
+                    "icons/icon-source-branch.svg",
+                    px(theme::icon_tiny()),
+                    theme::BRANCH,
+                ))
+                .child(
+                    div()
+                        .min_w_0()
+                        .font_family(theme::code_font())
+                        .text_color(theme::TEXT_DIM)
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(SharedString::from(branch)),
+                ),
+        );
+    let (issues, pulls) = if github {
+        (repo.github_issue_count, repo.github_pr_count)
+    } else {
+        (0, 0)
+    };
+    if repo.git_modified_count > 0 {
+        meta = meta.child(counted(
+            "icons/icon-file-diff.svg",
+            repo.git_modified_count,
+            Some("change"),
+            theme::CHANGES,
+        ));
+    }
+    if issues > 0 {
+        meta = meta.child(counted(
+            "icons/icon-circle-dot.svg",
+            issues,
+            None,
+            theme::ISSUE,
+        ));
+    }
+    if pulls > 0 {
+        meta = meta.child(
+            div()
+                .when_some(row_ix, |d, ix| {
+                    d.debug_selector(move || format!("repo-prs-{ix}"))
+                })
+                .child(counted(
+                    "icons/icon-git-pull-request.svg",
+                    pulls,
+                    None,
+                    theme::PR,
+                )),
+        );
+    }
+    if repo.git_to_pull_count > 0 {
+        meta = meta.child(
+            div()
+                .when_some(row_ix, |d, ix| {
+                    d.debug_selector(move || format!("repo-behind-{ix}"))
+                })
+                .child(counted(
+                    "icons/icon-arrow-down.svg",
+                    repo.git_to_pull_count,
+                    None,
+                    theme::BEHIND,
+                )),
+        );
+    }
+    if repo.git_to_push_count > 0 {
+        meta = meta.child(counted(
+            "icons/icon-arrow-up.svg",
+            repo.git_to_push_count,
+            None,
+            theme::AHEAD,
+        ));
+    }
+    if repo.git_modified_count == 0 && repo.git_to_pull_count == 0 {
+        meta = meta.child(
+            div()
+                .when_some(row_ix, |d, ix| {
+                    d.debug_selector(move || format!("repo-clean-{ix}"))
+                })
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .text_color(theme::TEXT_MUTED)
+                .child(icon(
+                    "icons/icon-check.svg",
+                    px(theme::icon_tiny()),
+                    theme::SUCCESS_BRIGHT,
+                ))
+                .child("clean"),
+        );
+    }
+    meta
+}
+
 /// One repository: identity on the first line, context on the second, the
-/// activity stamp on the right and the open hint only while hovered.
+/// activity stamp on the right and the row's two verbs only while hovered.
 fn repo_row(
     repo: &RepoEntry,
     row_ix: usize,
@@ -240,6 +435,7 @@ fn repo_row(
     store: &Entity<Store>,
 ) -> gpui::AnyElement {
     let favorite = repo.is_favorite();
+    let star_press = facts.star_press;
     let archived = repo.is_archived();
     let name_color = if archived {
         theme::TEXT_MUTED
@@ -251,7 +447,7 @@ fn repo_row(
     let select_folder = folder.clone();
     let star_target = store.clone();
 
-    // archived rows carry no star: Restore in the rail's menu comes first
+    // archived rows carry no star: Restore in the repo menu comes first
     let star = div()
         .id(SharedString::from(format!("repo-star-id-{row_ix}")))
         .debug_selector(move || format!("repo-star-{row_ix}"))
@@ -264,7 +460,8 @@ fn repo_row(
             favorite,
         )
         .flex_shrink_0()
-        .size(px(16.))
+        .size(px(22.))
+        .rounded(px(4.))
         .flex()
         .items_center()
         .justify_center()
@@ -276,108 +473,36 @@ fn repo_row(
                     star_target.update(cx, |s, cx| s.toggle_favorite(&folder, cx));
                 })
                 .when(favorite, |star| {
-                    star.child(icon("icons/icon-star-filled.svg", px(13.), theme::STAR_ON))
+                    let glyph = icon(
+                        "icons/icon-star-filled.svg",
+                        px(theme::icon_tiny()),
+                        theme::ACCENT_INK,
+                    );
+                    star.child(match star_press {
+                        Some(press) => motion::pop(
+                            SharedString::from(format!("repo-star-pop-{row_ix}-{press}")),
+                            glyph,
+                        ),
+                        None => glyph.into_any_element(),
+                    })
                 })
                 .when(!favorite, |star| {
                     star.opacity(0.62)
                         .group_hover("repo-row", |s| s.opacity(1.))
-                        .child(icon("icons/icon-star.svg", px(13.), theme::STAR_MUTED))
+                        .child(icon(
+                            "icons/icon-star.svg",
+                            px(theme::icon_tiny()),
+                            theme::STAR_MUTED,
+                        ))
                 })
         });
 
-    let branch = repo.git_branch_name.clone().unwrap_or_else(|| "—".into());
-    let mut meta = div()
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .text_size(px(theme::font_row_meta()))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .child(icon(
-                    "icons/icon-source-branch.svg",
-                    px(11.),
-                    theme::TEXT_MUTED,
-                ))
-                .child(
-                    div()
-                        .font_family(theme::code_font())
-                        .text_color(theme::TEXT_DIM)
-                        .child(SharedString::from(branch)),
-                ),
-        );
-    let (issues, pulls) = if facts.github {
-        (repo.github_issue_count, repo.github_pr_count)
-    } else {
-        (0, 0)
-    };
-    if repo.git_modified_count > 0 {
-        meta = meta.child(counted(
-            "icons/icon-file-diff.svg",
-            repo.git_modified_count,
-            "change",
-            theme::AMBER_BRIGHT,
-        ));
-    }
-    if issues > 0 {
-        meta = meta.child(counted(
-            "icons/icon-circle-dot.svg",
-            issues,
-            "issue",
-            theme::TEXT_DIM,
-        ));
-    }
-    if pulls > 0 {
-        meta = meta.child(
-            div()
-                .debug_selector(move || format!("repo-prs-{row_ix}"))
-                .child(counted(
-                    "icons/icon-git-pull-request.svg",
-                    pulls,
-                    "PR",
-                    theme::TEXT_DIM,
-                )),
-        );
-    }
-    if repo.git_to_push_count > 0 {
-        meta = meta.child(
-            div()
-                .text_color(theme::AMBER_BRIGHT)
-                .child(format!("↑{}", repo.git_to_push_count)),
-        );
-    }
-    if repo.git_to_pull_count > 0 {
-        meta = meta.child(
-            div()
-                .debug_selector(move || format!("repo-behind-{row_ix}"))
-                .text_color(theme::BLUE_BRIGHT)
-                .child(format!("↓{}", repo.git_to_pull_count)),
-        );
-    }
+    let mut meta = stats(repo, facts.github, Some(row_ix));
     if let Some(chips) = facts
         .azure
         .and_then(|snapshot| azure_chips(snapshot, row_ix))
     {
         meta = meta.child(chips);
-    }
-    if repo.git_modified_count == 0
-        && repo.git_to_push_count == 0
-        && repo.git_to_pull_count == 0
-        && issues == 0
-        && pulls == 0
-    {
-        meta = meta.child(
-            div()
-                .debug_selector(move || format!("repo-clean-{row_ix}"))
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .text_color(theme::SUCCESS_BRIGHT)
-                .child(icon("icons/icon-check.svg", px(11.), theme::SUCCESS_BRIGHT))
-                .child("clean"),
-        );
     }
 
     let name_line = div()
@@ -388,8 +513,8 @@ fn repo_row(
         .child(
             div()
                 .min_w_0()
-                .text_size(px(theme::font_heading()))
-                .font_weight(FontWeight::MEDIUM)
+                .text_size(px(theme::font_name()))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(name_color)
                 .overflow_hidden()
                 .whitespace_nowrap()
@@ -415,7 +540,7 @@ fn repo_row(
         .min_w_0()
         .flex()
         .flex_col()
-        .gap_0p5()
+        .gap(px(3.))
         .child(name_line)
         .child(meta);
 
@@ -425,81 +550,151 @@ fn repo_row(
         .map(|at| rel_time::format(at).trim_end_matches(" ago").to_string())
         .unwrap_or_else(|| "—".into());
 
+    let tab_target = store.clone();
+    let tab_folder = repo.folder_path.to_string_lossy().to_string();
+    let open_target = store.clone();
+    let open_folder = tab_folder.clone();
+    let primary = facts.primary.clone();
+    let (tab_label, tab_icon) = if facts.tabbed {
+        ("Go to tab", "icons/icon-tab.svg")
+    } else {
+        ("Open in tab", "icons/icon-tab-plus.svg")
+    };
+    let verbs = div()
+        .absolute()
+        .top(px(12.))
+        .right(px(14.))
+        .flex()
+        .items_center()
+        .gap_0p5()
+        .invisible()
+        .group_hover("repo-row", |s| s.visible())
+        .child(row_action(
+            format!("repo-tab-{row_ix}"),
+            tab_label,
+            tab_icon,
+            move |_, _, cx| {
+                cx.stop_propagation();
+                tab_target.update(cx, |s, cx| s.open_repo_tab(&tab_folder, cx));
+            },
+        ))
+        .when_some(primary, |verbs, primary| {
+            verbs.child(row_action(
+                format!("repo-open-{row_ix}"),
+                primary.label,
+                "icons/icon-code.svg",
+                move |_, _, cx| {
+                    cx.stop_propagation();
+                    primary.launch.run(&open_folder, &open_target, cx);
+                },
+            ))
+        });
+
     let row = div()
         .id(SharedString::from(format!("repo-row-id-{row_ix}")))
         .debug_selector(move || format!("repo-row-{row_ix}"))
         .group("repo-row")
         .a11y_button(repo.name.clone())
+        .relative()
         .cursor_pointer()
         .on_click(move |_, _, cx| {
-            // the rail stays open, so a second press has nothing to toggle
-            select_target.update(cx, |s, cx| s.select_repo(&select_folder, cx));
+            select_target.update(cx, |s, cx| s.pick_repo(&select_folder, cx));
+        })
+        .on_mouse_down(gpui::MouseButton::Middle, {
+            let store = store.clone();
+            let folder = repo.folder_path.to_string_lossy().to_string();
+            move |_, _, cx| {
+                cx.stop_propagation();
+                store.update(cx, |s, cx| s.open_repo_tab(&folder, cx));
+            }
         })
         .flex()
         .items_center()
         .gap(px(8.))
-        .h(px(50.))
-        .pl(px(18.))
+        .h(px(64.))
+        .pl(px(13.))
         .pr(px(16.))
-        .border_b_1()
-        .border_color(theme::BORDER_LIGHT)
         .when(archived, |row| row.opacity(0.55))
-        .when(selected, |row| {
-            row.bg(theme::SELECTED).text_color(theme::TEXT)
-        })
-        .when(!selected, |row| row.hover(|s| s.bg(theme::HOVER_BG)))
+        .when(selected, |row| row.bg(theme::RAISED))
+        .when(!selected, |row| row.hover(|s| s.bg(theme::PANEL)))
         .child(star)
         .child(identity)
         .child(
             div()
                 .flex_shrink_0()
-                .font_family(theme::code_font())
-                .text_size(px(theme::font_mono_meta()))
-                .text_color(theme::TEXT_MUTED)
-                .group_hover("repo-row", |s| s.opacity(0.))
-                .child(stamp),
+                .flex()
+                .items_center()
+                .gap_2()
+                .self_start()
+                .pt(px(14.))
+                .group_hover("repo-row", |s| s.invisible())
+                .when(facts.tabbed, |line| {
+                    line.child(icon(
+                        "icons/icon-tab.svg",
+                        px(theme::icon_tiny()),
+                        theme::ACCENT_INK,
+                    ))
+                })
+                .when_some(facts.job, |line, job| {
+                    line.debug_selector(move || format!("repo-row-job-{row_ix}"))
+                        .child(motion::spinner(
+                            SharedString::from(format!("repo-row-spinner-{row_ix}")),
+                            "icons/icon-spinner.svg",
+                            px(theme::icon_tiny()),
+                            theme::TEXT_DIM,
+                        ))
+                        .child(
+                            div()
+                                .text_size(px(theme::font_meta()))
+                                .text_color(theme::TEXT_DIM)
+                                .child(crate::net::git_working_word(job)),
+                        )
+                })
+                .when(facts.job.is_none(), |line| {
+                    line.child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .child(stamp),
+                    )
+                }),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .w(px(18.))
-                .opacity(0.)
-                .group_hover("repo-row", |s| s.opacity(1.))
-                .child(keycap("↵")),
-        );
+        .child(verbs);
 
-    // the design marks the selection with a 2px accent edge; a wrapper owns it
-    // so the row's own bottom border keeps its colour
+    // the selection is a 3px accent edge; a wrapper owns it so the row's fill
+    // reads as one band
     div()
         .flex_shrink_0()
-        .border_l_2()
+        .border_l_3()
         .border_color(if selected {
-            theme::BLUE_BRIGHT
+            theme::ACCENT
         } else {
-            theme::BACKGROUND
+            theme::SURFACE
         })
         .child(row)
         .into_any_element()
 }
 
-/// `21 changes` with the number tinted and the noun quiet.
+/// A count in its entity's hue: `21 changes`, or the bare number with its icon.
 fn counted(
     icon_path: &'static str,
     count: u32,
-    noun: &'static str,
+    noun: Option<&'static str>,
     tint: Rgba,
 ) -> gpui::AnyElement {
     div()
+        .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .child(icon(icon_path, px(11.), tint))
-        .child(div().text_color(tint).child(format!("{count}")))
-        .child(div().text_color(tint).child(if count == 1 {
-            noun.to_string()
-        } else {
-            format!("{noun}s")
-        }))
+        .gap(px(5.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(tint)
+        .child(icon(icon_path, px(theme::icon_tiny()), tint))
+        .child(match noun {
+            Some(noun) if count == 1 => format!("{count} {noun}"),
+            Some(noun) => format!("{count} {noun}s"),
+            None => format!("{count}"),
+        })
         .into_any_element()
 }
 
@@ -535,21 +730,4 @@ fn azure_chips(snapshot: &AzureSnapshot, row_ix: usize) -> Option<gpui::AnyEleme
         chips = chips.child(format!("WI {}", snapshot.work_items.len()));
     }
     Some(chips.into_any_element())
-}
-
-fn keycap(label: &'static str) -> gpui::AnyElement {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(17.))
-        .min_w(px(18.))
-        .px_1()
-        .rounded_sm()
-        .border_1()
-        .border_color(theme::LINE_STRONG)
-        .text_size(px(theme::font_label()))
-        .text_color(theme::TEXT_MUTED)
-        .child(label)
-        .into_any_element()
 }

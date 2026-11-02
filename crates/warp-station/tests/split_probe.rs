@@ -1,14 +1,14 @@
 //! The split main screen's detail rail must dispatch, not just draw: the star
 //! toggles the repo's favourite flag and the sync verbs reach the net thread.
 
-use warp_station::net::{GitAction, NetCommand};
+use gpui::TestAppContext;
+use gpui::prelude::*;
+use std::path::PathBuf;
+use warp_station::net::{GitAction, NetCommand, UiEvent};
 use warp_station::store::{Store, WorkspaceTab};
 use warp_station::ui::window::MainWindow;
 use warp_station_core::repo_store::RepoEntry;
 use warp_station_core::settings::RepoSortMode;
-use gpui::TestAppContext;
-use gpui::prelude::*;
-use std::path::PathBuf;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
     RepoEntry {
@@ -269,7 +269,7 @@ fn keymap_steps_rows_and_favorites(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn commit_key_opens_the_changes_drawer(cx: &mut TestAppContext) {
+fn commit_key_opens_the_changes_tab(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
@@ -285,15 +285,15 @@ fn commit_key_opens_the_changes_drawer(cx: &mut TestAppContext) {
     draw(cx);
 
     assert!(
-        cx.debug_bounds("drawer-scrim").is_none(),
-        "no drawer before the commit action"
+        cx.debug_bounds("detail-tab-changes-panel").is_none(),
+        "Overview comes first"
     );
     cx.simulate_keystrokes("c");
     cx.run_until_parked();
     draw(cx);
     assert!(
-        cx.debug_bounds("drawer-scrim").is_some(),
-        "C opens the Changes drawer"
+        cx.debug_bounds("detail-tab-changes-panel").is_some(),
+        "C opens the Changes tab"
     );
 }
 
@@ -499,6 +499,8 @@ fn rail_issue_rows_render_from_a_github_snapshot(cx: &mut TestAppContext) {
                 is_draft: false,
                 review_decision: None,
                 updated_at: None,
+                created_at: None,
+                comments: 0,
                 head_ref_name: None,
                 base_ref_name: None,
                 is_pull_request: false,
@@ -684,7 +686,7 @@ fn the_first_repo_to_arrive_is_selected(cx: &mut TestAppContext) {
     );
 }
 
-fn open_changes_sheet(
+fn open_changes_tab(
     cx: &mut TestAppContext,
 ) -> (gpui::Entity<Store>, &mut gpui::VisualTestContext) {
     use warp_station_core::model::{GitBranchKind, GitBranchRef};
@@ -710,106 +712,36 @@ fn open_changes_sheet(
     cx.simulate_keystrokes("c");
     draw(cx);
     draw(cx);
-    assert!(cx.debug_bounds("workspace-sheet").is_some(), "C opens it");
+    assert!(
+        cx.debug_bounds("detail-tab-changes-panel").is_some(),
+        "C opens it"
+    );
     (store, cx)
 }
 
-/// The scrim sits under the panel, so a panel that lets presses through closes
-/// the sheet on every click inside it.
+/// The branch popup closes on Escape and on a press anywhere else, and leaves
+/// the tab where it is.
 #[gpui::test]
-fn presses_inside_the_changes_sheet_keep_it_open(cx: &mut TestAppContext) {
-    let (_store, cx) = open_changes_sheet(cx);
-
-    click(cx, "workspace-sheet");
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_some(),
-        "a press on the panel stays inside it"
-    );
-
-    let scrim = cx.debug_bounds("drawer-scrim").expect("the scrim renders");
-    cx.simulate_click(
-        scrim.origin + gpui::point(gpui::px(40.), gpui::px(120.)),
-        gpui::Modifiers::default(),
-    );
-    draw(cx);
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_none(),
-        "a press on the scrim closes the sheet"
-    );
-}
-
-/// The sheet is a layer of its own, so the branch popup inside it has to close
-/// first: Escape and outside presses used to route to the hidden workspace
-/// bar's picker, and the sheet's own stayed open across a close and reopen.
-#[gpui::test]
-fn the_sheet_branch_menu_closes_before_the_sheet(cx: &mut TestAppContext) {
-    let (_store, cx) = open_changes_sheet(cx);
+fn the_branch_menu_closes_on_escape_and_outside_presses(cx: &mut TestAppContext) {
+    let (_store, cx) = open_changes_tab(cx);
 
     click(cx, "branch-button");
-    assert!(
-        cx.debug_bounds("branch-menu").is_some(),
-        "the dropdown opens"
-    );
+    assert!(cx.debug_bounds("branch-menu").is_some(), "it opens");
     cx.simulate_keystrokes("escape");
     draw(cx);
+    assert!(cx.debug_bounds("branch-menu").is_none(), "Escape closes it");
+    assert!(
+        cx.debug_bounds("detail-tab-changes-panel").is_some(),
+        "and leaves the tab open"
+    );
+
+    click(cx, "branch-button");
+    click(cx, "changes-diff");
     assert!(
         cx.debug_bounds("branch-menu").is_none(),
-        "Escape closes the dropdown"
+        "a press elsewhere closes it"
     );
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_some(),
-        "the first Escape leaves the sheet open"
-    );
-
-    click(cx, "branch-button");
-    click(cx, "workspace-sheet");
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "a press elsewhere in the sheet closes the dropdown"
-    );
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_some(),
-        "and leaves the sheet open"
-    );
-
-    click(cx, "branch-button");
-    click(cx, "sheet-close");
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_none(),
-        "the close button closes the sheet"
-    );
-    cx.simulate_keystrokes("c");
-    draw(cx);
-    draw(cx);
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_some(),
-        "the window's keys survive the dropdown's filter leaving the tree"
-    );
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "a reopened sheet starts with its dropdown closed"
-    );
-
-    cx.simulate_keystrokes("escape");
-    draw(cx);
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_none(),
-        "Escape closes the sheet once its dropdown is gone"
-    );
-
-    // the dropdown's filter held the focus: the next Escape must still land
-    cx.simulate_keystrokes("c");
-    draw(cx);
-    draw(cx);
-    click(cx, "branch-button");
-    cx.simulate_keystrokes("escape");
-    draw(cx);
-    cx.simulate_keystrokes("escape");
-    draw(cx);
-    assert!(
-        cx.debug_bounds("workspace-sheet").is_none(),
-        "two Escapes close the dropdown, then the sheet"
-    );
+    assert!(cx.debug_bounds("detail-tab-changes-panel").is_some());
 }
 
 /// The rail's keycaps are a promise: a letter runs its row for the repo the
@@ -885,13 +817,6 @@ fn the_keymap_stays_out_of_open_layers(cx: &mut TestAppContext) {
             "S stays out of the {layer}"
         );
     };
-
-    cx.simulate_keystrokes("c");
-    draw(cx);
-    draw(cx);
-    assert_rows_untouched(cx, "Changes sheet");
-    cx.simulate_keystrokes("escape");
-    draw(cx);
 
     click(cx, "insp-more");
     assert_rows_untouched(cx, "repo menu");
@@ -1012,14 +937,13 @@ fn the_sort_menu_closes_on_outside_presses_and_escape(cx: &mut TestAppContext) {
 
     click(cx, "sort-button");
     assert!(cx.debug_bounds("sort-menu").is_some(), "it opens");
-    click(cx, "repo-row-1");
+    click(cx, "insp-star");
     assert!(
         cx.debug_bounds("sort-menu").is_none(),
         "a press elsewhere closes it"
     );
-    assert_eq!(
-        selected(&store, cx).as_deref(),
-        Some("/probe/beta"),
+    assert!(
+        cx.read_entity(&store, |s, _| s.repos[0].is_favorite()),
         "and still lands on what it hit"
     );
 
@@ -1100,7 +1024,10 @@ fn a_row_shows_all_that_waits_on_it(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("repo-behind-0").is_some());
     assert!(cx.debug_bounds("repo-clean-0").is_none());
     assert!(cx.debug_bounds("repo-prs-1").is_some());
-    assert!(cx.debug_bounds("repo-clean-1").is_none());
+    assert!(
+        cx.debug_bounds("repo-clean-1").is_some(),
+        "an open PR leaves the working tree clean"
+    );
     assert!(cx.debug_bounds("repo-clean-2").is_some());
 }
 
@@ -1439,6 +1366,8 @@ fn github_item(number: u64, is_pull_request: bool) -> warp_station_core::github:
         is_draft: false,
         review_decision: None,
         updated_at: None,
+        created_at: None,
+        comments: 0,
         head_ref_name: None,
         base_ref_name: None,
         is_pull_request,
@@ -1466,32 +1395,531 @@ fn seed_github(
 
 /// A press in the tab strip swaps the panel; every other stays unmounted.
 #[gpui::test]
-fn the_tab_strip_switches_the_sheets_panel(cx: &mut TestAppContext) {
+fn the_tab_strip_switches_the_panel(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "tabs", vec![entry("alpha", "/probe/alpha")]);
     seed_github(&store, "/probe/alpha", 1, 1, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.azure_by_folder.insert(
+            "/probe/alpha".to_string(),
+            std::sync::Arc::new(warp_station_core::azure::AzureSnapshot {
+                available: true,
+                ..Default::default()
+            }),
+        );
+        cx.notify();
+    });
     let cx = open_window(&store, cx);
     cx.simulate_keystrokes("c");
     draw(cx);
     draw(cx);
-    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_some());
+    assert!(cx.debug_bounds("detail-tab-changes-panel").is_some());
 
-    click(cx, "sheet-tab-pulls");
-    assert!(cx.debug_bounds("sheet-tab-pulls-panel").is_some());
+    click(cx, "detail-tab-pulls");
+    assert!(cx.debug_bounds("detail-tab-pulls-panel").is_some());
     assert!(cx.debug_bounds("pr-list").is_some(), "the PR rows mount");
-    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_none());
+    assert!(cx.debug_bounds("detail-tab-changes-panel").is_none());
 
-    click(cx, "sheet-tab-issues");
+    click(cx, "detail-tab-issues");
     assert!(cx.debug_bounds("issue-list").is_some(), "so do the issues");
 
-    click(cx, "sheet-tab-readme");
+    click(cx, "detail-tab-readme");
     assert!(cx.debug_bounds("readme-pane").is_some());
 
-    click(cx, "sheet-tab-pipelines");
-    assert!(cx.debug_bounds("sheet-tab-pipelines-panel").is_some());
+    click(cx, "detail-tab-pipelines");
+    assert!(cx.debug_bounds("detail-tab-pipelines-panel").is_some());
 }
 
-/// An integration that is off takes its tabs and its rail section along, and
-/// anything still asking for one of those tabs lands on Changes.
+fn ready_pull(number: u64) -> warp_station_core::github::GitHubPull {
+    warp_station_core::github::GitHubPull {
+        number,
+        title: format!("item {number}"),
+        state: "OPEN".into(),
+        mergeable: "MERGEABLE".into(),
+        body: "What it does".into(),
+        ..Default::default()
+    }
+}
+
+/// `gh` stands in as a binary every machine has: the channel nobody drains
+/// keeps it from ever running.
+fn use_a_located_gh(store: &gpui::Entity<Store>, cx: &mut TestAppContext) {
+    cx.update_entity(store, |s: &mut Store, _| {
+        s.update_settings(|settings| {
+            settings.repos.enable_git_hub = true;
+            settings.repos.git_hub_executable = std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+        });
+    });
+}
+
+fn sent_merges(net_rx: &async_channel::Receiver<NetCommand>) -> Vec<u64> {
+    let mut numbers = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::GitHubMerge { number, .. } = command {
+            numbers.push(number);
+        }
+    }
+    numbers
+}
+
+/// A row turns the whole pane into the pull request, head included, and Back
+/// and Escape both return to the list on the tab it left.
+#[gpui::test]
+fn a_pull_request_takes_over_the_pane_until_back(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "pull", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 2, 0, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+
+    click(cx, "PR-1");
+    assert!(cx.debug_bounds("pull-request").is_some());
+    assert!(
+        cx.debug_bounds("detail-tab-pulls").is_none(),
+        "the repo head gives way"
+    );
+    assert!(
+        cx.debug_bounds("pull-merge").is_none(),
+        "no verb until the full view says it is allowed"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_pull.as_mut().unwrap().pull = Some(ready_pull(1));
+        cx.notify();
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("pull-merge").is_some());
+    assert!(cx.debug_bounds("pull-thread").is_some());
+
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.debug_bounds("pull-request").is_none());
+    assert!(cx.debug_bounds("pr-list").is_some(), "back on the list");
+
+    click(cx, "PR-1");
+    click(cx, "pull-back");
+    assert!(cx.debug_bounds("pr-list").is_some());
+}
+
+/// Merging can't be undone: the first press arms, the second sends, and a
+/// failing check leaves the button dead.
+#[gpui::test]
+fn the_merge_takes_two_presses_and_passing_checks(cx: &mut TestAppContext) {
+    use warp_station_core::github::{CheckState, GitHubCheck};
+
+    let (store, net_rx) = scratch_store(cx, "merge", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    use_a_located_gh(&store, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    click(cx, "PR-0");
+
+    let mut blocked = ready_pull(0);
+    blocked.checks.push(GitHubCheck {
+        name: "build".into(),
+        state: CheckState::Failed,
+        url: None,
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_pull.as_mut().unwrap().pull = Some(blocked);
+        cx.notify();
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("pull-checks").is_some());
+    click(cx, "pull-merge");
+    click(cx, "pull-merge");
+    assert!(sent_merges(&net_rx).is_empty(), "a failed check blocks it");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_pull.as_mut().unwrap().pull = Some(ready_pull(0));
+        cx.notify();
+    });
+    draw(cx);
+    click(cx, "pull-merge");
+    assert!(sent_merges(&net_rx).is_empty(), "the first press only arms");
+    click(cx, "pull-merge");
+    assert_eq!(sent_merges(&net_rx), [0]);
+    click(cx, "pull-merge");
+    assert!(sent_merges(&net_rx).is_empty(), "one merge at a time");
+}
+
+/// The filter narrows as it is typed, says when nothing matches, and Clear
+/// filter and Escape both bring the rows back. Its letters stay out of the
+/// row keymap.
+#[gpui::test]
+fn the_issue_filter_narrows_the_rows(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "filter", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 0, 2, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-issues");
+    assert!(cx.debug_bounds("Issue-100").is_some());
+    assert!(cx.debug_bounds("Issue-101").is_some());
+
+    click(cx, "issue-filter");
+    cx.simulate_keystrokes("1 0 1");
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-100").is_none());
+    assert!(cx.debug_bounds("Issue-101").is_some());
+
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("detail-tab-issues-panel").is_some(),
+        "c stays in the field instead of opening Changes"
+    );
+    assert!(cx.debug_bounds("issue-clear-filter").is_some());
+
+    click(cx, "issue-clear-filter");
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-100").is_some());
+
+    click(cx, "issue-filter");
+    cx.simulate_keystrokes("1 0 1");
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-100").is_none());
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-100").is_some(), "Escape clears it");
+}
+
+/// The menu marks the sort, a pick is remembered, and an outside press closes it.
+#[gpui::test]
+fn the_issue_sort_is_remembered(cx: &mut TestAppContext) {
+    use warp_station_core::github::IssueSort;
+
+    let (store, _net_rx) = scratch_store(cx, "sort", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 0, 2, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-issues");
+
+    click(cx, "issue-sort");
+    assert!(cx.debug_bounds("issue-sort-menu").is_some());
+    click(cx, "issue-sort-comments");
+    assert!(cx.debug_bounds("issue-sort-menu").is_none());
+    assert_eq!(
+        store.read_with(cx, |s, _| s.settings().repos.issue_sort),
+        Some("comments".to_string())
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.issue_sort()),
+        IssueSort::Comments
+    );
+
+    click(cx, "issue-sort");
+    click(cx, "detail-tab-issues");
+    assert!(cx.debug_bounds("issue-sort-menu").is_none());
+}
+
+/// Closed asks once, shows its rows, and a closed pull request opens on GitHub
+/// rather than in the pane.
+#[gpui::test]
+fn the_closed_list_loads_when_it_is_asked_for(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "closed", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    use_a_located_gh(&store, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    while net_rx.try_recv().is_ok() {}
+
+    click(cx, "pr-state-closed");
+    draw(cx);
+    let mut asked = 0;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::GitHubClosed { pull_requests, .. } = command {
+            assert!(pull_requests);
+            asked += 1;
+        }
+    }
+    assert_eq!(asked, 1, "one ask however many frames draw");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.github_closed.insert(
+            ("/probe/alpha".to_string(), true),
+            std::sync::Arc::new(vec![github_item(7, true)]),
+        );
+        cx.notify();
+    });
+    draw(cx);
+    assert!(cx.debug_bounds("PR-7").is_some());
+    assert!(cx.debug_bounds("PR-0").is_none());
+
+    click(cx, "PR-7");
+    assert!(cx.debug_bounds("pull-request").is_none());
+
+    click(cx, "pr-state-open");
+    assert!(cx.debug_bounds("PR-0").is_some());
+}
+
+fn select(store: &gpui::Entity<Store>, folder: &str, cx: &mut gpui::VisualTestContext) {
+    store.update(cx, |s: &mut Store, cx| s.select_repo(folder, cx));
+    draw(cx);
+}
+
+/// A job belongs to its repository: moving away keeps it running and leaves the
+/// other repository free, and the job's row, tab and button all say so.
+#[gpui::test]
+fn a_job_stays_with_its_repository(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "jobs",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    let cx = open_window(&store, cx);
+    draw(cx);
+    select(&store, "/probe/alpha", cx);
+    store.update(cx, |s: &mut Store, cx| {
+        s.open_repo_tab("/probe/alpha", cx);
+        s.show_repo_tab(None, cx);
+        s.open_detail_tab(WorkspaceTab::Changes, cx);
+    });
+    draw(cx);
+    select(&store, "/probe/alpha", cx);
+    while net_rx.try_recv().is_ok() {}
+
+    store.update(cx, |s: &mut Store, _| s.scanning = false);
+    click(cx, "rail-Fetch");
+    assert_eq!(store.read_with(cx, |s, _| s.running_job()), Some("fetch"));
+    assert!(
+        cx.debug_bounds("repo-row-job-0").is_some(),
+        "the row says so"
+    );
+    assert!(
+        cx.debug_bounds("repo-strip-job-0").is_some(),
+        "so does the tab"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.activity()),
+        Some("Fetching alpha".to_string())
+    );
+
+    click(cx, "rail-Fetch");
+    let sent = std::iter::from_fn(|| net_rx.try_recv().ok())
+        .filter(|command| matches!(command, NetCommand::Git { .. }))
+        .count();
+    assert_eq!(sent, 1, "one job per repository");
+
+    select(&store, "/probe/beta", cx);
+    assert!(!store.read_with(cx, |s, _| s.git_busy()), "beta is free");
+    assert_eq!(
+        store.read_with(cx, |s, _| s.git_jobs.get("/probe/alpha").copied()),
+        Some("fetch"),
+        "and alpha is still running"
+    );
+    click(cx, "rail-Fetch");
+    assert_eq!(
+        store.read_with(cx, |s, _| s.activity()),
+        Some("2 running".to_string())
+    );
+}
+
+/// A landed job holds its past tense for a moment and only on its own repo.
+#[gpui::test]
+fn a_landed_job_says_so_for_a_moment(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "landed",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo("/probe/alpha", cx);
+        s.git_jobs.insert("/probe/alpha".into(), "pull");
+        s.on_net_event(
+            UiEvent::GitDone {
+                folder: "/probe/alpha".into(),
+                label: "pull",
+                error: None,
+                commit_hash: None,
+                detail: None,
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.finished_job()),
+        Some("pull")
+    );
+    assert!(!cx.read_entity(&store, |s, _| s.git_busy()));
+
+    cx.update_entity(&store, |s: &mut Store, cx| s.select_repo("/probe/beta", cx));
+    assert_eq!(cx.read_entity(&store, |s, _| s.finished_job()), None);
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo("/probe/alpha", cx);
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    assert_eq!(cx.read_entity(&store, |s, _| s.finished_job()), None);
+}
+
+/// A failed job leaves no past tense behind: the toast says what went wrong.
+#[gpui::test]
+fn a_failed_job_shows_no_success(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "failed", vec![entry("alpha", "/probe/alpha")]);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo("/probe/alpha", cx);
+        s.git_jobs.insert("/probe/alpha".into(), "push");
+        s.on_net_event(
+            UiEvent::GitDone {
+                folder: "/probe/alpha".into(),
+                label: "push",
+                error: Some("rejected".into()),
+                commit_hash: None,
+                detail: None,
+            },
+            cx,
+        );
+    });
+    assert_eq!(cx.read_entity(&store, |s, _| s.finished_job()), None);
+    assert!(!cx.read_entity(&store, |s, _| s.git_busy()));
+}
+
+/// The menu adds tags up, the button names what is on, and Any lets go.
+#[gpui::test]
+fn the_tag_menu_filters_the_list(cx: &mut TestAppContext) {
+    let mut rust = entry("alpha", "/probe/alpha");
+    rust.tags = vec!["rust".into()];
+    let mut web = entry("beta", "/probe/beta");
+    web.tags = vec!["web".into()];
+    let (store, _net_rx) = scratch_store(cx, "tag-menu", vec![rust, web]);
+    let cx = open_window(&store, cx);
+    draw(cx);
+
+    click(cx, "tag-button");
+    assert!(cx.debug_bounds("tag-menu").is_some());
+    click(cx, "tag-pick-rust");
+    assert!(cx.debug_bounds("tag-menu").is_some(), "a pick stays open");
+    assert!(cx.debug_bounds("repo-row-1").is_none(), "web left the list");
+
+    click(cx, "tag-pick-web");
+    assert!(cx.debug_bounds("repo-row-1").is_some(), "tags add up");
+
+    click(cx, "tag-any");
+    assert!(cx.debug_bounds("tag-menu").is_none());
+    assert!(store.read_with(cx, |s, _| s.tag_filters.is_empty()));
+}
+
+/// Open tabs come back on restart, and one whose repo left the list doesn't.
+#[gpui::test]
+fn repo_tabs_come_back_after_a_restart(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(
+        cx,
+        "tabs-saved",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_repo_tab("/probe/beta", cx);
+        s.open_repo_tab("/probe/alpha", cx);
+    });
+    let saved = cx.read_entity(&store, |s, _| s.settings().repos.repo_tabs.clone());
+    assert_eq!(
+        saved,
+        Some(vec!["/probe/beta".to_string(), "/probe/alpha".to_string()])
+    );
+
+    // a second run over the same settings file, before its scan lands
+    let scratch = std::env::temp_dir().join(format!(
+        "warp-station-probe-split-tabs-saved-{}.json",
+        std::process::id()
+    ));
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(warp_station_core::settings::SettingsService::at(scratch)),
+        );
+        store.scanning = true;
+        store.replace_repos(Vec::new());
+        store
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.ensure_row_selected(cx);
+        assert!(s.repo_tabs.is_empty(), "no repo has landed yet");
+
+        s.replace_repos(vec![entry("alpha", "/probe/alpha")]);
+        s.ensure_row_selected(cx);
+        assert_eq!(s.repo_tabs.len(), 1, "alpha lands");
+        assert_eq!(
+            s.settings().repos.repo_tabs.map(|tabs| tabs.len()),
+            Some(2),
+            "beta may still land"
+        );
+
+        s.scanning = false;
+        s.ensure_row_selected(cx);
+        assert_eq!(s.repo_tabs.len(), 1);
+    });
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.settings().repos.repo_tabs),
+        Some(vec!["/probe/alpha".to_string()]),
+        "the scan settled and beta is gone"
+    );
+}
+
+/// A drag on the list's edge moves it inside the bounds, and the width is kept.
+#[gpui::test]
+fn the_list_edge_drags_inside_its_bounds(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, point, px};
+
+    let (store, _net_rx) = scratch_store(cx, "width", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    let before = cx
+        .debug_bounds("repos-list-pane")
+        .expect("the list")
+        .size
+        .width;
+    let handle = cx.debug_bounds("list-resize").expect("the handle").center();
+
+    let drag_to = |x: f32, cx: &mut gpui::VisualTestContext| {
+        cx.simulate_event(MouseDownEvent {
+            position: handle,
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        let target = point(px(x), handle.y);
+        for position in [point(handle.x + px(8.), handle.y), target, target] {
+            cx.simulate_event(MouseMoveEvent {
+                position,
+                pressed_button: Some(MouseButton::Left),
+                modifiers: Modifiers::default(),
+            });
+        }
+        cx.simulate_event(MouseUpEvent {
+            position: target,
+            button: MouseButton::Left,
+            modifiers: Modifiers::default(),
+            click_count: 1,
+        });
+        cx.run_until_parked();
+        draw(cx);
+    };
+
+    let left = cx.debug_bounds("repos-list-pane").unwrap().origin.x;
+    drag_to(f32::from(left) + 380., cx);
+    let moved = cx.debug_bounds("repos-list-pane").unwrap().size.width;
+    assert!(moved != before, "the drag moved it: {moved:?}");
+    assert_eq!(moved, px(380.));
+    assert_eq!(
+        store.read_with(cx, |s, _| s.settings().repos.list_width),
+        Some(380.)
+    );
+
+    let handle_now = cx.debug_bounds("list-resize").unwrap().center();
+    assert!(handle_now.x < handle.x);
+}
+
+/// An integration that is off takes its tabs and its Overview card along, and
+/// anything still asking for one of those tabs lands on Overview.
 #[gpui::test]
 fn the_integration_switches_take_their_tabs_along(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "tabs-off", vec![entry("alpha", "/probe/alpha")]);
@@ -1504,26 +1932,26 @@ fn the_integration_switches_take_their_tabs_along(cx: &mut TestAppContext) {
     let cx = open_window(&store, cx);
     assert!(
         cx.debug_bounds("insp-github-open").is_none(),
-        "the rail's GitHub section leaves"
+        "the GitHub card leaves"
     );
 
     cx.update_entity(&store, |s: &mut Store, cx| {
-        s.open_sheet(WorkspaceTab::Issues, cx);
+        s.open_detail_tab(WorkspaceTab::Issues, cx);
     });
     draw(cx);
     draw(cx);
 
-    assert!(cx.debug_bounds("sheet-tab-issues").is_none());
-    assert!(cx.debug_bounds("sheet-tab-pulls").is_none());
-    assert!(cx.debug_bounds("sheet-tab-pipelines").is_none());
+    assert!(cx.debug_bounds("detail-tab-issues").is_none());
+    assert!(cx.debug_bounds("detail-tab-pulls").is_none());
+    assert!(cx.debug_bounds("detail-tab-pipelines").is_none());
     assert!(
-        cx.debug_bounds("sheet-tab-changes-panel").is_some(),
-        "a tab that is gone falls back to Changes"
+        cx.debug_bounds("detail-tab-overview-panel").is_some(),
+        "a tab that is gone falls back to Overview"
     );
 }
 
 #[gpui::test]
-fn the_rails_links_open_the_sheet_on_their_tab(cx: &mut TestAppContext) {
+fn the_overview_links_open_their_tab(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "links", vec![entry("alpha", "/probe/alpha")]);
     seed_github(&store, "/probe/alpha", 0, 4, cx);
     let cx = open_window(&store, cx);
@@ -1531,14 +1959,12 @@ fn the_rails_links_open_the_sheet_on_their_tab(cx: &mut TestAppContext) {
         click(cx, link);
         draw(cx);
         assert!(cx.debug_bounds(panel).is_some(), "{link} opens {panel}");
-        cx.simulate_keystrokes("escape");
-        draw(cx);
+        click(cx, "detail-tab-overview");
     };
 
-    visit(cx, "insp-commit", "sheet-tab-changes-panel");
-    visit(cx, "insp-readme", "sheet-tab-readme-panel");
-    visit(cx, "insp-github-open", "sheet-tab-issues-panel");
-    visit(cx, "insp-more-issues", "sheet-tab-issues-panel");
+    visit(cx, "insp-commit", "detail-tab-changes-panel");
+    visit(cx, "insp-github-open", "detail-tab-issues-panel");
+    visit(cx, "insp-more-issues", "detail-tab-issues-panel");
 }
 
 /// With no issues the rail's GitHub link goes where the content is.
@@ -1551,7 +1977,7 @@ fn the_github_link_prefers_the_tab_with_content(cx: &mut TestAppContext) {
     click(cx, "insp-github-open");
     draw(cx);
 
-    assert!(cx.debug_bounds("sheet-tab-pulls-panel").is_some());
+    assert!(cx.debug_bounds("detail-tab-pulls-panel").is_some());
 }
 
 #[gpui::test]
@@ -1578,7 +2004,7 @@ fn the_more_files_link_opens_changes(cx: &mut TestAppContext) {
     click(cx, "insp-more-files");
     draw(cx);
 
-    assert!(cx.debug_bounds("sheet-tab-changes-panel").is_some());
+    assert!(cx.debug_bounds("detail-tab-changes-panel").is_some());
 }
 
 /// Azure gets a rail section only for a repo with a project behind it.
@@ -1601,12 +2027,12 @@ fn the_rail_shows_azure_only_for_a_project(cx: &mut TestAppContext) {
 
     click(cx, "insp-azure-open");
     draw(cx);
-    assert!(cx.debug_bounds("sheet-tab-pipelines-panel").is_some());
+    assert!(cx.debug_bounds("detail-tab-pipelines-panel").is_some());
 }
 
 /// The wand's draft renders in place, and only Save touches the file.
 #[gpui::test]
-fn a_readme_draft_saves_or_discards_from_the_sheet(cx: &mut TestAppContext) {
+fn a_readme_draft_saves_or_discards_from_its_tab(cx: &mut TestAppContext) {
     let repo_dir = std::env::temp_dir().join(format!(
         "warp-station-probe-split-readme-{}",
         std::process::id()
@@ -1618,7 +2044,7 @@ fn a_readme_draft_saves_or_discards_from_the_sheet(cx: &mut TestAppContext) {
     let folder = repo_dir.to_string_lossy().to_string();
     let (store, _net_rx) = scratch_store(cx, "readme", vec![entry("alpha", &folder)]);
     let cx = open_window(&store, cx);
-    click(cx, "insp-readme");
+    click(cx, "detail-tab-readme");
     draw(cx);
     assert!(
         cx.debug_bounds("readme-save").is_none(),
@@ -1647,43 +2073,6 @@ fn a_readme_draft_saves_or_discards_from_the_sheet(cx: &mut TestAppContext) {
     );
 
     let _ = std::fs::remove_dir_all(&repo_dir);
-}
-
-#[gpui::test]
-fn dragging_the_top_edge_resizes_the_sheet(cx: &mut TestAppContext) {
-    let (store, _net_rx) = scratch_store(cx, "drag", vec![entry("alpha", "/probe/alpha")]);
-    let cx = open_window(&store, cx);
-    cx.simulate_keystrokes("c");
-    draw(cx);
-    draw(cx);
-
-    let start = cx
-        .debug_bounds("sheet-splitter")
-        .expect("the top edge renders")
-        .center();
-    let height = cx.read_entity(&store, |s, _| s.sheet_height);
-    let modifiers = gpui::Modifiers::default();
-
-    cx.simulate_mouse_down(start, gpui::MouseButton::Left, modifiers);
-    draw(cx);
-    let target = gpui::point(start.x, start.y - gpui::px(100.));
-    cx.simulate_mouse_move(target, gpui::MouseButton::Left, modifiers);
-    draw(cx);
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.sheet_height),
-        height + 100.,
-        "up makes it taller"
-    );
-
-    cx.simulate_mouse_up(target, gpui::MouseButton::Left, modifiers);
-    draw(cx);
-    cx.simulate_mouse_move(start, None, modifiers);
-    draw(cx);
-    assert_eq!(
-        cx.read_entity(&store, |s, _| s.sheet_height),
-        height + 100.,
-        "the release ends the drag"
-    );
 }
 
 #[gpui::test]
@@ -1742,8 +2131,8 @@ fn dialogs_render_over_the_split_layout(cx: &mut TestAppContext) {
         "the dialog opens"
     );
     assert!(
-        cx.debug_bounds("repos-inspector").is_some(),
-        "the detail rail stays behind the dialog"
+        cx.debug_bounds("repos-detail").is_some(),
+        "the detail pane stays behind the dialog"
     );
 
     cx.simulate_keystrokes("escape");
@@ -1752,4 +2141,185 @@ fn dialogs_render_over_the_split_layout(cx: &mut TestAppContext) {
         cx.debug_bounds("add-repo-overlay").is_none(),
         "Escape closes the dialog"
     );
+}
+
+// ---- repo tabs -------------------------------------------------------------
+
+fn two_repos(cx: &mut TestAppContext) -> (gpui::Entity<Store>, &mut gpui::VisualTestContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "repo-tabs",
+        vec![entry("alpha", "/probe/alpha"), entry("beta", "/probe/beta")],
+    );
+    // the channel stays open for the whole probe
+    std::mem::forget(net_rx);
+    let cx = open_window(&store, cx);
+    (store, cx)
+}
+
+fn active_tab(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Option<String> {
+    cx.read_entity(store, |s, _| s.active_repo_tab.clone())
+}
+
+#[gpui::test]
+fn a_repo_opens_in_a_tab_with_the_list_out_of_the_way(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    assert!(cx.debug_bounds("repos-list-pane").is_some());
+
+    click(cx, "detail-open-tab");
+    assert_eq!(active_tab(&store, cx).as_deref(), Some("/probe/alpha"));
+    assert!(
+        cx.debug_bounds("repo-strip-tab-0").is_some(),
+        "the tab shows"
+    );
+    assert!(
+        cx.debug_bounds("repos-list-pane").is_none(),
+        "the list leaves"
+    );
+    assert!(
+        cx.debug_bounds("detail-open-tab").is_none(),
+        "nothing is left to open"
+    );
+
+    click(cx, "repo-tab-home");
+    assert!(
+        cx.debug_bounds("repos-list-pane").is_some(),
+        "and comes back"
+    );
+    assert_eq!(cx.read_entity(&store, |s, _| s.repo_tabs.len()), 1);
+}
+
+#[gpui::test]
+fn each_view_keeps_its_own_detail_tab(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    click(cx, "detail-open-tab");
+    click(cx, "detail-tab-readme");
+    click(cx, "repo-tab-home");
+    assert!(
+        cx.debug_bounds("detail-tab-overview-panel").is_some(),
+        "Repositories stayed on Overview"
+    );
+
+    click(cx, "repo-strip-tab-0");
+    assert!(
+        cx.debug_bounds("detail-tab-readme-panel").is_some(),
+        "the tab stayed on its README"
+    );
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/alpha"));
+}
+
+#[gpui::test]
+fn closing_the_active_tab_hands_over_to_its_neighbour(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_repo_tab("/probe/alpha", cx);
+        s.open_repo_tab("/probe/beta", cx);
+    });
+    draw(cx);
+
+    click(cx, "repo-strip-close-1");
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "the last tab hands over to the one before it"
+    );
+    click(cx, "repo-strip-close-0");
+    assert_eq!(active_tab(&store, cx), None);
+    assert!(
+        cx.debug_bounds("repos-list-pane").is_some(),
+        "back on the list"
+    );
+}
+
+#[gpui::test]
+fn a_row_goes_to_its_tab_from_inside_a_tab_and_previews_otherwise(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_repo_tab("/probe/alpha", cx);
+        s.open_repo_tab("/probe/beta", cx);
+        s.pick_repo("/probe/alpha", cx);
+    });
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "a repo with a tab goes there"
+    );
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.close_repo_tab("/probe/beta", cx);
+        s.pick_repo("/probe/beta", cx);
+    });
+    assert_eq!(active_tab(&store, cx), None, "one without previews");
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/beta"));
+}
+
+#[gpui::test]
+fn a_repo_leaving_the_list_takes_its_tab_along(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_repo_tab("/probe/alpha", cx);
+        s.replace_repos(vec![entry("beta", "/probe/beta")]);
+        s.ensure_row_selected(cx);
+    });
+    draw(cx);
+    assert_eq!(cx.read_entity(&store, |s, _| s.repo_tabs.len()), 0);
+    assert_eq!(active_tab(&store, cx), None);
+    assert_eq!(selected(&store, cx).as_deref(), Some("/probe/beta"));
+}
+
+#[gpui::test]
+fn the_tab_keys_walk_the_strip(cx: &mut TestAppContext) {
+    let (store, cx) = two_repos(cx);
+    cx.simulate_keystrokes("ctrl-t");
+    draw(cx);
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "Ctrl+T opens the selected repo"
+    );
+    cx.simulate_keystrokes("ctrl-1");
+    draw(cx);
+    assert_eq!(active_tab(&store, cx), None, "Ctrl+1 is Repositories");
+    cx.simulate_keystrokes("ctrl-tab");
+    draw(cx);
+    assert!(active_tab(&store, cx).is_some(), "Ctrl+Tab walks the strip");
+    cx.simulate_keystrokes("ctrl-w");
+    draw(cx);
+    assert_eq!(cx.read_entity(&store, |s, _| s.repo_tabs.len()), 0);
+}
+
+#[gpui::test]
+fn the_list_toggle_follows_the_view_it_is_on(cx: &mut TestAppContext) {
+    let (_store, cx) = two_repos(cx);
+    click(cx, "list-toggle");
+    assert!(cx.debug_bounds("repos-list-pane").is_none(), "hidden");
+    click(cx, "list-toggle");
+    assert!(cx.debug_bounds("repos-list-pane").is_some(), "shown");
+
+    click(cx, "detail-open-tab");
+    assert!(
+        cx.debug_bounds("repos-list-pane").is_none(),
+        "a tab hides it"
+    );
+    click(cx, "list-toggle");
+    assert!(
+        cx.debug_bounds("repos-list-pane").is_some(),
+        "and the toggle brings it back"
+    );
+}
+
+#[gpui::test]
+fn the_rail_moves_between_sections(cx: &mut TestAppContext) {
+    let (_store, cx) = two_repos(cx);
+    click(cx, "rail-tools");
+    assert!(cx.debug_bounds("tool-page").is_some(), "Tools");
+    assert!(
+        cx.debug_bounds("repo-tab-strip").is_none(),
+        "the strip belongs to Repos"
+    );
+    click(cx, "rail-settings");
+    assert!(cx.debug_bounds("settings-detail").is_some(), "Settings");
+    click(cx, "rail-summary");
+    assert!(cx.debug_bounds("summary-button").is_some(), "Summary");
+    click(cx, "rail-repos");
+    assert!(cx.debug_bounds("repos-list-pane").is_some(), "Repos");
 }

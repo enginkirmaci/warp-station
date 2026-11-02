@@ -102,3 +102,111 @@ pub fn start(_configured: &str) -> Result<(), String> {
 pub fn stop() -> Result<(), String> {
     Ok(())
 }
+
+/// One layout the engine reads from `~/.warp/snapit/layouts`, reduced to what a
+/// preview draws: its design size and its split lines.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SnapLayout {
+    pub name: String,
+    pub width: f32,
+    pub height: f32,
+    pub lines: Vec<SnapLine>,
+}
+
+/// A split: zero wide or zero high, in the layout's own units.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SnapLine {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// `value` is "x,y" as the engine writes it.
+fn pair(value: Option<&serde_json::Value>) -> Option<(f32, f32)> {
+    let (first, second) = value?.as_str()?.split_once(',')?;
+    Some((first.trim().parse().ok()?, second.trim().parse().ok()?))
+}
+
+/// The file's shape belongs to warp-snapit, and a line it can't read is skipped
+/// rather than losing the layout. The .NET app wrote these with a BOM.
+fn parse_layout(json: &str) -> Option<SnapLayout> {
+    let value: serde_json::Value =
+        serde_json::from_str(json.trim_start_matches('\u{feff}')).ok()?;
+    let (width, height) = pair(value.get("Size"))?;
+    let lines = value
+        .get("LayoutLines")
+        .and_then(|lines| lines.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|line| {
+            let (x, y) = pair(line.get("Point"))?;
+            let (width, height) = pair(line.get("Size"))?;
+            Some(SnapLine {
+                x,
+                y,
+                width,
+                height,
+            })
+        })
+        .collect();
+    Some(SnapLayout {
+        name: value.get("Name")?.as_str()?.to_string(),
+        width,
+        height,
+        lines,
+    })
+}
+
+/// Every layout in `folder`, by name.
+pub fn layouts_in(folder: &std::path::Path) -> Vec<SnapLayout> {
+    let mut layouts: Vec<SnapLayout> = std::fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+                .filter_map(|path| std::fs::read_to_string(path).ok())
+                .filter_map(|json| parse_layout(&json))
+                .collect()
+        })
+        .unwrap_or_default();
+    layouts.sort_by(|a, b| a.name.cmp(&b.name));
+    layouts
+}
+
+/// The layouts folder warp-snapit reads.
+pub fn layouts_folder() -> std::path::PathBuf {
+    crate::paths::AppPaths::user_data_root()
+        .join("snapit")
+        .join("layouts")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LAYOUT: &str = "\u{feff}{
+        \"Name\": \"3 Part Horizontal\",
+        \"Size\": \"2752,1104\",
+        \"LayoutLines\": [
+            {\"Point\": \"917.5,0\", \"Size\": \"0,1104\", \"SplitDirection\": \"Vertical\"},
+            {\"Point\": \"oops\", \"Size\": \"0,1104\"}
+        ]
+    }";
+
+    #[test]
+    fn a_layout_reads_its_size_and_lines() {
+        let layout = parse_layout(LAYOUT).expect("a layout");
+
+        assert_eq!(layout.name, "3 Part Horizontal");
+        assert_eq!((layout.width, layout.height), (2752.0, 1104.0));
+        assert_eq!(layout.lines.len(), 1, "the unreadable line is skipped");
+        assert_eq!(layout.lines[0].x, 917.5);
+    }
+
+    #[test]
+    fn a_file_without_a_size_is_not_a_layout() {
+        assert_eq!(parse_layout(r#"{"Name": "x"}"#), None);
+    }
+}

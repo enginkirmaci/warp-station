@@ -1,4 +1,4 @@
-//! The Clipboard Password drawer: stores a password (Base64 over UTF-8 in the
+//! The Clipboard Password page: stores a password (Base64 over UTF-8 in the
 //! settings file — the exact legacy format) and copies it back via the
 //! Copy button or the system-wide Ctrl+Shift+V (net.rs registers the grab).
 
@@ -20,7 +20,6 @@ pub struct ClipboardPasswordDrawer {
     /// A finished save asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
-    on_close: crate::ui::DrawerOnClose,
 }
 
 /// The stored password decoded, ready for the clipboard.
@@ -77,17 +76,7 @@ impl ClipboardPasswordDrawer {
             status: status_line(has_stored).to_string(),
             clear_armed: None,
             pending_clear: false,
-            on_close: None,
         }
-    }
-
-    /// Wires the host window's close action into the shared drawer header.
-    pub fn with_on_close(
-        mut self,
-        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
-    ) -> Self {
-        self.on_close = Some(std::rc::Rc::new(handler));
-        self
     }
 
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -140,7 +129,7 @@ impl Render for ClipboardPasswordDrawer {
                 .update(cx, |state, cx| state.set_value(String::new(), window, cx));
         }
         let stored = stored_password(&self.store.read(cx).settings()).is_some();
-        // the confirm state auto-expires so the drawer never sits in a
+        // the confirm state auto-expires so the page never sits in a
         // destructive "armed" look after the user has moved on
         let clear_armed = self
             .clear_armed
@@ -152,21 +141,16 @@ impl Render for ClipboardPasswordDrawer {
 
         div()
             .id("clipboard-password-drawer")
-            .w(px(420.))
-            .h_full()
-            .bg(theme::POPUP)
-            .border_l_1()
-            .border_color(theme::HAIRLINE)
-            .shadow_lg()
-            .p_3()
+            .size_full()
+            .max_w(px(warpui_kit_core::shell::READING_WIDTH + 2. * warpui_kit_core::shell::DETAIL_PADDING))
+            .p(px(warpui_kit_core::shell::DETAIL_PADDING))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .occlude()
-            .child(crate::ui::drawer_header(
+            .child(crate::ui::tool_header(
                 "Clipboard Password",
                 "Copy the stored password from anywhere with Ctrl+Shift+V.",
-                self.on_close.clone(),
             ))
             .child(
                 div()

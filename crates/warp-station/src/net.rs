@@ -5,11 +5,11 @@
 //! what a pass needs), so results can never race a stale view of the list.
 
 use async_channel::{Receiver, Sender};
+use std::path::{Path, PathBuf};
 use warp_station_core::repo_store::{self, RepoEntry, StatusProbe};
 use warp_station_core::scan;
 use warp_station_core::settings::ReposSettings;
 use warp_station_core::warp::ModelChoice;
-use std::path::{Path, PathBuf};
 
 pub enum NetCommand {
     /// The listing scan: direct children of each scan root, user tags and
@@ -76,10 +76,27 @@ pub enum NetCommand {
         folders: Vec<PathBuf>,
         gh_exe: String,
     },
-    /// The rail's repo details.
+    /// The Overview tab's repo details.
     GitHubDetails {
         folder: PathBuf,
         gh_exe: String,
+    },
+    /// The closed pull requests or issues, for the tab that shows them.
+    GitHubClosed {
+        folder: PathBuf,
+        gh_exe: String,
+        pull_requests: bool,
+    },
+    /// One pull request's full view.
+    GitHubPull {
+        folder: PathBuf,
+        gh_exe: String,
+        number: u64,
+    },
+    GitHubMerge {
+        folder: PathBuf,
+        gh_exe: String,
+        number: u64,
     },
     /// The Azure DevOps activity pass (2-way parallel REST probes).
     AzurePass {
@@ -160,7 +177,7 @@ pub enum WandKind {
     Readme,
 }
 
-/// Every state-changing git operation the rail and the sheet drive. The label rides
+/// Every state-changing git operation the detail pane drives. The label rides
 /// the result for surfacing.
 #[derive(Clone, Debug)]
 pub enum GitAction {
@@ -192,6 +209,34 @@ pub enum GitAction {
     Sync,
     /// `git revert --no-edit` on one commit (the drill-down's Revert).
     Revert(String),
+}
+
+/// The word a running git action's button shows. `label` is [`GitAction::label`].
+pub fn git_working_word(label: &str) -> &'static str {
+    match label {
+        "fetch" => "Fetching…",
+        "pull" => "Pulling…",
+        "push" => "Pushing…",
+        "publish" => "Publishing…",
+        "sync" => "Syncing…",
+        "commit" => "Committing…",
+        "checkout" => "Switching…",
+        "revert" => "Reverting…",
+        _ => "Working…",
+    }
+}
+
+/// The word the button holds for a moment once the action landed.
+pub fn git_done_word(label: &str) -> &'static str {
+    match label {
+        "fetch" => "Fetched",
+        "pull" => "Pulled",
+        "push" => "Pushed",
+        "publish" => "Published",
+        "sync" => "Synced",
+        "commit" => "Committed",
+        _ => "Done",
+    }
 }
 
 impl GitAction {
@@ -345,6 +390,21 @@ pub enum UiEvent {
     GitHubDetailsLoaded {
         folder: String,
         details: Option<warp_station_core::github::GitHubRepoDetails>,
+    },
+    GitHubClosedLoaded {
+        folder: String,
+        pull_requests: bool,
+        items: Option<Vec<warp_station_core::github::GitHubItem>>,
+    },
+    GitHubPullLoaded {
+        folder: String,
+        number: u64,
+        pull: Option<warp_station_core::github::GitHubPull>,
+    },
+    GitHubMerged {
+        folder: String,
+        number: u64,
+        result: Result<(), String>,
     },
     AzureSettled {
         items: Vec<(String, warp_station_core::azure::AzureSnapshot)>,
@@ -546,7 +606,7 @@ impl WorkspaceReads {
 }
 
 /// The command loop runs one command at a time and a pass holds it for as long
-/// as the pass takes, so the reads the rail waits on must not queue behind it.
+/// as the pass takes, so the reads Overview waits on must not queue behind it.
 /// This takes them off the channel as they arrive and hands everything else on
 /// to the loop, in order.
 fn spawn_read_intake(
@@ -584,10 +644,64 @@ fn spawn_read_intake(
                         if newest.load(Ordering::SeqCst) != generation {
                             return;
                         }
-                        let details = warp_station_core::github::repo_details(&folder, &gh_exe).await;
+                        let details =
+                            warp_station_core::github::repo_details(&folder, &gh_exe).await;
                         let _ = evt_tx.send_blocking(UiEvent::GitHubDetailsLoaded {
                             folder: folder.to_string_lossy().to_string(),
                             details,
+                        });
+                    });
+                }
+                NetCommand::GitHubClosed {
+                    folder,
+                    gh_exe,
+                    pull_requests,
+                } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let items = warp_station_core::github::closed_items(
+                            &folder,
+                            &gh_exe,
+                            pull_requests,
+                        )
+                        .await;
+                        let _ = evt_tx.send_blocking(UiEvent::GitHubClosedLoaded {
+                            folder: folder.to_string_lossy().to_string(),
+                            pull_requests,
+                            items,
+                        });
+                    });
+                }
+                NetCommand::GitHubPull {
+                    folder,
+                    gh_exe,
+                    number,
+                } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let pull =
+                            warp_station_core::github::pull_request(&folder, &gh_exe, number).await;
+                        let _ = evt_tx.send_blocking(UiEvent::GitHubPullLoaded {
+                            folder: folder.to_string_lossy().to_string(),
+                            number,
+                            pull,
+                        });
+                    });
+                }
+                NetCommand::GitHubMerge {
+                    folder,
+                    gh_exe,
+                    number,
+                } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let result =
+                            warp_station_core::github::merge_pull_request(&folder, &gh_exe, number)
+                                .await;
+                        let _ = evt_tx.send_blocking(UiEvent::GitHubMerged {
+                            folder: folder.to_string_lossy().to_string(),
+                            number,
+                            result,
                         });
                     });
                 }
@@ -611,7 +725,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
         tokio::sync::Mutex<std::collections::HashMap<String, async_channel::Sender<()>>>,
     > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
-    // the NuGet watch service outlives the drawer; its snapshots forward as
+    // the NuGet watch service outlives its page; its snapshots forward as
     // UiEvents on the same bridge
     let (nuget_events, nuget_receiver) =
         async_channel::unbounded::<warp_station_core::nuget::NugetSnapshot>();
@@ -666,16 +780,20 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 });
             }
             NetCommand::FetchAll { folders } => {
-                warp_station_core::refresh::throttled_pass(folders.clone(), 3, |folder| async move {
-                    let outcome = warp_station_core::git::cli::fetch(&folder).await;
-                    if !outcome.ok {
-                        tracing::warn!(
-                            "auto fetch failed in {}: {}",
-                            folder.display(),
-                            outcome.error.as_deref().unwrap_or("git rejected it")
-                        );
-                    }
-                })
+                warp_station_core::refresh::throttled_pass(
+                    folders.clone(),
+                    3,
+                    |folder| async move {
+                        let outcome = warp_station_core::git::cli::fetch(&folder).await;
+                        if !outcome.ok {
+                            tracing::warn!(
+                                "auto fetch failed in {}: {}",
+                                folder.display(),
+                                outcome.error.as_deref().unwrap_or("git rejected it")
+                            );
+                        }
+                    },
+                )
                 .await;
                 // the settled probes refresh the ahead/behind badges through
                 // the same burst-apply the manual passes use
@@ -886,7 +1004,8 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     match op {
                         TemplateOp::Read => {}
                         TemplateOp::Write(content) => {
-                            if let Err(err) = warp_station_core::opencode::write_template(&id, &content)
+                            if let Err(err) =
+                                warp_station_core::opencode::write_template(&id, &content)
                             {
                                 tracing::warn!("template write failed: {err}");
                             }
@@ -1036,7 +1155,11 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let _ = evt_tx.send_blocking(UiEvent::AzureSettled { items });
             }
             // the intake answers these before they reach this queue
-            NetCommand::GitHubDetails { .. } | NetCommand::LoadChanges { .. } => {}
+            NetCommand::GitHubDetails { .. }
+            | NetCommand::GitHubClosed { .. }
+            | NetCommand::GitHubPull { .. }
+            | NetCommand::GitHubMerge { .. }
+            | NetCommand::LoadChanges { .. } => {}
             NetCommand::LoadHistory { folder } => {
                 let (commits, unpushed) = tokio::task::spawn_blocking({
                     let folder = folder.clone();

@@ -4,14 +4,16 @@
 
 #![cfg(unix)]
 
-use warp_station::net::{NetCommand, UiEvent, spawn_net_thread};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use warp_station::net::{NetCommand, UiEvent, spawn_net_thread};
 
 fn scratch_dir(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("warp-station-probe-net-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "warp-station-probe-net-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch dir");
     dir

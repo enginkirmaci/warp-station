@@ -1,9 +1,9 @@
 //! File logging: readable lines into a daily-rolling file under ~/.warp/logs.
 //! Best effort — an unwritable home keeps stderr logging.
 
-use warp_station_core::paths::AppPaths;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use warp_station_core::paths::AppPaths;
 
 pub fn initialize() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let file_layer = std::fs::create_dir_all(AppPaths::logs_dir()).ok().map(|_| {

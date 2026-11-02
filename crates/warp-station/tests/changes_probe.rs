@@ -2,10 +2,10 @@
 //! loaded with the live repository's actual snapshot, branches and history —
 //! two draws without a panic means the view's element tree is sound.
 
-use warp_station::store::Store;
-use warp_station::ui::window::MainWindow;
 use gpui::prelude::*;
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
+use warp_station::store::Store;
+use warp_station::ui::window::MainWindow;
 
 /// Serializes the HOME-swapping new-branch probe against its siblings.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -103,7 +103,9 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
         store.select_repo(&here.to_string_lossy(), cx);
         store.set_changes(warp_station_core::git::read::change_snapshot(&here));
         store.changes_loaded_for = Some(here.to_string_lossy().to_string());
-        store.set_history(warp_station_core::git::read::history_commits(&here, 30).unwrap_or_default());
+        store.set_history(
+            warp_station_core::git::read::history_commits(&here, 30).unwrap_or_default(),
+        );
         store.unpushed = warp_station_core::git::read::unpushed_hashes(&here);
         store
     });
@@ -118,7 +120,9 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     // list pane
-    view_handle.update(cx, |view, cx| view.open_history(cx));
+    store.update(cx, |s: &mut Store, cx| {
+        s.open_detail_tab(warp_station::store::WorkspaceTab::History, cx)
+    });
     cx.run_until_parked();
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
@@ -138,6 +142,10 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("commit-subject").is_some(),
+        "the detail names the commit it shows"
+    );
 }
 
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
@@ -194,7 +202,7 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
             github_issue_count: 0,
         }]);
         store.select_repo("/probe/alpha", cx);
-        store.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         store.changes_loaded_for = Some("/probe/alpha".into());
         store.branches = vec![
             warp_station_core::model::GitBranchRef {
@@ -250,11 +258,9 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         "the arm click must not run git"
     );
 
-    // a press elsewhere in the sheet closes the menu and disarms — the reopened
+    // a press elsewhere in the tab closes the menu and disarms — the reopened
     // menu starts from a single-click arm again
-    let sheet = cx
-        .debug_bounds("workspace-sheet")
-        .expect("the sheet renders");
+    let sheet = cx.debug_bounds("changes-diff").expect("the diff renders");
     cx.simulate_click(sheet.origin + point(px(4.), px(20.)), Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
@@ -287,7 +293,7 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         "the delete fires, not a checkout: {action:?}"
     );
     assert!(
-        cx.read_entity(&store, |s, _| s.git_busy),
+        cx.read_entity(&store, |s, _| s.git_busy()),
         "run_git marked the rail busy"
     );
 }
@@ -302,8 +308,10 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home =
-        std::env::temp_dir().join(format!("warp-station-new-branch-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-new-branch-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; serialized against the siblings by HOME_ENV_LOCK
@@ -343,7 +351,7 @@ fn branch_new_branch_form_creates_and_closes(cx: &mut TestAppContext) {
             github_issue_count: 0,
         }]);
         store.select_repo("/probe/alpha", cx);
-        store.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         store.changes_loaded_for = Some("/probe/alpha".into());
         store.branches = vec![warp_station_core::model::GitBranchRef {
             name: "main".into(),

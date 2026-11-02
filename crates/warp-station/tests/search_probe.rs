@@ -3,12 +3,12 @@
 //! to the field (selecting the term so typing replaces it), and a focused
 //! field keeps its own characters.
 
+use gpui::{TestAppContext, prelude::*};
+use std::path::PathBuf;
 use warp_station::store::{GlobalSearchHit, Store};
 use warp_station::ui::window::MainWindow;
 use warp_station_core::code_search::CodeHit;
 use warp_station_core::repo_store::RepoEntry;
-use gpui::{TestAppContext, prelude::*};
-use std::path::PathBuf;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
     RepoEntry {
@@ -219,17 +219,6 @@ fn titlebar_side_columns_stay_balanced(cx: &mut TestAppContext) {
         "side columns must stay equal for a centered search \
          (brand {brand:?} vs right {right:?})"
     );
-    assert!(
-        cx.debug_bounds("summary-button").is_some(),
-        "the summary pill renders in the titlebar"
-    );
-    let summary = cx.debug_bounds("summary-button").expect("summary pill");
-    assert!(
-        summary.origin.x + summary.size.width <= brand.origin.x + brand.size.width + gpui::px(1.),
-        "the summary pill must fit the brand column (pill ends at {}, column at {})",
-        summary.origin.x + summary.size.width,
-        brand.origin.x + brand.size.width
-    );
 }
 
 /// The whole titlebar must be a drag surface, not just the brand or the
@@ -276,8 +265,8 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
     for selector in [
         "titlebar-brand",
         "titlebar-right",
-        "tools-toggle",
-        "status-pill",
+        "list-toggle",
+        "notes-toggle",
     ] {
         let bounds = wcx
             .debug_bounds(selector)
@@ -290,10 +279,10 @@ fn titlebar_bar_is_a_full_width_drag_surface(cx: &mut TestAppContext) {
     }
 }
 
-/// The titlebar's right section reads left to right: the Notes button, the
-/// services pill, the Tools pill, then the window controls.
+/// The titlebar's right section reads left to right: the list toggle, the
+/// sibling apps, then the window controls.
 #[gpui::test]
-fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext) {
+fn titlebar_right_orders_list_apps_then_window_buttons(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
@@ -320,30 +309,17 @@ fn titlebar_right_orders_chips_tools_then_window_buttons(cx: &mut TestAppContext
     draw(cx);
     let _ = std::fs::remove_file(&scratch);
 
-    let pill = cx.debug_bounds("status-pill").expect("services pill");
-    let tools = cx.debug_bounds("tools-toggle").expect("tools button");
+    let list = cx.debug_bounds("list-toggle").expect("list toggle");
+    let notes = cx.debug_bounds("notes-toggle").expect("notes button");
     let minimize = cx.debug_bounds("minimize-window").expect("minimize button");
 
     assert!(
-        tools.right() <= pill.origin.x,
-        "the tools pill sits left of the services pill ({:?} vs {:?})",
-        tools,
-        pill
+        list.right() <= notes.origin.x,
+        "the list toggle sits left of the apps ({list:?} vs {notes:?})"
     );
     assert!(
-        pill.right() <= minimize.origin.x,
-        "the window controls come after the services pill ({:?} vs {:?})",
-        pill,
-        minimize
-    );
-
-    // a control above the full-bar drag region still takes its click
-    cx.simulate_click(tools.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    draw(cx);
-    assert!(
-        cx.debug_bounds("tools-menu").is_some(),
-        "the tools button opens its menu through the drag region"
+        notes.right() <= minimize.origin.x,
+        "the apps sit left of the window controls ({notes:?} vs {minimize:?})"
     );
 }
 

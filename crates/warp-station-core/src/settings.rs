@@ -110,6 +110,13 @@ pub struct ReposSettings {
     pub code_search_executable: Option<String>,
     pub max_scan_depth: i32,
     pub branch_name_prefix: String,
+    /// The Issues tab's sort: "updated", "newest", "oldest" or "comments"; None
+    /// = updated.
+    pub issue_sort: Option<String>,
+    /// The repository tabs, left to right: folder paths. None = no tabs.
+    pub repo_tabs: Option<Vec<String>>,
+    /// The list pane's width in layout pixels; None = the shell's default.
+    pub list_width: Option<f32>,
 }
 
 impl Default for ReposSettings {
@@ -145,6 +152,9 @@ impl Default for ReposSettings {
             code_search_executable: None,
             max_scan_depth: 3,
             branch_name_prefix: "users/enginkirmaci".into(),
+            issue_sort: None,
+            repo_tabs: None,
+            list_width: None,
         }
     }
 }
@@ -328,6 +338,8 @@ pub struct GeneralSettings {
     pub show_tooltips: bool,
     /// "compact" | "normal" | "large" text-size variant; None = normal.
     pub font_scale: Option<String>,
+    /// Turns the family's motion off. The busy words stay.
+    pub reduce_motion: bool,
 }
 
 impl Default for GeneralSettings {
@@ -338,6 +350,7 @@ impl Default for GeneralSettings {
             notes_store_path: String::new(),
             show_tooltips: true,
             font_scale: None,
+            reduce_motion: false,
         }
     }
 }

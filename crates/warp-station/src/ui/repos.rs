@@ -1,18 +1,24 @@
-//! The Repos page: the pane head (totals, scope, tag chips, sort, the toolbar
-//! actions), the list and the detail rail beside it, and the key hints along
-//! the bottom. Everything reads the store at render time, so filter, sort and
-//! status changes land with the next frame.
+//! The Repos section: the strip of repo tabs over the list and detail panes.
+//! The list pane's head holds the totals, the list's actions, its scope, tags
+//! and sort. A repo tab hides the list so the detail takes the full width.
+//! Everything reads the store at render time, so filter, sort and status
+//! changes land with the next frame.
 
 use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
+use crate::ui::detail::{DetailProps, DetailViews};
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
-use crate::ui::inspector::RepoMenu;
-use warp_station_core::settings::RepoSortMode;
+use crate::ui::overview::RepoMenu;
 use gpui::prelude::*;
-use gpui::{App, Context, Entity, FontWeight, MouseButton, Pixels, SharedString, Window, div, px};
+use gpui::{
+    App, Context, DragMoveEvent, Entity, FontWeight, MouseButton, ScrollHandle, SharedString,
+    Window, div, px,
+};
 use gpui_kit::component::input::{InputEvent, InputState};
+use warp_station_core::settings::RepoSortMode;
+use warpui_kit_core::{motion, shell};
 
 /// The pane head's running totals over the live (non-archived) list.
 #[derive(Default)]
@@ -28,18 +34,34 @@ struct ListStats {
 pub struct ReposPage {
     pub store: Entity<Store>,
     pub dialog: Option<Dialog>,
-    /// The rail's inline tag editor: the flag is set by the "+ tag" chip and
-    /// the input is created on the next frame, where the window is in hand.
+    /// The tabs' views.
+    pub views: DetailViews,
+    /// The Status card's inline tag editor: the flag is set by the Add tag
+    /// link and the input is created on the next frame, where the window is
+    /// in hand.
     tag_editing: bool,
     tag_draft: Option<Entity<InputState>>,
-    /// The rail header's "⋯" menu while it is open.
+    /// The detail head's "⋯" menu while it is open.
     repo_menu: Option<RepoMenu>,
+    /// The split button's launcher menu.
+    launch_menu_open: bool,
     /// The list head's sort menu.
     sort_menu_open: bool,
+    /// The list head's tag menu, and what it lists: the tags with a live repo.
+    tag_menu_open: bool,
+    tag_counts: Vec<(String, usize)>,
+    /// Ctrl+\\ on the Repositories tab: the list is out of the way.
+    list_hidden: bool,
+    /// Ctrl+\\ inside a repo tab: the list is back.
+    list_in_tab: bool,
+    /// Keeps the active tab in view when the strip overflows.
+    strip_scroll: ScrollHandle,
+    strip_active: Option<usize>,
 }
 
 impl ReposPage {
-    pub fn new(store: Entity<Store>, cx: &mut Context<Self>) -> Self {
+    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let views = DetailViews::new(&store, window, cx);
         cx.observe(&store, |this, store, cx| {
             store.update(cx, |s, cx| s.ensure_row_selected(cx));
             // the menu belongs to the repo it opened on
@@ -58,16 +80,24 @@ impl ReposPage {
         Self {
             store,
             dialog: None,
+            views,
             tag_editing: false,
             tag_draft: None,
             repo_menu: None,
+            launch_menu_open: false,
             sort_menu_open: false,
+            tag_menu_open: false,
+            tag_counts: Vec::new(),
+            list_hidden: false,
+            strip_scroll: ScrollHandle::new(),
+            strip_active: None,
+            list_in_tab: false,
         }
     }
 }
 
 impl ReposPage {
-    /// The rail's "⋯" menu.
+    /// The head's "⋯" menu.
     pub fn toggle_repo_menu(&mut self, folder: &str, cx: &mut Context<Self>) {
         self.repo_menu = match self.repo_menu {
             Some(_) => None,
@@ -77,6 +107,38 @@ impl ReposPage {
             }),
         };
         cx.notify();
+    }
+
+    pub fn toggle_launch_menu(&mut self, cx: &mut Context<Self>) {
+        self.launch_menu_open = !self.launch_menu_open;
+        cx.notify();
+    }
+
+    /// Ctrl+\\ and the title bar's toggle: the list follows the view it is on.
+    pub fn toggle_list(&mut self, cx: &mut Context<Self>) {
+        if self.store.read(cx).active_repo_tab.is_some() {
+            self.list_in_tab = !self.list_in_tab;
+        } else {
+            self.list_hidden = !self.list_hidden;
+        }
+        cx.notify();
+    }
+
+    /// Whether the list pane draws. A repo tab hides it unless asked back; a
+    /// wide tab hides it on a narrow window.
+    fn list_visible(&self, window: &Window, cx: &App) -> bool {
+        let store = self.store.read(cx);
+        let wide_tab = matches!(
+            store.active_detail_tab(),
+            crate::store::WorkspaceTab::Changes | crate::store::WorkspaceTab::History
+        );
+        let compact = window.viewport_size().width < px(shell::scaled(shell::COMPACT_WINDOW_WIDTH));
+        let wanted = if store.active_repo_tab.is_some() {
+            self.list_in_tab
+        } else {
+            !self.list_hidden
+        };
+        wanted && !(wide_tab && compact)
     }
 
     pub fn close_repo_menu(&mut self, cx: &mut Context<Self>) {
@@ -95,25 +157,35 @@ impl ReposPage {
 
     fn toggle_sort_menu(&mut self, cx: &mut Context<Self>) {
         self.sort_menu_open = !self.sort_menu_open;
+        self.tag_menu_open = false;
         cx.notify();
     }
 
     /// An outside press closes whichever of the page's menus is open.
     pub fn close_popups(&mut self, cx: &mut Context<Self>) {
         self.close_repo_menu(cx);
-        if self.sort_menu_open {
+        if self.sort_menu_open || self.tag_menu_open || self.launch_menu_open {
             self.sort_menu_open = false;
+            self.tag_menu_open = false;
+            self.launch_menu_open = false;
             cx.notify();
         }
+        self.views
+            .changes
+            .update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu);
     }
 
     /// Whether something sits on top of the list right now, so the window's
     /// row keymap stays out of it.
     pub fn layer_open(&self) -> bool {
-        self.dialog.is_some() || self.repo_menu.is_some() || self.sort_menu_open
+        self.dialog.is_some()
+            || self.repo_menu.is_some()
+            || self.sort_menu_open
+            || self.tag_menu_open
+            || self.launch_menu_open
     }
 
-    /// The "+ tag" chip asks for the inline editor; the input itself is
+    /// The Add tag link asks for the inline editor; the input itself is
     /// created on the next frame, where the window is available.
     pub fn begin_tag_edit(&mut self, cx: &mut Context<Self>) {
         self.tag_editing = true;
@@ -163,7 +235,7 @@ impl ReposPage {
             cx.notify();
             return true;
         }
-        // the rail's inline editors close on Escape before anything else
+        // the inline editor closes on Escape before anything else
         if self.tag_editing || self.tag_draft.is_some() {
             self.tag_editing = false;
             self.tag_draft = None;
@@ -174,12 +246,23 @@ impl ReposPage {
             cx.notify();
             return true;
         }
-        if self.sort_menu_open {
+        if self.sort_menu_open || self.tag_menu_open || self.launch_menu_open {
             self.sort_menu_open = false;
+            self.tag_menu_open = false;
+            self.launch_menu_open = false;
             cx.notify();
             return true;
         }
-        false
+        let tab = self.store.read(cx).active_detail_tab();
+        if self.store.read(cx).open_pull.is_none() && self.views.dismiss_list(tab, cx) {
+            return true;
+        }
+        if self.store.update(cx, |s, cx| s.close_pull_request(cx)) {
+            return true;
+        }
+        self.views
+            .changes
+            .update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu)
     }
 
     /// Sends the Add-Repositories dialog's deep scan.
@@ -272,6 +355,10 @@ impl ReposPage {
         let destination = dialog.destination.read(cx).value().to_string();
         dialog.busy = true;
         dialog.error = None;
+        self.store.update(cx, |s, cx| {
+            s.cloning.push(name.clone());
+            cx.notify();
+        });
         let _ = self
             .store
             .read(cx)
@@ -330,69 +417,208 @@ impl Render for ReposPage {
             }
         }
         self.ensure_tag_editor(window, cx);
-        let list_w = window.viewport_size().width - px(crate::ui::inspector::RAIL_W);
-        let toolbar = self.render_toolbar(list_w, cx);
-        let sort_menu = self.render_sort_menu(cx);
-        let mut page = {
+        let list_width = self.store.read(cx).list_width();
+        let list_visible = self.list_visible(window, cx);
+        let strip = self.render_strip(cx);
+        let page = cx.entity();
+        let list = list_visible.then(|| {
+            let head = self.render_list_head(cx);
+            let sort_menu = self.render_sort_menu(cx);
+            let tag_menu = self.render_tag_menu(cx);
             let store = self.store.read(cx);
-            let list = crate::ui::repos_list::render(store, &self.store);
-            let footer = key_hints(store);
-            let page = cx.entity();
-            let tag_draft = self.tag_draft.clone();
-            let repo_menu = self.repo_menu.as_ref();
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .min_h_0()
+            shell::list_pane(list_width)
                 .relative()
+                .debug_selector(|| "repos-list-pane".into())
+                .child(head)
                 .child(
                     div()
                         .flex_1()
                         .min_h_0()
-                        .flex()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .min_h_0()
-                                .child(toolbar)
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_h_0()
-                                        .relative()
-                                        .child(list)
-                                        // last, so it paints over the rows
-                                        .children(sort_menu),
-                                ),
-                        )
-                        .child(crate::ui::inspector::render(
-                            store,
-                            &self.store,
-                            &page,
-                            tag_draft.as_ref(),
-                            repo_menu,
-                        )),
+                        .relative()
+                        .child(crate::ui::repos_list::render(store, &self.store))
+                        // last, so they paint over the rows
+                        .children(sort_menu)
+                        .children(tag_menu),
                 )
-                .child(footer)
+                .child(resize_handle())
+        });
+        let detail = {
+            let store = self.store.read(cx);
+            crate::ui::detail::render(
+                store,
+                &self.store,
+                &page,
+                &self.views,
+                DetailProps {
+                    tag_draft: self.tag_draft.as_ref(),
+                    repo_menu: self.repo_menu.as_ref(),
+                    launch_menu_open: self.launch_menu_open,
+                },
+            )
         };
+        let mut stage = shell::stage().relative().child(strip).child(
+            shell::panes()
+                .on_drag_move(
+                    cx.listener(|this, event: &DragMoveEvent<ListResize>, _, cx| {
+                        let width = f32::from(event.event.position.x - event.bounds.left());
+                        this.store.update(cx, |s, cx| s.set_list_width(width, cx));
+                    }),
+                )
+                .on_drop(cx.listener(|this, _: &ListResize, _, cx| {
+                    this.store.read(cx).save_list_width();
+                }))
+                .children(list)
+                .child(detail),
+        );
         // a dialog is a layer over the page
         if let Some(dialog) = &mut self.dialog {
-            page = page.child(dialog.render(window, cx));
+            stage = stage.child(dialog.render(window, cx));
         }
-        page
+        stage
     }
 }
 
 impl ReposPage {
-    fn render_toolbar(
-        &mut self,
-        viewport_width: Pixels,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
+    /// The strip of opened repositories over the panes.
+    fn render_strip(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let store = self.store.read(cx);
+        let active = store.active_repo_tab.clone();
+        // the strip's children count from Repositories
+        let active_ix = active
+            .as_ref()
+            .and_then(|folder| store.repo_tabs.iter().position(|tab| &tab.folder == folder))
+            .map(|ix| ix + 1);
+        if std::mem::replace(&mut self.strip_active, active_ix) != active_ix {
+            self.strip_scroll.scroll_to_item(active_ix.unwrap_or(0));
+        }
+        let home_target = self.store.clone();
+        let mut strip = shell::tab_strip()
+            .id("repo-tab-strip")
+            .debug_selector(|| "repo-tab-strip".into())
+            .overflow_x_scroll()
+            .track_scroll(&self.strip_scroll)
+            .child(
+                shell::strip_tab(
+                    "repo-tab-home",
+                    "Repositories",
+                    active.is_none(),
+                    theme::SURFACE,
+                )
+                .debug_selector(|| "repo-tab-home".into())
+                .flex_shrink_0()
+                .on_click(move |_, _, cx| {
+                    home_target.update(cx, |s, cx| s.show_repo_tab(None, cx));
+                })
+                .child(icon(
+                    "icons/icon-folder.svg",
+                    px(theme::icon_small()),
+                    theme::TEXT_DIM,
+                ))
+                .child("Repositories"),
+            );
+        for (ix, tab) in store.repo_tabs.iter().enumerate() {
+            let selected = active.as_deref() == Some(tab.folder.as_str());
+            let repo = store
+                .repos
+                .iter()
+                .find(|repo| repo.folder_path.to_string_lossy() == tab.folder.as_str());
+            let name = repo.map_or_else(|| tab.folder.clone(), |repo| repo.name.clone());
+            let changes = repo.map_or(0, |repo| repo.git_modified_count);
+            let job = store.git_jobs.contains_key(&tab.folder);
+            let show_target = self.store.clone();
+            let close_target = self.store.clone();
+            let middle_target = self.store.clone();
+            let show_folder = tab.folder.clone();
+            let close_folder = tab.folder.clone();
+            let middle_folder = tab.folder.clone();
+            let group = SharedString::from(format!("strip-tab-{ix}"));
+            strip = strip.child(motion::enter(
+                SharedString::from(format!("repo-tab-enter-{}", tab.folder)),
+                shell::strip_tab(
+                    SharedString::from(format!("repo-tab-{ix}-id")),
+                    name.clone(),
+                    selected,
+                    theme::PANEL,
+                )
+                .debug_selector(move || format!("repo-strip-tab-{ix}"))
+                .group(group.clone())
+                .on_click(move |_, _, cx| {
+                    show_target.update(cx, |s, cx| s.show_repo_tab(Some(show_folder.clone()), cx));
+                })
+                .on_mouse_down(MouseButton::Middle, move |_, _, cx| {
+                    cx.stop_propagation();
+                    middle_target.update(cx, |s, cx| s.close_repo_tab(&middle_folder, cx));
+                })
+                .when(job, |tab| {
+                    let selector = format!("repo-strip-job-{ix}");
+                    tab.debug_selector(move || selector.clone())
+                        .child(motion::spinner(
+                            SharedString::from(format!("repo-strip-spinner-{ix}")),
+                            "icons/icon-spinner.svg",
+                            px(theme::icon_tiny()),
+                            theme::TEXT_DIM,
+                        ))
+                })
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(name.clone()),
+                )
+                .when(changes > 0, |tab| {
+                    tab.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .text_size(px(theme::font_meta()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::CHANGES)
+                            .child(icon(
+                                "icons/icon-file-diff.svg",
+                                px(theme::icon_tiny()),
+                                theme::CHANGES,
+                            ))
+                            .child(format!("{changes}")),
+                    )
+                })
+                .child(
+                    div()
+                        .id(SharedString::from(format!("repo-tab-close-{ix}")))
+                        .debug_selector(move || format!("repo-strip-close-{ix}"))
+                        .a11y_button(format!("Close {name}"))
+                        .cursor_pointer()
+                        .flex_shrink_0()
+                        .ml_auto()
+                        .size(px(22.))
+                        .rounded(px(4.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(!selected, |x| {
+                            x.invisible().group_hover(group, |s| s.visible())
+                        })
+                        .hover(|s| s.bg(theme::RAISED))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            close_target.update(cx, |s, cx| s.close_repo_tab(&close_folder, cx));
+                        })
+                        .child(icon(
+                            "icons/icon-close.svg",
+                            px(theme::icon_tiny()),
+                            theme::TEXT_MUTED,
+                        )),
+                ),
+            ));
+        }
+        strip.into_any_element()
+    }
+
+    /// The list pane's head: totals and the list's actions, the scope, then
+    /// tags and sort. The tab strip already names the list, so it has no title.
+    fn render_list_head(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let (tags, active_tags, scanning) = {
             let store = self.store.read(cx);
             (store.all_tags(), store.tag_filters.clone(), store.scanning)
@@ -427,18 +653,10 @@ impl ReposPage {
         let filters_active =
             !active_tags.is_empty() || self.store.read(cx).group_filter.is_some() || attention_only;
 
-        // The pane head sheds its subtitle first when the list column gets
-        // narrow (the same numbers ride the rows), then the tag chips; the
-        // action buttons never leave.
-        let compact = viewport_width < px(530.) * theme::font_factor();
-        let show_subtitle = !compact;
-        let show_tag_chips = !compact;
-
         // Tag filters read as chips: raised when active, quiet otherwise (OR
-        // semantics across the checked set); each carries its live count.
-        // The export's chip row carries user tags that actually match
-        // something: the derived flags (favourites/archived) have their own
-        // scope segments and a zero-count chip is noise.
+        // semantics across the checked set); each carries its live count. User
+        // tags only: the derived flags have their own scope segments, and a
+        // zero-count chip is noise.
         let tag_counts: Vec<(String, usize)> = {
             let store = self.store.read(cx);
             tags.iter()
@@ -458,77 +676,67 @@ impl ReposPage {
                 .filter(|(_, count)| *count > 0)
                 .collect()
         };
-        let mut tag_pills = div()
+        let tag_label = match active_tags.as_slice() {
+            [] => "Any".to_string(),
+            [tag] => tag.clone(),
+            tags => format!("{} tags", tags.len()),
+        };
+        let tag_button = div()
+            .id("tag-button")
+            .debug_selector(|| "tag-button".into())
+            .a11y_button(format!("Tag: {tag_label}"))
+            .cursor_pointer()
+            .flex_shrink_0()
+            .h(px(26.))
+            .px_2()
+            .rounded(px(6.))
             .flex()
-            .flex_row()
             .items_center()
-            .gap_1p5()
-            .min_w_0()
-            .overflow_hidden();
-        for (index, (tag, count)) in tag_counts.iter().enumerate() {
-            let active = active_tags.iter().any(|t| t.eq_ignore_ascii_case(tag));
-            tag_pills = tag_pills.child(
+            .gap(px(6.))
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::TEXT_DIM)
+            .hover(|s| s.bg(theme::RAISED))
+            // as the Sort button: a press toggles instead of close-then-reopen
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.tag_menu_open = !this.tag_menu_open;
+                this.sort_menu_open = false;
+                cx.notify();
+            }))
+            .child("Tag:")
+            .child(
                 div()
-                    .id(gpui::ElementId::NamedInteger("filter".into(), index as u64))
-                    .a11y_toggle(tag.clone(), active)
-                    .cursor_pointer()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(if active {
-                        theme::LINE_STRONG
-                    } else {
-                        theme::HAIRLINE
-                    })
-                    .bg(if active {
-                        theme::CHIP
-                    } else {
-                        theme::BACKGROUND
-                    })
-                    .px_2()
-                    .py_0p5()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .text_size(px(theme::font_meta()))
-                    .when(active, |d| d.text_color(theme::TEXT))
-                    .when(!active, |d| d.text_color(theme::TEXT_MUTED))
-                    .hover(|s| s.text_color(theme::TEXT).border_color(theme::LINE_STRONG))
-                    .on_click({
-                        let tag = tag.clone();
-                        cx.listener(move |this, _, _, cx| {
-                            this.store.update(cx, |s, cx| s.toggle_tag_filter(&tag, cx));
-                        })
-                    })
-                    .child(tag.clone())
-                    .child(
-                        div()
-                            .text_size(px(theme::font_meta()))
-                            .text_color(theme::TEXT_FAINT)
-                            .child(format!("{count}")),
-                    ),
-            );
-        }
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::TEXT)
+                    .child(tag_label),
+            )
+            .child(icon(
+                "icons/icon-chevron-down.svg",
+                px(theme::icon_tiny()),
+                theme::TEXT_MUTED,
+            ));
+        self.tag_counts = tag_counts;
 
         let store_refresh = self.store.clone();
         let actions = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap_1p5()
+            .gap_1()
             .flex_shrink_0()
-            .child(toolbar_action(
+            .child(icon_action(
                 "refresh-button",
                 if scanning { "Refreshing" } else { "Refresh" },
-                Some("icons/icon-refresh.svg"),
-                false,
+                "icons/icon-refresh.svg",
+                scanning,
                 move |_, _, cx| {
                     store_refresh.update(cx, |s, cx| s.refresh(cx));
                 },
             ))
-            .child(toolbar_action(
+            .child(icon_action(
                 "add-repo-button",
                 "Add repo",
-                Some("icons/icon-plus.svg"),
+                "icons/icon-plus.svg",
                 false,
                 cx.listener(|this, _, window, cx| {
                     let depth = this.store.read(cx).settings().repos.max_scan_depth;
@@ -536,10 +744,10 @@ impl ReposPage {
                     cx.notify();
                 }),
             ))
-            .child(toolbar_action(
+            .child(icon_action(
                 "clone-button",
                 "Clone",
-                Some("icons/icon-cloud-download.svg"),
+                "icons/icon-cloud-download.svg",
                 false,
                 cx.listener(|this, _, window, cx| {
                     let store = this.store.clone();
@@ -548,65 +756,37 @@ impl ReposPage {
                 }),
             ));
 
-        // The subtitle summarises the whole list: what needs a hand first,
-        // then the two totals that make a repo look busy.
-        let mut subtitle = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(7.))
-            .text_size(px(theme::font_sub()));
-        if stats.attention > 0 {
-            subtitle = subtitle.child(div().text_color(theme::AMBER_BRIGHT).child(format!(
-                "{} of {} need attention",
-                stats.attention, stats.total
-            )));
+        // The summary line: what needs a hand first, then the two totals that
+        // make a repo look busy.
+        let attention_label = if stats.attention > 0 {
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::CHANGES)
+                .child(format!(
+                    "{} of {} need attention",
+                    stats.attention, stats.total
+                ))
         } else {
-            subtitle = subtitle.child(
-                div()
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!("{} repos", stats.total)),
-            );
-        }
-        subtitle = subtitle
-            .child(dot())
-            .child(
-                div()
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!("{} changes", stats.changes)),
-            )
-            .child(dot())
-            .child(
-                div()
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!("{} issues", stats.issues)),
-            );
-
-        let header_row = div()
+            div()
+                .text_color(theme::TEXT_DIM)
+                .child(format!("{} repos", stats.total))
+        };
+        let summary = div()
+            .flex_1()
+            .min_w_0()
             .flex()
             .flex_row()
             .items_center()
-            .justify_between()
-            .gap(px(12.))
-            .px(px(20.))
-            .pt(px(16.))
-            .pb(px(10.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_size(px(theme::font_screen_title()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::TEXT)
-                            .child("Repositories"),
-                    )
-                    .when(show_subtitle, |head| head.child(subtitle)),
-            )
-            .child(actions);
+            .gap(px(5.))
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(px(theme::font_sub()))
+            .text_color(theme::TEXT_DIM)
+            .child(attention_label)
+            .child(format!(
+                "· {} changes · {} issues",
+                stats.changes, stats.issues
+            ));
 
         // Scope segmented control: one row of filters, counts included.
         let scope = segment_row()
@@ -657,38 +837,48 @@ impl ReposPage {
                 }),
             ));
 
-        let (sort_mode, sort_ascending) = {
-            let store = self.store.read(cx);
-            (store.sort_mode, store.sort_ascending)
-        };
+        let sort_mode = self.store.read(cx).sort_mode;
         let sort_button = div()
+            .id("sort-button")
+            .debug_selector(|| "sort-button".into())
+            .a11y_button(format!("Sort: {}", sort_label(sort_mode)))
+            .cursor_pointer()
             .flex_shrink_0()
+            .h(px(26.))
+            .px_2()
+            .rounded(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::TEXT_DIM)
+            .hover(|s| s.bg(theme::RAISED))
             // keep the window's outside-click dismissal from seeing this
             // press: it must toggle, not close-then-reopen
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(toolbar_action(
-                "sort-button",
-                format!("{} {}", sort_label(sort_mode), sort_arrow(sort_ascending)),
-                None,
-                false,
-                cx.listener(|this, _, _, cx| this.toggle_sort_menu(cx)),
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_sort_menu(cx)))
+            .child("Sort:")
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::TEXT)
+                    .child(sort_label(sort_mode)),
+            )
+            .child(icon(
+                "icons/icon-chevron-down.svg",
+                px(theme::icon_tiny()),
+                theme::TEXT_MUTED,
             ));
 
         let store_clear = self.store.clone();
-        // the chips wrap under the scope control when the column is narrow
-        // instead of clipping at its edge
-        let scope_row = div()
+        let tools = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(8.))
-            .h(px(36.))
-            .px(px(20.))
-            .border_b_1()
-            .border_color(theme::HAIRLINE)
-            .child(scope)
+            .gap_2()
+            .min_h(px(26.))
+            .child(tag_button)
             .child(div().flex_1())
-            .when(show_tag_chips, |row| row.child(tag_pills))
             .when(filters_active, |row| {
                 row.child(
                     div()
@@ -696,31 +886,128 @@ impl ReposPage {
                         .debug_selector(|| "clear-button".into())
                         .a11y_button("Clear filters")
                         .cursor_pointer()
-                        .rounded_sm()
-                        .px_2()
-                        .py_0p5()
+                        .flex_shrink_0()
                         .text_size(px(theme::font_meta()))
-                        .text_color(theme::TEXT_MUTED)
-                        .hover(|s| s.text_color(theme::TEXT))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::ACCENT_INK)
+                        .hover(|s| s.text_color(theme::ACCENT_HOVER))
                         .on_click(move |_, _, cx| {
                             store_clear.update(cx, |s, cx| s.clear_filters(cx));
                         })
-                        .child("Clear"),
+                        .child("Clear filters"),
                 )
             })
             .child(sort_button);
 
         div()
+            .relative()
+            .flex_shrink_0()
             .flex()
             .flex_col()
-            .relative()
-            .child(header_row)
-            .child(scope_row)
+            .gap_2p5()
+            .px_4()
+            .pt_3p5()
+            .pb_2()
+            .border_b_1()
+            .border_color(theme::HAIRLINE)
+            .when(scanning, |head| {
+                head.child(motion::progress_line("list-progress", theme::ACCENT))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .min_h(px(30.))
+                    .child(summary)
+                    .child(actions),
+            )
+            .child(scope)
+            .child(tools)
             .into_any_element()
     }
 
     /// The list head's sort menu, hanging under its button at the list's top
     /// right. Picking the active mode flips its direction.
+    /// Any, then every tag with a live repo. A pick stays open: tags add up.
+    fn render_tag_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        if !self.tag_menu_open {
+            return None;
+        }
+        let active = self.store.read(cx).tag_filters.clone();
+        let row = |id: SharedString, label: String, on: bool| {
+            let selector = id.clone();
+            div()
+                .id(id)
+                .debug_selector(move || selector.to_string())
+                .a11y_toggle(label.clone(), on)
+                .cursor_pointer()
+                .flex_shrink_0()
+                .rounded(px(6.))
+                .h(px(32.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_size(px(theme::font_control()))
+                .text_color(theme::TEXT)
+                .hover(|d| d.bg(theme::LINE_STRONG))
+                .child(div().flex_1().min_w_0().child(label))
+                .when(on, |d| {
+                    d.child(icon(
+                        "icons/icon-check.svg",
+                        px(theme::icon_small()),
+                        theme::ACCENT_INK,
+                    ))
+                })
+        };
+        let mut menu = div()
+            .id("tag-menu")
+            .debug_selector(|| "tag-menu".into())
+            .absolute()
+            .top(px(4.))
+            .left(px(16.))
+            .w(px(220.))
+            .max_h(px(320.))
+            .overflow_y_scroll()
+            .p(px(4.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme::LINE_STRONG)
+            .bg(theme::OVERLAY)
+            .shadow_lg()
+            .occlude()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(
+                row("tag-any".into(), "Any".to_string(), active.is_empty()).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.store.update(cx, |s, cx| s.clear_tag_filters(cx));
+                        this.tag_menu_open = false;
+                        cx.notify();
+                    },
+                )),
+            );
+        for (tag, count) in &self.tag_counts {
+            let on = active.iter().any(|t| t.eq_ignore_ascii_case(tag));
+            let target = tag.clone();
+            menu = menu.child(
+                row(
+                    SharedString::from(format!("tag-pick-{tag}")),
+                    format!("{tag}  {count}"),
+                    on,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.store
+                        .update(cx, |s, cx| s.toggle_tag_filter(&target, cx));
+                })),
+            );
+        }
+        Some(menu.into_any_element())
+    }
+
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         if !self.sort_menu_open {
             return None;
@@ -738,14 +1025,14 @@ impl ReposPage {
             .debug_selector(|| "sort-menu".into())
             .absolute()
             .top(px(4.))
-            .right(px(20.))
-            .w(px(170.))
+            .right(px(16.))
+            .w(px(200.))
             .p(px(4.))
-            .rounded(px(6.))
+            .rounded(px(8.))
             .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::POPUP)
-            .shadow_md()
+            .border_color(theme::LINE_STRONG)
+            .bg(theme::OVERLAY)
+            .shadow_lg()
             // presses inside must not reach the rows under it, or the
             // window's outside-click dismissal before the row's click lands
             .occlude()
@@ -764,15 +1051,15 @@ impl ReposPage {
                     .debug_selector(move || selector.clone())
                     .a11y_toggle(label, active)
                     .cursor_pointer()
-                    .rounded(px(4.))
-                    .px(px(8.))
-                    .py(px(5.))
+                    .rounded(px(6.))
+                    .h(px(32.))
+                    .px_2()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .text_size(px(theme::font_row_meta()))
-                    .text_color(if active { theme::TEXT } else { theme::TEXT_DIM })
-                    .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
+                    .text_size(px(theme::font_control()))
+                    .text_color(theme::TEXT)
+                    .hover(|d| d.bg(theme::LINE_STRONG))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.store.update(cx, |s, cx| {
                             let ascending = if s.sort_mode == mode {
@@ -814,168 +1101,80 @@ fn sort_arrow(ascending: bool) -> &'static str {
     if ascending { "↑" } else { "↓" }
 }
 
-/// The 2px bullet the export separates the summary parts with.
-fn dot() -> gpui::AnyElement {
+/// A list action: a quiet square with its name in the accessibility tree. Busy,
+/// its icon turns.
+fn icon_action(
+    id: &'static str,
+    label: &'static str,
+    icon_path: &'static str,
+    busy: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::AnyElement {
     div()
-        .size(px(2.))
-        .rounded_full()
-        .bg(theme::TEXT_FAINT)
-        .into_any_element()
-}
-
-/// The footer strip: the keyboard grammar on the left, the same totals the
-/// pane head carries on the right.
-fn key_hints(store: &Store) -> gpui::AnyElement {
-    let mut attention = 0usize;
-    let mut changes = 0u32;
-    let mut issues = 0u32;
-    for repo in store.repos.iter().filter(|repo| !repo.is_archived()) {
-        changes += repo.git_modified_count;
-        issues += repo.github_issue_count;
-        if crate::store::projection::needs_attention(repo) {
-            attention += 1;
-        }
-    }
-
-    let mut hints = div().flex().items_center().gap_3();
-    for (keys, label) in [
-        ("\u{2191}\u{2193}", "Rows"),
-        ("\u{21b5}", "Open"),
-        ("S", "Favorite"),
-        ("C", "Commit"),
-        ("Ctrl K", "Search"),
-    ] {
-        hints = hints.child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(keycap(keys))
-                .child(div().text_color(theme::TEXT_MUTED).child(label)),
-        );
-    }
-
-    div()
-        .debug_selector(|| "repos-footer".into())
-        .flex()
-        .items_center()
-        .justify_between()
-        .h(px(26.))
-        .px(px(12.))
-        .border_t_1()
-        .border_color(theme::HAIRLINE)
-        .bg(theme::FOOT_BG)
-        .text_size(px(theme::font_row_meta()))
-        .text_color(theme::TEXT_MUTED)
-        .child(hints)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .when(attention > 0, |right| {
-                    right.child(
-                        div()
-                            .text_color(theme::AMBER_BRIGHT)
-                            .child(format!("{attention} need attention")),
-                    )
-                })
-                .child(div().text_color(theme::TEXT_FAINT).child("\u{00b7}"))
-                .child(
-                    div()
-                        .text_color(theme::TEXT_MUTED)
-                        .child(format!("{changes} changes")),
-                )
-                .child(div().text_color(theme::TEXT_FAINT).child("\u{00b7}"))
-                .child(
-                    div()
-                        .text_color(theme::TEXT_MUTED)
-                        .child(format!("{issues} issues")),
-                ),
-        )
-        .into_any_element()
-}
-
-fn keycap(label: &'static str) -> gpui::AnyElement {
-    div()
+        .id(id)
+        .a11y_button(label)
+        .debug_selector(move || id.into())
+        .cursor_pointer()
+        .flex_shrink_0()
+        .size(px(30.))
+        .rounded(px(6.))
         .flex()
         .items_center()
         .justify_center()
-        .h(px(15.))
-        .min_w(px(16.))
-        .px(px(4.))
-        .rounded(px(3.))
-        .border_1()
-        .border_color(theme::KEY_BORDER)
-        .bg(theme::KEY_BG)
-        .font_family(theme::code_font())
-        .text_size(px(theme::font_micro()))
-        .text_color(theme::KEY_FG)
-        .child(label)
-        .into_any_element()
-}
-
-/// A labelled pane-head button: filled when primary, ghost otherwise. The
-/// ghost is the default here — the design has one filled action at a time and
-/// that one lives in the detail rail.
-fn toolbar_action(
-    id: &'static str,
-    label: impl Into<gpui::SharedString>,
-    icon_path: Option<&'static str>,
-    primary: bool,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-) -> gpui::AnyElement {
-    let label: gpui::SharedString = label.into();
-    let color = if primary {
-        theme::ON_ACCENT
-    } else {
-        theme::TEXT_DIM
-    };
-    div()
-        .id(id)
-        .a11y_button(label.clone())
-        .cursor_pointer()
-        .rounded(px(4.))
-        .h(px(26.))
-        .px(px(8.))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(5.))
-        .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(color)
-        .debug_selector(move || id.into())
-        .when(primary, |d| d.bg(theme::ACCENT).hover(|s| s.opacity(0.9)))
-        .when(!primary, |d| {
-            d.bg(theme::GHOST_BG)
-                .border_1()
-                .border_color(theme::GHOST_BORDER)
-                .hover(|s| {
-                    s.bg(theme::HOVER_BG)
-                        .border_color(theme::GHOST_BORDER_HOVER)
-                        .text_color(theme::TEXT)
-                })
-        })
+        .hover(|d| d.bg(theme::RAISED))
         .on_click(on_click)
-        .children(icon_path.map(|path| icon(path, px(theme::icon_small() - 1.), color)))
-        .child(label)
+        .child(if busy {
+            motion::spinner(
+                SharedString::from(format!("{id}-spin")),
+                icon_path,
+                px(theme::icon_medium()),
+                theme::BEHIND,
+            )
+            .into_any_element()
+        } else {
+            icon(icon_path, px(theme::icon_medium()), theme::TEXT_DIM).into_any_element()
+        })
         .into_any_element()
 }
 
-/// The segmented control's trough: the list's scope row and the workspace
-/// sheet's tabs.
+/// The segmented control's trough.
+/// What a drag on the list's edge carries. It draws nothing: the list itself is
+/// the feedback.
+struct ListResize;
+
+impl Render for ListResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui::IntoElement {
+        gpui::Empty
+    }
+}
+
+/// The list's right edge, on top of its hairline.
+fn resize_handle() -> impl IntoElement {
+    div()
+        .id("list-resize")
+        .debug_selector(|| "list-resize".into())
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .right(px(-3.))
+        .w(px(6.))
+        .cursor_col_resize()
+        .hover(|s| s.bg(theme::LINE_STRONG))
+        .on_drag(ListResize, |_, _, _, cx| {
+            cx.stop_propagation();
+            cx.new(|_| ListResize)
+        })
+}
+
 pub(crate) fn segment_row() -> gpui::Div {
     div()
         .flex()
         .flex_row()
         .items_center()
         .gap_0p5()
-        .h(px(26.))
-        .p(px(2.))
-        .rounded(px(5.))
-        .border_1()
-        .border_color(theme::SEG_BORDER)
+        .h(px(36.))
+        .p(px(3.))
+        .rounded(px(8.))
         .bg(theme::SEG_BG)
 }
 
@@ -999,27 +1198,33 @@ pub(crate) fn segment(
         )
         .debug_selector(move || id.into())
         .cursor_pointer()
-        .rounded(px(3.))
-        .h(px(20.))
+        .rounded(px(6.))
+        .h(px(30.))
         .px(px(7.))
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(4.))
+        .gap(px(5.))
         .text_size(px(theme::font_row_meta()))
+        .font_weight(FontWeight::MEDIUM)
         .when(active, |d| {
-            d.bg(theme::SEG_ACTIVE).text_color(theme::SEG_ACTIVE_FG)
+            d.bg(theme::SEG_ACTIVE)
+                .text_color(theme::SEG_ACTIVE_FG)
+                .font_weight(FontWeight::SEMIBOLD)
         })
         .when(!active, |d| {
-            d.text_color(theme::TEXT_MUTED)
+            d.text_color(theme::TEXT_DIM)
                 .hover(|s| s.text_color(theme::TEXT))
         })
         .on_click(on_click)
         .child(label)
         .children(count.map(|count| {
             div()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::TEXT_FAINT)
+                .text_color(if active {
+                    theme::ACCENT_INK
+                } else {
+                    theme::TEXT_MUTED
+                })
                 .child(format!("{count}"))
         }))
         .into_any_element()

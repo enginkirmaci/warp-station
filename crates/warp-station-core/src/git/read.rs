@@ -723,12 +723,24 @@ fn describe_status_entry(entry: git2::StatusEntry<'_>, snapshot: &mut GitChangeS
     }
     let state = entry.status();
 
-    let make = |code: &str| GitChangedFile {
-        path: path.clone(),
+    // `path()` is the old name of a rename: each side lists the file as it
+    // stands on that side
+    let staged_path = entry
+        .head_to_index()
+        .and_then(|delta| delta.new_file().path().map(path_text))
+        .unwrap_or_else(|| path.clone());
+    let worktree_path = entry
+        .index_to_workdir()
+        .and_then(|delta| delta.new_file().path().map(path_text))
+        .unwrap_or_else(|| staged_path.clone());
+
+    let file = |path: &str, code: &str| GitChangedFile {
+        path: path.to_string(),
         status_code: code.to_string(),
         additions: None,
         deletions: None,
     };
+    let make = |code: &str| file(&worktree_path, code);
 
     // Porcelain's unmerged XY pair is not exposed by libgit2's status flags;
     // both views carry the "U" the split view always used.
@@ -748,7 +760,9 @@ fn describe_status_entry(entry: git2::StatusEntry<'_>, snapshot: &mut GitChangeS
     let index_code = index_code(state);
     let worktree_code = worktree_code(state);
     if let Some(code) = index_code {
-        snapshot.staged_files.push(make(&code.to_string()));
+        snapshot
+            .staged_files
+            .push(file(&staged_path, &code.to_string()));
     }
     if let Some(code) = worktree_code {
         snapshot.unstaged_files.push(make(&code.to_string()));
@@ -758,6 +772,11 @@ fn describe_status_entry(entry: git2::StatusEntry<'_>, snapshot: &mut GitChangeS
         index_code.unwrap_or('.'),
         worktree_code.unwrap_or('.')
     )));
+}
+
+/// git hands status paths back with forward slashes on every platform.
+fn path_text(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn index_code(state: Status) -> Option<char> {

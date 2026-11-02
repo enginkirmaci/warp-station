@@ -1,11 +1,11 @@
 //! Headless draw probe for the Settings page: seeded from the real settings
 //! file, two draws without a panic means the card/field/switch tree is sound.
 
+use gpui::TestAppContext;
+use gpui::prelude::*;
 use warp_station::net::{NetCommand, TemplateOp};
 use warp_station::store::Store;
 use warp_station::ui::settings::SettingsPage;
-use gpui::TestAppContext;
-use gpui::prelude::*;
 
 /// Serializes the HOME-swapping probes against each other.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -36,12 +36,31 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
         cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "settings-appearance");
     cx.update(|window, cx| drop(window.draw(cx)));
 
     assert!(
         cx.debug_bounds("text-size-normal").is_some(),
-        "General carries the shared text size control"
+        "Appearance carries the shared text size control"
     );
+
+    // the switch applies at once, with no Save
+    let reduce = cx
+        .debug_bounds("settings-row-Reduce motion")
+        .expect("Appearance carries Reduce motion");
+    cx.simulate_click(
+        gpui::point(reduce.origin.x + gpui::px(20.), reduce.center().y),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    assert!(cx.update(|_, _| {
+        warp_station_core::settings::SettingsService::open()
+            .get()
+            .general
+            .reduce_motion
+    }));
+    assert!(warpui_kit_core::motion::reduced());
+    warpui_kit_core::motion::set_reduced(false);
     assert!(
         cx.update(|_, _| warp_station_core::settings::SettingsService::open()
             .get()
@@ -104,12 +123,14 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
             context_limit: 0,
         })
         .collect();
-        models.extend((0..200).map(|ix| warp_station_core::opencode::CatalogModel {
-            key: format!("opencode/model-{ix:03}"),
-            harness: "opencode".into(),
-            variants: Vec::new(),
-            context_limit: 0,
-        }));
+        models.extend(
+            (0..200).map(|ix| warp_station_core::opencode::CatalogModel {
+                key: format!("opencode/model-{ix:03}"),
+                harness: "opencode".into(),
+                variants: Vec::new(),
+                context_limit: 0,
+            }),
+        );
         s.harnesses = warp_station_core::opencode::default_harnesses();
         s.catalog = warp_station_core::opencode::ModelCatalog {
             harnesses: s.harnesses.clone(),
@@ -117,6 +138,7 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
         };
     });
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(&mut wcx, "settings-ai");
 
     click(&mut wcx, "model-trigger-Model");
     assert!(
@@ -192,7 +214,10 @@ fn harness_model_and_variant_persist(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-ai-model-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-ai-model-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings; the
@@ -225,6 +250,7 @@ fn harness_model_and_variant_persist(cx: &mut TestAppContext) {
     let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(&mut wcx, "settings-ai");
 
     assert!(
         wcx.debug_bounds("warp-harness-opencode").is_some(),
@@ -315,8 +341,10 @@ fn auto_fetch_row_picks_and_persists(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home =
-        std::env::temp_dir().join(format!("warp-station-auto-fetch-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-auto-fetch-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings; the
@@ -345,6 +373,7 @@ fn auto_fetch_row_picks_and_persists(cx: &mut TestAppContext) {
     let cx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "settings-git");
 
     assert!(
         cx.debug_bounds("auto-fetch-row").is_some(),
@@ -389,7 +418,10 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-template-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-template-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; serialized against the sibling HOME probe
@@ -407,6 +439,7 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
     let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(&mut wcx, "settings-ai");
 
     // the three registry rows render; none is customized yet
     for selector in [
@@ -432,6 +465,7 @@ fn prompt_templates_list_edit_reset(cx: &mut TestAppContext) {
     let mut wcx = gpui::VisualTestContext::from_window(reopened.into(), cx);
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(&mut wcx, "settings-ai");
     assert!(
         wcx.debug_bounds("template-customized-readme").is_some(),
         "disk edit badges"
@@ -529,7 +563,8 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-group-switch-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("warp-station-group-switch-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings;
@@ -558,6 +593,7 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(wcx, "settings-repositories");
 
     assert!(
         wcx.debug_bounds("settings-row-Group repos by folder")
@@ -608,7 +644,8 @@ fn group_depth_picker_renders_grouped_and_persists(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-group-depth-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("warp-station-group-depth-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings;
@@ -637,6 +674,7 @@ fn group_depth_picker_renders_grouped_and_persists(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(wcx, "settings-repositories");
 
     assert!(
         wcx.debug_bounds("group-depth-row").is_some(),
@@ -679,7 +717,8 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-code-search-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("warp-station-code-search-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings;
@@ -708,6 +747,7 @@ fn code_search_rows_render_and_persist(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(wcx, "settings-tools");
 
     assert!(
         wcx.debug_bounds("settings-row-Cross-repo code search")
@@ -773,7 +813,8 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let home = std::env::temp_dir().join(format!("warp-station-switch-split-{}", std::process::id()));
+    let home =
+        std::env::temp_dir().join(format!("warp-station-switch-split-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; set before the store reads settings;
@@ -807,6 +848,7 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
+    click(wcx, "settings-tools");
 
     assert!(
         wcx.debug_bounds("settings-row-Enable OpenCode").is_some(),
@@ -826,6 +868,7 @@ fn opencode_cli_and_warp_agent_switches_are_separate(cx: &mut TestAppContext) {
             .is_some(),
         "the DeepSeek executable field sits in the CLI card"
     );
+    click(wcx, "settings-ai");
     assert!(
         wcx.debug_bounds("settings-row-Enable warp-agent").is_some(),
         "the warp-agent switch renders independently of the CLI switch"

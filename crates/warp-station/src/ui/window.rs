@@ -1,50 +1,62 @@
-//! The main window: custom titlebar + page content. Hosts the Repos page;
-//! Settings swaps content and Notes launches the external warp-notes app.
+//! The main window: the title bar over the rail, and the rail's section beside
+//! it. Every section is the shell's list and detail pair: Repos, the written
+//! Summaries, Tools and Settings. Notes and warp-agent are their own apps, so
+//! the title bar launches them.
 
 use crate::store::{Store, WorkspaceTab};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
+use crate::ui::formatters::FormattersDrawer;
 use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
-use crate::ui::workspace_sheet::WorkspaceSheet;
+use crate::ui::summary::SummaryPage;
+use crate::ui::windows_tools::{KeepAwakePage, SnapItPage};
 use gpui::prelude::*;
 use gpui::{
-    App, Context, Entity, FontWeight, MouseButton, Render, Window, WindowControlArea, div, px,
+    App, Context, Entity, FontWeight, MouseButton, Render, SharedString, Window, WindowControlArea,
+    div, px,
 };
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use warpui_kit_core::{motion, shell};
 
-/// Which page fills the window body.
+/// The rail's sections.
 #[derive(Clone, Copy, PartialEq)]
-enum Page {
+enum Section {
     Repos,
+    Summary,
+    Tools,
     Settings,
 }
 
-/// Which tool drawer docks to the right edge.
+/// The Tools section's pages.
 #[derive(Clone, Copy, PartialEq)]
-enum DrawerKind {
+enum Tool {
     Formatters,
     Nuget,
     ClipboardPassword,
-    /// The workspace sheet, a bottom sheet rather than an edge drawer.
-    Sheet,
+    SnapIt,
+    KeepAwake,
 }
+
+/// How wide the title bar's search field is.
+const SEARCH_W: f32 = 460.;
 
 pub struct MainWindow {
     pub store: Entity<Store>,
-    page: Page,
+    section: Section,
+    tool: Tool,
     repos_page: Entity<crate::ui::repos::ReposPage>,
     settings_page: Entity<crate::ui::settings::SettingsPage>,
+    summary_page: Entity<SummaryPage>,
     global_search: Entity<InputState>,
-    /// The open tool drawer, if any (one at a time; entities are lazy).
-    active_drawer: Option<DrawerKind>,
-    formatters: Option<Entity<crate::ui::formatters::FormattersDrawer>>,
+    /// The tools' pages, built the first time each opens.
+    formatters: Option<Entity<FormattersDrawer>>,
     nuget_drawer: Option<Entity<NugetDrawer>>,
     clipboard_drawer: Option<Entity<ClipboardPasswordDrawer>>,
-    workspace_sheet: Option<Entity<WorkspaceSheet>>,
-    tools_menu_open: bool,
+    snapit_page: Option<Entity<SnapItPage>>,
+    keep_awake_page: Option<Entity<KeepAwakePage>>,
     /// A left press landed on the titlebar background; the first move turns
     /// it into a window drag (Linux/macOS — Windows uses the HTCAPTION path).
     titlebar_should_move: bool,
@@ -56,9 +68,10 @@ pub struct MainWindow {
 
 impl MainWindow {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), cx));
+        let repos_page = cx.new(|cx| crate::ui::repos::ReposPage::new(store.clone(), window, cx));
         let settings_page =
             cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
+        let summary_page = cx.new(|cx| SummaryPage::new(store.clone(), cx));
         let global_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search repos, notes, code…"));
         let search_store = store.clone();
@@ -71,38 +84,42 @@ impl MainWindow {
         .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         let focus_handle = cx.focus_handle();
+        // E2E hook: WARP_STATION_TOOLS_OPEN=formatters|nuget|clipboard opens
+        // that tool on launch
+        let tool = match std::env::var("WARP_STATION_TOOLS_OPEN").as_deref() {
+            Ok("formatters") => Some(Tool::Formatters),
+            Ok("nuget") => Some(Tool::Nuget),
+            Ok("clipboard") => Some(Tool::ClipboardPassword),
+            _ => None,
+        };
         let this = Self {
             store,
-            // E2E hook: WARP_STATION_PAGE=settings opens Settings on launch
-            page: match std::env::var("WARP_STATION_PAGE").as_deref() {
-                Ok("settings") => Page::Settings,
-                _ => Page::Repos,
+            // E2E hook: WARP_STATION_PAGE=settings|summary opens that section
+            section: match std::env::var("WARP_STATION_PAGE").as_deref() {
+                _ if tool.is_some() => Section::Tools,
+                Ok("settings") => Section::Settings,
+                Ok("summary") => Section::Summary,
+                Ok("tools") => Section::Tools,
+                _ => Section::Repos,
             },
+            tool: tool.unwrap_or(Tool::Formatters),
             repos_page,
             settings_page,
+            summary_page,
             global_search,
-            // E2E hook: WARP_STATION_TOOLS_OPEN=formatters|nuget|clipboard docks
-            // that drawer on launch
-            active_drawer: match std::env::var("WARP_STATION_TOOLS_OPEN").as_deref() {
-                Ok("formatters") => Some(DrawerKind::Formatters),
-                Ok("nuget") => Some(DrawerKind::Nuget),
-                Ok("clipboard") => Some(DrawerKind::ClipboardPassword),
-                _ => None,
-            },
             formatters: None,
             nuget_drawer: None,
             clipboard_drawer: None,
-            workspace_sheet: None,
-            // E2E hook: WARP_STATION_TOOLS_MENU=1 opens the tools dropdown on launch
-            tools_menu_open: std::env::var("WARP_STATION_TOOLS_MENU").as_deref() == Ok("1"),
+            snapit_page: None,
+            keep_awake_page: None,
             titlebar_should_move: false,
             focus_handle,
         };
         // keep the root focus handle live so Escape / Ctrl+K work before the
         // first input click; inputs take focus back when the user clicks them
         window.focus(&this.focus_handle, cx);
-        // a focused field can leave the tree with its popup, sheet or drawer,
-        // and the window's keys would die with it until the next root click
+        // a focused field can leave the tree with its popup or page, and the
+        // window's keys would die with it until the next root click
         cx.on_focus_lost(window, |this, window, cx| {
             window.focus(&this.focus_handle, cx);
         })
@@ -113,19 +130,9 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        if let Some(tab) = self.store.update(cx, |s, _| s.sheet_request.take()) {
-            let sheet = self.sheet(window, cx);
-            sheet.update(cx, |sheet, _| sheet.show(tab));
-            self.active_drawer = Some(DrawerKind::Sheet);
-        }
         if self.store.read(cx).notes_requested {
             self.store.update(cx, |s, _| s.notes_requested = false);
             self.launch_notes(None, cx);
-        }
-        if self.settings_page.read(cx).back_requested {
-            self.settings_page
-                .update(cx, |page, _| page.back_requested = false);
-            self.page = Page::Repos;
         }
         let mut root = div()
             .id("app-root")
@@ -151,8 +158,8 @@ impl Render for MainWindow {
             // Ctrl+K and Ctrl+F focus the global-search field; Ctrl+Shift+V
             // copies the stored Clipboard Password (fallback for when the
             // system-wide grab in net.rs did not land); Escape dismisses the
-            // topmost layer (tools menu, drawer, page dialog, settings, then
-            // search text). Plain letters belong to the repo list's keymap.
+            // topmost layer (page menu or dialog, then the section, then search
+            // text). Plain letters belong to the repo list's keymap.
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let modifiers = event.keystroke.modifiers;
                 let key = event.keystroke.key.as_str();
@@ -175,26 +182,15 @@ impl Render for MainWindow {
                     cx.stop_propagation();
                     return;
                 }
+                if modifiers.control
+                    && this.section == Section::Repos
+                    && this.tab_key(key, modifiers.shift, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 if key == "escape" {
-                    if this.tools_menu_open {
-                        this.tools_menu_open = false;
-                        cx.notify();
-                        cx.stop_propagation();
-                        return;
-                    }
-                    // the sheet's popup closes before the sheet does
-                    if matches!(this.active_drawer, Some(DrawerKind::Sheet))
-                        && this.dismiss_sheet_menu(cx)
-                    {
-                        cx.stop_propagation();
-                        return;
-                    }
-                    if this.active_drawer.take().is_some() {
-                        cx.notify();
-                        cx.stop_propagation();
-                        return;
-                    }
-                    if this.page == Page::Repos
+                    if this.section == Section::Repos
                         && this
                             .repos_page
                             .update(cx, |page, cx| page.dismiss_overlay(cx))
@@ -202,8 +198,8 @@ impl Render for MainWindow {
                         cx.stop_propagation();
                         return;
                     }
-                    if this.page == Page::Settings {
-                        this.page = Page::Repos;
+                    if this.section != Section::Repos {
+                        this.section = Section::Repos;
                         cx.notify();
                         cx.stop_propagation();
                         return;
@@ -216,13 +212,12 @@ impl Render for MainWindow {
                     }
                 }
 
-                // The split screen's own keymap, exactly what the footer and
-                // the rail's keycaps advertise: ↑↓ move the row selection, S
-                // favorites the focused repo, C opens Changes, ↵ and the
-                // letters run its launchers. Text inputs keep their keys (the
-                // Input key context owns the focus path) and so does anything
-                // open on top of the list: these all act on the rows under it.
-                if this.page == Page::Repos
+                // The list's own keymap: ↑↓ move the row selection, S favorites
+                // the focused repo, C opens Changes, ↵ and the letters run its
+                // launchers. Text inputs keep their keys (the Input key context
+                // owns the focus path) and so does anything open on top of the
+                // list: these all act on the rows under it.
+                if this.section == Section::Repos
                     && !modifiers.modified()
                     && !this.layer_open(cx)
                     && !window
@@ -248,8 +243,9 @@ impl Render for MainWindow {
                             cx.stop_propagation();
                         }
                         "c" => {
-                            this.store
-                                .update(cx, |s, cx| s.open_sheet(WorkspaceTab::Changes, cx));
+                            this.store.update(cx, |s, cx| {
+                                s.open_detail_tab(WorkspaceTab::Changes, cx);
+                            });
                             cx.stop_propagation();
                         }
                         _ => {
@@ -265,19 +261,18 @@ impl Render for MainWindow {
             // TextViews (README, notes preview) ignore drags entirely
             .child(gpui_kit::base::TextSelectionLayer)
             .child(self.render_titlebar(window, cx))
-            .child(self.render_body())
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_rail(cx))
+                    .child(self.render_body(window, cx)),
+            )
             .relative();
         if let Some(popup) = self.render_search_popup(window, cx) {
             root = root.child(popup);
-        }
-        if let Some(drawer) = self.render_drawer_overlay(window, cx) {
-            root = root.child(drawer);
-        }
-        if let Some(sheet) = self.render_sheet_overlay(window, cx) {
-            root = root.child(sheet);
-        }
-        if let Some(menu) = self.render_tools_menu(cx) {
-            root = root.child(menu);
         }
         if let Some(toasts) = self.render_toasts(cx) {
             root = root.child(toasts);
@@ -288,7 +283,7 @@ impl Render for MainWindow {
 
 impl MainWindow {
     /// The toast stack, bottom-right: severity glyph + full text + a close
-    /// button. Painted last so it rides above drawers and menus; each card
+    /// button. Painted last so it rides above pages and menus; each card
     /// occludes so a click dismisses instead of falling through to whatever
     /// sits underneath. The per-second tick expires them (errors live
     /// longer than confirmations).
@@ -317,7 +312,8 @@ impl MainWindow {
             };
             let id = notice.id;
             let store = self.store.clone();
-            stack = stack.child(
+            stack = stack.child(motion::enter(
+                ("toast-enter", id),
                 div()
                     .id(("toast", id))
                     .debug_selector(move || format!("toast-{id}"))
@@ -371,357 +367,63 @@ impl MainWindow {
                                 theme::TEXT_FAINT,
                             )),
                     ),
-            );
+            ));
         }
         Some(stack.into_any_element())
     }
 }
 
 impl MainWindow {
-    /// The tools dropdown under the titlebar tools button: one entry per
-    /// tool surface (NuGet Package Manager, Formatters, Clipboard Password,
-    /// Notes — the first and third gated by their settings flags). Dismissed
-    /// by the full-window scrim or by picking an item.
-    fn render_tools_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        if !self.tools_menu_open {
-            return None;
-        }
-        let settings = self.store.read(cx).settings();
-        let open_drawer = |kind: DrawerKind| {
-            cx.listener(move |this, _, _, cx| {
-                this.tools_menu_open = false;
-                this.active_drawer = Some(kind);
-                cx.notify();
-            })
-        };
-        let open_notes = cx.listener(|this, _, _, cx| {
-            this.tools_menu_open = false;
-            this.launch_notes(None, cx);
-        });
-        type ClickHandler = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
-        let row = |id: &'static str,
-                   icon_path: &'static str,
-                   label: &'static str,
-                   on_click: ClickHandler| {
-            div()
-                .id(id)
-                .a11y_menu_item(label)
-                .cursor_pointer()
-                .rounded_md()
-                .px_2()
-                .py_1p5()
-                .flex()
-                .items_center()
-                .gap_2()
-                .hover(|s| s.bg(theme::HOVER_BG))
-                .on_click(on_click)
-                .child(icon(icon_path, px(theme::icon_small()), theme::TEXT_MUTED))
-                .child(
-                    div()
-                        .text_size(px(theme::font_body()))
-                        .text_color(theme::TEXT)
-                        .child(label),
-                )
-        };
-        let mut menu = div()
-            .id("tools-menu")
-            .debug_selector(|| "tools-menu".into())
-            .role(gpui::Role::Menu)
-            .aria_label("Tools")
-            .absolute()
-            .top(px(theme::TITLEBAR_H + 4.))
-            // right edge of the menu = right edge of the tools button: 8px
-            // titlebar padding + the two window buttons + the divider + the
-            // inset utility pill (2px pad + settings + gap) + the tools button
-            .right(px(if cfg!(windows) { 197. } else { 167. }))
-            .w(px(224.))
-            .occlude()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::HAIRLINE)
-            .bg(theme::POPUP)
-            .shadow_lg()
-            .p_1()
-            .flex()
-            .flex_col()
-            .gap_0p5();
-        if settings.nuget_local.enable_nuget {
-            menu = menu.child(row(
-                "tools-menu-nuget",
-                "icons/icon-package.svg",
-                "NuGet Package Manager",
-                Box::new(open_drawer(DrawerKind::Nuget)),
-            ));
-        }
-        menu = menu.child(row(
-            "tools-menu-formatters",
-            "icons/icon-text-format.svg",
-            "Formatters",
-            Box::new(open_drawer(DrawerKind::Formatters)),
-        ));
-        if settings.clipboard_password.enable_clipboard_password {
-            menu = menu.child(row(
-                "tools-menu-clipboard",
-                "icons/icon-lock.svg",
-                "Clipboard Password",
-                Box::new(open_drawer(DrawerKind::ClipboardPassword)),
-            ));
-        }
-        if settings.warp_notes.enable_warp_notes {
-            menu = menu.child(row(
-                "tools-menu-notes",
-                "icons/icon-note.svg",
-                "Notes",
-                Box::new(open_notes),
-            ));
-        }
-        menu = menu.child(row(
-            "tools-menu-nuget-watch",
-            "icons/icon-package.svg",
-            if self.store.read(cx).nuget.watching {
-                "NuGet watch: running"
-            } else {
-                "NuGet watch: idle"
-            },
-            Box::new(cx.listener(|this, _, _, cx| {
-                this.tools_menu_open = false;
-                this.store.update(cx, |s, _| {
-                    if s.nuget.watching {
-                        s.stop_nuget();
-                    } else {
-                        s.start_nuget();
-                    }
-                });
-                cx.notify();
-            })),
-        ));
-        menu = menu.child(row(
-            "tools-menu-warp",
-            "icons/icon-app-window.svg",
-            "Open warp-agent",
-            Box::new(cx.listener(|this, _, _, cx| {
-                this.tools_menu_open = false;
-                this.store
-                    .update(cx, |s, cx| s.open_in_warp("general".into(), cx));
-            })),
-        ));
-        menu = menu.child(row(
-            "tools-menu-settings",
-            "icons/icon-cog.svg",
-            "Settings",
-            Box::new(cx.listener(|this, _, _, cx| {
-                this.tools_menu_open = false;
-                this.page = if this.page == Page::Settings {
-                    Page::Repos
-                } else {
-                    Page::Settings
-                };
-                cx.notify();
-            })),
-        ));
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(
-                    div()
-                        .id("tools-menu-scrim")
-                        .a11y_button("Close tools menu")
-                        .absolute()
-                        .inset_0()
-                        .occlude()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.tools_menu_open = false;
-                            cx.notify();
-                        })),
-                )
-                .child(menu)
-                .into_any_element(),
-        )
-    }
-
     /// Whether something is open over the repo list.
     fn layer_open(&self, cx: &gpui::App) -> bool {
-        self.active_drawer.is_some()
-            || self.tools_menu_open
-            || self.repos_page.read(cx).layer_open()
+        self.repos_page.read(cx).layer_open()
     }
 
-    /// Closes the sheet's branch popup. Returns whether it was open.
-    fn dismiss_sheet_menu(&mut self, cx: &mut Context<Self>) -> bool {
-        self.workspace_sheet
-            .as_ref()
-            .is_some_and(|sheet| sheet.update(cx, |sheet, cx| sheet.dismiss_branch_menu(cx)))
-    }
-
-    /// Closes the sheet, popup included: the entity outlives the sheet, so an
-    /// open popup would come back with it.
-    fn close_sheet(&mut self, cx: &mut Context<Self>) {
-        self.dismiss_sheet_menu(cx);
-        self.active_drawer = None;
-        cx.notify();
-    }
-
-    /// The sheet's entity, built the first time something opens it.
-    fn sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<WorkspaceSheet> {
-        if let Some(sheet) = &self.workspace_sheet {
-            return sheet.clone();
+    /// The repo tabs' keys, Ctrl held: T or ↵ opens the selected repo in a tab
+    /// (fields keep ↵), W closes the active tab, \ toggles the list, Tab steps
+    /// along the strip and the digits jump to a place on it. Returns whether
+    /// the key was one of those.
+    fn tab_key(&mut self, key: &str, shift: bool, window: &Window, cx: &mut Context<Self>) -> bool {
+        let in_field = window
+            .context_stack()
+            .iter()
+            .any(|context| context.contains("Input"));
+        match key {
+            "\\" => {
+                self.repos_page.update(cx, |page, cx| page.toggle_list(cx));
+                true
+            }
+            "t" => self.open_selected_in_tab(cx),
+            "enter" if !in_field => self.open_selected_in_tab(cx),
+            "w" => {
+                let active = self.store.read(cx).active_repo_tab.clone();
+                if let Some(folder) = active {
+                    self.store.update(cx, |s, cx| s.close_repo_tab(&folder, cx));
+                }
+                true
+            }
+            "tab" => {
+                let delta = if shift { -1 } else { 1 };
+                self.store.update(cx, |s, cx| s.cycle_repo_tab(delta, cx));
+                true
+            }
+            _ => match key.parse::<usize>() {
+                Ok(digit @ 1..=9) => {
+                    self.store
+                        .update(cx, |s, cx| s.show_repo_tab_at(digit - 1, cx));
+                    true
+                }
+                _ => false,
+            },
         }
-        let store = self.store.clone();
-        let target = cx.weak_entity();
-        let on_close: crate::ui::DrawerCloseHandler = std::rc::Rc::new(move |_, cx| {
-            let _ = target.update(cx, |this, cx| this.close_sheet(cx));
-        });
-        let sheet = cx.new(|cx| WorkspaceSheet::new(store, on_close, window, cx));
-        self.workspace_sheet = Some(sheet.clone());
-        sheet
     }
 
-    /// The workspace sheet over its scrim, at the height its top edge was
-    /// dragged to, or what a short window leaves of it.
-    fn render_sheet_overlay(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        if !matches!(self.active_drawer, Some(DrawerKind::Sheet)) {
-            return None;
+    fn open_selected_in_tab(&mut self, cx: &mut Context<Self>) -> bool {
+        let selected = self.store.read(cx).selected_repo.clone();
+        if let Some(folder) = selected {
+            self.store.update(cx, |s, cx| s.open_repo_tab(&folder, cx));
         }
-        let sheet = self.sheet(window, cx);
-        let room = window.viewport_size().height.as_f32() - theme::TITLEBAR_H;
-        let height = self.store.read(cx).sheet_height.min(room);
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(
-                    div()
-                        .id("drawer-scrim")
-                        .debug_selector(|| "drawer-scrim".into())
-                        .a11y_button("Close sheet")
-                        .absolute()
-                        .inset_0()
-                        .bg(theme::SCRIM)
-                        .occlude()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.close_sheet(cx);
-                        })),
-                )
-                .child(
-                    div()
-                        .debug_selector(|| "workspace-sheet".into())
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(px(height))
-                        .bg(theme::BACKGROUND)
-                        .border_t_1()
-                        .border_color(theme::HAIRLINE)
-                        // the scrim runs under the panel: without occlusion
-                        // every press inside would also close the sheet, and
-                        // none reaches the window's outside-click dismissal
-                        .occlude()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.dismiss_sheet_menu(cx);
-                            }),
-                        )
-                        .child(sheet),
-                )
-                .into_any_element(),
-        )
-    }
-
-    /// The docked tool drawer overlay: a full-window scrim plus the right-edge
-    /// panel; the drawer entity is created on first open.
-    fn render_drawer_overlay(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        let kind = self.active_drawer?;
-        // the workspace sheet docks to the bottom, not to this right edge
-        if matches!(kind, DrawerKind::Sheet) {
-            return None;
-        }
-        let store = self.store.clone();
-        // closing via the drawer's header X routes back into the window
-        let close_target = cx.entity();
-        let on_close: crate::ui::DrawerCloseHandler = std::rc::Rc::new(move |_, cx| {
-            close_target.update(cx, |this, cx| {
-                this.active_drawer = None;
-                cx.notify();
-            });
-        });
-        let drawer = match kind {
-            // handled before this point
-            DrawerKind::Sheet => return None,
-            DrawerKind::Formatters => self
-                .formatters
-                .get_or_insert_with(|| {
-                    let on_close = on_close.clone();
-                    let store = store.clone();
-                    cx.new(move |cx| {
-                        crate::ui::formatters::FormattersDrawer::new(store, window, cx)
-                            .with_on_close(move |window, cx| on_close(window, cx))
-                    })
-                })
-                .clone()
-                .into_any_element(),
-            DrawerKind::Nuget => self
-                .nuget_drawer
-                .get_or_insert_with(|| {
-                    let on_close = on_close.clone();
-                    let store = store.clone();
-                    cx.new(move |cx| {
-                        NugetDrawer::new(store, window, cx)
-                            .with_on_close(move |window, cx| on_close(window, cx))
-                    })
-                })
-                .clone()
-                .into_any_element(),
-            DrawerKind::ClipboardPassword => self
-                .clipboard_drawer
-                .get_or_insert_with(|| {
-                    let on_close = on_close.clone();
-                    let store = store.clone();
-                    cx.new(move |cx| {
-                        ClipboardPasswordDrawer::new(store, window, cx)
-                            .with_on_close(move |window, cx| on_close(window, cx))
-                    })
-                })
-                .clone()
-                .into_any_element(),
-        };
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(
-                    div()
-                        .id("drawer-scrim")
-                        .debug_selector(|| "drawer-scrim".into())
-                        .a11y_button("Close drawer")
-                        .absolute()
-                        .inset_0()
-                        .occlude()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.active_drawer = None;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(theme::TITLEBAR_H))
-                        .right_0()
-                        .bottom_0()
-                        .child(drawer),
-                )
-                .into_any_element(),
-        )
+        true
     }
 
     /// The global-search results popup under the titlebar field.
@@ -734,8 +436,8 @@ impl MainWindow {
         if term.trim().is_empty() {
             return None;
         }
-        // the field is centered at 420px; the popup hangs from the same x
-        let left = ((window.viewport_size().width.as_f32() - 420.) / 2.).max(0.);
+        // the popup hangs from the centered search field's left edge
+        let left = ((window.viewport_size().width.as_f32() - SEARCH_W) / 2.).max(0.);
         let (hits, pending, code_hits, code_searching) = {
             let store = self.store.read(cx);
             (
@@ -754,9 +456,9 @@ impl MainWindow {
                     .id("search-popup")
                     .debug_selector(|| "search-popup".into())
                     .absolute()
-                    .top(px(40.))
+                    .top(px(theme::TITLEBAR_H))
                     .left(px(left))
-                    .w(px(420.))
+                    .w(px(SEARCH_W))
                     .occlude()
                     .rounded_lg()
                     .border_1()
@@ -945,9 +647,9 @@ impl MainWindow {
             .id("search-popup")
             .debug_selector(|| "search-popup".into())
             .absolute()
-            .top(px(40.))
+            .top(px(theme::TITLEBAR_H))
             .left(px(left))
-            .w(px(420.))
+            .w(px(SEARCH_W))
             .occlude()
             .rounded_lg()
             .border_1()
@@ -978,8 +680,8 @@ impl MainWindow {
     ) {
         match hit {
             crate::store::GlobalSearchHit::Repo { folder, .. } => {
-                self.page = Page::Repos;
-                self.store.update(cx, |s, cx| s.select_repo(folder, cx));
+                self.section = Section::Repos;
+                self.store.update(cx, |s, cx| s.pick_repo(folder, cx));
             }
             crate::store::GlobalSearchHit::Note { path, .. } => {
                 self.launch_notes(Some(path.clone()), cx);
@@ -1075,292 +777,163 @@ pub(crate) fn window_button(
         .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_MUTED))
 }
 
-/// Both titlebar side columns share this width so the centered search field
-/// sits at the window's true center. The right side is the wider one — Notes,
-/// the tool pill, the services pill and the window controls — so the width is
-/// computed from what
-/// the settings actually enable; the old fixed guess sat below the real
-/// content and the flex row crushed the window controls into a fraction of
-/// their pitch.
-fn titlebar_side_w(show_nuget: bool, show_warp: bool, show_windows_chips: bool) -> f32 {
-    // Measured against the pieces the right column actually renders: the
-    // Notes text button, the services pill (a dot per service plus the
-    // count), the labelled Tools pill with Settings beside it, and the three
-    // window buttons. The exact numbers only have to keep the centred search
-    // centred — both side columns take this width.
-    let mut width = 0.0;
-    width += 76.0; // Notes: note icon + label + external mark + padding
-    width += 8.0; // gap
-    let services = 24.0 + 12.0 * (show_nuget as u8 + show_warp as u8) as f32;
-    let services = if show_windows_chips {
-        services + 24.0
-    } else {
-        services
-    };
-    width += if show_nuget || show_warp || show_windows_chips {
-        services + 12.0
-    } else {
-        0.0
-    };
-    width += 8.0; // gap
-    width += 9.0; // the hairline divider: w 1 + mx_1
-    width += 84.0; // the utility pill: p_0p5 + Tools (icon + label + chevron)
-    width += 9.0;
-    width += 78.0; // minimize / maximize / close at 26px each
-    width += 4.0 * 6.0; // the row's gap_1 between every child
-    width.max(252.0) + 10.0
+/// A title bar icon button: a control island inside the drag region.
+fn title_icon(
+    id: &'static str,
+    label: &'static str,
+    icon_path: &'static str,
+    show_tooltip: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl gpui::IntoElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .cursor_pointer()
+        .occlude()
+        .flex_shrink_0()
+        .w(px(34.))
+        .h(px(32.))
+        .rounded(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|d| d.bg(theme::RAISED))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(on_click)
+        .when(show_tooltip, |d| d.tooltip(crate::ui::tooltip_text(label)))
+        .child(icon(icon_path, px(theme::icon_medium()), theme::TEXT_DIM))
 }
 
 impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let settings = self.store.read(cx).settings();
         let show_tooltips = settings.general.show_tooltips;
-        let nuget_enabled = settings.nuget_local.enable_nuget;
-        let warp_enabled = settings.warp_agent.enable_warp_agent;
-        let nuget_watching = self.store.read(cx).nuget.watching;
-        // the status chips fold away first when the window cannot fit the
-        // full titlebar — the tool pill and the window controls never do
-        let mut show_nuget = nuget_enabled;
-        let mut show_warp = warp_enabled;
-        let mut show_windows_chips = cfg!(windows);
-        let viewport_w = window.viewport_size().width.as_f32();
-        let full_side = titlebar_side_w(show_nuget, show_warp, show_windows_chips);
-        if full_side * 2.0 + 160.0 /* search min width */ + 64.0 /* gutters, gaps, slack */
-            > viewport_w
-        {
-            show_nuget = false;
-            show_warp = false;
-            show_windows_chips = false;
-        }
-        let side_w = titlebar_side_w(show_nuget, show_warp, show_windows_chips);
-        // the two tool buttons share one inset pill; the window controls
-        // stay flat on the titlebar so the two groups read differently
-        let utility_group = div()
-            .flex()
-            .items_center()
-            .gap_0p5()
-            .flex_shrink_0()
-            .rounded_md()
-            .bg(theme::POPUP)
-            .p_0p5();
-        // The services pill: the same state dots the chips carried, on one
-        // row with the healthy count — the mockup's "2/2".
-        let (mut healthy, mut total) = (0u8, 0u8);
-        if show_nuget {
-            total += 1;
-            healthy += u8::from(nuget_watching);
-        }
-        if show_warp {
-            total += 1;
-            healthy += u8::from(self.store.read(cx).warp_connected);
-        }
-        if show_windows_chips {
-            total += 1;
-            healthy += u8::from(warp_station_core::snapit::is_running());
-            total += 1;
-            healthy += u8::from(warp_station_core::keepawake::is_enabled());
-        }
-        let mut services = div()
-            .id("status-pill")
-            .debug_selector(|| "status-pill".into())
-            .occlude()
-            .flex_shrink_0()
-            .h(px(26.))
-            .px(px(8.))
-            .rounded(px(5.))
-            .border_1()
-            .border_color(theme::LINE_STRONG)
-            .bg(theme::GHOST_BG)
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .font_family(theme::code_font())
-            .text_size(px(theme::font_mono_meta()))
-            .text_color(theme::TEXT_DIM)
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.tools_menu_open = !this.tools_menu_open;
-                cx.notify();
-            }));
-        // one state dot + the tally, exactly the export's pill; the per-service
-        // switches moved into the Tools menu
-        let health = if total == 0 {
-            theme::TEXT_MUTED
-        } else if healthy == total {
-            theme::SUCCESS_BRIGHT
-        } else if healthy > 0 {
-            theme::AMBER_BRIGHT
-        } else {
-            theme::DANGER
-        };
-        services = services.child(div().size(px(8.)).rounded_full().bg(health));
-        services = services.child(
-            div()
-                .pl_1()
-                .text_color(theme::TEXT_DIM)
-                .child(format!("{healthy}/{total}")),
-        );
+        let activity = self.store.read(cx).activity();
 
-        // fixed side column: matching the brand column's width keeps the
-        // centered search truly centered
-        let right_group = div()
+        let right = div()
             .debug_selector(|| "titlebar-right".into())
-            .w(px(side_w))
-            .flex_shrink_0()
+            .flex_1()
+            .min_w_0()
             .flex()
             .items_center()
             .justify_end()
-            // status chips: an 8px state dot + label, click toggles the tool.
-            // NuGet amber when idle, green while the
-            // watch runs; SnapIt red when stopped, green when running — and
-            // Windows-only, like the tool itself. Keep awake is Windows-only
-            // too: green while it holds the machine awake, muted when off.
-            // the chips group separates from the tool pill only when a chip
-            // actually rendered
-            // Notes sits on the right in the design, next to Tools: a text
-            // button with the external mark, not a bare icon on the left.
-            .when(
-                self.store.read(cx).settings().warp_notes.enable_warp_notes,
-                |group| {
-                    group.child(
-                        div()
-                            .id("notes-toggle")
-                            .debug_selector(|| "notes-toggle".into())
-                            .a11y_button("Notes")
-                            .cursor_pointer()
-                            .occlude()
-                            .h(px(26.))
-                            .px_2()
-                            .rounded_md()
-                            .flex()
-                            .items_center()
-                            .gap_1p5()
-                            .text_size(px(theme::font_meta()))
-                            .text_color(theme::TEXT_MUTED)
-                            .hover(|d| d.bg(theme::HOVER_BG).text_color(theme::TEXT))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.launch_notes(None, cx);
-                            }))
-                            .when(show_tooltips, |d| {
-                                d.tooltip(crate::ui::tooltip_text(
-                                    "Notes — markdown notes for the selected repo",
-                                ))
-                            })
-                            .child(icon(
-                                "icons/icon-note.svg",
-                                px(theme::icon_small() - 1.),
-                                theme::TEXT_MUTED,
-                            ))
-                            .child("Notes")
-                            .child(icon(
-                                "icons/icon-open-in-new.svg",
-                                px(theme::icon_small() - 3.),
-                                theme::TEXT_FAINT,
-                            )),
-                    )
-                },
-            )
-            .when(show_nuget || show_warp || show_windows_chips, |d| {
-                d.child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-            })
-            .child(utility_group.child({
-                div()
-                    .id("tools-toggle")
-                    .debug_selector(|| "tools-toggle".into())
-                    .a11y_toggle("Tools", self.tools_menu_open)
-                    .cursor_pointer()
-                    .occlude()
-                    .rounded(px(4.))
-                    .h(px(28.))
-                    .px(px(6.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(4.))
-                    .when(self.tools_menu_open, |d| d.bg(theme::tint(theme::ACCENT)))
-                    .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.tools_menu_open = !this.tools_menu_open;
-                        cx.notify();
-                    }))
-                    // the menu itself explains the tools; a tooltip
-                    // hanging over it would just be noise
-                    .when(show_tooltips && !self.tools_menu_open, |d| {
-                        d.tooltip(crate::ui::tooltip_text(
-                            "Tools — formatters, package manager, clipboard password, notes",
+            .gap_1()
+            .when_some(activity, |row, label| {
+                row.child(
+                    div()
+                        .id("activity-chip")
+                        .debug_selector(|| "activity-chip".into())
+                        .role(gpui::Role::Status)
+                        .aria_label(label.clone())
+                        .min_w_0()
+                        .h(px(28.))
+                        .px_2p5()
+                        .rounded(px(14.))
+                        .bg(theme::PANEL)
+                        .flex()
+                        .items_center()
+                        .gap(px(7.))
+                        .text_size(px(theme::font_meta()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::BEHIND)
+                        .whitespace_nowrap()
+                        .child(motion::spinner(
+                            "activity-spinner",
+                            "icons/icon-spinner.svg",
+                            px(theme::icon_tiny()),
+                            theme::BEHIND,
                         ))
-                    })
-                    .child(icon(
-                        "icons/icon-tools.svg",
-                        px(theme::icon_small()),
-                        if self.tools_menu_open {
-                            theme::BLUE_BRIGHT
+                        .child(label),
+                )
+            })
+            .when(self.section == Section::Repos, |row| {
+                row.child(title_icon(
+                    "list-toggle",
+                    "Toggle list",
+                    "icons/icon-panel-left.svg",
+                    show_tooltips,
+                    cx.listener(|this, _, _, cx| {
+                        this.repos_page.update(cx, |page, cx| page.toggle_list(cx));
+                    }),
+                ))
+            })
+            .when(settings.warp_notes.enable_warp_notes, |row| {
+                row.child(title_icon(
+                    "notes-toggle",
+                    "Open warp-notes",
+                    "icons/icon-note.svg",
+                    show_tooltips,
+                    cx.listener(|this, _, _, cx| this.launch_notes(None, cx)),
+                ))
+            })
+            .when(settings.warp_agent.enable_warp_agent, |row| {
+                row.child(title_icon(
+                    "agent-toggle",
+                    "Open warp-agent",
+                    "icons/icon-app-window.svg",
+                    show_tooltips,
+                    cx.listener(|this, _, _, cx| {
+                        this.store
+                            .update(cx, |s, cx| s.open_in_warp("general".into(), cx));
+                    }),
+                ))
+            })
+            .child(div().mx_1().h(px(20.)).w(px(1.)).bg(theme::HAIRLINE))
+            .child(
+                // box to box: the row's gap belongs to the buttons before them
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .child(window_button(
+                        "minimize-window",
+                        "icons/icon-window-minimize.svg",
+                        theme::HOVER_BG.into(),
+                        "Minimize",
+                        show_tooltips,
+                        |_, window, _| window.minimize_window(),
+                    ))
+                    .child(window_button(
+                        "zoom",
+                        if window.is_maximized() {
+                            "icons/icon-window-restore.svg"
                         } else {
-                            theme::TEXT_MUTED
+                            "icons/icon-window-maximize.svg"
                         },
+                        theme::HOVER_BG.into(),
+                        if window.is_maximized() {
+                            "Restore"
+                        } else {
+                            "Maximize"
+                        },
+                        show_tooltips,
+                        cx.listener(|_, _, window, cx| {
+                            window.zoom_window();
+                            // the compositor toggles asynchronously — nudge a
+                            // re-render so the maximize/restore glyph keeps up
+                            cx.notify();
+                        }),
                     ))
-                    .child(
-                        div()
-                            .text_size(px(theme::font_meta()))
-                            .text_color(theme::TEXT_MUTED)
-                            .child("Tools"),
-                    )
-                    .child(icon(
-                        "icons/icon-chevron-down.svg",
-                        px(theme::icon_small() - 3.),
-                        theme::TEXT_FAINT,
-                    ))
-            }))
-            .child(services)
-            .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-            .child(window_button(
-                "minimize-window",
-                "icons/icon-window-minimize.svg",
-                theme::HOVER_BG.into(),
-                "Minimize",
-                show_tooltips,
-                |_, window, _| window.minimize_window(),
-            ))
-            .child(window_button(
-                "zoom",
-                if window.is_maximized() {
-                    "icons/icon-window-restore.svg"
-                } else {
-                    "icons/icon-window-maximize.svg"
-                },
-                theme::HOVER_BG.into(),
-                if window.is_maximized() {
-                    "Restore"
-                } else {
-                    "Maximize"
-                },
-                show_tooltips,
-                cx.listener(|_, _, window, cx| {
-                    window.zoom_window();
-                    // the compositor toggles asynchronously — nudge a
-                    // re-render so the maximize/restore glyph keeps up
-                    cx.notify();
-                }),
-            ))
-            .child(window_button(
-                "close-window",
-                "icons/icon-window-close.svg",
-                theme::tint(theme::DANGER),
-                "Close",
-                show_tooltips,
-                |_, window, _| window.remove_window(),
-            ));
+                    .child(window_button(
+                        "close-window",
+                        "icons/icon-window-close.svg",
+                        theme::tint(theme::DANGER),
+                        "Close",
+                        show_tooltips,
+                        |_, window, _| window.remove_window(),
+                    )),
+            );
         div()
             .h(px(theme::TITLEBAR_H))
             .flex()
+            .flex_none()
             .items_center()
-            .px_2()
-            .gap_1()
+            .gap_2()
+            .pl(px(14.))
             .bg(theme::TOPBAR_BG)
             .border_b_1()
-            .border_color(theme::BORDER_LIGHT)
+            .border_color(theme::HAIRLINE)
             .debug_selector(|| "titlebar-drag".into())
             // the whole bar drags, not just the strips beside the search:
             // Windows turns this hitbox into HTCAPTION, and the buttons and
@@ -1397,54 +970,44 @@ impl MainWindow {
                 this.titlebar_should_move = false;
             }))
             .child(
-                // fixed side column: matching the right action group's width
-                // keeps the centered search truly centered; the notes toggle
-                // and the summary pill ride next to the app name
                 div()
                     .debug_selector(|| "titlebar-brand".into())
-                    .w(px(side_w))
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .items_center()
-                    .gap_1()
+                    .gap_2p5()
                     .child(
-                        // the export's mark: a navy rounded tile with the
-                        // light-blue bracket glyph on it
                         div()
+                            .flex_shrink_0()
                             .flex()
                             .items_center()
                             .justify_center()
-                            .size(px(24.))
-                            .rounded(px(5.))
-                            .bg(theme::BRAND_BG)
-                            .border_1()
-                            .border_color(theme::BRAND_BORDER)
-                            .child(icon("icons/icon-code.svg", px(15.), theme::BLUE_BRIGHT)),
+                            .size(px(28.))
+                            .rounded(px(6.))
+                            .bg(theme::ACCENT_SOFT)
+                            .child(icon(
+                                "icons/icon-code.svg",
+                                px(theme::icon_small()),
+                                theme::ACCENT_INK,
+                            )),
                     )
                     .child(
                         div()
                             .text_size(px(theme::font_brand()))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::TEXT)
+                            .whitespace_nowrap()
                             .child("Warp Station"),
-                    )
-                    // hairline between the app name and the tools that follow
-                    .child(div().mx_1().h(px(16.)).w(px(1.)).bg(theme::HAIRLINE))
-                    .when(self.store.read(cx).wand_available(), |left| {
-                        left.child(summary_button(
-                            &self.store,
-                            self.store.read(cx).summary_busy,
-                        ))
-                    }),
+                    ),
             )
-            // equal spacers on both sides of the search field
-            .child(div().flex_1().h_full())
             .child(
                 div()
                     // the input is a control island inside the drag region:
                     // occlude it for the Windows hit test and keep its press
                     // from starting a window move on Linux
                     .occlude()
-                    .w(px(400.))
+                    .w(px(SEARCH_W))
                     .min_w(px(160.))
                     .flex_shrink_1()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -1455,91 +1018,256 @@ impl MainWindow {
                             .prefix(icon(
                                 "icons/icon-search.svg",
                                 px(theme::icon_small()),
-                                theme::TEXT_FAINT,
+                                theme::TEXT_MUTED,
                             ))
                             .suffix(
                                 div()
                                     .flex_shrink_0()
-                                    .rounded_md()
+                                    .rounded(px(4.))
                                     .border_1()
-                                    .border_color(theme::HAIRLINE)
+                                    .border_color(theme::LINE_STRONG)
                                     .mx_1()
                                     .px_1p5()
-                                    .py_0p5()
-                                    .text_size(px(theme::font_mono_meta()))
-                                    .text_color(theme::TEXT_FAINT)
+                                    .font_family(theme::code_font())
+                                    .text_size(px(theme::font_micro()))
+                                    .text_color(theme::TEXT_DIM)
                                     .child("Ctrl K"),
                             ),
                     ),
             )
-            .child(div().flex_1().h_full())
-            .child(right_group)
+            .child(right)
             .into_any_element()
     }
 
-    fn render_body(&self) -> gpui::AnyElement {
-        match self.page {
-            Page::Repos => div()
-                .flex_1()
-                .min_h_0()
-                .child(self.repos_page.clone())
-                .into_any_element(),
-            Page::Settings => div()
-                .flex_1()
-                .min_h_0()
-                .child(self.settings_page.clone())
-                .into_any_element(),
+    /// One section of the rail.
+    fn rail_item(
+        &self,
+        section: Section,
+        id: &'static str,
+        icon_path: &str,
+        label: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        shell::rail_item(id, icon_path, label, self.section == section)
+            .debug_selector(move || id.into())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.section = section;
+                cx.notify();
+            }))
+    }
+
+    fn render_rail(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let attention = self
+            .store
+            .read(cx)
+            .repos
+            .iter()
+            .filter(|repo| !repo.is_archived() && crate::store::projection::needs_attention(repo))
+            .count();
+        shell::rail()
+            .debug_selector(|| "app-rail".into())
+            .child(
+                self.rail_item(
+                    Section::Repos,
+                    "rail-repos",
+                    "icons/icon-folder.svg",
+                    "Repos",
+                    cx,
+                )
+                .relative()
+                .when(attention > 0, |item| {
+                    item.child(
+                        div()
+                            .absolute()
+                            .top(px(4.))
+                            .right(px(10.))
+                            .min_w(px(16.))
+                            .h(px(16.))
+                            .px_1()
+                            .rounded(px(8.))
+                            .bg(theme::ACCENT)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(theme::font_micro()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::ON_ACCENT)
+                            .child(format!("{attention}")),
+                    )
+                }),
+            )
+            .child(self.rail_item(
+                Section::Summary,
+                "rail-summary",
+                "icons/icon-agent-sparkle.svg",
+                "Summary",
+                cx,
+            ))
+            .child(self.rail_item(
+                Section::Tools,
+                "rail-tools",
+                "icons/icon-tools.svg",
+                "Tools",
+                cx,
+            ))
+            .child(div().flex_1())
+            .child(self.rail_item(
+                Section::Settings,
+                "rail-settings",
+                "icons/icon-cog.svg",
+                "Settings",
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let body = div().flex().flex_1().min_w_0().min_h_0();
+        match self.section {
+            Section::Repos => body.child(self.repos_page.clone()).into_any_element(),
+            Section::Summary => body.child(self.summary_page.clone()).into_any_element(),
+            Section::Tools => body.child(self.render_tools(window, cx)).into_any_element(),
+            Section::Settings => body.child(self.settings_page.clone()).into_any_element(),
         }
     }
-}
 
-/// The yesterday-summary pill. Lives in the titlebar next to the app name
-/// (rendered by the window), so it works on every page.
-fn summary_button(store: &Entity<Store>, busy: bool) -> gpui::AnyElement {
-    let handle = store.clone();
-    div()
-        .id("summary-button")
-        .debug_selector(|| "summary-button".into())
-        .a11y_button(if busy {
-            "Summarizing…"
+    /// The Tools section: a row per tool the settings allow, its page beside
+    /// the list. Pages are built the first time they open and keep their state.
+    fn render_tools(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let settings = self.store.read(cx).settings();
+        let watching = self.store.read(cx).nuget.watching;
+        let mut tools = vec![(
+            Tool::Formatters,
+            "tool-formatters",
+            "Formatters",
+            "Base64 and case conversion",
+        )];
+        if settings.clipboard_password.enable_clipboard_password {
+            tools.push((
+                Tool::ClipboardPassword,
+                "tool-clipboard",
+                "Clipboard Password",
+                "One stored password",
+            ));
+        }
+        if settings.nuget_local.enable_nuget {
+            tools.push((
+                Tool::Nuget,
+                "tool-nuget",
+                "NuGet Package Manager",
+                if watching {
+                    "Watching for builds"
+                } else {
+                    "Watch is idle"
+                },
+            ));
+        }
+        if cfg!(windows) {
+            tools.push((
+                Tool::SnapIt,
+                "tool-snapit",
+                "SnapIt",
+                if warp_station_core::snapit::is_running() {
+                    "Running"
+                } else {
+                    "Stopped"
+                },
+            ));
+            tools.push((
+                Tool::KeepAwake,
+                "tool-keep-awake",
+                "Keep Awake",
+                if warp_station_core::keepawake::is_enabled() {
+                    "On"
+                } else {
+                    "Off"
+                },
+            ));
+        }
+        // a tool switched off in Settings falls back to the first
+        let active = if tools.iter().any(|tool| tool.0 == self.tool) {
+            self.tool
         } else {
-            "Daily summary"
-        })
-        .cursor_pointer()
-        // the pill rides in the titlebar's drag region
-        .occlude()
-        .rounded_md()
-        .h(px(30.))
-        .px_2p5()
-        .flex()
-        .items_center()
-        .gap_1p5()
-        .text_size(px(theme::font_body()))
-        .text_decoration_none()
-        .when(busy, |d| d.text_color(theme::BLUE_BRIGHT))
-        .when(!busy, |d| d.text_color(theme::TEXT_DIM))
-        .bg(theme::CHIP)
-        .hover(|s| s.opacity(0.9))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click({
-            let store = handle.clone();
-            move |_, _, cx| {
-                store.update(cx, |s, cx| s.run_summary(cx));
-            }
-        })
-        .child(icon(
-            "icons/icon-agent-sparkle.svg",
-            px(theme::icon_small() - 1.),
-            if busy {
-                theme::BLUE_BRIGHT
-            } else {
-                theme::TEXT_DIM
-            },
-        ))
-        .child(if busy {
-            "summarizing…"
-        } else {
-            "Daily summary"
-        })
-        .into_any_element()
+            Tool::Formatters
+        };
+
+        let mut rows = div().flex().flex_col().pt_1();
+        for (tool, id, label, hint) in tools {
+            rows = rows.child(
+                shell::list_row(id, tool == active)
+                    .debug_selector(move || id.into())
+                    .a11y_tab(label, tool == active)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.tool = tool;
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(theme::font_name()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .mt_0p5()
+                            .text_size(px(theme::font_row_meta()))
+                            .text_color(theme::TEXT_DIM)
+                            .child(hint),
+                    ),
+            );
+        }
+        let list = shell::list_pane(self.store.read(cx).list_width())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px_4()
+                    .pt_3p5()
+                    .pb_3()
+                    .border_b_1()
+                    .border_color(theme::HAIRLINE)
+                    .text_size(px(theme::font_list_title()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::TEXT)
+                    .child(SharedString::from("Tools")),
+            )
+            .child(rows);
+
+        let store = self.store.clone();
+        let page = match active {
+            Tool::Formatters => self
+                .formatters
+                .get_or_insert_with(|| cx.new(|cx| FormattersDrawer::new(store, window, cx)))
+                .clone()
+                .into_any_element(),
+            Tool::Nuget => self
+                .nuget_drawer
+                .get_or_insert_with(|| cx.new(|cx| NugetDrawer::new(store, window, cx)))
+                .clone()
+                .into_any_element(),
+            Tool::ClipboardPassword => self
+                .clipboard_drawer
+                .get_or_insert_with(|| cx.new(|cx| ClipboardPasswordDrawer::new(store, window, cx)))
+                .clone()
+                .into_any_element(),
+            Tool::SnapIt => self
+                .snapit_page
+                .get_or_insert_with(|| cx.new(|_| SnapItPage::new(store)))
+                .clone()
+                .into_any_element(),
+            Tool::KeepAwake => self
+                .keep_awake_page
+                .get_or_insert_with(|| cx.new(|_| KeepAwakePage::new(store)))
+                .clone()
+                .into_any_element(),
+        };
+        shell::panes()
+            .child(list)
+            .child(
+                shell::detail_pane()
+                    .debug_selector(|| "tool-page".into())
+                    .child(page),
+            )
+            .into_any_element()
+    }
 }

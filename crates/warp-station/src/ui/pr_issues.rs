@@ -1,27 +1,317 @@
-//! The workspace sheet's Pull requests and Issues tabs: an "N open …"
-//! header with refresh + GitHub shortcuts, then one row per item — the item
-//! glyph, bold #number + title, a head → base branch line (PRs) or label
-//! chips (issues), and an author / age / Review pill cluster on the right.
+//! The detail pane's Pull requests and Issues tabs: a toolbar with Open and
+//! Closed and the New verb, then one row per item — the item glyph, #number and
+//! title, a head → base line (PRs) or labels and comments (issues), and an
+//! author / age cluster on the right. Issues also get a filter field and a Sort
+//! menu. A click on an open pull request turns the pane into that pull request;
+//! every other row opens on GitHub.
 
 use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::icon;
-use warp_station_core::github::GitHubItem;
+use crate::ui::repos::{segment, segment_row};
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use warp_station_core::github::{GitHubItem, IssueSort};
+use warpui_kit_core::shell;
+
+/// The rows' measure, as the design caps a list inside the detail pane.
+const LIST_WIDTH: f32 = 920.;
 
 pub struct ItemListView {
-    pub store: Entity<Store>,
-    pub pull_requests: bool,
+    store: Entity<Store>,
+    pull_requests: bool,
+    filter: Entity<InputState>,
+    query: String,
+    /// The filter resets when the view changes.
+    folder: Option<String>,
+    closed: bool,
+    sort_open: bool,
+    /// Setting the field needs the window, so this waits for the next render.
+    clear_filter: bool,
+}
+
+impl ItemListView {
+    pub fn new(
+        store: Entity<Store>,
+        pull_requests: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        cx.observe(&store, |_, _, cx| cx.notify()).detach();
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter issues"));
+        cx.subscribe(&filter, |this, filter, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.query = filter.read(cx).value().trim().to_lowercase();
+                cx.notify();
+            }
+        })
+        .detach();
+        Self {
+            store,
+            pull_requests,
+            filter,
+            query: String::new(),
+            folder: None,
+            closed: false,
+            sort_open: false,
+            clear_filter: false,
+        }
+    }
+
+    /// Escape: the Sort menu first, then the filter. Returns whether it took
+    /// the key.
+    pub fn dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.sort_open {
+            self.sort_open = false;
+            cx.notify();
+            return true;
+        }
+        if !self.query.is_empty() {
+            self.clear_filter = true;
+            cx.notify();
+            return true;
+        }
+        false
+    }
+
+    fn set_closed(&mut self, closed: bool, cx: &mut Context<Self>) {
+        self.closed = closed;
+        self.sort_open = false;
+        if closed {
+            let pull_requests = self.pull_requests;
+            self.store.update(cx, |s, _| s.load_closed(pull_requests));
+        }
+        cx.notify();
+    }
+
+    fn render_toolbar(
+        &self,
+        open_count: usize,
+        closed_count: Option<usize>,
+        new_url: Option<String>,
+        show_controls: bool,
+        sort: IssueSort,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let this = cx.entity();
+        let closed_view = this.clone();
+        let label = if self.pull_requests {
+            "New pull request"
+        } else {
+            "New issue"
+        };
+        let (open_id, closed_id) = if self.pull_requests {
+            ("pr-state-open", "pr-state-closed")
+        } else {
+            ("issue-state-open", "issue-state-closed")
+        };
+        let store = self.store.clone();
+        div()
+            .flex_shrink_0()
+            .h(px(52.))
+            .px(px(shell::DETAIL_PADDING))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .border_b_1()
+            .border_color(theme::HAIRLINE)
+            .child(
+                segment_row()
+                    .child(segment(
+                        open_id,
+                        "Open",
+                        Some(open_count),
+                        !self.closed,
+                        move |_, _, cx| this.update(cx, |this, cx| this.set_closed(false, cx)),
+                    ))
+                    .child(segment(
+                        closed_id,
+                        "Closed",
+                        closed_count,
+                        self.closed,
+                        move |_, _, cx| {
+                            closed_view.update(cx, |this, cx| this.set_closed(true, cx))
+                        },
+                    )),
+            )
+            .when(show_controls, |bar| {
+                bar.child(
+                    div()
+                        .w(px(240.))
+                        .debug_selector(|| "issue-filter".into())
+                        .child(
+                            Input::new(&self.filter)
+                                .with_size(theme::field_size())
+                                .min_h(px(shell::CONTROL_HEIGHT)),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("issue-sort")
+                        .debug_selector(|| "issue-sort".into())
+                        .a11y_button(format!("Sort: {}", sort.label()))
+                        .cursor_pointer()
+                        .h(px(shell::CONTROL_HEIGHT))
+                        .px_2()
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_size(px(theme::font_control()))
+                        .text_color(theme::TEXT_MUTED)
+                        .hover(|s| s.bg(theme::RAISED))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.sort_open = !this.sort_open;
+                            cx.notify();
+                        }))
+                        .child("Sort:")
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::TEXT)
+                                .child(sort.label()),
+                        )
+                        .child(icon(
+                            "icons/icon-chevron-down.svg",
+                            px(theme::icon_tiny()),
+                            theme::TEXT_MUTED,
+                        )),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("pr-refresh")
+                    .a11y_button("Refresh panel")
+                    .cursor_pointer()
+                    .rounded(px(6.))
+                    .size(px(shell::CONTROL_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .hover(|s| s.bg(theme::RAISED))
+                    .on_click(move |_, _, cx| {
+                        store.update(cx, |s, cx| s.refresh_panel(cx));
+                    })
+                    .child(icon(
+                        "icons/icon-refresh.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    )),
+            )
+            .when_some(new_url, |bar, url| {
+                bar.child(
+                    div()
+                        .id("list-new")
+                        .a11y_button(label)
+                        .cursor_pointer()
+                        .h(px(shell::CONTROL_HEIGHT))
+                        .px_3()
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .bg(theme::ACCENT)
+                        .text_size(px(theme::font_control()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::ON_ACCENT)
+                        .hover(|s| s.bg(theme::ACCENT_HOVER))
+                        .on_click(move |_, _, _| {
+                            let _ = warp_station_core::terminal::open_folder(&url);
+                        })
+                        .child(icon(
+                            "icons/icon-plus.svg",
+                            px(theme::icon_small()),
+                            theme::ON_ACCENT,
+                        ))
+                        .child(label),
+                )
+            })
+    }
+
+    fn render_sort_menu(&self, current: IssueSort, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let mut menu = div()
+            .id("issue-sort-menu")
+            .debug_selector(|| "issue-sort-menu".into())
+            .absolute()
+            .top(px(50.))
+            .left(px(shell::DETAIL_PADDING + 390.))
+            .w(px(200.))
+            .p(px(4.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme::LINE_STRONG)
+            .bg(theme::OVERLAY)
+            .shadow_lg()
+            .occlude()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.sort_open = false;
+                cx.notify();
+            }))
+            .flex()
+            .flex_col()
+            .gap(px(2.));
+        for sort in IssueSort::ALL {
+            let selector = format!("issue-sort-{}", sort.key());
+            menu = menu.child(
+                div()
+                    .id(SharedString::from(selector.clone()))
+                    .debug_selector(move || selector.clone())
+                    .a11y_toggle(sort.label(), sort == current)
+                    .cursor_pointer()
+                    .rounded(px(6.))
+                    .h(px(32.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_size(px(theme::font_control()))
+                    .text_color(theme::TEXT)
+                    .hover(|d| d.bg(theme::LINE_STRONG))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, cx| s.set_issue_sort(sort, cx));
+                        this.sort_open = false;
+                        cx.notify();
+                    }))
+                    .child(sort.label())
+                    .when(sort == current, |d| {
+                        d.child(icon(
+                            "icons/icon-check.svg",
+                            px(theme::icon_small()),
+                            theme::ACCENT_INK,
+                        ))
+                    }),
+            );
+        }
+        gpui::deferred(menu).into_any_element()
+    }
 }
 
 impl Render for ItemListView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        let folder = self.store.read(cx).selected_repo.clone();
-        let snapshot = folder
-            .as_ref()
-            .and_then(|f| self.store.read(cx).github_by_folder.get(f).cloned());
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let (folder, snapshot, sort) = {
+            let store = self.store.read(cx);
+            let folder = store.selected_repo.clone();
+            let snapshot = folder
+                .as_ref()
+                .and_then(|f| store.github_by_folder.get(f).cloned());
+            (folder, snapshot, store.issue_sort())
+        };
+        if self.folder != folder {
+            self.folder = folder.clone();
+            self.closed = false;
+            self.sort_open = false;
+            self.clear_filter = !self.query.is_empty();
+        }
+        if std::mem::take(&mut self.clear_filter) {
+            self.filter
+                .update(cx, |input, cx| input.set_value("", window, cx));
+            self.query.clear();
+        }
         let title = if self.pull_requests {
             "pull requests"
         } else {
@@ -39,278 +329,211 @@ impl Render for ItemListView {
             ));
         }
 
-        let items = if self.pull_requests {
+        let open_items = if self.pull_requests {
             &snapshot.pulls
         } else {
             &snapshot.issues
         };
-
-        // header: open-item count + refresh and GitHub shortcuts
-        let store = self.store.clone();
-        let url = snapshot.url.clone();
-        let header = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .px_3()
-            .py_1()
-            .child(
-                div()
-                    .text_size(px(theme::font_body()))
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!("{} open {title}", items.len())),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("pr-refresh")
-                    .a11y_button("Refresh panel")
-                    .cursor_pointer()
-                    .rounded_md()
-                    .size(px(26.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .hover(|s| s.bg(theme::HOVER_BG))
-                    .on_click(move |_, _, cx| {
-                        store.update(cx, |s, cx| s.refresh_panel(cx));
-                    })
-                    .child(icon(
-                        "icons/icon-refresh.svg",
-                        px(theme::icon_small()),
-                        theme::TEXT_MUTED,
-                    )),
-            )
-            .when_some(url.clone(), |row, url| {
-                row.child(
-                    div()
-                        .id("pr-open-github")
-                        .a11y_button("Open on GitHub")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .size(px(26.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .hover(|s| s.bg(theme::HOVER_BG))
-                        .on_click(move |_, _, _| {
-                            let _ = warp_station_core::terminal::open_folder(&url);
-                        })
-                        .child(icon(
-                            "icons/icon-github.svg",
-                            px(theme::icon_small()),
-                            theme::TEXT_MUTED,
-                        )),
-                )
-            });
-
-        if items.is_empty() {
-            return tab_card(
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .child(header)
-                    .child(empty_state(format!("No open {title}"))),
-            );
+        let closed_items = folder.as_ref().and_then(|f| {
+            self.store
+                .read(cx)
+                .github_closed
+                .get(&(f.clone(), self.pull_requests))
+                .cloned()
+        });
+        // a closed view stays on its list across a redraw and a refresh
+        if self.closed {
+            let pull_requests = self.pull_requests;
+            self.store.update(cx, |s, _| s.load_closed(pull_requests));
         }
+        let mut items: Vec<GitHubItem> = if self.closed {
+            closed_items.as_deref().cloned().unwrap_or_default()
+        } else {
+            open_items.clone()
+        };
+        let total = items.len();
+        let loading = self.closed && closed_items.is_none();
+        let controls = !self.pull_requests && total > 0;
+        if !self.pull_requests {
+            sort.sort(&mut items);
+            items.retain(|item| item.matches(&self.query));
+        }
+
+        let new_url = snapshot.url.as_ref().map(|url| {
+            let tail = if self.pull_requests {
+                "compare"
+            } else {
+                "issues/new"
+            };
+            format!("{url}/{tail}")
+        });
+        let toolbar = self.render_toolbar(
+            open_items.len(),
+            closed_items.as_ref().map(|items| items.len()),
+            new_url,
+            controls,
+            sort,
+            cx,
+        );
+        let menu = (self.sort_open && controls).then(|| self.render_sort_menu(sort, cx));
 
         let list_id = if self.pull_requests {
             "pr-list"
         } else {
             "issue-list"
         };
-        let mut list = div()
-            .id(list_id)
-            .debug_selector(move || list_id.into())
-            .flex_1()
+        let state = if self.closed { "closed" } else { "open" };
+        let body = if loading {
+            empty_state(format!("Loading closed {title}…"))
+        } else if total == 0 {
+            empty_state(format!("No {state} {title}"))
+        } else if items.is_empty() {
+            let query = self.filter.read(cx).value().trim().to_string();
+            no_match(&query, cx)
+        } else {
+            let mut list = div().max_w(px(LIST_WIDTH)).flex().flex_col();
+            for item in &items {
+                list = list.child(self.render_row(item, cx));
+            }
+            div()
+                .id(list_id)
+                .debug_selector(move || list_id.into())
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px(px(shell::DETAIL_PADDING - 8.))
+                .py_2()
+                .child(list)
+                .into_any_element()
+        };
+
+        div()
+            .relative()
+            .size_full()
             .min_h_0()
-            .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px_2()
-            .pt_1();
-
-        for item in items {
-            list = list.child(self.render_row(item));
-        }
-        tab_card(
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .min_h_0()
-                .child(header)
-                .child(list),
-        )
+            .child(toolbar)
+            .child(body)
+            .children(menu)
+            .into_any_element()
     }
 }
 
 impl ItemListView {
-    fn render_row(&mut self, item: &GitHubItem) -> impl IntoElement + use<> {
-        let item = item.clone();
+    fn render_row(&self, item: &GitHubItem, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let closed = self.closed;
+        let opens_here = item.is_pull_request && !closed;
+        let target = item.clone();
         let url = item.url.clone();
+        let store = self.store.clone();
         let kind = if item.is_pull_request { "PR" } else { "Issue" };
-        let glyph_color = if item.is_pull_request {
-            theme::PURPLE_BRIGHT
-        } else {
-            theme::SUCCESS_BRIGHT
+        let glyph_color = match (closed, item.is_pull_request) {
+            (true, _) => theme::TEXT_MUTED,
+            (false, true) => theme::PR,
+            (false, false) => theme::ISSUE,
         };
         let age = item
             .updated_at
             .as_deref()
             .and_then(warp_station_core::rel_time::format_rfc3339);
 
-        // title line: bold #number + the title in the bright text color
-        let title_line = div()
+        let mut second_line = div()
             .flex()
             .flex_row()
-            .items_baseline()
+            .items_center()
             .gap_1p5()
             .min_w_0()
-            .child(
-                div()
-                    .text_size(px(theme::font_body()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::TEXT)
-                    .child(format!("#{}", item.number)),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .text_size(px(theme::font_body()))
-                    .text_color(theme::TEXT)
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(item.title.clone()),
-            );
-
-        // second line: PRs show head → base; issues show their labels
-        let mut second_line = div().flex().flex_row().items_center().gap_1p5().min_w_0();
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::TEXT_MUTED);
         if item.is_pull_request {
             let head = item.head_ref_name.clone().unwrap_or_default();
             let base = item.base_ref_name.clone().unwrap_or_default();
             if !head.is_empty() {
                 second_line = second_line.child(
                     div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_1p5()
-                        .min_w_0()
-                        .text_size(px(theme::font_meta()))
                         .font_family(gpui::SharedString::from(theme::code_font()))
-                        .text_color(theme::TEXT_MUTED)
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(head),
-                        )
-                        .child("→")
-                        .child(base),
+                        .text_size(px(theme::font_mono_meta()))
+                        .child(format!("{head} → {base}")),
                 );
             }
         }
         for label in &item.labels {
             second_line = second_line.child(
                 div()
-                    .rounded_md()
-                    .bg(theme::tint(theme::BLUE_BRIGHT))
+                    .rounded(px(4.))
+                    .bg(theme::RAISED)
                     .px_1p5()
-                    .text_size(px(theme::font_control()))
-                    .text_color(theme::BLUE_BRIGHT)
+                    .text_color(theme::TEXT_DIM)
                     .child(label.clone()),
             );
         }
+        if !item.is_pull_request {
+            let word = if item.comments == 1 {
+                "comment"
+            } else {
+                "comments"
+            };
+            second_line = second_line.child(format!("{} {word}", item.comments));
+        }
 
-        // right cluster: author, age, then the decision pill (approval
-        // states recolor it)
         let mut right = div()
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
-            .flex_shrink_0();
-        right = right.child(
-            div()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::TEXT_FAINT)
-                .child(item.author.clone().unwrap_or_else(|| "—".into())),
-        );
-        if let Some(age) = age {
-            right = right.child(
-                div()
-                    .text_size(px(theme::font_meta()))
-                    .text_color(theme::TEXT_FAINT)
-                    .child(age),
-            );
-        }
+            .flex_shrink_0()
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::TEXT_MUTED)
+            .child(item.author.clone().unwrap_or_else(|| "ghost".into()))
+            .children(age);
         if item.is_draft {
-            right = right.child(
-                div()
-                    .rounded_md()
-                    .bg(theme::CHIP)
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(theme::font_meta()))
-                    .text_color(theme::TEXT_MUTED)
-                    .child("draft"),
-            );
-        } else if item.is_pull_request {
-            let (label, color) = match item.review_decision.as_deref() {
-                Some("APPROVED") => ("Approved", theme::SUCCESS_BRIGHT),
-                Some("CHANGES_REQUESTED") => ("Changes requested", theme::DANGER),
-                _ => ("Review", theme::PURPLE_BRIGHT),
-            };
-            right = right.child(
-                div()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme::tint(color))
-                    .bg(theme::tint(color))
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(theme::font_meta()))
-                    .text_color(color)
-                    .child(label),
-            );
+            right = right.child(pill("Draft", theme::TEXT_MUTED));
+        } else if item.is_pull_request && !closed {
+            right = right.child(match item.review_decision.as_deref() {
+                Some("APPROVED") => pill("Approved", theme::SUCCESS_BRIGHT),
+                Some("CHANGES_REQUESTED") => pill("Changes requested", theme::DANGER),
+                _ => pill("Review", theme::PR),
+            });
         }
 
+        let selector = format!("{kind}-{}", item.number);
         div()
-            .id(SharedString::from(format!("{}-{}", kind, item.number)))
+            .id(SharedString::from(selector.clone()))
+            .debug_selector(move || selector.clone())
             .a11y_button(format!(
                 "{} #{} {} — {}",
                 kind,
                 item.number,
                 item.title,
-                item.author.clone().unwrap_or_else(|| "—".into())
+                item.author.clone().unwrap_or_else(|| "ghost".into())
             ))
             .cursor_pointer()
             .flex()
             .flex_row()
             .items_center()
-            .gap_2()
-            .rounded_md()
+            .gap_3()
+            .rounded(px(6.))
             .px_2()
-            .py_1p5()
-            .hover(|s| s.bg(theme::HOVER_BG))
-            .on_click(move |_, _, _| {
-                if !url.is_empty() {
+            .py_2p5()
+            .hover(|s| s.bg(theme::RAISED))
+            .on_click(cx.listener(move |_, _, _, cx| {
+                if opens_here {
+                    let item = target.clone();
+                    store.update(cx, |s, cx| s.open_pull_request(item, cx));
+                } else if !url.is_empty() {
                     let _ = warp_station_core::terminal::open_folder(&url);
                 }
-            })
+            }))
             .child(icon(
                 if item.is_pull_request {
                     "icons/icon-git-pull-request.svg"
                 } else {
                     "icons/icon-issue.svg"
                 },
-                px(theme::icon_small()),
+                px(theme::icon_medium()),
                 glyph_color,
             ))
             .child(
@@ -320,36 +543,81 @@ impl ItemListView {
                     .flex()
                     .flex_col()
                     .gap_0p5()
-                    .child(title_line)
-                    .when(item.is_pull_request || !item.labels.is_empty(), |block| {
-                        block.child(second_line)
-                    }),
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_size(px(theme::font_name()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(format!("#{} {}", item.number, item.title)),
+                    )
+                    .child(second_line),
             )
             .child(right)
     }
 }
 
-/// The Changes tab's raised-card recipe: the tab's content sits on one
-/// rounded dark card floating on the sheet, inset by the same 8px
-/// padding the Changes sections use.
+fn pill(label: &'static str, color: gpui::Rgba) -> impl IntoElement + use<> {
+    div()
+        .rounded_full()
+        .bg(theme::tint(color))
+        .px_2()
+        .py_0p5()
+        .text_size(px(theme::font_meta()))
+        .text_color(color)
+        .child(label)
+}
+
+/// A filter that matched nothing says so and offers the way back.
+fn no_match(query: &str, cx: &mut Context<ItemListView>) -> gpui::AnyElement {
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(theme::font_heading()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT)
+                .child("No issues match"),
+        )
+        .child(
+            div()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::TEXT_MUTED)
+                .child(format!("Nothing matches “{query}”.")),
+        )
+        .child(
+            div()
+                .id("issue-clear-filter")
+                .debug_selector(|| "issue-clear-filter".into())
+                .a11y_button("Clear filter")
+                .cursor_pointer()
+                .mt_1()
+                .text_size(px(theme::font_control()))
+                .text_color(theme::ACCENT_INK)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.clear_filter = true;
+                    cx.notify();
+                }))
+                .child("Clear filter"),
+        )
+        .into_any_element()
+}
+
 fn tab_card(content: impl IntoElement) -> gpui::AnyElement {
     div()
         .size_full()
         .min_h_0()
-        .p_2()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .rounded_lg()
-                .bg(theme::BACKGROUND)
-                .overflow_hidden()
-                .flex()
-                .flex_col()
-                .child(content),
-        )
+        .child(content)
         .into_any_element()
 }
 

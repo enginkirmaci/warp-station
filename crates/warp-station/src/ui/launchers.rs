@@ -1,17 +1,17 @@
-//! The repo launchers: one list behind the rail's rows and the window's letter
+//! The repo launchers: one list behind the head's menu and the window's letter
 //! keys, so a row can never advertise a key that does nothing. The first entry
-//! is the primary action (the rail's filled row, on ↵); the list follows the
+//! is the primary action (the head's split button, on ↵); the list follows the
 //! settings' enable flags.
 //!
 //! An entry describes its launch as a plain value: building the list starts
 //! nothing, which is what lets a test pin it.
 
 use crate::store::Store;
+use gpui::{App, Entity};
+use std::path::PathBuf;
 use warp_station_core::repo_store::RepoEntry;
 use warp_station_core::settings::AppSettings;
 use warp_station_core::terminal;
-use gpui::{App, Entity};
-use std::path::PathBuf;
 
 /// What a launcher does when pressed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,7 +80,7 @@ impl Launch {
 pub struct Launcher {
     pub label: &'static str,
     pub icon: &'static str,
-    /// The letter the window keymap answers to, as the rail's keycap shows it.
+    /// The letter the window keymap answers to, as the menu's keycap shows it.
     pub key: Option<&'static str>,
     pub launch: Launch,
 }
