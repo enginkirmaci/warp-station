@@ -72,6 +72,7 @@ impl Render for AzureView {
                             .gap_4()
                             .child(items_card(
                                 "Pull requests",
+                                "No active pull requests",
                                 &snapshot.pulls,
                                 "icons/icon-git-pull-request.svg",
                                 theme::PR,
@@ -79,6 +80,7 @@ impl Render for AzureView {
                             ))
                             .child(items_card(
                                 "Work items",
+                                "No active work items",
                                 &snapshot.work_items,
                                 "icons/icon-issue.svg",
                                 theme::ISSUE,
@@ -334,6 +336,7 @@ fn run_row(ix: usize, run: &PipelineRun) -> AnyElement {
 /// One of the project's lists: its count in the head, then a row per item.
 fn items_card(
     title: &'static str,
+    empty: &'static str,
     items: &[AzureItem],
     glyph: &'static str,
     color: gpui::Rgba,
@@ -351,7 +354,7 @@ fn items_card(
                     .py_3()
                     .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_MUTED)
-                    .child(format!("No active {title}")),
+                    .child(empty),
             )
         })
         .child(rows)
