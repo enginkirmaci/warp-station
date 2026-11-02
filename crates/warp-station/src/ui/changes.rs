@@ -1,22 +1,21 @@
-//! The Changes tab: the selected repo's commit workspace — three raised cards
-//! on the sheet's dark surface: the merged
-//! staged/unstaged file list with per-row actions and expandable patches on
-//! the left, the commit-message card in the middle, and the branch selector +
-//! git rail (Fetch/Pull/Push/Sync/History) on the right. The heavy data lives
-//! on the store; this view owns only ephemeral state (expanded rows, fetched
-//! patches, dropdown state, the commit draft).
+//! The Changes and History tabs: the selected repo's commit workspace. Changes
+//! is the git toolbar (branch, Fetch, Pull, Push, Sync) over the file list and
+//! commit box on the left and the selected file's diff on the right. History is
+//! the day-grouped commits on the left and the selected commit on the right.
+//! The heavy data lives on the store; this view owns only ephemeral state (the
+//! selected file, fetched patches, dropdown state, the commit draft).
 
 use crate::net::{GitAction, NetCommand};
 use crate::store::Store;
 use crate::theme;
 use crate::ui::{A11y, icon};
-use warp_station_core::model::GitChangedFile;
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use std::cell::RefCell;
 use std::rc::Rc;
+use warp_station_core::model::GitChangedFile;
 use warpui_kit_picker::{
     FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
     PickerRow, PickerSpec, PickerTarget, Selection, TrailingDelete, TriggerScale,
@@ -38,11 +37,24 @@ struct HistoryRow {
 /// The staged/unstaged split produced by `GitChangeSnapshot::change_groups`.
 type GroupedFiles = (Vec<GitChangedFile>, Vec<GitChangedFile>);
 
+/// The file list and commit box's width.
+const FILE_COLUMN_W: f32 = 320.;
+/// The commit list's width.
+const HISTORY_COLUMN_W: f32 = 420.;
+/// The git toolbar's height.
+const TOOLBAR_H: f32 = 52.;
+/// The branch selector's width.
+const BRANCH_W: f32 = 260.;
+/// The commit box's height: the message over its button.
+const COMMIT_BOX_H: f32 = 190.;
+
 pub struct ChangesView {
     pub store: Entity<Store>,
-    /// (path, staged) rows currently expanded — click toggles, patch loads on
-    /// first expand.
-    expanded: std::collections::HashSet<(String, bool)>,
+    /// The (path, staged) row the diff shows; its patch loads on selection.
+    selected_file: Option<(String, bool)>,
+    file_by_repo: std::collections::HashMap<String, (String, bool)>,
+    /// The row whose discard took its first click; the second one discards.
+    discard_armed: Option<(String, bool)>,
     patches: std::collections::HashMap<(String, bool), String>,
     /// The branch selector: the shared FilteredPicker in branch mode.
     branch_picker: Entity<FilteredPicker>,
@@ -82,8 +94,7 @@ impl ChangesView {
             window,
             cx,
         );
-        // the picker's open popup is appended by render_rail as the rail's
-        // last child, so picker-internal changes (filter typing, arming,
+        // the picker's open popup is appended by the toolbar, so picker-internal changes (filter typing, arming,
         // dismissal) must repaint this view too
         cx.observe(&branch_picker, |_, _, cx| cx.notify()).detach();
         let commit_message =
@@ -91,7 +102,9 @@ impl ChangesView {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         Self {
             store,
-            expanded: std::collections::HashSet::new(),
+            selected_file: None,
+            file_by_repo: std::collections::HashMap::new(),
+            discard_armed: None,
             patches: std::collections::HashMap::new(),
             branch_picker,
             branch_ui,
@@ -109,15 +122,16 @@ impl ChangesView {
         }
     }
 
-    /// One-time reset when the selected repo changed: the sheet must never show
-    /// the previous repo's draft, expansion, menu or drill-down state.
+    /// One-time reset when the selected repo changed: the tab must never show
+    /// the previous repo's draft, selection, menu or drill-down state.
     fn sync_repo_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let repo = self.store.read(cx).selected_repo.clone();
         if self.loaded_for == repo {
             return;
         }
         self.loaded_for = repo;
-        self.expanded.clear();
+        self.selected_file = None;
+        self.discard_armed = None;
         self.patches.clear();
         self.branch_picker.update(cx, FilteredPicker::dismiss);
         {
@@ -202,34 +216,79 @@ impl ChangesView {
         cx.notify();
     }
 
-    fn toggle_expanded(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
+    /// Shows a file's diff, loading its patch the first time.
+    fn select_file(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
         let key = (path.to_string(), staged);
-        if self.expanded.contains(&key) {
-            self.expanded.remove(&key);
-        } else {
-            self.expanded.insert(key.clone());
-            if !self.patches.contains_key(&key) {
-                let folder = self.store.read(cx).selected_repo.clone();
-                if let Some(folder) = folder {
-                    let _ = self
-                        .store
-                        .read(cx)
-                        .net
-                        .send_blocking(NetCommand::GetChangePatch {
-                            folder: std::path::PathBuf::from(folder),
-                            path: path.to_string(),
-                            staged,
-                        });
-                }
-            }
+        self.selected_file = Some(key.clone());
+        if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+            self.file_by_repo.insert(folder, key.clone());
+        }
+        if !self.patches.contains_key(&key)
+            && let Some(folder) = self.store.read(cx).selected_repo.clone()
+        {
+            let _ = self
+                .store
+                .read(cx)
+                .net
+                .send_blocking(NetCommand::GetChangePatch {
+                    folder: std::path::PathBuf::from(folder),
+                    path: path.to_string(),
+                    staged,
+                });
         }
         cx.notify();
+    }
+
+    /// Keeps a live row selected: the first file stands in until the user picks
+    /// another, and again when the selected one leaves the lists.
+    fn ensure_file_selected(&mut self, groups: &GroupedFiles, cx: &mut Context<Self>) {
+        let (staged, unstaged) = groups;
+        let live = self
+            .selected_file
+            .as_ref()
+            .is_some_and(|(path, is_staged)| {
+                let side = if *is_staged { staged } else { unstaged };
+                side.iter().any(|file| &file.path == path)
+            });
+        if live {
+            return;
+        }
+        self.selected_file = None;
+        // each repository keeps the file it was left on
+        let kept = self
+            .store
+            .read(cx)
+            .selected_repo
+            .as_ref()
+            .and_then(|folder| self.file_by_repo.get(folder))
+            .filter(|(path, is_staged)| {
+                let side = if *is_staged { staged } else { unstaged };
+                side.iter().any(|file| &file.path == path)
+            })
+            .cloned();
+        let first = kept
+            .or_else(|| unstaged.first().map(|file| (file.path.clone(), false)))
+            .or_else(|| staged.first().map(|file| (file.path.clone(), true)));
+        if let Some((path, is_staged)) = first {
+            self.select_file(&path, is_staged, cx);
+        }
     }
 }
 
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_repo_reset(window, cx);
+        // the History tab and the Changes tab are this one view
+        let want_history =
+            self.store.read(cx).active_detail_tab() == crate::store::WorkspaceTab::History;
+        if want_history != self.history_open {
+            if want_history {
+                self.open_history(cx);
+            } else {
+                self.history_open = false;
+                self.drilled_commit = None;
+            }
+        }
         // drain freshly loaded patches + the commit wand's draft; patches are
         // \r-stripped once here so the diff renderer never rewrites the text
         // per render
@@ -274,7 +333,7 @@ impl Render for ChangesView {
 
         let (generation, busy) = {
             let store = self.store.read(cx);
-            (store.changes_generation(), store.git_busy)
+            (store.changes_generation(), store.git_busy())
         };
         if self
             .groups_cache
@@ -289,56 +348,128 @@ impl Render for ChangesView {
                 .unwrap_or_default()
                 .change_groups();
             self.groups_cache = Some((generation, Rc::new(groups)));
+            // a new snapshot means the fetched patches may be stale
+            self.patches.clear();
+            if let Some((path, staged)) = self.selected_file.clone() {
+                self.select_file(&path, staged, cx);
+            }
         }
         let groups = self.groups_cache.as_ref().expect("groups cached").1.clone();
+        self.ensure_file_selected(&groups, cx);
 
-        // three raised cards — file list, commit box, git rail — on the
-        // sheet's dark surface
-        let left = div()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
+        if self.history_open {
+            return div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .min_h_0()
+                .child(self.render_history(window, cx));
+        }
+
+        let toolbar = self.render_toolbar(busy, cx);
+        let popup = self
+            .branch_picker
+            .update(cx, |picker, cx| picker.overlay_popup(window, cx));
+        let files = div()
+            .w(px(warpui_kit_core::shell::scaled(FILE_COLUMN_W)))
+            .flex_shrink_0()
             .h_full()
-            .rounded_lg()
-            .bg(theme::BACKGROUND)
-            .overflow_hidden()
+            .min_h_0()
             .flex()
             .flex_col()
-            .child(if self.history_open {
-                self.render_history(window, cx)
-            } else {
-                self.render_file_list(&groups, window, cx)
-            });
+            .bg(theme::SURFACE)
+            .border_r_1()
+            .border_color(theme::HAIRLINE)
+            .child(self.render_file_list(&groups, cx))
+            .child(self.render_commit_card(busy, window, cx));
         div()
             .size_full()
             .flex()
-            .flex_row()
-            .gap_2()
-            .p_2()
+            .flex_col()
             .min_h_0()
-            .child(left)
-            .child(self.render_commit_card(busy, window, cx))
-            .child(self.render_rail(busy, window, cx))
+            .child(toolbar)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .child(files)
+                    .child(self.render_diff(window, cx)),
+            )
+            // painted last, so it hangs over the columns under the toolbar
+            .children(popup.map(|popup| {
+                gpui::deferred(
+                    div()
+                        .absolute()
+                        .top(px(TOOLBAR_H))
+                        .left(px(8.))
+                        .w(px(BRANCH_W))
+                        .child(popup),
+                )
+            }))
     }
 }
 
 impl ChangesView {
+    /// The selected file's diff.
+    fn render_diff(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let pane = div()
+            .id("changes-diff")
+            .debug_selector(|| "changes-diff".into())
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(theme::WELL);
+        let Some(key) = self.selected_file.clone() else {
+            return pane.into_any_element();
+        };
+        let patch = self
+            .patches
+            .get(&key)
+            .map_or("loading patch…", |patch| patch.as_str());
+        let diff = warpui_kit_diff::render_diff(patch, None, theme::font_mono_meta(), window, cx);
+        pane.child(
+            div()
+                .flex_shrink_0()
+                .h(px(44.))
+                .px_4()
+                .flex()
+                .items_center()
+                .bg(theme::PANEL)
+                .border_b_1()
+                .border_color(theme::HAIRLINE)
+                .font_family(theme::code_font())
+                .text_size(px(theme::font_mono_meta()))
+                .text_color(theme::TEXT)
+                .child(key.0),
+        )
+        .child(
+            div()
+                .id("changes-diff-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(diff),
+        )
+        .into_any_element()
+    }
+
     fn render_file_list(
         &mut self,
         groups: &Rc<GroupedFiles>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let (staged, unstaged) = (&groups.0, &groups.1);
         let mut list = div()
             .id("changes-list")
             .flex_1()
-            .min_w_0()
-            .h_full()
+            .min_h_0()
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px_2()
             .py_1();
 
         if staged.is_empty() && unstaged.is_empty() {
@@ -350,7 +481,7 @@ impl ChangesView {
                     .items_center()
                     .justify_center()
                     .text_size(px(theme::font_body()))
-                    .text_color(theme::TEXT_FAINT)
+                    .text_color(theme::TEXT_DIM)
                     .child(if loaded {
                         "No changes — working tree clean"
                     } else {
@@ -382,7 +513,7 @@ impl ChangesView {
                 self.store.clone(),
             ));
             for file in unstaged {
-                list = list.child(self.render_row(file, false, window, cx));
+                list = list.child(self.render_row(file, false, cx));
             }
         }
         if !staged.is_empty() {
@@ -402,7 +533,7 @@ impl ChangesView {
                 self.store.clone(),
             ));
             for file in staged {
-                list = list.child(self.render_row(file, true, window, cx));
+                list = list.child(self.render_row(file, true, cx));
             }
         }
         list.into_any_element()
@@ -412,178 +543,217 @@ impl ChangesView {
         &mut self,
         file: &GitChangedFile,
         staged: bool,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let key = (file.path.clone(), staged);
-        let expanded = self.expanded.contains(&key);
+        let selected = self.selected_file.as_ref() == Some(&key);
+        let armed = self.discard_armed.as_ref() == Some(&key);
         let status_color = status_color(file.status_code.as_str());
         let row_id: SharedString =
             format!("{}-{}", if staged { "s" } else { "u" }, file.path).into();
-
-        let mut row = div()
+        let (dir, name) = match file.path.rsplit_once('/') {
+            Some((dir, name)) => (dir.to_string(), name.to_string()),
+            None => (String::new(), file.path.clone()),
+        };
+        let discard = {
+            let store = self.store.clone();
+            let this = cx.entity();
+            let path = file.path.clone();
+            let key = key.clone();
+            div()
+                .id(SharedString::from(format!(
+                    "discard-{staged}-{}",
+                    file.path
+                )))
+                .a11y_button(format!("Discard {}", file.path))
+                .cursor_pointer()
+                .rounded(px(4.))
+                .h(px(24.))
+                .min_w(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .hover(|s| s.bg(theme::tint(theme::DANGER)))
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    if armed {
+                        this.update(cx, |this, _| this.discard_armed = None);
+                        store.update(cx, |s, cx| {
+                            s.run_git(
+                                GitAction::DiscardFile {
+                                    path: path.clone(),
+                                    is_staged: staged,
+                                },
+                                cx,
+                            )
+                        });
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.discard_armed = Some(key.clone());
+                            cx.notify();
+                        });
+                    }
+                })
+                .when(armed, |d| {
+                    d.px_1p5()
+                        .text_size(px(theme::font_meta()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::DANGER)
+                        .child("Confirm")
+                })
+                .when(!armed, |d| {
+                    d.child(icon(
+                        "icons/icon-undo.svg",
+                        px(theme::icon_tiny()),
+                        theme::TEXT_DIM,
+                    ))
+                })
+        };
+        div()
             .id(row_id)
-            .a11y_tree_item(file.path.clone(), Some(expanded))
+            .a11y_button(file.path.clone())
+            .aria_selected(selected)
             .cursor_pointer()
             .group("file-row")
+            .relative()
+            .flex_shrink_0()
+            .h(px(34.))
+            .pl(px(13.))
+            .pr_2()
             .flex()
-            .flex_col()
-            .rounded_md()
-            .px_1()
-            .when(expanded, |d| d.bg(theme::tint(theme::ACCENT)))
-            .hover(|s| s.bg(theme::HOVER_BG))
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .border_l_3()
+            .border_color(if selected {
+                theme::ACCENT
+            } else {
+                theme::SURFACE
+            })
+            .when(selected, |d| d.bg(theme::RAISED))
+            .when(!selected, |d| d.hover(|s| s.bg(theme::PANEL)))
             .on_click({
                 let path = file.path.clone();
-                cx.listener(move |this, _, _, cx| this.toggle_expanded(&path, staged, cx))
+                cx.listener(move |this, _, _, cx| this.select_file(&path, staged, cx))
             })
             .child(
                 div()
+                    .w(px(14.))
+                    .flex_shrink_0()
+                    .font_family(theme::code_font())
+                    .text_size(px(theme::font_mono_meta()))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(status_color)
+                    .child(file.display_status_code().to_string()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_row()
+                    .gap_1p5()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_size(px(theme::font_row_meta()))
+                    .child(div().flex_shrink_0().text_color(theme::TEXT).child(name))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_color(theme::TEXT_MUTED)
+                            .child(dir),
+                    ),
+            )
+            .when(file.additions.is_some() && !armed, |row| {
+                row.child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .flex_row()
+                        .gap_1p5()
+                        .font_family(theme::code_font())
+                        .text_size(px(theme::font_micro()))
+                        .group_hover("file-row", |s| s.invisible())
+                        .when_some(file.additions, |row, added| {
+                            row.child(
+                                div()
+                                    .text_color(theme::SUCCESS_BRIGHT)
+                                    .child(format!("+{added}")),
+                            )
+                        })
+                        .when_some(file.deletions, |row, deleted| {
+                            row.child(div().text_color(theme::DANGER).child(format!("−{deleted}")))
+                        }),
+                )
+            })
+            // hover-revealed stage toggle + discard, over the counts
+            .child(
+                div()
+                    .absolute()
+                    .top(px(5.))
+                    .right(px(8.))
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap_2()
-                    .py_1()
-                    .child(
-                        // expander chevron: right when folded, down when open
-                        div().w(px(12.)).flex().justify_center().child(icon(
-                            if expanded {
-                                "icons/icon-chevron-down.svg"
-                            } else {
-                                "icons/icon-chevron-right.svg"
-                            },
-                            px(theme::icon_small() - 2.),
-                            theme::TEXT_FAINT,
-                        )),
-                    )
-                    .child(
-                        div()
-                            .rounded_md()
-                            .bg(theme::tint(status_color))
-                            .text_color(status_color)
-                            .text_size(px(theme::font_meta()))
-                            .px_1()
-                            .w(px(20.))
-                            .flex()
-                            .justify_center()
-                            .child(file.display_status_code().to_string()),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(theme::font_body()))
-                            .font_family(gpui::SharedString::from(theme::code_font()))
-                            .text_color(theme::TEXT_DIM)
-                            .child(file.path.clone()),
-                    )
-                    // hover-revealed stage toggle + discard
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap_0p5()
-                            .opacity(0.)
-                            .group_hover("file-row", |s| s.opacity(1.))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "discard-{staged}-{}",
-                                        file.path
-                                    )))
-                                    .a11y_button(format!("Discard {}", file.path))
-                                    .cursor_pointer()
-                                    .rounded_md()
-                                    .size(px(20.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .hover(|s| s.bg(theme::tint(theme::DANGER)))
-                                    .on_click({
-                                        let store = self.store.clone();
-                                        let path = file.path.clone();
-                                        move |_, _, cx| {
-                                            cx.stop_propagation();
-                                            store.update(cx, |s, cx| {
-                                                s.run_git(
-                                                    GitAction::DiscardFile {
-                                                        path: path.clone(),
-                                                        is_staged: staged,
-                                                    },
-                                                    cx,
-                                                )
-                                            });
-                                        }
-                                    })
-                                    .child(icon(
-                                        "icons/icon-undo.svg",
-                                        px(theme::icon_small() - 1.),
-                                        theme::TEXT_MUTED,
-                                    )),
-                            )
-                            .child(row_action_button(file, staged, self.store.clone())),
-                    )
-                    .when_some(
-                        file.additions.map(|a| (a, file.deletions)),
-                        |row, (additions, deletions)| {
-                            row.child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .gap_1()
-                                    .child(count_pill(
-                                        format!("+{additions}"),
-                                        theme::SUCCESS_BRIGHT,
-                                    ))
-                                    .when_some(deletions, |row, d| {
-                                        row.child(count_pill(format!("−{d}"), theme::DANGER))
-                                    }),
-                            )
-                        },
-                    ),
-            );
-
-        if expanded {
-            let patch = self
-                .patches
-                .get(&key)
-                .map(|p| p.as_str())
-                .unwrap_or("loading patch…");
-            row = row.child(
-                div()
-                    .id(SharedString::from(format!("patch-{staged}-{}", file.path)))
-                    .ml_6()
-                    .mr_2()
-                    .mb_1p5()
-                    .rounded_md()
-                    .bg(theme::CARD)
-                    .border_1()
-                    .border_color(theme::BORDER_LIGHT)
-                    .py_2()
-                    .max_h(px(220.))
-                    .overflow_hidden()
-                    .overflow_y_scroll()
-                    .child(warpui_kit_diff::render_diff(
-                        patch,
-                        None,
-                        theme::font_control(),
-                        window,
-                        cx,
-                    )),
-            );
-        }
-        row.into_any_element()
+                    .gap_0p5()
+                    .when(!armed, |d| {
+                        d.invisible().group_hover("file-row", |s| s.visible())
+                    })
+                    .child(row_action_button(file, staged, self.store.clone()))
+                    .child(discard),
+            )
+            .into_any_element()
     }
 
-    /// The history pane: day-grouped commit list with unpushed markers, and
-    /// the drilled-in commit detail with expandable per-file patches. Row
-    /// labels are precomputed (see [`HistoryRow`]); only the element tree is
-    /// rebuilt per render.
+    /// The History tab: the commits on the left and the selected one on the
+    /// right. The newest stands in until the user picks another.
     fn render_history(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        if let Some(hash) = self.drilled_commit.clone() {
-            let details = self.store.read(cx).commit_details.clone();
-            return self.render_commit_detail(hash, details, window, cx);
+        let list = self.render_history_list(cx);
+        if self.drilled_commit.is_none()
+            && let Some(first) = self.history_rows.first().map(|row| row.hash.clone())
+        {
+            self.drill_commit(&first, cx);
         }
+        let detail = match self.drilled_commit.clone() {
+            Some(hash) => {
+                let details = self.store.read(cx).commit_details.clone();
+                self.render_commit_detail(hash, details, window, cx)
+            }
+            None => div().into_any_element(),
+        };
+        div()
+            .size_full()
+            .flex()
+            .flex_row()
+            .min_h_0()
+            .child(
+                div()
+                    .w(px(warpui_kit_core::shell::scaled(HISTORY_COLUMN_W)))
+                    .flex_shrink_0()
+                    .h_full()
+                    .min_h_0()
+                    .bg(theme::SURFACE)
+                    .border_r_1()
+                    .border_color(theme::HAIRLINE)
+                    .child(list),
+            )
+            .child(
+                div()
+                    .debug_selector(|| "history-detail".into())
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .min_h_0()
+                    .child(detail),
+            )
+            .into_any_element()
+    }
 
+    /// Day-grouped commits with unpushed markers. Row labels are precomputed
+    /// (see [`HistoryRow`]); only the element tree is rebuilt per render.
+    fn render_history_list(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let (unpushed, generation) = {
             let store = self.store.read(cx);
             (store.unpushed.clone(), store.history_generation())
@@ -627,53 +797,60 @@ impl ChangesView {
         if self.history_rows.is_empty() {
             return div()
                 .id("history-list")
-                .flex_1()
-                .h_full()
+                .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_size(px(theme::font_body()))
-                .text_color(theme::TEXT_FAINT)
+                .text_color(theme::TEXT_DIM)
                 .child("Loading history…")
                 .into_any_element();
         }
 
         let mut list = div()
             .id("history-list")
-            .flex_1()
-            .min_w_0()
-            .h_full()
+            .size_full()
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px_2();
+            .pb_2();
 
         for row in &self.history_rows {
             if let Some(label) = &row.day_label {
                 list = list.child(
                     div()
-                        .py_1()
-                        .px_1()
-                        .text_size(px(theme::font_body()))
+                        .px_4()
+                        .pt_3()
+                        .pb_1()
+                        .text_size(px(theme::font_sub()))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::TEXT_MUTED)
+                        .text_color(theme::TEXT_DIM)
                         .child(label.clone()),
                 );
             }
             let unpushed_mark = unpushed.as_ref().is_some_and(|set| set.contains(&row.hash));
+            let selected = self.drilled_commit.as_ref() == Some(&row.hash);
             list = list.child(
                 div()
                     .id(SharedString::from(format!("commit-{}", row.short_hash)))
                     .a11y_button(format!("{} — {}, {}", row.subject, row.author, row.rel))
                     .cursor_pointer()
+                    .flex_shrink_0()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .px_1()
-                    .py_1()
-                    .rounded_md()
-                    .hover(|s| s.bg(theme::HOVER_BG))
+                    .pl(px(13.))
+                    .pr_3()
+                    .py_2()
+                    .border_l_3()
+                    .border_color(if selected {
+                        theme::ACCENT
+                    } else {
+                        theme::SURFACE
+                    })
+                    .when(selected, |d| d.bg(theme::RAISED))
+                    .when(!selected, |d| d.hover(|s| s.bg(theme::PANEL)))
                     .on_click({
                         let hash = row.hash.clone();
                         cx.listener(move |this, _, _, cx| this.drill_commit(&hash, cx))
@@ -700,7 +877,8 @@ impl ChangesView {
                             .child(
                                 div()
                                     .text_size(px(theme::font_body()))
-                                    .text_color(theme::TEXT_DIM)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::TEXT)
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
@@ -708,17 +886,19 @@ impl ChangesView {
                             )
                             .child(
                                 div()
-                                    .text_size(px(theme::font_control()))
-                                    .text_color(theme::TEXT_FAINT)
-                                    .child(format!("{} • {}", row.author, row.rel)),
+                                    .text_size(px(theme::font_meta()))
+                                    .text_color(theme::TEXT_DIM)
+                                    .child(format!("{} · {}", row.author, row.rel)),
                             ),
                     )
                     .when(unpushed_mark, |row| {
                         row.child(
                             div()
+                                .flex_shrink_0()
                                 .text_size(px(theme::font_meta()))
-                                .text_color(theme::AMBER_BRIGHT)
-                                .child("● unpushed"),
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::AHEAD)
+                                .child("↑ unpushed"),
                         )
                     })
                     .child(
@@ -766,27 +946,24 @@ impl ChangesView {
         let Some(details) = details.filter(|d| d.hash.starts_with(&hash[..hash.len().min(7)]))
         else {
             return div()
-                .flex_1()
-                .h_full()
+                .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_size(px(theme::font_body()))
-                .text_color(theme::TEXT_FAINT)
+                .text_color(theme::TEXT_DIM)
                 .child("Loading commit…")
                 .into_any_element();
         };
 
         let mut list = div()
             .id("commit-detail")
-            .flex_1()
-            .min_w_0()
-            .h_full()
+            .size_full()
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .px_2()
-            .gap_2();
+            .p_4()
+            .gap_3();
 
         // author + time from the loaded history rows (the detail model
         // doesn't carry them)
@@ -802,6 +979,7 @@ impl ChangesView {
             })
             .map(|c| {
                 (
+                    c.subject.clone(),
                     c.author.clone().unwrap_or_else(|| "Unknown".into()),
                     warp_station_core::rel_time::format(c.date),
                 )
@@ -815,26 +993,29 @@ impl ChangesView {
                 .id(id)
                 .a11y_button(text)
                 .cursor_pointer()
-                .rounded_md()
+                .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                .px_3()
+                .flex()
+                .items_center()
+                .rounded(px(6.))
                 .border_1()
                 .border_color(if armed_now {
                     theme::DANGER
                 } else {
-                    theme::HAIRLINE
+                    theme::LINE_STRONG
                 })
-                .px_2()
-                .py_0p5()
-                .text_size(px(theme::font_meta()))
+                .text_size(px(theme::font_control()))
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(if armed_now {
                     theme::DANGER
                 } else {
-                    theme::TEXT_DIM
+                    theme::TEXT
                 })
-                .hover(|s| s.bg(theme::HOVER_BG))
+                .hover(|s| s.bg(theme::RAISED))
                 .child(text.to_string())
         };
 
-        let mut actions_row = div().flex().flex_row().gap_1();
+        let mut actions_row = div().flex().flex_row().gap_2();
         actions_row = actions_row.child({
             let store = self.store.clone();
             let full_hash = details.hash.clone();
@@ -882,14 +1063,17 @@ impl ChangesView {
                 .id("detail-copy-sha")
                 .a11y_button("Copy SHA")
                 .cursor_pointer()
-                .rounded_md()
+                .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                .px_3()
+                .flex()
+                .items_center()
+                .rounded(px(6.))
                 .border_1()
-                .border_color(theme::HAIRLINE)
-                .px_2()
-                .py_0p5()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::TEXT_DIM)
-                .hover(|s| s.bg(theme::HOVER_BG))
+                .border_color(theme::LINE_STRONG)
+                .text_size(px(theme::font_control()))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::TEXT)
+                .hover(|s| s.bg(theme::RAISED))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full_hash.clone()));
                     store.update(cx, |s, cx| {
@@ -911,49 +1095,25 @@ impl ChangesView {
                 .gap_2()
                 .child(
                     div()
-                        .id("detail-back")
-                        .a11y_button("Back to history")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .px_1p5()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .text_size(px(theme::font_body()))
-                        .text_color(theme::BLUE_BRIGHT)
-                        .hover(|s| s.bg(theme::HOVER_BG))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.drilled_commit = None;
-                            this.detail_armed = None;
-                            cx.notify();
-                        }))
-                        .child(icon(
-                            "icons/icon-arrow-left.svg",
-                            px(theme::icon_small() - 1.),
-                            theme::BLUE_BRIGHT,
-                        ))
-                        .child("History"),
-                )
-                .child(
-                    div()
+                        .flex_1()
+                        .min_w_0()
                         .text_size(px(theme::font_meta()))
                         .font_family(gpui::SharedString::from(theme::code_font()))
                         .text_color(theme::TEXT_FAINT)
                         .child(details.hash[..7.min(details.hash.len())].to_string()),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(theme::font_heading()))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(format!("{} files changed", details.files.len())),
-                )
                 .child(actions_row),
         );
+
+        // the list cuts a long subject off, so the detail shows it whole
+        list = list.children(history_meta.as_ref().map(|(subject, ..)| {
+            div()
+                .debug_selector(|| "commit-subject".into())
+                .text_size(px(theme::font_heading()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT)
+                .child(subject.clone())
+        }));
 
         list = list.child(
             div().id("detail-files").flex().flex_col().gap_0p5().child(
@@ -963,7 +1123,8 @@ impl ChangesView {
                     .text_size(px(theme::font_meta()))
                     .text_color(theme::TEXT_MUTED)
                     .child(format!(
-                        "+{} −{}",
+                        "{} files changed · +{} −{}",
+                        details.files.len(),
                         details
                             .files
                             .iter()
@@ -1074,7 +1235,7 @@ impl ChangesView {
                 .text_size(px(theme::font_body()))
                 .text_color(theme::TEXT_DIM)
                 .child(body.clone());
-            if let Some((author, when)) = history_meta {
+            if let Some((_, author, when)) = history_meta {
                 card = card.child(
                     div()
                         .mt_1()
@@ -1089,7 +1250,7 @@ impl ChangesView {
                 );
             }
             list = list.child(card);
-        } else if let Some((author, when)) = history_meta {
+        } else if let Some((_, author, when)) = history_meta {
             list = list.child(
                 div()
                     .flex()
@@ -1125,40 +1286,15 @@ impl ChangesView {
         let generate_and_commit = message_empty && wand_on;
 
         let mut card = div()
-            .w(px(320.))
-            .h_full()
-            .min_h_0()
-            .rounded_lg()
-            .bg(theme::BACKGROUND)
-            .p_2()
+            .w_full()
+            .flex_shrink_0()
+            .h(px(COMMIT_BOX_H))
+            .p_3()
+            .border_t_1()
+            .border_color(theme::HAIRLINE)
             .flex()
             .flex_col()
             .gap_2()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_size(px(theme::font_body()))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::TEXT)
-                            .child("Commit message"),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(px(theme::font_control()))
-                            .text_color(theme::TEXT_FAINT)
-                            .child(if generate_and_commit {
-                                "empty = auto-generate"
-                            } else {
-                                "Ctrl+Enter to commit"
-                            }),
-                    ),
-            )
             .child(
                 div()
                     .flex_1()
@@ -1208,7 +1344,7 @@ impl ChangesView {
                                 .child(icon(
                                     "icons/icon-wand.svg",
                                     px(theme::icon_small()),
-                                    theme::TEXT_MUTED,
+                                    theme::TEXT_DIM,
                                 )),
                         )
                     }),
@@ -1219,7 +1355,19 @@ impl ChangesView {
             let store = self.store.clone();
             let message = self.commit_message.clone();
             let this = cx.entity();
-            let label = if generate_and_commit {
+            let (generating, committing) = {
+                let store = self.store.read(cx);
+                (
+                    store.wand_busy == Some(crate::net::WandKind::Commit),
+                    store.running_job() == Some("commit"),
+                )
+            };
+            let working = generating || committing;
+            let label = if generating {
+                "Generating…"
+            } else if committing {
+                "Committing…"
+            } else if generate_and_commit {
                 "Generate & Commit"
             } else {
                 "Commit"
@@ -1228,24 +1376,24 @@ impl ChangesView {
             let color = if can_commit {
                 theme::ON_ACCENT
             } else {
-                theme::TEXT_FAINT
+                theme::TEXT_MUTED
             };
             div()
                 .id("commit-button")
                 .a11y_button(label)
                 .cursor_pointer()
-                .w_full()
-                .h(px(34.))
-                .rounded_md()
+                .flex_1()
+                .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                .rounded(px(6.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .gap_1p5()
                 .text_color(color)
                 .when(can_commit, |b| {
-                    b.bg(theme::ACCENT).hover(|s| s.opacity(0.9))
+                    b.bg(theme::ACCENT).hover(|s| s.bg(theme::ACCENT_HOVER))
                 })
-                .when(!can_commit, |b| b.bg(theme::CHIP))
+                .when(!can_commit, |b| b.bg(theme::RAISED))
                 .on_click(move |_, _, cx| {
                     if busy {
                         return;
@@ -1269,19 +1417,29 @@ impl ChangesView {
                     }
                     store.update(cx, |s, cx| s.run_git(GitAction::Commit(text.clone()), cx));
                 })
-                .child(icon(
-                    if generate_and_commit {
-                        "icons/icon-wand.svg"
-                    } else {
-                        "icons/icon-check.svg"
-                    },
-                    px(theme::icon_small()),
-                    color,
-                ))
+                .when(working, |b| {
+                    b.child(warpui_kit_core::motion::spinner(
+                        "commit-spinner",
+                        "icons/icon-spinner.svg",
+                        px(theme::icon_small()),
+                        color,
+                    ))
+                })
+                .when(!working, |b| {
+                    b.child(icon(
+                        if generate_and_commit {
+                            "icons/icon-wand.svg"
+                        } else {
+                            "icons/icon-check.svg"
+                        },
+                        px(theme::icon_small()),
+                        color,
+                    ))
+                })
                 .child(
                     div()
-                        .text_size(px(theme::font_body()))
-                        .font_weight(FontWeight::MEDIUM)
+                        .text_size(px(theme::font_control()))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color)
                         .child(label),
                 )
@@ -1306,232 +1464,145 @@ impl ChangesView {
         card.into_any_element()
     }
 
-    fn render_rail(
-        &mut self,
-        busy: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
+    /// The git toolbar over the columns: the branch selector, then the sync
+    /// verbs. Pull and Push carry what they would move; a branch with no
+    /// upstream publishes instead of pushing.
+    fn render_toolbar(&mut self, busy: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
         let store = self.store.read(cx);
-        let branch = store
-            .selected_entry()
-            .and_then(|e| e.git_branch_name.clone());
-        let has_remote = store
-            .selected_entry()
-            .map(|e| e.git_has_remote)
-            .unwrap_or(false);
-        let published = store
-            .selected_entry()
-            .map(|e| e.git_branch_published)
-            .unwrap_or(false);
-        let to_push = store
-            .selected_entry()
-            .map(|e| e.git_to_push_count)
-            .unwrap_or(0);
-        let to_pull = store
-            .selected_entry()
-            .map(|e| e.git_to_pull_count)
-            .unwrap_or(0);
+        let entry = store.selected_entry();
+        let branch = entry.and_then(|e| e.git_branch_name.clone());
+        let has_remote = entry.is_some_and(|e| e.git_has_remote);
+        let published = entry.is_some_and(|e| e.git_branch_published);
+        let to_push = entry.map_or(0, |e| e.git_to_push_count);
+        let to_pull = entry.map_or(0, |e| e.git_to_pull_count);
+        let job = store.running_job();
+        let finished = store.finished_job();
 
-        let mut rail = div()
-            .w(px(280.))
-            .h_full()
-            .min_h_0()
-            .rounded_lg()
-            .bg(theme::BACKGROUND)
-            .p_2()
-            .flex()
-            .flex_col()
-            .relative();
-
-        // the branch selector is the shared FilteredPicker in branch mode;
-        // its open popup defers painting over the rail's later children and
-        // dismissal flows through the window's outside-click/Escape chain
-        rail = rail.child(self.branch_picker.clone());
-        rail = rail.child(divider());
-
-        // git rail: a vertical icon list — Fetch/Pull/Push above a divider,
-        // then Sync/History
-        type RailAction = Box<dyn Fn(&mut gpui::App) + 'static>;
-        let action_row = |icon_path: &str,
-                          label: &'static str,
-                          enabled: bool,
-                          active: bool,
-                          badge: Option<(u32, gpui::Rgba)>,
-                          click: Option<RailAction>| {
-            let mut row = div()
+        let action = |icon_path: &'static str,
+                      label: &'static str,
+                      enabled: bool,
+                      badge: Option<(u32, gpui::Rgba)>,
+                      git: GitAction| {
+            let store = self.store.clone();
+            let running = job == Some(git.label());
+            let landed = finished == Some(git.label());
+            let word = if running {
+                crate::net::git_working_word(git.label())
+            } else if landed {
+                crate::net::git_done_word(git.label())
+            } else {
+                label
+            };
+            div()
                 .id(SharedString::from(format!("rail-{label}")))
                 .debug_selector(move || format!("rail-{label}"))
-                .a11y_button(label)
-                .cursor_pointer()
-                .rounded_md()
-                .px_2()
-                .py_1p5()
+                .a11y_button(word)
+                .flex_shrink_0()
+                .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                .px_3()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::LINE_STRONG)
+                .bg(theme::PANEL)
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_2p5()
-                .text_size(px(theme::font_body()));
-            if enabled {
-                if let Some(click) = click {
-                    row = row
-                        .when(active, |d| {
-                            d.text_color(theme::BLUE_BRIGHT)
-                                .font_weight(FontWeight::SEMIBOLD)
-                        })
-                        .when(!active, |d| d.text_color(theme::TEXT_DIM))
-                        .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
+                .gap_2()
+                .text_size(px(theme::font_control()))
+                .font_weight(FontWeight::MEDIUM)
+                .when(enabled, |d| {
+                    d.cursor_pointer()
+                        .text_color(theme::TEXT)
+                        .hover(|s| s.bg(theme::RAISED))
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
-                            click(cx);
-                        });
+                            store.update(cx, |s, cx| s.run_git(git.clone(), cx));
+                        })
+                })
+                // the running button stays at full strength
+                .when(!enabled && !running, |d| {
+                    d.opacity(0.45).text_color(theme::TEXT_DIM)
+                })
+                .when(running, |d| d.text_color(theme::TEXT))
+                .when(landed, |d| d.text_color(theme::SUCCESS_BRIGHT))
+                .child(if running {
+                    warpui_kit_core::motion::spinner(
+                        SharedString::from(format!("rail-spinner-{label}")),
+                        "icons/icon-spinner.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_DIM,
+                    )
+                } else if landed {
+                    icon(
+                        "icons/icon-check.svg",
+                        px(theme::icon_small()),
+                        theme::SUCCESS_BRIGHT,
+                    )
+                    .into_any_element()
                 } else {
-                    row = row.text_color(theme::TEXT_DIM);
-                }
-            } else {
-                row = row.text_color(theme::TEXT_FAINT);
-            }
-            let icon_color = if active {
-                theme::BLUE_BRIGHT
-            } else if enabled {
-                theme::TEXT_DIM
-            } else {
-                theme::TEXT_FAINT
-            };
-            row.child(icon(icon_path, px(theme::icon_small()), icon_color))
-                // fills the row so a pending-work pill pins to the right edge
-                // instead of hugging the label
-                .child(div().flex_1().min_w_0().child(label))
+                    icon(icon_path, px(theme::icon_small()), theme::TEXT_DIM).into_any_element()
+                })
+                .child(word)
                 .when_some(badge.filter(|_| enabled), |row, (count, color)| {
-                    // the table row's pending-work pill, on the action that
-                    // resolves it
                     let selector = format!("rail-badge-{label}");
                     row.child(
                         div()
                             .debug_selector(move || selector.clone())
-                            .rounded_md()
-                            .bg(theme::tint(color))
-                            .px_1p5()
-                            .py_0p5()
-                            .text_size(px(theme::font_meta()))
-                            .font_weight(FontWeight::MEDIUM)
                             .text_color(color)
                             .child(format!("{count}")),
                     )
                 })
-                .into_any_element()
         };
-        macro_rules! rail_action {
-            ($list:ident, $icon:expr, $label:expr, $enabled:expr, $badge:expr, $action:expr) => {{
-                let store = self.store.clone();
-                $list = $list.child(action_row(
-                    $icon,
-                    $label,
-                    $enabled,
-                    false,
-                    $badge,
-                    Some(Box::new(move |cx| {
-                        store.update(cx, |s, cx| s.run_git($action.clone(), cx));
-                    })),
-                ));
-            }};
-        }
-        let mut action_list = div().flex().flex_col().gap_0p5();
-        rail_action!(
-            action_list,
-            "icons/icon-cloud-download.svg",
-            "Fetch",
-            !busy,
-            None,
-            GitAction::Fetch
-        );
-        rail_action!(
-            action_list,
-            "icons/icon-arrow-down.svg",
-            "Pull",
-            has_remote && !busy,
-            (to_pull > 0).then_some((to_pull, theme::BLUE_BRIGHT)),
-            GitAction::Pull
-        );
-        rail_action!(
-            action_list,
-            "icons/icon-arrow-up.svg",
-            "Push",
-            has_remote && published && !busy,
-            (to_push > 0).then_some((to_push, theme::SUCCESS_BRIGHT)),
-            GitAction::Push
-        );
-        if let Some(b) = branch.clone() {
-            rail_action!(
-                action_list,
+
+        let bar = div()
+            .flex_shrink_0()
+            .h(px(TOOLBAR_H))
+            .px_2()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .border_b_1()
+            .border_color(theme::HAIRLINE)
+            .child(div().w(px(BRANCH_W)).child(self.branch_picker.clone()))
+            .child(action(
+                "icons/icon-cloud-download.svg",
+                "Fetch",
+                !busy,
+                None,
+                GitAction::Fetch,
+            ))
+            .child(action(
+                "icons/icon-arrow-down.svg",
+                "Pull",
+                has_remote && !busy,
+                (to_pull > 0).then_some((to_pull, theme::BEHIND)),
+                GitAction::Pull,
+            ));
+        let bar = match branch.filter(|_| !published) {
+            Some(branch) => bar.child(action(
                 "icons/icon-arrow-up.svg",
                 "Publish",
-                has_remote && !published && !busy,
+                has_remote && !busy,
                 None,
-                GitAction::Publish { branch: b.clone() }
-            );
-        }
-        action_list = action_list.child(divider());
-        rail_action!(
-            action_list,
+                GitAction::Publish { branch },
+            )),
+            None => bar.child(action(
+                "icons/icon-arrow-up.svg",
+                "Push",
+                has_remote && published && !busy,
+                (to_push > 0).then_some((to_push, theme::AHEAD)),
+                GitAction::Push,
+            )),
+        };
+        bar.child(action(
             "icons/icon-refresh.svg",
             "Sync",
             has_remote && !busy,
             None,
-            GitAction::Sync
-        );
-        let history_toggle = cx.listener(|this, _, _, cx| {
-            if this.history_open {
-                this.history_open = false;
-                this.drilled_commit = None;
-            } else {
-                this.open_history(cx);
-            }
-            cx.notify();
-        });
-        action_list = action_list.child(
-            div()
-                .id("rail-History")
-                .a11y_toggle("History", self.history_open)
-                .cursor_pointer()
-                .rounded_md()
-                .px_2()
-                .py_1p5()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2p5()
-                .text_size(px(theme::font_body()))
-                .when(self.history_open, |d| {
-                    d.text_color(theme::BLUE_BRIGHT)
-                        .font_weight(FontWeight::SEMIBOLD)
-                })
-                .when(!self.history_open, |d| d.text_color(theme::TEXT_DIM))
-                .hover(|s| s.bg(theme::HOVER_BG).text_color(theme::TEXT))
-                .on_click(history_toggle)
-                .child(icon(
-                    "icons/icon-clock.svg",
-                    px(theme::icon_small()),
-                    if self.history_open {
-                        theme::BLUE_BRIGHT
-                    } else {
-                        theme::TEXT_DIM
-                    },
-                ))
-                .child("History"),
-        );
-        rail = rail.child(action_list);
-
-        // the open branch popup rides LAST so later-sibling paint order puts
-        // it over the rail without a deferred wrapper
-        if let Some(popup) = self
-            .branch_picker
-            .update(cx, |picker, cx| picker.overlay_popup(window, cx))
-        {
-            rail = rail.child(popup);
-        }
-
-        rail.into_any_element()
+            GitAction::Sync,
+        ))
+        .into_any_element()
     }
 }
 
@@ -1666,23 +1737,6 @@ fn row_action_button(
             px(theme::icon_small() - 2.),
             theme::BLUE_BRIGHT,
         ))
-}
-
-/// The rounded +N/−N diff pill: bright count on its tinted ground.
-fn count_pill(text: String, color: gpui::Rgba) -> impl IntoElement + use<> {
-    div()
-        .rounded_full()
-        .bg(theme::tint(color))
-        .px_1p5()
-        .text_size(px(theme::font_meta()))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(color)
-        .child(text)
-}
-
-/// The hairline separator between rail sections.
-fn divider() -> impl IntoElement + use<> {
-    div().h(px(1.)).my_1p5().bg(theme::HAIRLINE)
 }
 
 // ---- the branch picker ------------------------------------------------------

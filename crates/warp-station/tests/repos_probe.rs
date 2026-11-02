@@ -2,13 +2,13 @@
 //! drawn in a test window, covering the toasts, the sheet's branch picker, the
 //! background passes, the dialogs and the folder grouping.
 
+use gpui::TestAppContext;
+use gpui::prelude::*;
+use std::path::PathBuf;
 use warp_station::store::Store;
 use warp_station::store::projection::ProjectedRow;
 use warp_station::ui::window::MainWindow;
 use warp_station_core::repo_store::RepoEntry;
-use gpui::TestAppContext;
-use gpui::prelude::*;
-use std::path::PathBuf;
 
 /// Points HOME at a scratch folder: `Store::new` reads the settings file under
 /// it, and what a probe saves must never reach the developer's real one.
@@ -128,7 +128,7 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo("/probe/alpha", cx);
-        s.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -199,7 +199,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo("/probe/alpha", cx);
-        s.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -238,7 +238,7 @@ fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
 /// The rail action's pending-work pill pins to the row's right edge instead
 /// of hugging the label.
 #[gpui::test]
-fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
+fn the_push_button_carries_its_count(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     scratch_home();
     cx.update(warp_station::theme::apply_kit_theme);
@@ -250,7 +250,7 @@ fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo("/probe/alpha", cx);
-        s.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
     });
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
@@ -260,12 +260,10 @@ fn rail_badge_sits_at_the_action_row_right_edge(cx: &mut TestAppContext) {
         .expect("the Push action renders");
     let badge = cx
         .debug_bounds("rail-badge-Push")
-        .expect("the pending-push pill renders");
-    let inset = row.right() - badge.right();
+        .expect("the pending-push count renders");
     assert!(
-        (6.0..=10.0).contains(&inset.as_f32()),
-        "the pill hugs the row's right edge (inset {inset:?}, row {:?})",
-        row.size
+        badge.origin.x > row.origin.x && badge.right() <= row.right(),
+        "the count sits inside its button ({badge:?} in {row:?})"
     );
 }
 
@@ -287,7 +285,7 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo("/probe/alpha", cx);
-        s.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: "main".into(),
@@ -304,6 +302,10 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
         ];
     });
     cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the panel's entrance runs on the wall clock
+    std::thread::sleep(warpui_kit_core::motion::BASE * 2);
     cx.update(|window, cx| drop(window.draw(cx)));
 
     let rail_fetch = cx
@@ -356,7 +358,7 @@ fn branch_menu_filters_via_typing_and_pick_checks_out(cx: &mut TestAppContext) {
         "picking a branch closes the dropdown"
     );
     assert!(
-        cx.read_entity(&store, |s, _| s.git_busy),
+        cx.read_entity(&store, |s, _| s.git_busy()),
         "the checkout went out"
     );
 }
@@ -394,7 +396,7 @@ fn a_long_branch_picks_under_its_full_name(cx: &mut TestAppContext) {
 
     cx.update_entity(&store, |s: &mut Store, cx| {
         s.select_repo("/probe/alpha", cx);
-        s.open_sheet(warp_station::store::WorkspaceTab::Changes, cx);
+        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
         s.branches = vec![
             GitBranchRef {
                 name: LONG.into(),
@@ -457,7 +459,8 @@ fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| {
         drop(window.draw(cx));
-        let fits = "users/enginkirmaci/test";
+        // past BRANCH_LABEL_CHARS, but narrow enough to fit the rail
+        let fits = "fix/ui/list/title/tilt";
         assert_eq!(
             warp_station::ui::branch_label(fits, window),
             fits,
@@ -550,7 +553,7 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
         s.wand_busy = Some(warp_station::net::WandKind::Commit);
         s.wand_repo = Some("/probe/alpha".into());
         s.wand_error = Some("stale".into());
-        s.git_busy = true;
+        s.git_jobs.insert("/probe/alpha".into(), "pull");
     });
 
     cx.update_entity(&store, |s: &mut Store, cx| {
@@ -566,7 +569,7 @@ fn switching_repos_resets_the_workspace(cx: &mut TestAppContext) {
         assert!(s.commit_message_draft.is_none(), "commit draft reset");
         assert!(s.readme_draft.is_none(), "readme draft reset");
         assert!(s.wand_error.is_none(), "wand error reset");
-        assert!(!s.git_busy, "git busy reset");
+        assert!(!s.git_busy(), "the new repo is free");
         // the in-flight run keeps its busy flag but loses its repo: it can
         // no longer land a draft on beta
         assert_eq!(s.wand_repo, None);
@@ -715,7 +718,7 @@ fn auto_fetch_fires_for_remote_repos_and_reschedules(cx: &mut TestAppContext) {
     // a git mutation in the selected repo excludes its folder (index.lock)
     cx.update_entity(&store, |s: &mut Store, _| {
         s.selected_repo = Some("/probe/alpha".into());
-        s.git_busy = true;
+        s.git_jobs.insert("/probe/alpha".into(), "pull");
         s.next_auto_fetch = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
     });
     cx.update_entity(&store, |s: &mut Store, cx| s.check_auto_fetch(cx));
@@ -1180,7 +1183,10 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
 /// (startup, Refresh).
 #[gpui::test]
 fn register_repos_persists_new_folders_as_scan_roots(cx: &mut TestAppContext) {
-    let home = std::env::temp_dir().join(format!("warp-station-register-probe-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-register-probe-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".warp")).unwrap();
     // SAFETY: process-global env; other tests in this binary tolerate a
@@ -1254,19 +1260,10 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
 
-    // the services pill must actually render, or this probe exercises the
-    // compact layout and proves nothing about the overflow
-    assert!(
-        cx.debug_bounds("status-pill").is_some(),
-        "the services pill renders"
-    );
-
     let right = cx
         .debug_bounds("titlebar-right")
         .expect("right group renders");
-    let nuget = cx
-        .debug_bounds("status-pill")
-        .expect("services pill bounds");
+    let list = cx.debug_bounds("list-toggle").expect("list toggle bounds");
     let minimize = cx
         .debug_bounds("minimize-window")
         .expect("minimize renders");
@@ -1275,9 +1272,9 @@ fn titlebar_window_controls_keep_their_pitch(cx: &mut TestAppContext) {
     // the computed width must actually hold the content: a too-small box
     // spills the chips out of its start edge and collapses the row's gaps
     assert!(
-        nuget.origin.x >= right.origin.x - gpui::px(0.5),
-        "the status pill fits inside the right group (pill at {:?}, group at {:?})",
-        nuget.origin.x,
+        list.origin.x >= right.origin.x - gpui::px(0.5),
+        "the toggle fits inside the right group (toggle at {:?}, group at {:?})",
+        list.origin.x,
         right.origin.x
     );
     for (name, bounds) in [("minimize", minimize), ("zoom", zoom), ("close", close)] {
@@ -1467,8 +1464,10 @@ fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext)
     scratch_home();
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let scratch =
-        std::env::temp_dir().join(format!("warp-station-groups-depth-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "warp-station-groups-depth-{}.json",
+        std::process::id()
+    ));
     std::fs::write(
         &scratch,
         r#"{"Repos": {"RepoScanFolders": ["/roots/a"], "GroupReposByRoot": true}}"#,
@@ -1556,9 +1555,10 @@ fn depth_one_headers_sit_on_the_shared_folder_and_climb(cx: &mut TestAppContext)
     }
     assert_eq!(scans, 1, "the depth move must not rescan");
 
-    let _ = std::fs::remove_file(
-        std::env::temp_dir().join(format!("warp-station-groups-depth-{}.json", std::process::id())),
-    );
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
+        "warp-station-groups-depth-{}.json",
+        std::process::id()
+    )));
 }
 
 /// Without the grouping setting the list stays flat: no bands anywhere and one
@@ -1570,8 +1570,10 @@ fn grouping_off_keeps_the_list_flat(cx: &mut TestAppContext) {
     cx.update(warp_station::theme::apply_kit_theme);
 
     // same scan roots, no GroupReposByRoot — the setting's absence means off
-    let scratch =
-        std::env::temp_dir().join(format!("warp-station-groups-off-{}.json", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "warp-station-groups-off-{}.json",
+        std::process::id()
+    ));
     std::fs::write(
         &scratch,
         r#"{"Repos": {"RepoScanFolders": ["/roots/a", "/roots/b"]}}"#,

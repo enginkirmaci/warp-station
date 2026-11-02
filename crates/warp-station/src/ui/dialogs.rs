@@ -50,7 +50,7 @@ pub fn derive_repo_name(url: &str) -> String {
 /// 540px rail so the dialog never reads as a second pane.
 const CARD_W: f32 = 520.;
 
-/// Scrim plus the centered card. The scrim is the changes sheet's
+/// Scrim plus the centered card. The scrim is the family's
 /// (`00000073`), so every overlay in the app dims the page by the same amount,
 /// and a click on it dismisses regardless of where the pointer landed.
 fn overlay_shell(
@@ -74,12 +74,13 @@ fn overlay_shell(
             this.dialog = None;
             cx.notify();
         }))
-        .child(
+        .child(warpui_kit_core::motion::enter(
+            SharedString::from(format!("{id}-enter")),
             body.id("dialog-card-body")
                 .role(gpui::Role::Dialog)
                 .occlude()
                 .on_click(|_, _, _| {}),
-        )
+        ))
         .into_any_element()
 }
 
@@ -164,7 +165,7 @@ fn dialog_footer() -> gpui::Div {
         .border_color(theme::ROW_LINE)
 }
 
-/// A field label: 9.5px muted, the rail's meta step.
+/// A field label on the row meta step.
 fn field_label(label: &str) -> gpui::Div {
     div()
         .text_size(px(theme::font_row_meta()))
@@ -229,7 +230,7 @@ fn ghost_button(
 }
 
 /// The one filled action: the mockup's blue at 26px, darkening to
-/// `ACCENT_HOVER` on hover like the primary in the rail.
+/// `ACCENT_HOVER` on hover like every primary.
 fn primary_button(
     label: &str,
     enabled: bool,

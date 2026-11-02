@@ -5,9 +5,9 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::A11y;
-use warp_station_core::azure::AzureItem;
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
+use warp_station_core::azure::AzureItem;
 
 pub struct AzureView {
     pub store: Entity<Store>,

@@ -1,7 +1,7 @@
-//! The NuGet Package Manager drawer: watch a folder for new .nupkg build
+//! The NuGet Package Manager page: watch a folder for new .nupkg build
 //! outputs, clear the matching global cache so consumers fetch fresh DLLs.
 //! A thin view over the store's NuGet snapshot; the watch itself lives on the
-//! net thread's service and survives the drawer closing.
+//! net thread's service and survives leaving the page.
 
 use crate::store::Store;
 use crate::theme;
@@ -14,7 +14,6 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 pub struct NugetDrawer {
     pub store: Entity<Store>,
     watch_input: Entity<InputState>,
-    on_close: crate::ui::DrawerOnClose,
 }
 
 impl NugetDrawer {
@@ -39,20 +38,7 @@ impl NugetDrawer {
         })
         .detach();
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self {
-            store,
-            watch_input,
-            on_close: None,
-        }
-    }
-
-    /// Wires the host window's close action into the shared drawer header.
-    pub fn with_on_close(
-        mut self,
-        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
-    ) -> Self {
-        self.on_close = Some(std::rc::Rc::new(handler));
-        self
+        Self { store, watch_input }
     }
 
     /// Persists the typed folder and applies it to the service.
@@ -112,21 +98,16 @@ impl Render for NugetDrawer {
 
         div()
             .id("nuget-drawer")
-            .w(px(420.))
-            .h_full()
-            .bg(theme::POPUP)
-            .border_l_1()
-            .border_color(theme::HAIRLINE)
-            .shadow_lg()
-            .p_3()
+            .size_full()
+            .max_w(px(warpui_kit_core::shell::READING_WIDTH + 2. * warpui_kit_core::shell::DETAIL_PADDING))
+            .p(px(warpui_kit_core::shell::DETAIL_PADDING))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .occlude()
-            .child(crate::ui::drawer_header(
+            .child(crate::ui::tool_header(
                 "NuGet Package Manager",
                 "Refresh the global cache when a local build produces .nupkg files.",
-                self.on_close.clone(),
             ))
             // setup card: watch folder, resolved cache paths, register
             .child(

@@ -5,10 +5,13 @@
 pub mod projection;
 
 use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus};
-use warp_station_core::repo_store::{self, RepoEntry};
-use warp_station_core::settings::{AppSettings, RepoSortMode, ReposSettings, SettingsService};
 use gpui::{App, Context};
 use std::sync::Arc;
+use warp_station_core::repo_store::{self, RepoEntry};
+use warp_station_core::settings::{AppSettings, RepoSortMode, ReposSettings, SettingsService};
+
+/// How long a button holds its past tense.
+const FINISHED_HOLD: std::time::Duration = std::time::Duration::from_millis(1200);
 
 pub struct Store {
     pub net: async_channel::Sender<NetCommand>,
@@ -61,7 +64,16 @@ pub struct Store {
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
-    pub git_busy: bool,
+    /// Running git work by folder: [`GitAction::label`]. One job per repository;
+    /// the others stay free.
+    pub git_jobs: std::collections::HashMap<String, &'static str>,
+    /// The job that just landed, for the moment its button says so.
+    pub git_finished: Option<(String, &'static str)>,
+    finished_generation: u64,
+    /// Folder names being cloned: each shows as a row at the top of the list.
+    pub cloning: Vec<String>,
+    /// The star just pressed: (folder, press count). Only that one jumps.
+    pub star_pressed: Option<(String, u64)>,
     /// One freshly loaded change-row patch, drained by the Changes view.
     pub change_patch_result: Option<(String, bool, String)>,
     history: Vec<warp_station_core::model::GitCommitInfo>,
@@ -74,6 +86,13 @@ pub struct Store {
     pub azure_by_folder:
         std::collections::HashMap<String, Arc<warp_station_core::azure::AzureSnapshot>>,
     pub github_details: Option<warp_station_core::github::GitHubRepoDetails>,
+    /// Closed pull requests or issues by (folder, pull_requests), loaded when
+    /// a tab first asks.
+    pub github_closed:
+        std::collections::HashMap<(String, bool), Arc<Vec<warp_station_core::github::GitHubItem>>>,
+    /// The pull request taking over the detail pane.
+    pub open_pull: Option<OpenPull>,
+    closed_requested: std::collections::HashSet<(String, bool)>,
 
     // ---- wand (warp-agent) state ----
     pub wand_busy: Option<WandKind>,
@@ -110,9 +129,20 @@ pub struct Store {
     /// E2E hook: WARP_STATION_NOTES=1 asks for Notes on launch; the main
     /// window's render drains it into a warp-notes launch.
     pub notes_requested: bool,
-    /// The workspace sheet tab something asked for; the window drains it, so
-    /// the rail and the keymap never have to know the shell.
-    pub sheet_request: Option<WorkspaceTab>,
+    /// The tab open in the detail pane.
+    pub detail_tab: WorkspaceTab,
+    /// Repositories opened in a tab of their own, in strip order.
+    pub repo_tabs: Vec<RepoTab>,
+    /// Tabs from the last run whose repos haven't landed yet. The first full
+    /// scan settles them: found, they join the strip; gone, they are dropped.
+    pending_tabs: Vec<String>,
+    /// The list pane's width while it is dragged; the settings hold it after.
+    list_width: Option<f32>,
+    /// The tab on screen; None is the Repositories tab with the list.
+    pub active_repo_tab: Option<String>,
+    /// What the Repositories tab was showing when a repo tab took over.
+    home_repo: Option<String>,
+    home_tab: WorkspaceTab,
     /// Drill-down for the selected history commit, drained by the view.
     pub commit_details: Option<warp_station_core::model::GitCommitDetails>,
     pub commit_file_patch: Option<(String, String)>,
@@ -124,8 +154,6 @@ pub struct Store {
     /// Write-behind cache saves: bumped on every tag/favorite mutation; the
     /// deferred flush only writes when its generation is still current.
     save_generation: u64,
-    /// The workspace sheet's height in logical px (drag its top edge).
-    pub sheet_height: f32,
     /// Latest NuGet watch service snapshot (watching, count, activity log).
     pub nuget: Arc<warp_station_core::nuget::NugetSnapshot>,
     /// Distinct tags across the list (filter chip row), recomputed on
@@ -184,7 +212,6 @@ impl Store {
             collapsed_groups: app_settings.repos.collapsed_groups.clone(),
             projected: Vec::new(),
             selected_repo: None,
-            sheet_height: 520.0,
             scanning: false,
             deep_scan_result: None,
             clone_result: None,
@@ -195,13 +222,20 @@ impl Store {
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
-            git_busy: false,
+            git_jobs: std::collections::HashMap::new(),
+            git_finished: None,
+            finished_generation: 0,
+            cloning: Vec::new(),
+            star_pressed: None,
             change_patch_result: None,
             history: Vec::new(),
             history_generation: 0,
             github_by_folder: std::collections::HashMap::new(),
             azure_by_folder: std::collections::HashMap::new(),
             github_details: None,
+            github_closed: std::collections::HashMap::new(),
+            open_pull: None,
+            closed_requested: std::collections::HashSet::new(),
             wand_busy: None,
             wand_repo: None,
             wand_error: None,
@@ -219,10 +253,17 @@ impl Store {
             global_search: Vec::new(),
             // E2E hook: WARP_STATION_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("WARP_STATION_NOTES").as_deref() == Ok("1"),
-            // E2E hook: WARP_STATION_SHEET=<tab> opens the workspace sheet on launch
-            sheet_request: std::env::var("WARP_STATION_SHEET")
+            // E2E hook: WARP_STATION_SHEET=<tab> opens that detail tab on launch
+            detail_tab: std::env::var("WARP_STATION_SHEET")
                 .ok()
-                .and_then(|tab| WorkspaceTab::parse(&tab)),
+                .and_then(|tab| WorkspaceTab::parse(&tab))
+                .unwrap_or_default(),
+            repo_tabs: Vec::new(),
+            pending_tabs: Vec::new(),
+            list_width: None,
+            active_repo_tab: None,
+            home_repo: None,
+            home_tab: WorkspaceTab::default(),
             commit_details: None,
             commit_file_patch: None,
             next_auto_fetch: None,
@@ -235,6 +276,7 @@ impl Store {
             code_search_generation: 0,
             code_searching: false,
         };
+        store.pending_tabs = store.settings().repos.repo_tabs.unwrap_or_default();
         store.reproject();
         store.refresh_auto_fetch_schedule();
 
@@ -429,6 +471,7 @@ impl Store {
                 result,
                 ..
             } => {
+                self.cloning.retain(|cloning| cloning != &name);
                 self.clone_result = Some((parent_dir, name, result));
                 cx.notify();
             }
@@ -501,6 +544,63 @@ impl Store {
             UiEvent::GitHubDetailsLoaded { folder, details } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.github_details = details;
+                }
+                cx.notify();
+            }
+            UiEvent::GitHubClosedLoaded {
+                folder,
+                pull_requests,
+                items,
+            } => {
+                match items {
+                    Some(items) => {
+                        self.github_closed
+                            .insert((folder, pull_requests), Arc::new(items));
+                    }
+                    None => self.notify_error("GitHub did not answer with the closed list"),
+                }
+                cx.notify();
+            }
+            UiEvent::GitHubPullLoaded {
+                folder,
+                number,
+                pull,
+            } => {
+                if let Some(open) = self
+                    .open_pull
+                    .as_mut()
+                    .filter(|open| open.folder == folder && open.item.number == number)
+                {
+                    open.failed = pull.is_none();
+                    if pull.is_some() {
+                        open.pull = pull;
+                    }
+                }
+                cx.notify();
+            }
+            UiEvent::GitHubMerged {
+                folder,
+                number,
+                result,
+            } => {
+                if let Some(open) = self
+                    .open_pull
+                    .as_mut()
+                    .filter(|open| open.folder == folder && open.item.number == number)
+                {
+                    open.merging = false;
+                }
+                match result {
+                    Ok(()) => {
+                        self.notify_success(format!("Merged #{number}"));
+                        self.reload_open_pull();
+                        self.kick_github_pass(&[std::path::PathBuf::from(&folder)]);
+                        self.github_closed.remove(&(folder, true));
+                    }
+                    Err(err) if err.is_empty() => {
+                        self.notify_error(format!("Could not merge #{number}"));
+                    }
+                    Err(err) => self.notify_error(err),
                 }
                 cx.notify();
             }
@@ -633,7 +733,10 @@ impl Store {
                 commit_hash,
                 detail,
             } => {
-                self.git_busy = false;
+                self.git_jobs.remove(&folder);
+                if error.is_none() {
+                    self.show_finished(folder.clone(), label, cx);
+                }
                 let name = self
                     .repos
                     .iter()
@@ -690,7 +793,8 @@ impl Store {
         if !settings.repos.enable_git_hub || folders.is_empty() {
             return;
         }
-        let Some(gh_path) = warp_station_core::exe::locate(&settings.repos.git_hub_executable) else {
+        let Some(gh_path) = warp_station_core::exe::locate(&settings.repos.git_hub_executable)
+        else {
             tracing::warn!(
                 "GitHub column enabled but the gh CLI could not be located ({})",
                 settings.repos.git_hub_executable
@@ -710,7 +814,8 @@ impl Store {
         if !settings.repos.enable_azure_dev_ops || folders.is_empty() {
             return;
         }
-        let Some(pat) = warp_station_core::azure::resolve_pat(&settings.repos.azure_dev_ops_pat) else {
+        let Some(pat) = warp_station_core::azure::resolve_pat(&settings.repos.azure_dev_ops_pat)
+        else {
             tracing::warn!(
                 "Azure DevOps column enabled but no personal access token is configured; set one in Repos settings (or the AZURE_DEVOPS_PAT environment variable)"
             );
@@ -894,12 +999,45 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
-        self.git_busy = true;
+        self.git_jobs.insert(folder.clone(), action.label());
         let _ = self.net.send_blocking(NetCommand::Git {
             folder: std::path::PathBuf::from(folder),
             action,
         });
         cx.notify();
+    }
+
+    /// The selected repo's running job.
+    pub fn running_job(&self) -> Option<&'static str> {
+        let folder = self.selected_repo.as_ref()?;
+        self.git_jobs.get(folder).copied()
+    }
+
+    pub fn git_busy(&self) -> bool {
+        self.running_job().is_some()
+    }
+
+    /// The selected repo's job that just landed.
+    pub fn finished_job(&self) -> Option<&'static str> {
+        let (folder, label) = self.git_finished.as_ref()?;
+        (self.selected_repo.as_ref() == Some(folder)).then_some(*label)
+    }
+
+    /// Holds the past tense on the job's button for a moment.
+    fn show_finished(&mut self, folder: String, label: &'static str, cx: &mut Context<Self>) {
+        self.git_finished = Some((folder, label));
+        self.finished_generation += 1;
+        let generation = self.finished_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(FINISHED_HOLD).await;
+            let _ = this.update(cx, |store, cx| {
+                if store.finished_generation == generation {
+                    store.git_finished = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Adopts scan results into the tracked list (the Add-Repositories
@@ -1120,16 +1258,15 @@ impl Store {
         if interval.is_none() && self.repos.is_empty() {
             return;
         }
-        let busy_folder = self.git_busy.then(|| self.selected_repo.clone()).flatten();
         let folders: Vec<std::path::PathBuf> = self
             .repos
             .iter()
             .filter(|repo| repo.git_has_remote && !repo.is_archived())
             .map(|repo| repo.folder_path.clone())
             .filter(|folder| {
-                busy_folder
-                    .as_ref()
-                    .is_none_or(|busy| folder.to_string_lossy() != *busy)
+                !self
+                    .git_jobs
+                    .contains_key(folder.to_string_lossy().as_ref())
             })
             .collect();
         // an interval re-arms into the future; the one-shot clears instead
@@ -1234,6 +1371,12 @@ impl Store {
     }
 
     /// Checks/unchecks one tag-filter chip (OR semantics across the set).
+    pub fn clear_tag_filters(&mut self, cx: &mut Context<Self>) {
+        self.tag_filters.clear();
+        self.reproject();
+        cx.notify();
+    }
+
     pub fn toggle_tag_filter(&mut self, tag: &str, cx: &mut Context<Self>) {
         match self
             .tag_filters
@@ -1291,10 +1434,356 @@ impl Store {
             })
     }
 
-    /// Asks the window to open the workspace sheet on `tab`.
-    pub fn open_sheet(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
-        self.sheet_request = Some(tab);
+    /// Shows `tab` in the detail pane.
+    pub fn open_detail_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
+        self.detail_tab = tab;
+        self.open_pull = None;
         cx.notify();
+    }
+
+    fn gh_exe(&self) -> Option<String> {
+        let settings = self.settings();
+        if !settings.repos.enable_git_hub {
+            return None;
+        }
+        warp_station_core::exe::locate(&settings.repos.git_hub_executable)
+            .map(|gh| gh.to_string_lossy().to_string())
+    }
+
+    /// Asks once for the selected repo's closed list; a tab calls this as it draws.
+    pub fn load_closed(&mut self, pull_requests: bool) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        if !self
+            .closed_requested
+            .insert((folder.clone(), pull_requests))
+        {
+            return;
+        }
+        if let Some(gh_exe) = self.gh_exe() {
+            let _ = self.net.send_blocking(NetCommand::GitHubClosed {
+                folder: std::path::PathBuf::from(folder),
+                gh_exe,
+                pull_requests,
+            });
+        }
+    }
+
+    /// Appearance applies at once, without Save. The desktop's own wish stands
+    /// when the switch goes off.
+    pub fn set_reduce_motion(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_settings(|s| s.general.reduce_motion = on);
+        warpui_kit_core::motion::set_reduced(
+            on || warpui_kit_core::motion::system_prefers_reduced(),
+        );
+        cx.notify();
+    }
+
+    pub fn issue_sort(&self) -> warp_station_core::github::IssueSort {
+        warp_station_core::github::IssueSort::from_key(self.settings().repos.issue_sort.as_deref())
+    }
+
+    pub fn set_issue_sort(
+        &mut self,
+        sort: warp_station_core::github::IssueSort,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_settings(|s| s.repos.issue_sort = Some(sort.key().to_string()));
+        cx.notify();
+    }
+
+    /// Turns the detail pane into `item`, a row of the Pull requests tab. The
+    /// row's own fields carry the head until the full view answers.
+    pub fn open_pull_request(
+        &mut self,
+        item: warp_station_core::github::GitHubItem,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        self.open_pull = Some(OpenPull {
+            folder,
+            item,
+            pull: None,
+            failed: false,
+            merging: false,
+            merge_armed: false,
+        });
+        self.reload_open_pull();
+        cx.notify();
+    }
+
+    fn reload_open_pull(&mut self) {
+        let Some(open) = &self.open_pull else { return };
+        if let Some(gh_exe) = self.gh_exe() {
+            let _ = self.net.send_blocking(NetCommand::GitHubPull {
+                folder: std::path::PathBuf::from(&open.folder),
+                gh_exe,
+                number: open.item.number,
+            });
+        }
+    }
+
+    /// Back, or Escape. Returns whether a pull request was open.
+    pub fn close_pull_request(&mut self, cx: &mut Context<Self>) -> bool {
+        let open = self.open_pull.take().is_some();
+        if open {
+            cx.notify();
+        }
+        open
+    }
+
+    /// Merging can't be taken back, so the first press only arms the button.
+    pub fn press_merge(&mut self, cx: &mut Context<Self>) {
+        let Some(gh_exe) = self.gh_exe() else { return };
+        let Some(open) = self.open_pull.as_mut() else {
+            return;
+        };
+        if open.merging || !open.pull.as_ref().is_some_and(|p| p.ready_to_merge()) {
+            return;
+        }
+        if !open.merge_armed {
+            open.merge_armed = true;
+            cx.notify();
+            return;
+        }
+        open.merge_armed = false;
+        open.merging = true;
+        let _ = self.net.send_blocking(NetCommand::GitHubMerge {
+            folder: std::path::PathBuf::from(&open.folder),
+            gh_exe,
+            number: open.item.number,
+        });
+        cx.notify();
+    }
+
+    /// The detail tabs these settings and this repo allow: an integration that
+    /// is off takes its tabs along, and Pipelines needs an Azure project.
+    pub fn detail_tabs(&self) -> Vec<WorkspaceTab> {
+        let settings = self.settings();
+        let azure = settings.repos.enable_azure_dev_ops
+            && self
+                .selected_repo
+                .as_ref()
+                .and_then(|folder| self.azure_by_folder.get(folder))
+                .is_some_and(|snapshot| snapshot.available);
+        WorkspaceTab::ALL
+            .into_iter()
+            .filter(|tab| match tab {
+                WorkspaceTab::PullRequests | WorkspaceTab::Issues => settings.repos.enable_git_hub,
+                WorkspaceTab::Pipelines => azure,
+                WorkspaceTab::Overview
+                | WorkspaceTab::Changes
+                | WorkspaceTab::History
+                | WorkspaceTab::Readme => true,
+            })
+            .collect()
+    }
+
+    /// The tab to draw: the one asked for, or Overview once it is unavailable.
+    pub fn active_detail_tab(&self) -> WorkspaceTab {
+        if self.detail_tabs().contains(&self.detail_tab) {
+            self.detail_tab
+        } else {
+            WorkspaceTab::Overview
+        }
+    }
+
+    /// Gives a repository its own tab, or goes to the one it has.
+    pub fn open_repo_tab(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if !self.repo_tabs.iter().any(|tab| tab.folder == folder) {
+            let tab = if self.selected_repo.as_deref() == Some(folder) {
+                self.detail_tab
+            } else {
+                WorkspaceTab::Overview
+            };
+            self.repo_tabs.push(RepoTab {
+                folder: folder.to_string(),
+                tab,
+            });
+            self.save_repo_tabs();
+        }
+        self.show_repo_tab(Some(folder.to_string()), cx);
+    }
+
+    fn save_repo_tabs(&self) {
+        let folders: Vec<String> = self
+            .repo_tabs
+            .iter()
+            .map(|tab| tab.folder.clone())
+            .chain(self.pending_tabs.iter().cloned())
+            .collect();
+        self.update_settings(|s| s.repos.repo_tabs = Some(folders));
+    }
+
+    /// Brings last run's tabs into the strip as their repos land.
+    fn settle_pending_tabs(&mut self) {
+        if self.pending_tabs.is_empty() {
+            return;
+        }
+        let (found, waiting): (Vec<String>, Vec<String>) = std::mem::take(&mut self.pending_tabs)
+            .into_iter()
+            .partition(|folder| {
+                self.repos
+                    .iter()
+                    .any(|repo| repo.folder_path.to_string_lossy() == folder.as_str())
+            });
+        self.repo_tabs
+            .extend(found.into_iter().map(|folder| RepoTab {
+                folder,
+                tab: WorkspaceTab::default(),
+            }));
+        // once a scan has settled, what is still missing has left for good
+        let settled = !self.scanning && !self.repos.is_empty();
+        if settled {
+            if !waiting.is_empty() {
+                self.save_repo_tabs();
+            }
+        } else {
+            self.pending_tabs = waiting;
+        }
+    }
+
+    pub fn list_width(&self) -> f32 {
+        let saved = self
+            .list_width
+            .or(self.settings().repos.list_width)
+            .unwrap_or_else(|| warpui_kit_core::shell::scaled(warpui_kit_core::shell::LIST_WIDTH));
+        warpui_kit_core::shell::clamp_list_width(saved)
+    }
+
+    /// A drag step. The settings file waits for [`Self::save_list_width`].
+    pub fn set_list_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.list_width = Some(warpui_kit_core::shell::clamp_list_width(width));
+        cx.notify();
+    }
+
+    pub fn save_list_width(&self) {
+        if let Some(width) = self.list_width {
+            self.update_settings(|s| s.repos.list_width = Some(width));
+        }
+    }
+
+    /// Moves to a repo tab, or to the Repositories tab with `None`. Each keeps
+    /// its own detail tab.
+    pub fn show_repo_tab(&mut self, target: Option<String>, cx: &mut Context<Self>) {
+        let tab = self.detail_tab;
+        match &self.active_repo_tab {
+            Some(folder) => {
+                if let Some(entry) = self.repo_tabs.iter_mut().find(|t| &t.folder == folder) {
+                    entry.tab = tab;
+                }
+            }
+            None => {
+                self.home_repo = self.selected_repo.clone();
+                self.home_tab = tab;
+            }
+        }
+        self.load_view(target, cx);
+    }
+
+    fn load_view(&mut self, target: Option<String>, cx: &mut Context<Self>) {
+        let (folder, tab) = match &target {
+            Some(folder) => {
+                let entry = self.repo_tabs.iter().find(|tab| &tab.folder == folder);
+                (
+                    Some(folder.clone()),
+                    entry.map_or_else(WorkspaceTab::default, |e| e.tab),
+                )
+            }
+            None => (self.home_repo.clone(), self.home_tab),
+        };
+        self.active_repo_tab = target;
+        self.detail_tab = tab;
+        if let Some(folder) = folder {
+            self.select_repo(&folder, cx);
+        }
+        cx.notify();
+    }
+
+    /// Closes a repo tab. The active one hands over to its neighbour, or to
+    /// Repositories when none is left.
+    pub fn close_repo_tab(&mut self, folder: &str, cx: &mut Context<Self>) {
+        let Some(ix) = self.repo_tabs.iter().position(|tab| tab.folder == folder) else {
+            return;
+        };
+        self.repo_tabs.remove(ix);
+        self.save_repo_tabs();
+        if self.active_repo_tab.as_deref() == Some(folder) {
+            let next = self
+                .repo_tabs
+                .get(ix)
+                .or_else(|| ix.checked_sub(1).and_then(|prev| self.repo_tabs.get(prev)))
+                .map(|tab| tab.folder.clone());
+            self.load_view(next, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    /// Steps along the strip, Repositories included, wrapping at the ends.
+    pub fn cycle_repo_tab(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let count = self.repo_tabs.len() as i32 + 1;
+        let current = self
+            .active_repo_tab
+            .as_ref()
+            .and_then(|folder| self.repo_tabs.iter().position(|tab| &tab.folder == folder))
+            .map_or(0, |ix| ix as i32 + 1);
+        self.show_repo_tab_at((current + delta).rem_euclid(count) as usize, cx);
+    }
+
+    /// Goes to a strip position: 0 is Repositories.
+    pub fn show_repo_tab_at(&mut self, index: usize, cx: &mut Context<Self>) {
+        let target = match index.checked_sub(1) {
+            None => None,
+            Some(ix) => match self.repo_tabs.get(ix) {
+                Some(tab) => Some(tab.folder.clone()),
+                None => return,
+            },
+        };
+        self.show_repo_tab(target, cx);
+    }
+
+    /// A press on a list row: a repo with a tab goes there from inside a tab,
+    /// anything else previews in the Repositories tab.
+    pub fn pick_repo(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if self.active_repo_tab.is_some() {
+            if self.repo_tabs.iter().any(|tab| tab.folder == folder) {
+                self.show_repo_tab(Some(folder.to_string()), cx);
+                return;
+            }
+            self.show_repo_tab(None, cx);
+        }
+        self.select_repo(folder, cx);
+    }
+
+    /// What is running right now, for the title bar.
+    pub fn activity(&self) -> Option<String> {
+        let others = usize::from(self.summary_busy)
+            + usize::from(self.wand_busy.is_some())
+            + usize::from(self.scanning);
+        let running = self.git_jobs.len() + others;
+        if running > 1 {
+            return Some(format!("{running} running"));
+        }
+        if let Some((folder, label)) = self.git_jobs.iter().next() {
+            let name = self
+                .repos
+                .iter()
+                .find(|repo| repo.folder_path.to_string_lossy() == folder.as_str())
+                .map_or(folder.as_str(), |repo| repo.name.as_str());
+            let word = crate::net::git_working_word(label).trim_end_matches('…');
+            return Some(format!("{word} {name}"));
+        }
+        if self.summary_busy {
+            return Some("Summarizing".to_string());
+        }
+        if self.wand_busy.is_some() {
+            return Some("Generating".to_string());
+        }
+        self.scanning.then(|| "Refreshing".to_string())
     }
 
     /// Drops the selection. The page's next pass picks a row again, so this is
@@ -1315,12 +1804,12 @@ impl Store {
         self.commit_details = None;
         self.commit_file_patch = None;
         self.github_details = None;
+        self.open_pull = None;
         self.commit_message_draft = None;
         self.commit_message_clear = false;
         self.readme_draft = None;
         self.wand_error = None;
         self.wand_repo = None;
-        self.git_busy = false;
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {
@@ -1381,6 +1870,26 @@ impl Store {
     /// row is always selected: the first one stands in until the user picks
     /// another, and again when the selected repo leaves the list.
     pub fn ensure_row_selected(&mut self, cx: &mut Context<Self>) {
+        self.settle_pending_tabs();
+        // a repo that left the list takes its tab along
+        let gone: Vec<String> = self
+            .repo_tabs
+            .iter()
+            .filter(|tab| {
+                !self
+                    .repos
+                    .iter()
+                    .any(|repo| repo.folder_path.to_string_lossy() == tab.folder.as_str())
+            })
+            .map(|tab| tab.folder.clone())
+            .collect();
+        for folder in gone {
+            self.close_repo_tab(&folder, cx);
+        }
+        // a tab holds its repo whatever the list is filtered to
+        if self.active_repo_tab.is_some() {
+            return;
+        }
         if self.selected_entry().is_none()
             && let Some(folder) = self.first_row_folder()
         {
@@ -1426,6 +1935,8 @@ impl Store {
     // ---- tag mutations (write-behind) ---------------------------------------
 
     pub fn toggle_favorite(&mut self, folder: &str, cx: &mut Context<Self>) {
+        let presses = self.star_pressed.as_ref().map_or(0, |(_, n)| n + 1);
+        self.star_pressed = Some((folder.to_string(), presses));
         self.toggle_repo_tag_inner(folder, repo_store::FAVORITES_TAG, cx);
     }
 
@@ -1472,6 +1983,9 @@ impl Store {
         let _ = self.net.send_blocking(NetCommand::LoadChanges {
             folder: path.clone(),
         });
+        self.closed_requested.retain(|(key, _)| key != &folder);
+        self.kick_github_pass(std::slice::from_ref(&path));
+        self.reload_open_pull();
         if !self.history.is_empty() {
             let _ = self
                 .net
@@ -1803,19 +2317,43 @@ pub struct Notice {
     born: std::time::Instant,
 }
 
-/// The workspace sheet's tabs, in the strip's order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The detail pane's tabs, in the strip's order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WorkspaceTab {
+    #[default]
+    Overview,
     Changes,
+    History,
     PullRequests,
     Issues,
     Pipelines,
     Readme,
 }
 
+/// A pull request open in the detail pane. It stays on `item`, the list's row,
+/// until `pull`, the full view, answers.
+#[derive(Clone, Debug)]
+pub struct OpenPull {
+    pub folder: String,
+    pub item: warp_station_core::github::GitHubItem,
+    pub pull: Option<warp_station_core::github::GitHubPull>,
+    pub failed: bool,
+    pub merging: bool,
+    pub merge_armed: bool,
+}
+
+/// A repository opened in a tab of its own, and the detail tab it was left on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoTab {
+    pub folder: String,
+    pub tab: WorkspaceTab,
+}
+
 impl WorkspaceTab {
-    pub const ALL: [WorkspaceTab; 5] = [
+    pub const ALL: [WorkspaceTab; 7] = [
+        WorkspaceTab::Overview,
         WorkspaceTab::Changes,
+        WorkspaceTab::History,
         WorkspaceTab::PullRequests,
         WorkspaceTab::Issues,
         WorkspaceTab::Pipelines,
@@ -1824,7 +2362,9 @@ impl WorkspaceTab {
 
     pub fn label(self) -> &'static str {
         match self {
+            WorkspaceTab::Overview => "Overview",
             WorkspaceTab::Changes => "Changes",
+            WorkspaceTab::History => "History",
             WorkspaceTab::PullRequests => "Pull requests",
             WorkspaceTab::Issues => "Issues",
             WorkspaceTab::Pipelines => "Pipelines",
@@ -1835,11 +2375,13 @@ impl WorkspaceTab {
     /// The tab's strip element, for its id and the probes' selectors.
     pub fn selector(self) -> &'static str {
         match self {
-            WorkspaceTab::Changes => "sheet-tab-changes",
-            WorkspaceTab::PullRequests => "sheet-tab-pulls",
-            WorkspaceTab::Issues => "sheet-tab-issues",
-            WorkspaceTab::Pipelines => "sheet-tab-pipelines",
-            WorkspaceTab::Readme => "sheet-tab-readme",
+            WorkspaceTab::Overview => "detail-tab-overview",
+            WorkspaceTab::Changes => "detail-tab-changes",
+            WorkspaceTab::History => "detail-tab-history",
+            WorkspaceTab::PullRequests => "detail-tab-pulls",
+            WorkspaceTab::Issues => "detail-tab-issues",
+            WorkspaceTab::Pipelines => "detail-tab-pipelines",
+            WorkspaceTab::Readme => "detail-tab-readme",
         }
     }
 

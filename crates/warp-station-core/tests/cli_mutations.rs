@@ -1,9 +1,9 @@
 //! The CLI mutation layer against a scratch repository: stage/unstage/discard/
 //! commit through the real `git` binary. Skips when git is unavailable.
 
-use warp_station_core::git::cli;
 use std::path::Path;
 use std::process::Command;
+use warp_station_core::git::cli;
 
 fn scratch_repo(tag: &str) -> Option<std::path::PathBuf> {
     if Command::new("git").arg("--version").output().is_err() {
@@ -191,4 +191,34 @@ async fn discard_staged_path_returns_to_head() {
     assert!(Path::new(&dir).join("base.txt").exists());
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A staged rename lists under its new name, edited afterwards or not.
+#[test]
+fn a_renamed_file_lists_under_its_new_name() {
+    let Some(dir) = scratch_repo("renamed") else {
+        return;
+    };
+    let text = "line\n".repeat(40);
+    std::fs::write(dir.join("old.txt"), &text).unwrap();
+    for args in [
+        vec!["add", "."],
+        vec!["commit", "-qm", "add"],
+        vec!["mv", "old.txt", "new.txt"],
+    ] {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+    }
+    std::fs::write(dir.join("new.txt"), format!("{text}more\n")).unwrap();
+
+    let snapshot = warp_station_core::git::read::change_snapshot(&dir).expect("a snapshot");
+
+    let paths = |files: &[warp_station_core::model::GitChangedFile]| {
+        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(paths(&snapshot.staged_files), ["new.txt"]);
+    assert_eq!(paths(&snapshot.unstaged_files), ["new.txt"]);
 }

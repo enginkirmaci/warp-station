@@ -1,4 +1,4 @@
-//! The Formatters drawer panel: one input box, four operations (Base64
+//! The Formatters page: one input box, four operations (Base64
 //! encode/decode, snake_case, PascalCase) and a recent-results history you
 //! can click back into the input.
 
@@ -67,7 +67,6 @@ pub struct FormattersDrawer {
     /// A finished convert asks the next render pass to clear the input
     /// (set_value needs a Window, which command paths don't carry).
     pending_clear: bool,
-    on_close: crate::ui::DrawerOnClose,
 }
 
 impl FormattersDrawer {
@@ -88,17 +87,7 @@ impl FormattersDrawer {
             output: String::new(),
             history: Vec::new(),
             pending_clear: false,
-            on_close: None,
         }
-    }
-
-    /// Wires the host window's close action into the shared drawer header.
-    pub fn with_on_close(
-        mut self,
-        handler: impl Fn(&mut Window, &mut gpui::App) + 'static,
-    ) -> Self {
-        self.on_close = Some(std::rc::Rc::new(handler));
-        self
     }
 
     fn run(&mut self, text: String) {
@@ -229,21 +218,18 @@ impl Render for FormattersDrawer {
 
         div()
             .id("formatters-drawer")
-            .w(px(420.))
-            .h_full()
-            .bg(theme::POPUP)
-            .border_l_1()
-            .border_color(theme::HAIRLINE)
-            .shadow_lg()
-            .p_3()
+            .size_full()
+            .max_w(px(
+                warpui_kit_core::shell::READING_WIDTH + 2. * warpui_kit_core::shell::DETAIL_PADDING
+            ))
+            .p(px(warpui_kit_core::shell::DETAIL_PADDING))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .occlude()
-            .child(crate::ui::drawer_header(
+            .child(crate::ui::tool_header(
                 "Formatters",
                 "Base64 and case conversion, one line at a time.",
-                self.on_close.clone(),
             ))
             .child(modes)
             .child(
@@ -256,7 +242,13 @@ impl Render for FormattersDrawer {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.input).with_size(theme::field_size())),
+                            .debug_selector(|| "fmt-input".into())
+                            .child(
+                                // the kit's own `h` only sizes multi-line fields
+                                Input::new(&self.input)
+                                    .with_size(theme::field_size())
+                                    .min_h(px(warpui_kit_core::shell::CONTROL_HEIGHT)),
+                            ),
                     )
                     .child(run_button(
                         !self.input.read(cx).value().trim().is_empty(),
@@ -325,12 +317,16 @@ impl Render for FormattersDrawer {
 fn run_button(enabled: bool, cx: &mut Context<FormattersDrawer>) -> gpui::AnyElement {
     div()
         .id("fmt-run")
+        .debug_selector(|| "fmt-run".into())
         .a11y_button("Run formatter")
         .cursor_pointer()
+        .flex()
+        .items_center()
+        .flex_shrink_0()
+        .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
         .rounded_md()
         .px_3()
-        .py_1()
-        .text_size(px(theme::font_body()))
+        .text_size(px(theme::font_control()))
         .font_weight(FontWeight::SEMIBOLD)
         .bg(theme::ACCENT)
         .text_color(theme::ON_ACCENT)

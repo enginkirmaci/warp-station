@@ -2,9 +2,9 @@
 //! very repository. Skips silently when the repo (or git) is not available, so
 //! the suite stays runnable anywhere.
 
-use warp_station_core::git::read;
 use std::path::Path;
 use std::process::Command;
+use warp_station_core::git::read;
 
 fn repo_root() -> Option<std::path::PathBuf> {
     // tests/ lives under the crate; the workspace repo is three levels up

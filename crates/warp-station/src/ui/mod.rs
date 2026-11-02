@@ -3,18 +3,21 @@
 pub mod azure_tab;
 pub mod changes;
 pub mod clipboard_password;
+pub mod detail;
 pub mod dialogs;
 pub mod formatters;
-pub mod inspector;
 pub mod launchers;
 pub mod nuget;
+pub mod overview;
 pub mod pr_issues;
+pub mod pull_request;
 pub mod readme;
 pub mod repos;
 pub mod repos_list;
 pub mod settings;
+pub mod summary;
 pub mod window;
-pub mod workspace_sheet;
+pub mod windows_tools;
 
 pub use warpui_kit_core::{A11y, icon};
 
@@ -79,10 +82,10 @@ pub fn with_tooltip(
 
 /// Branch labels display at most this many characters before the head is
 /// trimmed; the repos branch column owns the budget, and the branch picker
-/// falls back to it once the full name outgrows the rail.
+/// falls back to it once the full name outgrows the selector.
 pub const BRANCH_LABEL_CHARS: usize = 18;
 
-/// Width the rail leaves under the trigger's label; the pill's tighter
+/// Width the toolbar's selector leaves for its label; the pill's tighter
 /// budget exists to cap the table column and does not apply here.
 const LABEL_MAX_PX: f32 = 190.;
 
@@ -130,53 +133,14 @@ pub fn trim_branch_label(branch: &str, budget: usize) -> String {
     label
 }
 
-/// The close hook every drawer shares: the host window routes its own
-/// close path in via `with_on_close`.
-pub type DrawerCloseHandler = std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>;
-pub type DrawerOnClose = Option<DrawerCloseHandler>;
-
-/// The shared drawer title row: a title (with an optional one-line hint) and
-/// a close button on the right. The close button only appears when the host
-/// window wired a handler via the drawer's `with_on_close`.
-pub fn drawer_header(
-    title: &'static str,
-    hint: &'static str,
-    on_close: DrawerOnClose,
-) -> gpui::AnyElement {
+/// A tool page's title row: its title and a one-line hint.
+pub fn tool_header(title: &'static str, hint: &'static str) -> gpui::AnyElement {
     let mut header = div().flex().flex_col().gap_0p5().child(
         div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_size(px(theme::font_heading()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::TEXT)
-                    .child(title),
-            )
-            .child(div().flex_1())
-            .when_some(on_close, |row, close| {
-                row.child(
-                    div()
-                        .id("drawer-close")
-                        .a11y_button("Close drawer")
-                        .cursor_pointer()
-                        .rounded_md()
-                        .size(px(24.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .hover(|s| s.bg(theme::HOVER_BG))
-                        .on_click(move |_, window, cx| close(window, cx))
-                        .child(icon(
-                            "icons/icon-close.svg",
-                            px(theme::icon_small()),
-                            theme::TEXT_MUTED,
-                        )),
-                )
-            }),
+            .text_size(px(theme::font_screen_title()))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme::TEXT)
+            .child(title),
     );
     if !hint.is_empty() {
         header = header.child(

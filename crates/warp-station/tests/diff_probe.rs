@@ -4,7 +4,6 @@
 //! without that the block ignores its size and wrapped segments fall back to
 //! the UI font.
 
-use warp_station::theme;
 use gpui::prelude::*;
 use gpui::{
     AbsoluteLength, Context, HighlightStyle, Pixels, Render, StyledText, TestAppContext, Window,
@@ -12,6 +11,7 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+use warp_station::theme;
 
 const DETAIL_SIZE: f32 = 10.;
 

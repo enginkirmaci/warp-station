@@ -5,10 +5,10 @@
     windows_subsystem = "windows"
 )]
 
-use warp_station::{assets, logging, store::Store, theme, ui::window::MainWindow};
 use gpui::prelude::*;
 use gpui::{App, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use gpui_platform::application;
+use warp_station::{assets, logging, store::Store, theme, ui::window::MainWindow};
 
 fn main() {
     // The Hyprland global-bind payload: ping the running instance's net
@@ -48,6 +48,10 @@ fn main() {
             );
             theme::apply_kit_theme(cx);
             warpui_kit_core::follow_ui_scale(cx, theme::apply_kit_theme);
+            warpui_kit_core::motion::set_reduced(
+                store.read(cx).settings().general.reduce_motion
+                    || warpui_kit_core::motion::system_prefers_reduced(),
+            );
 
             // the companion watches this process (--parent) and exits when Warp Station dies
             #[cfg(windows)]
@@ -128,12 +132,8 @@ fn main() {
             gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    // the rail keeps its fixed width, so the list gets what is
-                    // left: below this its scope row and sort button clip
-                    window_min_size: Some(size(
-                        px(warp_station::ui::inspector::RAIL_W + 480.),
-                        px(560.),
-                    )),
+                    // the rail, the list and a usable detail pane
+                    window_min_size: Some(size(px(960.), px(560.))),
                     // empty by default in GPUI — needed so Hyprland/launchers match
                     // StartupWMClass=warp-station in the desktop entry
                     app_id: Some("warp-station".into()),

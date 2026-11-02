@@ -25,4 +25,4 @@ pub fn apply_kit_theme(cx: &mut gpui::App) {
 // these, so a change here keeps menus and popups anchored.
 
 /// Custom titlebar height (window buttons + search field live here).
-pub const TITLEBAR_H: f32 = 52.0;
+pub const TITLEBAR_H: f32 = warpui_kit_core::shell::TITLE_BAR_HEIGHT;

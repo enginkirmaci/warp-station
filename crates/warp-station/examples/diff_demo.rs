@@ -2,12 +2,12 @@
 //! through `render_diff` so the rows, bands and syntax colors can be
 //! screenshotted without touching app state. `cargo run -p warp_station --example diff_demo`
 
-use warp_station::theme;
 use gpui::prelude::*;
 use gpui::{
     Bounds, Context, Render, TitlebarOptions, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use gpui_platform::application;
+use warp_station::theme;
 use warpui_kit_diff::render_diff;
 
 const RUST_PATCH: &str = r#"diff --git a/crates/warp-station-core/src/markdown_live.rs b/crates/warp-station-core/src/markdown_live.rs

@@ -1493,7 +1493,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_stale_scan_root_does_not_split_the_shared_folder() {
-        let dir = std::env::temp_dir().join(format!("warp-station-group-stale-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("warp-station-group-stale-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let real = dir.join("Developments");
         std::fs::create_dir_all(real.join("warp-agent")).unwrap();

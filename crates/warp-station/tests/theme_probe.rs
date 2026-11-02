@@ -2,8 +2,8 @@
 //! Light→Dark mode flip inside the color-edit closure makes gpui-component
 //! reload its stock dark theme over the overrides — and the resolved families.
 
-use warp_station::theme;
 use gpui::TestAppContext;
+use warp_station::theme;
 
 #[gpui_kit::gpui::test]
 fn palette_survives_the_mode_flip(cx: &mut TestAppContext) {

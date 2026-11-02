@@ -226,7 +226,10 @@ mod tests {
         migrate_legacy_data_at(&home.path().join(".warp"), &legacy);
 
         let root = home.path().join(".warp");
-        assert_eq!(std::fs::read_to_string(root.join("settings.json")).unwrap(), "{}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("settings.json")).unwrap(),
+            "{}"
+        );
         assert!(root.join("logs").is_dir());
         assert!(!legacy.exists(), "the whole legacy root moved over");
     }
@@ -282,9 +285,15 @@ mod tests {
 
         migrate_legacy_data_at(&root, &legacy);
 
-        assert_eq!(std::fs::read_to_string(root.join("notes").join("live.md")).unwrap(), "live");
+        assert_eq!(
+            std::fs::read_to_string(root.join("notes").join("live.md")).unwrap(),
+            "live"
+        );
         assert!(legacy.join("notes").join("old.md").is_file());
-        assert!(legacy.exists(), "the colliding folder keeps the legacy root");
+        assert!(
+            legacy.exists(),
+            "the colliding folder keeps the legacy root"
+        );
     }
 
     #[test]
