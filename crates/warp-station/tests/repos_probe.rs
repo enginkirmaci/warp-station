@@ -1142,8 +1142,8 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     cx.run_until_parked();
     dialog_draw(cx);
     assert!(
-        cx.debug_bounds("btn-accent-Add").is_some(),
-        "Add waits in the footer"
+        cx.debug_bounds("btn-accent-Add 2").is_some(),
+        "the footer names the count it will add"
     );
     assert!(cx.debug_bounds("found-repo-0").is_some());
 

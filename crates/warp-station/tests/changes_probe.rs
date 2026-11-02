@@ -260,7 +260,9 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
 
     // a press elsewhere in the tab closes the menu and disarms — the reopened
     // menu starts from a single-click arm again
-    let sheet = cx.debug_bounds("changes-diff").expect("the diff renders");
+    let sheet = cx
+        .debug_bounds("changes-clean")
+        .expect("the clean working tree renders");
     cx.simulate_click(sheet.origin + point(px(4.), px(20.)), Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));

@@ -43,6 +43,10 @@ fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
         cx.debug_bounds("text-size-normal").is_some(),
         "Appearance carries the shared text size control"
     );
+    assert!(
+        cx.debug_bounds("settings-fixed-Palette").is_some(),
+        "Appearance names the fixed Copper palette"
+    );
 
     // the switch applies at once, with no Save
     let reduce = cx

@@ -43,7 +43,9 @@ pub struct HeadState {
     pub star_press: Option<u64>,
 }
 
-/// The Overview tab for the selected repo.
+/// The Overview tab for the selected repo: what needs a person, where to open
+/// it, then its status and what GitHub says about it, as cards in two columns
+/// that stack when the pane gets narrow.
 pub fn render(
     store: &Store,
     entities: &Entity<Store>,
@@ -61,18 +63,17 @@ pub fn render(
     let folder = repo.folder_path.to_string_lossy().to_string();
     let settings = store.settings();
     let launchers = launchers::launchers(&settings, repo);
+    // The head owns the primary launch; the card lists every other way in.
+    let others = launchers.get(1..).unwrap_or_default();
     let left = div()
         .flex_1()
         .min_w(px(320.))
         .flex()
         .flex_col()
         .gap_4()
-        .child(files_section(store, repo, &settings, entities))
-        .when(settings.repos.enable_git_hub, |column| {
-            column.child(issues_section(store, repo, entities))
-        })
-        .when(settings.repos.enable_azure_dev_ops, |column| {
-            column.children(azure_section(store, repo, entities))
+        .child(needs_you_section(store, repo, &settings, entities))
+        .when(!others.is_empty(), |column| {
+            column.child(open_in_section(others, &folder, entities))
         });
     let right = div()
         .flex_1()
@@ -80,14 +81,9 @@ pub fn render(
         .flex()
         .flex_col()
         .gap_4()
-        .child(status_section(repo, page, tag_draft, entities, &folder))
-        .when(launchers.len() > 1, |column| {
-            column.child(open_in_section(
-                launchers.get(1..).unwrap_or_default(),
-                &folder,
-                entities,
-            ))
-        })
+        .child(status_section(
+            repo, page, tag_draft, entities, &folder, store,
+        ))
         .children(details_section(store));
     body.child(
         div()
@@ -689,13 +685,15 @@ fn fact(label: &'static str, value: impl IntoElement) -> gpui::Div {
         .child(div().flex_1().min_w_0().child(value))
 }
 
-/// Branch, how far it is from the remote, the two sync verbs and the tags.
+/// Branch, how far it is from the remote, HEAD and the tags. The syncing
+/// verbs live in Needs you, where the counts that ask for them are.
 fn status_section(
     repo: &RepoEntry,
     page: &Entity<ReposPage>,
     tag_draft: Option<&Entity<InputState>>,
     entities: &Entity<Store>,
     folder: &str,
+    store: &Store,
 ) -> AnyElement {
     let branch = repo
         .git_branch_name
@@ -749,29 +747,47 @@ fn status_section(
         .flex_wrap()
         .items_center()
         .gap(px(10.))
-        .when(behind > 0, |row| {
-            row.child(sync_state(
-                "icons/icon-arrow-down.svg",
-                behind,
-                "to pull",
-                theme::BEHIND,
-            ))
-        })
-        .when(ahead > 0, |row| {
-            row.child(sync_state(
-                "icons/icon-arrow-up.svg",
-                ahead,
-                "to push",
-                theme::AHEAD,
-            ))
-        })
-        .when(ahead == 0 && behind == 0, |row| {
+        .when(!repo.git_has_remote, |row| {
             row.child(
                 div()
                     .text_size(px(theme::font_meta()))
-                    .text_color(theme::SUCCESS_BRIGHT)
-                    .child("in sync"),
+                    .text_color(theme::TEXT_MUTED)
+                    .child("No remote"),
             )
+        })
+        .when(repo.git_has_remote && !repo.git_branch_published, |row| {
+            row.child(
+                div()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::TEXT_MUTED)
+                    .child("Not published"),
+            )
+        })
+        .when(repo.git_has_remote && repo.git_branch_published, |row| {
+            row.when(behind > 0, |row| {
+                row.child(sync_state(
+                    "icons/icon-arrow-down.svg",
+                    behind,
+                    "to pull",
+                    theme::BEHIND,
+                ))
+            })
+            .when(ahead > 0, |row| {
+                row.child(sync_state(
+                    "icons/icon-arrow-up.svg",
+                    ahead,
+                    "to push",
+                    theme::AHEAD,
+                ))
+            })
+            .when(ahead == 0 && behind == 0, |row| {
+                row.child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::SUCCESS_BRIGHT)
+                        .child("in sync"),
+                )
+            })
         })
         .child(
             div()
@@ -779,61 +795,32 @@ fn status_section(
                 .text_color(theme::TEXT_MUTED)
                 .child(format!("fetched {fetched}")),
         );
-    let verbs = div()
-        .mx_4()
-        .pt_1()
-        .pb_2()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(small_button("insp-pull", "Pull".into(), {
-            let target = entities.clone();
-            move |_, _, cx| {
-                target.update(cx, |s, cx| s.run_git(GitAction::Pull, cx));
-            }
-        }))
-        .child(small_button("insp-push", "Push".into(), {
-            let target = entities.clone();
-            move |_, _, cx| {
-                target.update(cx, |s, cx| s.run_git(GitAction::Push, cx));
-            }
-        }));
+
+    // HEAD's subject once the changes pass has answered; the probe's cached
+    // commit time is the honest fallback before that.
+    let last_commit = store
+        .recent_commits
+        .first()
+        .map(|commit| commit.subject.clone())
+        .or_else(|| repo.git_last_commit_at.map(rel_time::format))
+        .unwrap_or_else(|| "—".into());
+    let last_commit_line = div()
+        .min_w_0()
+        .text_size(px(theme::font_body()))
+        .text_color(theme::TEXT)
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .child(last_commit);
 
     card(section_title("Status".to_string()))
         .child(fact("Branch", branch_line))
         .child(fact("Sync", sync))
-        .child(verbs)
+        .child(fact("Last commit", last_commit_line))
         .child(fact(
             "Tags",
             tag_row(repo, page, tag_draft, entities, folder),
         ))
-        .into_any_element()
-}
-
-fn small_button(
-    id: &'static str,
-    label: String,
-    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-) -> AnyElement {
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .a11y_button(label.clone())
-        .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
-        .px_3()
-        .rounded(px(6.))
-        .border_1()
-        .border_color(theme::LINE_STRONG)
-        .bg(theme::PANEL)
-        .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(theme::TEXT)
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .hover(|el| el.bg(theme::RAISED))
-        .on_click(on_click)
-        .child(label)
         .into_any_element()
 }
 
@@ -903,16 +890,16 @@ fn open_in_section(launchers: &[Launcher], folder: &str, entities: &Entity<Store
                 .a11y_button(launcher.label)
                 .cursor_pointer()
                 .flex_1()
-                .min_w(px(200.))
+                .min_w(px(150.))
                 .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
-                .px_3()
+                .px_2p5()
                 .rounded(px(6.))
                 .border_1()
                 .border_color(theme::LINE_STRONG)
                 .bg(theme::PANEL)
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap_1p5()
                 .text_size(px(theme::font_control()))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::TEXT)
@@ -930,7 +917,7 @@ fn open_in_section(launchers: &[Launcher], folder: &str, entities: &Entity<Store
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(launcher.label),
+                        .child(launcher.short),
                 )
                 .children(
                     launcher
@@ -987,294 +974,435 @@ fn section_title(label: String) -> gpui::Div {
         )
 }
 
-fn section_head(
-    label: String,
-    id: &'static str,
-    action: &'static str,
-    on_click: Action,
-) -> gpui::Div {
-    section_title(label).child(
-        div()
-            .id(id)
-            .debug_selector(move || id.into())
-            .a11y_button(action)
-            .cursor_pointer()
-            .text_size(px(theme::font_control()))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(theme::ACCENT_INK)
-            .hover(|el| el.text_color(theme::ACCENT_HOVER))
-            .on_click(on_click)
-            .child(action),
-    )
-}
-
-/// How many uncommitted files the card lists.
-const FILE_ROWS: usize = 3;
-
-/// The selected repo's uncommitted files, capped: the card is a teaser for the
-/// Changes tab, not a second file table.
-fn files_section(
+/// The Overview's first card: one row per thing that wants a person, and
+/// nothing else. A tree that is clean and in sync says so instead.
+///
+/// The counts come from the repo entry immediately; the file split and the
+/// latest GitHub item need the passes' answers, so a count row stands in until
+/// they land rather than claiming the list is empty.
+fn needs_you_section(
     store: &Store,
     repo: &RepoEntry,
     settings: &AppSettings,
     entities: &Entity<Store>,
 ) -> AnyElement {
-    let folder = repo.folder_path.to_string_lossy().to_string();
-    let loaded = store.changes_loaded_for.as_deref() == Some(folder.as_str());
-    // None = the snapshot for this repo has not landed yet. Reporting "0
-    // files · clean" while it is still in flight would be a lie, so the
-    // section says it is loading instead.
-    let files = if loaded {
-        store.changes().map(|snap| snap.merged_files())
+    let folder = repo.folder_path.to_string_lossy();
+    let loaded = store.changes_loaded_for.as_deref() == Some(folder.as_ref());
+    let groups = if loaded {
+        store.changes().map(|snapshot| snapshot.change_groups())
     } else {
         None
     };
+    let (unstaged, staged) = groups
+        .as_ref()
+        .map(|(unstaged, staged)| (unstaged.len(), staged.len()))
+        .unwrap_or((0, 0));
+    let github = settings.repos.enable_git_hub;
+    let snapshot = github
+        .then(|| store.github_by_folder.get(folder.as_ref()))
+        .flatten();
+    let azure = store
+        .azure_by_folder
+        .get(folder.as_ref())
+        .filter(|snapshot| snapshot.available);
+    let job = store.git_jobs.get(folder.as_ref()).copied();
+    let finished = store.finished_job();
+    let branch = repo.git_branch_name.clone().unwrap_or_default();
 
-    let head = match &files {
-        Some(files) => format!("Uncommitted · {} files", files.len()),
-        // the entry's count is already accurate; the file list is what the
-        // snapshot adds, so the header does not have to wait for it
-        None => format!("Uncommitted · {} files", repo.git_modified_count),
+    let mut rows = div().flex().flex_col();
+    let mut any = false;
+    let next = |row: AnyElement, any: &mut bool| {
+        let first = !*any;
+        *any = true;
+        div()
+            .when(!first, |row| {
+                row.border_t_1().border_color(theme::BORDER_LIGHT)
+            })
+            .child(row)
     };
-    let mut section = card(section_head(
-        head,
-        "insp-commit",
-        "Review",
-        open_tab(entities, WorkspaceTab::Changes),
-    ));
 
-    let Some(files) = files else {
-        return section.child(muted("loading changes…")).into_any_element();
-    };
-
-    if files.is_empty() {
-        return section
-            .child(
-                div()
-                    .mx_4()
-                    .my_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_size(px(theme::font_body()))
-                    .text_color(theme::TEXT_DIM)
-                    .child(icon(
-                        "icons/icon-check.svg",
-                        px(theme::icon_small()),
-                        theme::SUCCESS_BRIGHT,
-                    ))
-                    .child("Working tree clean"),
-            )
-            .into_any_element();
-    }
-
-    for file in files.iter().take(FILE_ROWS) {
-        section = section.child(file_row(file, settings, &folder, entities));
-    }
-    if files.len() > FILE_ROWS {
-        section = section.child(more_link(
-            "insp-more-files",
-            format!("and {} more →", files.len() - FILE_ROWS),
-            open_tab(entities, WorkspaceTab::Changes),
+    if repo.git_modified_count > 0 {
+        let sub = if groups.is_some() {
+            format!("{staged} staged · {unstaged} unstaged")
+        } else {
+            "Review the working tree".to_string()
+        };
+        rows = rows.child(next(
+            needy_row(
+                "insp-uncommitted",
+                "icons/icon-file-diff.svg",
+                theme::CHANGES,
+                format!(
+                    "{} uncommitted {}",
+                    repo.git_modified_count,
+                    count_word(repo.git_modified_count, "file", "files")
+                ),
+                sub,
+                needy_link(
+                    "insp-commit",
+                    "Review",
+                    open_tab(entities, WorkspaceTab::Changes),
+                ),
+            ),
+            &mut any,
         ));
     }
-    section.into_any_element()
+    if repo.git_to_pull_count > 0 {
+        let sub = match repo.git_last_fetch_at {
+            Some(at) => format!("Fetched {}", rel_time::format(at)),
+            None => format!("{branch} has commits the local branch does not"),
+        };
+        rows = rows.child(next(
+            needy_row(
+                "insp-behind",
+                "icons/icon-arrow-down.svg",
+                theme::BEHIND,
+                format!(
+                    "{} {} to pull",
+                    repo.git_to_pull_count,
+                    count_word(repo.git_to_pull_count, "commit", "commits")
+                ),
+                sub,
+                needy_job_button(
+                    "insp-pull",
+                    "Pull",
+                    GitAction::Pull,
+                    "pull",
+                    entities,
+                    job,
+                    finished,
+                ),
+            ),
+            &mut any,
+        ));
+    }
+    if repo.git_to_push_count > 0 {
+        rows = rows.child(next(
+            needy_row(
+                "insp-ahead",
+                "icons/icon-arrow-up.svg",
+                theme::AHEAD,
+                format!(
+                    "{} {} to push",
+                    repo.git_to_push_count,
+                    count_word(repo.git_to_push_count, "commit", "commits")
+                ),
+                "Not on the remote yet".to_string(),
+                needy_job_button(
+                    "insp-push",
+                    "Push",
+                    GitAction::Push,
+                    "push",
+                    entities,
+                    job,
+                    finished,
+                ),
+            ),
+            &mut any,
+        ));
+    }
+    if let Some(pull) = snapshot.and_then(|snapshot| snapshot.pulls.first()) {
+        let mut bits = Vec::new();
+        match (pull.head_ref_name.as_deref(), pull.base_ref_name.as_deref()) {
+            (Some(head), Some(base)) if !head.is_empty() && !base.is_empty() => {
+                bits.push(format!("{head} → {base}"));
+            }
+            _ => {}
+        }
+        if let Some(age) = pull
+            .updated_at
+            .as_deref()
+            .and_then(rel_time::format_rfc3339)
+        {
+            bits.push(format!("updated {age}"));
+        }
+        let item = pull.clone();
+        let target = entities.clone();
+        rows = rows.child(next(
+            needy_row(
+                &format!("insp-pr-{}", pull.number),
+                "icons/icon-git-pull-request.svg",
+                theme::PR,
+                format!("#{} {}", pull.number, pull.title),
+                bits.join(" · "),
+                needy_link("insp-open-pr", "Open", {
+                    Box::new(move |_, _, cx| {
+                        target.update(cx, |s, cx| s.open_pull_request(item.clone(), cx));
+                    })
+                }),
+            ),
+            &mut any,
+        ));
+    } else if github && repo.github_pr_count > 0 {
+        rows = rows.child(next(
+            needy_row(
+                "insp-pulls-unloaded",
+                "icons/icon-git-pull-request.svg",
+                theme::PR,
+                format!(
+                    "{} open {}",
+                    repo.github_pr_count,
+                    count_word(repo.github_pr_count, "pull request", "pull requests")
+                ),
+                "Waiting for the GitHub pass".to_string(),
+                needy_link(
+                    "insp-open-prs",
+                    "Open",
+                    open_tab(entities, WorkspaceTab::PullRequests),
+                ),
+            ),
+            &mut any,
+        ));
+    }
+    if let Some(issue) = snapshot.and_then(|snapshot| snapshot.issues.first()) {
+        let mut bits = issue.labels.clone();
+        if let Some(age) = issue
+            .updated_at
+            .as_deref()
+            .and_then(rel_time::format_rfc3339)
+        {
+            bits.push(age);
+        }
+        rows = rows.child(next(
+            needy_row(
+                &format!("insp-issue-{}", issue.number),
+                "icons/icon-circle-dot.svg",
+                theme::ISSUE,
+                format!("#{} {}", issue.number, issue.title),
+                bits.join(" · "),
+                needy_link(
+                    "insp-github-open",
+                    "Open",
+                    open_tab(entities, WorkspaceTab::Issues),
+                ),
+            ),
+            &mut any,
+        ));
+    } else if github && repo.github_issue_count > 0 {
+        rows = rows.child(next(
+            needy_row(
+                "insp-issues-unloaded",
+                "icons/icon-circle-dot.svg",
+                theme::ISSUE,
+                format!(
+                    "{} open {}",
+                    repo.github_issue_count,
+                    count_word(repo.github_issue_count, "issue", "issues")
+                ),
+                "Waiting for the GitHub pass".to_string(),
+                needy_link(
+                    "insp-open-issues",
+                    "Open",
+                    open_tab(entities, WorkspaceTab::Issues),
+                ),
+            ),
+            &mut any,
+        ));
+    }
+    if let Some(snapshot) = azure.filter(|snapshot| snapshot.pipeline_failed())
+        && let Some(run) = snapshot.pipelines.first()
+    {
+        let sub = [run.definition_name.clone(), Some(run.build_number.clone())]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        rows = rows.child(next(
+            needy_row(
+                "insp-azure-row",
+                "icons/icon-close.svg",
+                theme::DANGER,
+                "Latest run failed".to_string(),
+                sub,
+                needy_link(
+                    "insp-azure-open",
+                    "Open",
+                    open_tab(entities, WorkspaceTab::Pipelines),
+                ),
+            ),
+            &mut any,
+        ));
+    }
+
+    if !any {
+        rows = rows.child(
+            div()
+                .debug_selector(|| "insp-needs-clean".into())
+                .mx_4()
+                .py_3()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(icon(
+                    "icons/icon-check.svg",
+                    px(theme::icon_small()),
+                    theme::SUCCESS_BRIGHT,
+                ))
+                .child(
+                    div()
+                        .text_size(px(theme::font_body()))
+                        .text_color(theme::TEXT_DIM)
+                        .child("Working tree clean and in sync. Nothing to do here."),
+                ),
+        );
+    }
+
+    card(section_title("Needs you".to_string()))
+        .child(rows)
+        .into_any_element()
 }
 
-fn file_row(
-    file: &warp_station_core::model::GitChangedFile,
-    settings: &AppSettings,
-    folder: &str,
-    entities: &Entity<Store>,
+/// One Needs-you row: the entity's glyph, what it is and why, then its verb.
+fn needy_row(
+    id: &str,
+    icon_path: &'static str,
+    tint: Rgba,
+    title: String,
+    sub: String,
+    action: AnyElement,
 ) -> AnyElement {
-    let target = entities.clone();
-    let path = format!("{folder}/{}", file.path);
-    let exe = settings.repos.vscode_executable.clone();
-    let profile = settings.repos.vscode_profile.clone();
-    let status = file.display_status_code().to_string();
-    let status_color = match file.display_status_code() {
-        "M" => theme::AMBER_BRIGHT,
-        "A" | "U" | "?" => theme::ADD,
-        "D" => theme::DEL,
-        _ => theme::TEXT_MUTED,
-    };
-
-    let file_id = SharedString::from(format!("insp-file-{}", file.path));
-    let debug_path = file.path.clone();
-    let mut row = div()
-        .id(file_id)
-        .debug_selector(move || format!("insp-file-{debug_path}"))
-        .a11y_button(file.path.clone())
-        .cursor_pointer()
-        .hover(|d| d.bg(theme::HOVER_BG))
-        .on_click(move |_, _, cx| {
-            if let Err(err) = terminal::open_in_vscode_at(&path, 1, &exe, &profile) {
-                target.update(cx, |s, _| s.notify_error(err));
-            }
-        })
+    let selector = id.to_string();
+    div()
+        .debug_selector(move || selector.clone())
+        .mx_4()
+        .py_2()
+        .min_h(px(46.))
         .flex()
         .items_center()
-        .gap(px(8.))
-        .h(px(32.))
-        .px_4()
-        .font_family(theme::code_font())
-        .child(
-            div()
-                .w(px(12.))
-                .text_size(px(theme::font_row_meta()))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(status_color)
-                .child(status),
-        )
+        .gap_3()
+        .child(icon(icon_path, px(theme::icon_small()), tint))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(theme::font_row_meta()))
-                .text_color(theme::TEXT_DIM)
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(file.path.clone()),
-        );
-    if let Some(additions) = file.additions {
-        row = row.child(
-            div()
-                .text_size(px(theme::font_mono_meta()))
-                .text_color(theme::ADD)
-                .child(format!("+{additions}")),
-        );
-    }
-    if let Some(deletions) = file.deletions {
-        row = row.child(
-            div()
-                .text_size(px(theme::font_mono_meta()))
-                .text_color(theme::DEL)
-                .child(format!("−{deletions}")),
-        );
-    }
-    row.into_any_element()
-}
-
-fn issues_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> AnyElement {
-    let folder = repo.folder_path.to_string_lossy().to_string();
-    let snapshot = store.github_by_folder.get(&folder);
-    let issue_count = snapshot.map(|snap| snap.issues.len()).unwrap_or(0);
-    let pull_count = snapshot.map(|snap| snap.pulls.len()).unwrap_or(0);
-
-    // the tab with something on it
-    let tab = if issue_count == 0 && pull_count > 0 {
-        WorkspaceTab::PullRequests
-    } else {
-        WorkspaceTab::Issues
-    };
-    let mut section = card(section_head(
-        format!("GitHub · {issue_count} issues · {pull_count} PRs"),
-        "insp-github-open",
-        "Open",
-        open_tab(entities, tab),
-    ));
-
-    let Some(snapshot) = snapshot else {
-        return section
-            .child(muted("GitHub data not loaded"))
-            .into_any_element();
-    };
-    if snapshot.issues.is_empty() {
-        return section.child(muted("No open issues")).into_any_element();
-    }
-
-    for issue in snapshot.issues.iter().take(3) {
-        let target = entities.clone();
-        let url = issue.url.clone();
-        section = section.child(
-            div()
-                .id(SharedString::from(format!("insp-issue-{}", issue.number)))
-                .debug_selector({
-                    let number = issue.number;
-                    move || format!("insp-issue-{number}")
-                })
-                .a11y_button(issue.title.clone())
-                .cursor_pointer()
-                .hover(|d| d.bg(theme::HOVER_BG))
-                .on_click(move |_, _, cx| {
-                    if let Err(err) = terminal::open_url(&url) {
-                        target.update(cx, |s, _| s.notify_error(err));
-                    }
-                })
                 .flex()
-                .items_center()
-                .gap(px(8.))
-                .h(px(34.))
-                .px_4()
-                .child(icon(
-                    "icons/icon-circle-dot.svg",
-                    px(theme::icon_tiny()),
-                    theme::ISSUE,
-                ))
+                .flex_col()
                 .child(
                     div()
-                        .text_size(px(theme::font_meta()))
-                        .text_color(theme::TEXT_MUTED)
-                        .child(format!("#{}", issue.number)),
-                )
-                .child(
-                    div()
-                        .flex_1()
                         .min_w_0()
                         .text_size(px(theme::font_body()))
                         .text_color(theme::TEXT)
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(SharedString::from(issue.title.clone())),
-                ),
-        );
-    }
-    if snapshot.issues.len() > 3 {
-        section = section.child(more_link(
-            "insp-more-issues",
-            format!("and {} more →", snapshot.issues.len() - 3),
-            open_tab(entities, WorkspaceTab::Issues),
-        ));
-    }
-    section.into_any_element()
+                        .child(title),
+                )
+                .when(!sub.is_empty(), |column| {
+                    column.child(
+                        div()
+                            .min_w_0()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(sub),
+                    )
+                }),
+        )
+        .child(action)
+        .into_any_element()
 }
 
-/// Azure DevOps at a glance, for repos with a project behind them.
-fn azure_section(store: &Store, repo: &RepoEntry, entities: &Entity<Store>) -> Option<AnyElement> {
-    let folder = repo.folder_path.to_string_lossy();
-    let snapshot = store
-        .azure_by_folder
-        .get(folder.as_ref())
-        .filter(|snapshot| snapshot.available)?;
-    let latest = if snapshot.pipelines.is_empty() {
-        "No pipeline runs"
-    } else if snapshot.pipeline_running() {
-        "Latest run in progress"
-    } else if snapshot.pipeline_failed() {
-        "Latest run failed"
-    } else if snapshot.pipeline_ok() {
-        "Latest run succeeded"
+/// The row's quiet verb: Review, Open.
+fn needy_link(id: &'static str, label: &'static str, on_click: Action) -> AnyElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .cursor_pointer()
+        .flex_shrink_0()
+        .h(px(26.))
+        .px_2p5()
+        .flex()
+        .items_center()
+        .rounded(px(6.))
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::ACCENT_INK)
+        .hover(|el| el.bg(theme::RAISED).text_color(theme::ACCENT_HOVER))
+        .on_click(on_click)
+        .child(label)
+        .into_any_element()
+}
+
+/// The row's git verb: a button that says what it is doing while the job runs
+/// and what it did for a moment after.
+fn needy_job_button(
+    id: &'static str,
+    idle: &'static str,
+    action: GitAction,
+    job_label: &'static str,
+    entities: &Entity<Store>,
+    job: Option<&'static str>,
+    finished: Option<&'static str>,
+) -> AnyElement {
+    let running = job == Some(job_label);
+    let busy = job.is_some() && !running;
+    let done = job.is_none() && finished == Some(job_label);
+    let label = if running {
+        crate::net::git_working_word(job_label)
+    } else if done {
+        crate::net::git_done_word(job_label)
     } else {
-        "Latest run queued"
+        idle
     };
-    Some(
-        card(section_head(
-            format!(
-                "Azure DevOps · {} PRs · {} work items",
-                snapshot.pulls.len(),
-                snapshot.work_items.len()
-            ),
-            "insp-azure-open",
-            "Open",
-            open_tab(entities, WorkspaceTab::Pipelines),
-        ))
-        .child(muted(latest))
-        .into_any_element(),
-    )
+    let target = entities.clone();
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .flex_shrink_0()
+        .h(px(30.))
+        .px_2p5()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(if done {
+            theme::tint(theme::SUCCESS_BRIGHT)
+        } else {
+            theme::LINE_STRONG.into()
+        })
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .when(running, |d| {
+            d.bg(theme::PANEL)
+                .text_color(theme::TEXT_MUTED)
+                .child(motion::spinner(
+                    SharedString::from(format!("{id}-spin")),
+                    "icons/icon-spinner.svg",
+                    px(theme::icon_tiny()),
+                    theme::TEXT_MUTED,
+                ))
+        })
+        .when(done, |d| {
+            d.bg(theme::PANEL)
+                .text_color(theme::SUCCESS_BRIGHT)
+                .child(icon(
+                    "icons/icon-check.svg",
+                    px(theme::icon_tiny()),
+                    theme::SUCCESS_BRIGHT,
+                ))
+        })
+        .when(!running && !done, |d| {
+            d.bg(theme::PANEL).text_color(theme::TEXT).when(!busy, |d| {
+                d.cursor_pointer()
+                    .hover(|el| el.bg(theme::RAISED))
+                    .on_click(move |_, _, cx| {
+                        target.update(cx, |s, cx| s.run_git(action.clone(), cx));
+                    })
+            })
+        })
+        .child(label)
+        .into_any_element()
 }
 
+/// "1 commit" / "2 commits".
+fn count_word(count: u32, one: &'static str, many: &'static str) -> &'static str {
+    if count == 1 { one } else { many }
+}
 /// What GitHub says about the repo. Absent until the details request answers, and for repos not on GitHub.
 fn details_section(store: &Store) -> Option<AnyElement> {
     let details = store.github_details.as_ref()?;
@@ -1340,32 +1468,6 @@ fn format_created(iso: &str) -> String {
     chrono::NaiveDate::parse_from_str(&iso[..10.min(iso.len())], "%Y-%m-%d")
         .map(|d| d.format("%-d %b %Y").to_string())
         .unwrap_or_else(|_| iso.to_string())
-}
-
-fn muted(label: &'static str) -> AnyElement {
-    div()
-        .mx_4()
-        .my_1()
-        .text_size(px(theme::font_meta()))
-        .text_color(theme::TEXT_DIM)
-        .child(label)
-        .into_any_element()
-}
-
-fn more_link(id: &'static str, label: String, on_click: Action) -> AnyElement {
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .a11y_button(label.clone())
-        .cursor_pointer()
-        .mx_4()
-        .pt_1()
-        .text_size(px(theme::font_meta()))
-        .text_color(theme::TEXT_DIM)
-        .hover(|el| el.text_color(theme::TEXT))
-        .on_click(on_click)
-        .child(label)
-        .into_any_element()
 }
 
 fn keycap(label: impl Into<SharedString>, color: Rgba, border: Rgba) -> AnyElement {
