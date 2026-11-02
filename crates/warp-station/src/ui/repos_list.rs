@@ -69,7 +69,7 @@ fn cloning_row(ix: usize, name: &str) -> impl IntoElement + use<> {
             div()
                 .text_size(px(theme::font_meta()))
                 .text_color(theme::TEXT_DIM)
-                .child("Cloning…"),
+                .child("Cloning"),
         )
 }
 
@@ -277,7 +277,7 @@ fn group_band(
                 .text_size(px(theme::font_sub()))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::TEXT_DIM)
-                .child(name.to_lowercase()),
+                .child(name.to_string()),
         )
         .child(
             div()
@@ -359,6 +359,23 @@ pub fn stats(repo: &RepoEntry, github: bool, row_ix: Option<usize>) -> gpui::Div
             Some("change"),
             theme::CHANGES,
         ));
+    } else if repo.git_to_pull_count == 0 {
+        meta = meta.child(
+            div()
+                .when_some(row_ix, |d, ix| {
+                    d.debug_selector(move || format!("repo-clean-{ix}"))
+                })
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .text_color(theme::TEXT_MUTED)
+                .child(icon(
+                    "icons/icon-check.svg",
+                    px(theme::icon_tiny()),
+                    theme::SUCCESS_BRIGHT,
+                ))
+                .child("clean"),
+        );
     }
     if issues > 0 {
         meta = meta.child(counted(
@@ -403,24 +420,6 @@ pub fn stats(repo: &RepoEntry, github: bool, row_ix: Option<usize>) -> gpui::Div
             None,
             theme::AHEAD,
         ));
-    }
-    if repo.git_modified_count == 0 && repo.git_to_pull_count == 0 {
-        meta = meta.child(
-            div()
-                .when_some(row_ix, |d, ix| {
-                    d.debug_selector(move || format!("repo-clean-{ix}"))
-                })
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .text_color(theme::TEXT_MUTED)
-                .child(icon(
-                    "icons/icon-check.svg",
-                    px(theme::icon_tiny()),
-                    theme::SUCCESS_BRIGHT,
-                ))
-                .child("clean"),
-        );
     }
     meta
 }

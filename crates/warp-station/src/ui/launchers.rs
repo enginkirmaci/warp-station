@@ -79,6 +79,9 @@ impl Launch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launcher {
     pub label: &'static str,
+    /// The compact name the Overview's Open in card uses, where a 150px cell
+    /// cannot hold the menu's verb ("Launch OpenCode CLI").
+    pub short: &'static str,
     pub icon: &'static str,
     /// The letter the window keymap answers to, as the menu's keycap shows it.
     pub key: Option<&'static str>,
@@ -92,6 +95,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.repos.enable_vscode {
         list.push(Launcher {
             label: "Open in VS Code",
+            short: "VS Code",
             icon: "icons/icon-code.svg",
             key: None,
             launch: Launch::VsCode {
@@ -107,6 +111,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     {
         list.push(Launcher {
             label: "Open solution in Visual Studio",
+            short: "Visual Studio",
             icon: "icons/icon-sln-box.svg",
             key: Some("V"),
             launch: Launch::Solution {
@@ -118,6 +123,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.warp_agent.enable_warp_agent {
         list.push(Launcher {
             label: "Open in warp-agent",
+            short: "Warp Agent",
             icon: "icons/icon-app-window.svg",
             key: Some("A"),
             launch: Launch::WarpAgent,
@@ -126,6 +132,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.opencode.enable_opencode {
         list.push(Launcher {
             label: "Launch OpenCode CLI",
+            short: "OpenCode",
             icon: "icons/icon-command.svg",
             key: Some("O"),
             launch: cli_launch(
@@ -140,6 +147,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.deepseek.enable_deepseek {
         list.push(Launcher {
             label: "Launch DeepSeek CLI",
+            short: "DeepSeek",
             icon: "icons/icon-deepseek.svg",
             key: Some("D"),
             launch: cli_launch(
@@ -153,6 +161,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     }
     list.push(Launcher {
         label: "Open folder",
+        short: "Folder",
         icon: "icons/icon-folder.svg",
         key: Some("F"),
         launch: Launch::Folder,
@@ -160,6 +169,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.repos.enable_terminal {
         list.push(Launcher {
             label: "Open terminal",
+            short: "Terminal",
             icon: "icons/icon-terminal.svg",
             key: Some("T"),
             launch: Launch::Terminal {
@@ -170,6 +180,7 @@ pub fn launchers(settings: &AppSettings, repo: &RepoEntry) -> Vec<Launcher> {
     if settings.warp_notes.enable_warp_notes {
         list.push(Launcher {
             label: "Notes for this repo",
+            short: "Notes",
             icon: "icons/icon-note.svg",
             key: Some("N"),
             launch: Launch::Notes {

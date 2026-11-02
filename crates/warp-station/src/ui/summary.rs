@@ -1,6 +1,7 @@
 //! The Summary section: the daily summaries already written to the notes store,
-//! newest first, and the one verb that writes another. A summary covers
-//! yesterday's commits across every tracked repository.
+//! newest first, each under the day it covers, and the one verb that writes
+//! another. A summary covers yesterday's commits across every tracked
+//! repository, and its file opens in the notes app from the detail head.
 
 use crate::store::Store;
 use crate::theme;
@@ -70,12 +71,13 @@ impl SummaryPage {
 
     fn row(&self, path: &PathBuf, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let name = day_name(path);
+        let file = file_name(path);
         let target = path.clone();
         shell::list_row(
             SharedString::from(format!("summary-{name}")),
             self.selected.as_ref() == Some(path),
         )
-        .a11y_button(name.clone())
+        .a11y_button(format!("{name} — {file}"))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.select(Some(target.clone()));
             cx.notify();
@@ -86,6 +88,14 @@ impl SummaryPage {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::TEXT)
                 .child(name),
+        )
+        .child(
+            div()
+                .mt_0p5()
+                .font_family(theme::code_font())
+                .text_size(px(theme::font_mono_meta()))
+                .text_color(theme::TEXT_MUTED)
+                .child(file),
         )
     }
 
@@ -147,10 +157,23 @@ impl SummaryPage {
     }
 }
 
-/// The file's name is its day.
+/// The summary's day, as the prototype writes it ("Sunday, 1 Nov"); a file
+/// whose name is not a date keeps its stem.
 fn day_name(path: &std::path::Path) -> String {
-    path.file_stem()
+    let stem = path
+        .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    chrono::NaiveDate::parse_from_str(&stem, "%Y-%m-%d")
+        .map(|day| day.format("%A, %-d %b").to_string())
+        .unwrap_or(stem)
+}
+
+/// The file the day lives in: `Summaries/2026-11-01.md` is what the notes app
+/// shows, so the list names it as it is.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default()
 }
 
@@ -171,6 +194,29 @@ impl Render for SummaryPage {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll();
+        if files.is_empty() {
+            rows = rows.child(
+                div()
+                    .px_4()
+                    .py_6()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(theme::font_body()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::TEXT_DIM)
+                            .child("No summaries yet"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .child("Summarize yesterday writes the first one to Summaries/."),
+                    ),
+            );
+        }
         for path in &files {
             let row = self.row(path, cx);
             rows = rows.child(row);
@@ -204,7 +250,28 @@ impl Render for SummaryPage {
         let title = self
             .selected
             .as_deref()
-            .map_or_else(|| "No summaries yet".to_string(), day_name);
+            .map_or_else(|| "Summary".to_string(), day_name);
+        let notes_path = self.selected.clone();
+        let mut heading = div().flex_1().min_w_0().flex().flex_col().child(
+            div()
+                .text_size(px(theme::font_screen_title()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT)
+                .child(title),
+        );
+        if let Some(path) = self.selected.as_deref() {
+            heading = heading.child(
+                div()
+                    .mt_0p5()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .font_family(theme::code_font())
+                    .text_size(px(theme::font_mono_meta()))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(format!("Summaries/{}", file_name(path))),
+            );
+        }
         let head = div()
             .flex_shrink_0()
             .flex()
@@ -215,15 +282,43 @@ impl Render for SummaryPage {
             .py_4()
             .border_b_1()
             .border_color(theme::HAIRLINE)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(theme::font_screen_title()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::TEXT)
-                    .child(title),
-            )
+            .child(heading)
+            .when_some(notes_path, |row, path| {
+                let store = self.store.clone();
+                row.child(
+                    div()
+                        .id("summary-open-notes")
+                        .debug_selector(|| "summary-open-notes".into())
+                        .a11y_button("Open in Notes")
+                        .cursor_pointer()
+                        .flex_shrink_0()
+                        .h(px(shell::CONTROL_HEIGHT))
+                        .px_3()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(theme::LINE_STRONG)
+                        .bg(theme::PANEL)
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_size(px(theme::font_control()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::TEXT)
+                        .hover(|s| s.bg(theme::RAISED))
+                        .on_click(move |_, _, cx| {
+                            store.update(cx, |s, cx| {
+                                s.open_note_in_notes(path.clone());
+                                cx.notify();
+                            });
+                        })
+                        .child(icon(
+                            "icons/icon-note.svg",
+                            px(theme::icon_small()),
+                            theme::TEXT_DIM,
+                        ))
+                        .child("Open in Notes"),
+                )
+            })
             .child(self.summarize_button(busy, available));
 
         let body = div()
@@ -243,10 +338,12 @@ impl Render for SummaryPage {
                 None => div()
                     .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_DIM)
-                    .child(if available {
+                    .child(if !available {
+                        "Summaries run through warp-agent. Turn it on in Settings."
+                    } else if files.is_empty() {
                         "Summarize yesterday to write the first one."
                     } else {
-                        "Summaries run through warp-agent. Turn it on in Settings."
+                        "Pick a summary from the list."
                     })
                     .into_any_element(),
             });

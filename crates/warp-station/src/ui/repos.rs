@@ -748,7 +748,7 @@ impl ReposPage {
                 "clone-button",
                 "Clone",
                 "icons/icon-cloud-download.svg",
-                false,
+                !self.store.read(cx).cloning.is_empty(),
                 cx.listener(|this, _, window, cx| {
                     let store = this.store.clone();
                     this.dialog = Some(Dialog::Clone(CloneDialog::new(&store, window, cx)));
@@ -757,20 +757,19 @@ impl ReposPage {
             ));
 
         // The summary line: what needs a hand first, then the two totals that
-        // make a repo look busy.
-        let attention_label = if stats.attention > 0 {
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::CHANGES)
-                .child(format!(
-                    "{} of {} need attention",
-                    stats.attention, stats.total
-                ))
-        } else {
-            div()
-                .text_color(theme::TEXT_DIM)
-                .child(format!("{} repos", stats.total))
-        };
+        // make a repo look busy. The phrase stays at zero so the line always
+        // answers the same question; only its weight goes quiet.
+        let attention_label = div()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(if stats.attention > 0 {
+                theme::CHANGES
+            } else {
+                theme::TEXT_DIM
+            })
+            .child(format!(
+                "{} of {} need attention",
+                stats.attention, stats.total
+            ));
         let summary = div()
             .flex_1()
             .min_w_0()
@@ -1080,13 +1079,14 @@ impl ReposPage {
     }
 }
 
-/// The sort menu's modes, in its order.
+/// The sort menu's modes: the design's three first, then the app's own
+/// orders (they rank by data the design's list does not show).
 const SORT_MODES: [(RepoSortMode, &str); 6] = [
-    (RepoSortMode::Attention, "Attention first"),
     (RepoSortMode::LastActivity, "Last activity"),
+    (RepoSortMode::Name, "Name"),
+    (RepoSortMode::Attention, "Attention first"),
     (RepoSortMode::Changes, "Changes"),
     (RepoSortMode::GitHub, "GitHub"),
-    (RepoSortMode::Name, "Name"),
     (RepoSortMode::Branch, "Branch"),
 ];
 

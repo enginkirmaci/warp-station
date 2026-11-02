@@ -163,7 +163,7 @@ impl Render for ReadmeView {
                             px(theme::icon_small() - 1.),
                             theme::ON_ACCENT,
                         ))
-                        .child("Save"),
+                        .child("Save README"),
                 )
             })
             .when(!wand_active && shown.is_some() && ai_available, |row| {
@@ -207,7 +207,12 @@ impl Render for ReadmeView {
             .px_5()
             .py_4()
             .when(shown.is_some(), |pane| {
-                pane.child(render_markdown(shown.clone().unwrap_or_default()))
+                // reading content keeps the design's 760 measure
+                pane.child(
+                    div()
+                        .max_w(px(warpui_kit_core::shell::READING_WIDTH))
+                        .child(render_markdown(shown.clone().unwrap_or_default())),
+                )
             })
             .when(shown.is_none(), |pane| {
                 pane.child(

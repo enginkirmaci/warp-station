@@ -229,6 +229,37 @@ fn ghost_button(
         .into_any_element()
 }
 
+/// A ghost button in its working state: same chrome, a spinner in place of the
+/// press, and the verb's present participle.
+fn ghost_busy(label: &'static str) -> gpui::AnyElement {
+    let id = format!("btn-{label}");
+    div()
+        .id(SharedString::from(id.clone()))
+        .debug_selector(move || id.clone())
+        .role(gpui::Role::Status)
+        .aria_label(label)
+        .rounded(px(4.))
+        .h(px(26.))
+        .px(px(9.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .border_1()
+        .border_color(theme::GHOST_BORDER)
+        .bg(theme::GHOST_BG)
+        .text_color(theme::TEXT_DIM)
+        .child(warpui_kit_core::motion::spinner(
+            "dialog-scan-spinner",
+            "icons/icon-spinner.svg",
+            px(theme::icon_tiny()),
+            theme::TEXT_DIM,
+        ))
+        .child(label)
+        .into_any_element()
+}
+
 /// The one filled action: the mockup's blue at 26px, darkening to
 /// `ACCENT_HOVER` on hover like every primary.
 fn primary_button(
@@ -587,11 +618,17 @@ impl AddRepoDialog {
                         .flex_row()
                         .items_center()
                         .gap(px(8.))
-                        .child(ghost_button(
-                            "Scan",
-                            can_scan,
-                            cx.listener(|this: &mut ReposPage, _, _, cx| this.kick_deep_scan(cx)),
-                        ))
+                        .child(if self.scanning {
+                            ghost_busy("Scanning…")
+                        } else {
+                            ghost_button(
+                                "Scan",
+                                can_scan,
+                                cx.listener(|this: &mut ReposPage, _, _, cx| {
+                                    this.kick_deep_scan(cx)
+                                }),
+                            )
+                        })
                         .child(field_label("Depth"))
                         .child(depth_stepper)
                         .child(
@@ -619,7 +656,11 @@ impl AddRepoDialog {
                     }),
                 ))
                 .child(primary_button(
-                    "Add",
+                    &if selected > 0 {
+                        format!("Add {selected}")
+                    } else {
+                        "Add".to_string()
+                    },
                     !self.scanning && selected > 0,
                     cx.listener(|this: &mut ReposPage, _, _, cx| this.commit_add_dialog(cx)),
                 )),
@@ -698,11 +739,35 @@ impl CloneDialog {
         let error = self.error.clone();
         let busy = self.busy;
         let raw_url = self.url.read(cx).value().to_string();
-        let url_valid =
-            !raw_url.trim().is_empty() && (raw_url.contains('/') || raw_url.contains(':'));
         let dest = self.destination.read(cx).value().to_string();
-        let target_line = if dest.trim().is_empty() {
-            "Enter the destination folder above".to_string()
+        // Each field checks itself, beside itself; only the backend's failure
+        // belongs to the whole dialog.
+        let url_error = if raw_url.trim().is_empty() {
+            Some("Enter a repository URL")
+        } else if !raw_url.contains('/') && !raw_url.contains(':') {
+            Some("That does not look like a repository URL")
+        } else {
+            None
+        };
+        let dest_error = if dest.trim().is_empty() {
+            Some("Enter the destination folder")
+        } else if !std::path::Path::new(&dest).is_dir() {
+            Some("That folder does not exist")
+        } else {
+            None
+        };
+        let name_error = if name.is_empty() || name == "." || name == ".." {
+            Some("Enter a folder name")
+        } else if name.contains('/') || name.contains('\\') {
+            Some("A folder name cannot contain a path")
+        } else if dest_error.is_none() && std::path::Path::new(&dest).join(&name).exists() {
+            Some("That folder already exists")
+        } else {
+            None
+        };
+        let valid = url_error.is_none() && dest_error.is_none() && name_error.is_none();
+        let target_line = if dest_error.is_some() {
+            String::new()
         } else {
             format!("Clones into {}/{}", dest.trim_end_matches('/'), name)
         };
@@ -720,22 +785,27 @@ impl CloneDialog {
                 .child(form_field(
                     "Repository URL",
                     dialog_field("clone-url-input", &self.url),
-                ))
-                .child(form_field(
-                    "Folder Name",
-                    dialog_field("clone-name-input", &self.name),
+                    url_error.map(str::to_string),
                 ))
                 .child(form_field(
                     "Destination Folder",
                     dialog_field("clone-dest-input", &self.destination),
+                    dest_error.map(str::to_string),
                 ))
-                .child(
-                    div()
-                        .font_family(theme::code_font())
-                        .text_size(px(theme::font_mono_meta()))
-                        .text_color(theme::TEXT_MUTED)
-                        .child(target_line),
-                )
+                .child(form_field(
+                    "Folder Name",
+                    dialog_field("clone-name-input", &self.name),
+                    name_error.map(str::to_string),
+                ))
+                .when(!target_line.is_empty(), |body| {
+                    body.child(
+                        div()
+                            .font_family(theme::code_font())
+                            .text_size(px(theme::font_mono_meta()))
+                            .text_color(theme::TEXT_MUTED)
+                            .child(target_line),
+                    )
+                })
                 .when_some(error, |body, error| {
                     body.child(
                         div()
@@ -757,7 +827,7 @@ impl CloneDialog {
                 ))
                 .child(primary_button(
                     if busy { "Cloning…" } else { "Clone" },
-                    !busy && url_valid,
+                    !busy && valid,
                     cx.listener(|this: &mut ReposPage, _, _, cx| this.commit_clone(cx)),
                 )),
         );
@@ -765,17 +835,29 @@ impl CloneDialog {
     }
 }
 
-/// A labeled form field: 9.5px label over the shared 30px field. The
-/// selector stays on [`dialog_field`]'s wrapper, which holds the input alone —
-/// putting it on this label-plus-input column would aim a probe's click at the
-/// gap between the two.
-fn form_field(label: &str, field: gpui::Stateful<gpui::Div>) -> gpui::AnyElement {
+/// A labeled form field: 9.5px label over the shared 30px field, then the
+/// field's own complaint when it has one. The selector stays on
+/// [`dialog_field`]'s wrapper, which holds the input alone — putting it on this
+/// label-plus-input column would aim a probe's click at the gap between the two.
+fn form_field(
+    label: &str,
+    field: gpui::Stateful<gpui::Div>,
+    error: Option<String>,
+) -> gpui::AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(px(6.))
         .child(field_label(label))
         .child(field)
+        .when_some(error, |column, error| {
+            column.child(
+                div()
+                    .text_size(px(theme::font_row_meta()))
+                    .text_color(theme::DANGER)
+                    .child(error),
+            )
+        })
         .into_any_element()
 }
 

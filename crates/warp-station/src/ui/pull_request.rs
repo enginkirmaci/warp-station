@@ -17,20 +17,32 @@ use warpui_kit_core::{motion, shell};
 const BODY_WIDTH: f32 = 920.;
 const STRIP_HEIGHT: f32 = 44.;
 
-pub fn render(repo: &RepoEntry, open: &OpenPull, store: &Entity<Store>) -> AnyElement {
+pub fn render(
+    repo: &RepoEntry,
+    open: &OpenPull,
+    store: &Entity<Store>,
+    tabbed: bool,
+    in_tab: bool,
+) -> AnyElement {
     div()
         .debug_selector(|| "pull-request".into())
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .child(head(repo, open, store))
+        .child(head(repo, open, store, tabbed, in_tab))
         .child(status_strip(open))
         .child(body(open))
         .into_any_element()
 }
 
-fn head(repo: &RepoEntry, open: &OpenPull, store: &Entity<Store>) -> impl IntoElement + use<> {
+fn head(
+    repo: &RepoEntry,
+    open: &OpenPull,
+    store: &Entity<Store>,
+    tabbed: bool,
+    in_tab: bool,
+) -> impl IntoElement + use<> {
     let item = &open.item;
     let pull = open.pull.as_ref();
     let url = item.url.clone();
@@ -79,6 +91,36 @@ fn head(repo: &RepoEntry, open: &OpenPull, store: &Entity<Store>) -> impl IntoEl
         )
         .child(state_pill(pull))
         .child(div().flex_1())
+        .when(!in_tab, |row| {
+            let target = store.clone();
+            let folder = repo.folder_path.to_string_lossy().to_string();
+            row.child(
+                div()
+                    .id("pull-open-tab")
+                    .debug_selector(|| "pull-open-tab".into())
+                    .a11y_button(if tabbed { "Go to tab" } else { "Open in tab" })
+                    .cursor_pointer()
+                    .flex_shrink_0()
+                    .size(px(shell::CONTROL_HEIGHT))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .hover(|s| s.bg(theme::RAISED))
+                    .on_click(move |_, _, cx| {
+                        target.update(cx, |s, cx| s.open_repo_tab(&folder, cx));
+                    })
+                    .child(icon(
+                        if tabbed {
+                            "icons/icon-tab.svg"
+                        } else {
+                            "icons/icon-tab-plus.svg"
+                        },
+                        px(theme::icon_small()),
+                        theme::TEXT_DIM,
+                    )),
+            )
+        })
         .child(
             div()
                 .id("pull-github")

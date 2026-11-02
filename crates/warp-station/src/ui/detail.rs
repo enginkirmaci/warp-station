@@ -86,8 +86,16 @@ pub fn render(
     };
 
     if let Some(open) = store.open_pull.as_ref() {
+        let folder = repo.folder_path.to_string_lossy();
+        let tabbed = store.repo_tabs.iter().any(|tab| tab.folder == folder);
         return pane
-            .child(pull_request::render(repo, open, entities))
+            .child(pull_request::render(
+                repo,
+                open,
+                entities,
+                tabbed,
+                store.active_repo_tab.is_some(),
+            ))
             .into_any_element();
     }
 

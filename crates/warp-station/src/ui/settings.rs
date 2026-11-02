@@ -649,6 +649,10 @@ impl SettingsPage {
                 .child(field_row("Notes store path", &this.notes_store_path))
             })],
             Section::Appearance => vec![
+                self.card("Palette", cx, |_, _, card| {
+                    card.child(fixed_row("Palette", "Copper"))
+                        .child(label("Fixed for the Warp Suite in this build. The kit keeps Copper as constants; Plum and Pine stay in the prototype for comparison."))
+                }),
                 self.card("Text", cx, |_, _, card| {
                     card.child(text_size_row())
                         .child(label("Applied right away. The other Warp apps follow when they next open."))
@@ -1177,6 +1181,26 @@ fn switch_row(
         // the label gives up room (and wraps) instead of running under the
         // neighbouring column when the card is narrow
         .child(div().flex_1().min_w_0().child(label(label_text)))
+        .into_any_element()
+}
+
+/// A value the build fixes: it reads like a setting, but there is nothing to
+/// press, so the row says so instead of offering a dead control.
+fn fixed_row(label_text: &str, value: &str) -> gpui::AnyElement {
+    let selector = format!("settings-fixed-{label_text}");
+    div()
+        .debug_selector(move || selector.clone())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(div().flex_1().min_w_0().child(label(label_text)))
+        .child(
+            div()
+                .text_size(px(theme::font_control()))
+                .text_color(theme::TEXT_DIM)
+                .child(value.to_string()),
+        )
         .into_any_element()
 }
 

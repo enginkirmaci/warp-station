@@ -80,6 +80,8 @@ impl ItemListView {
     fn set_closed(&mut self, closed: bool, cx: &mut Context<Self>) {
         self.closed = closed;
         self.sort_open = false;
+        // the filter belongs to the view it was typed in, not to the tab
+        self.clear_filter = !self.query.is_empty();
         if closed {
             let pull_requests = self.pull_requests;
             self.store.update(cx, |s, _| s.load_closed(pull_requests));
@@ -383,10 +385,23 @@ impl Render for ItemListView {
             "issue-list"
         };
         let state = if self.closed { "closed" } else { "open" };
+        let repo_name = self
+            .store
+            .read(cx)
+            .selected_entry()
+            .map(|repo| repo.name.clone())
+            .unwrap_or_default();
         let body = if loading {
             empty_state(format!("Loading closed {title}…"))
         } else if total == 0 {
-            empty_state(format!("No {state} {title}"))
+            empty_note(
+                format!("No {state} {title}"),
+                if repo_name.is_empty() {
+                    String::new()
+                } else {
+                    format!("{repo_name} has nothing waiting here.")
+                },
+            )
         } else if items.is_empty() {
             let query = self.filter.read(cx).value().trim().to_string();
             no_match(&query, cx)
@@ -622,13 +637,33 @@ fn tab_card(content: impl IntoElement) -> gpui::AnyElement {
 }
 
 fn empty_state(text: String) -> gpui::AnyElement {
+    empty_note(text, String::new())
+}
+
+/// An empty list says what is true and, when it can, which repository it is
+/// true of — never just "nothing here".
+fn empty_note(title: String, detail: String) -> gpui::AnyElement {
     div()
         .flex_1()
         .flex()
+        .flex_col()
         .items_center()
         .justify_center()
-        .text_size(px(theme::font_body()))
-        .text_color(theme::TEXT_FAINT)
-        .child(text)
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(theme::font_body()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT_DIM)
+                .child(title),
+        )
+        .when(!detail.is_empty(), |column| {
+            column.child(
+                div()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::TEXT_MUTED)
+                    .child(detail),
+            )
+        })
         .into_any_element()
 }

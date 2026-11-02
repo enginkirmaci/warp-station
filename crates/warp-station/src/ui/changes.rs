@@ -370,33 +370,43 @@ impl Render for ChangesView {
         let popup = self
             .branch_picker
             .update(cx, |picker, cx| picker.overlay_popup(window, cx));
-        let files = div()
-            .w(px(warpui_kit_core::shell::scaled(FILE_COLUMN_W)))
-            .flex_shrink_0()
-            .h_full()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .bg(theme::SURFACE)
-            .border_r_1()
-            .border_color(theme::HAIRLINE)
-            .child(self.render_file_list(&groups, cx))
-            .child(self.render_commit_card(busy, window, cx));
+        // A clean tree is not a file table with nothing in it: it is one
+        // statement, so it takes the body and the commit box steps aside
+        // until there is something to commit (the design's empty state).
+        let clean = groups.0.is_empty()
+            && groups.1.is_empty()
+            && self.store.read(cx).changes_loaded_for.is_some();
+        let body = if clean {
+            clean_state(&self.store, cx)
+        } else {
+            let files = div()
+                .w(px(warpui_kit_core::shell::scaled(FILE_COLUMN_W)))
+                .flex_shrink_0()
+                .h_full()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .bg(theme::SURFACE)
+                .border_r_1()
+                .border_color(theme::HAIRLINE)
+                .child(self.render_file_list(&groups, cx))
+                .child(self.render_commit_card(busy, window, cx));
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_row()
+                .child(files)
+                .child(self.render_diff(window, cx))
+                .into_any_element()
+        };
         div()
             .size_full()
             .flex()
             .flex_col()
             .min_h_0()
             .child(toolbar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_row()
-                    .child(files)
-                    .child(self.render_diff(window, cx)),
-            )
+            .child(body)
             // painted last, so it hangs over the columns under the toolbar
             .children(popup.map(|popup| {
                 gpui::deferred(
@@ -474,7 +484,9 @@ impl ChangesView {
 
         if staged.is_empty() && unstaged.is_empty() {
             let loaded = self.store.read(cx).changes_loaded_for.is_some();
-            list = list.child(
+            list = list.child(if loaded {
+                clean_state(&self.store, cx)
+            } else {
                 div()
                     .flex_1()
                     .flex()
@@ -482,12 +494,9 @@ impl ChangesView {
                     .justify_center()
                     .text_size(px(theme::font_body()))
                     .text_color(theme::TEXT_DIM)
-                    .child(if loaded {
-                        "No changes — working tree clean"
-                    } else {
-                        "Loading…"
-                    }),
-            );
+                    .child("Loading…")
+                    .into_any_element()
+            });
             return list.into_any_element();
         }
 
@@ -1019,46 +1028,6 @@ impl ChangesView {
         actions_row = actions_row.child({
             let store = self.store.clone();
             let full_hash = details.hash.clone();
-            let this = cx.entity();
-            action_button("detail-checkout", "Checkout", armed == Some("checkout")).on_click(
-                move |_, _, cx| {
-                    if armed == Some("checkout") {
-                        this.update(cx, |this, _| this.detail_armed = None);
-                        store.update(cx, |s, cx| {
-                            s.run_git(GitAction::Checkout(full_hash.clone()), cx)
-                        });
-                    } else {
-                        this.update(cx, |this, cx| {
-                            this.detail_armed = Some("checkout");
-                            cx.notify();
-                        });
-                    }
-                },
-            )
-        });
-        actions_row = actions_row.child({
-            let store = self.store.clone();
-            let full_hash = details.hash.clone();
-            let this = cx.entity();
-            action_button("detail-revert", "Revert", armed == Some("revert")).on_click(
-                move |_, _, cx| {
-                    if armed == Some("revert") {
-                        this.update(cx, |this, _| this.detail_armed = None);
-                        store.update(cx, |s, cx| {
-                            s.run_git(GitAction::Revert(full_hash.clone()), cx)
-                        });
-                    } else {
-                        this.update(cx, |this, cx| {
-                            this.detail_armed = Some("revert");
-                            cx.notify();
-                        });
-                    }
-                },
-            )
-        });
-        actions_row = actions_row.child({
-            let store = self.store.clone();
-            let full_hash = details.hash.clone();
             div()
                 .id("detail-copy-sha")
                 .a11y_button("Copy SHA")
@@ -1086,25 +1055,46 @@ impl ChangesView {
                 })
                 .child("Copy SHA")
         });
-
-        list = list.child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(theme::font_meta()))
-                        .font_family(gpui::SharedString::from(theme::code_font()))
-                        .text_color(theme::TEXT_FAINT)
-                        .child(details.hash[..7.min(details.hash.len())].to_string()),
-                )
-                .child(actions_row),
-        );
-
+        actions_row = actions_row.child({
+            let store = self.store.clone();
+            let full_hash = details.hash.clone();
+            let this = cx.entity();
+            action_button("detail-revert", "Revert", armed == Some("revert")).on_click(
+                move |_, _, cx| {
+                    if armed == Some("revert") {
+                        this.update(cx, |this, _| this.detail_armed = None);
+                        store.update(cx, |s, cx| {
+                            s.run_git(GitAction::Revert(full_hash.clone()), cx)
+                        });
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.detail_armed = Some("revert");
+                            cx.notify();
+                        });
+                    }
+                },
+            )
+        });
+        actions_row = actions_row.child({
+            let store = self.store.clone();
+            let full_hash = details.hash.clone();
+            let this = cx.entity();
+            action_button("detail-checkout", "Checkout", armed == Some("checkout")).on_click(
+                move |_, _, cx| {
+                    if armed == Some("checkout") {
+                        this.update(cx, |this, _| this.detail_armed = None);
+                        store.update(cx, |s, cx| {
+                            s.run_git(GitAction::Checkout(full_hash.clone()), cx)
+                        });
+                    } else {
+                        this.update(cx, |this, cx| {
+                            this.detail_armed = Some("checkout");
+                            cx.notify();
+                        });
+                    }
+                },
+            )
+        });
         // the list cuts a long subject off, so the detail shows it whole
         list = list.children(history_meta.as_ref().map(|(subject, ..)| {
             div()
@@ -1115,29 +1105,57 @@ impl ChangesView {
                 .child(subject.clone())
         }));
 
+        let additions = details
+            .files
+            .iter()
+            .filter_map(|f| f.additions)
+            .sum::<u32>();
+        let deletions = details
+            .files
+            .iter()
+            .filter_map(|f| f.deletions)
+            .sum::<u32>();
         list = list.child(
-            div().id("detail-files").flex().flex_col().gap_0p5().child(
-                // "N files" summary row mirrors the files' totals
-                div()
-                    .px_1()
-                    .text_size(px(theme::font_meta()))
-                    .text_color(theme::TEXT_MUTED)
-                    .child(format!(
-                        "{} files changed · +{} −{}",
-                        details.files.len(),
-                        details
-                            .files
-                            .iter()
-                            .filter_map(|f| f.additions)
-                            .sum::<u32>(),
-                        details
-                            .files
-                            .iter()
-                            .filter_map(|f| f.deletions)
-                            .sum::<u32>()
-                    )),
-            ),
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .whitespace_nowrap()
+                                .text_size(px(theme::font_meta()))
+                                .font_family(gpui::SharedString::from(theme::code_font()))
+                                .text_color(theme::TEXT_FAINT)
+                                .child(details.hash[..7.min(details.hash.len())].to_string()),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_size(px(theme::font_meta()))
+                                .text_color(theme::TEXT_MUTED)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(format!(
+                                    "{} files changed · +{additions} −{deletions}",
+                                    details.files.len()
+                                )),
+                        ),
+                )
+                .child(actions_row),
         );
+
+        list = list.child(div().id("detail-files").flex().flex_col().gap_0p5());
 
         let mut files = div().flex().flex_col().gap_0p5();
         for file in &details.files {
@@ -1684,6 +1702,59 @@ fn section_header(
         header = header.child(crate::ui::with_tooltip(button, show_tooltips, action_label));
     }
     header
+}
+
+/// The clean working tree: what is true, plus the last commit so the tab still
+/// says where the branch stands.
+fn clean_state(store: &Entity<Store>, cx: &mut gpui::App) -> gpui::AnyElement {
+    let last = store
+        .read(cx)
+        .recent_commits
+        .first()
+        .map(|commit| {
+            format!(
+                "Last commit {}: {}",
+                warp_station_core::rel_time::format(commit.date),
+                commit.subject
+            )
+        })
+        .or_else(|| {
+            store
+                .read(cx)
+                .selected_entry()
+                .and_then(|repo| repo.git_last_commit_at)
+                .map(|at| format!("Last commit {}", warp_station_core::rel_time::format(at)))
+        });
+    div()
+        .debug_selector(|| "changes-clean".into())
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .p(px(warpui_kit_core::shell::DETAIL_PADDING))
+        .child(crate::ui::icon(
+            "icons/icon-check.svg",
+            px(theme::icon_large()),
+            theme::SUCCESS_BRIGHT,
+        ))
+        .child(
+            div()
+                .text_size(px(theme::font_heading()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::TEXT)
+                .child("Working tree clean"),
+        )
+        .children(last.map(|last| {
+            div()
+                .max_w(px(warpui_kit_core::shell::READING_WIDTH))
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::TEXT_MUTED)
+                .child(last)
+        }))
+        .into_any_element()
 }
 
 fn status_color(code: &str) -> gpui::Rgba {

@@ -189,7 +189,10 @@ fn rail_sync_verbs_reach_the_net_thread(cx: &mut TestAppContext) {
     let store = cx.new(|cx| {
         let mut store = Store::new(cx, net_tx);
         store.group_by_root = false;
-        store.replace_repos(vec![entry("alpha", "/probe/alpha")]);
+        // both directions waiting, so both Needs-you verbs render
+        let mut repo = entry("alpha", "/probe/alpha");
+        repo.git_to_pull_count = 2;
+        store.replace_repos(vec![repo]);
         store
     });
     let handle = store.clone();
@@ -200,6 +203,12 @@ fn rail_sync_verbs_reach_the_net_thread(cx: &mut TestAppContext) {
         ("insp-pull", GitAction::Pull),
         ("insp-push", GitAction::Push),
     ] {
+        // the previous verb's job is over: one git action runs per repo
+        cx.update_entity(&store, |s: &mut Store, cx| {
+            s.git_jobs.clear();
+            cx.notify();
+        });
+        draw(cx);
         let bounds = cx
             .debug_bounds(selector)
             .unwrap_or_else(|| panic!("{selector} renders"));
@@ -473,8 +482,12 @@ fn rail_file_rows_render_from_a_snapshot(cx: &mut TestAppContext) {
     draw(cx);
 
     assert!(
-        cx.debug_bounds("insp-file-src/main.rs").is_some(),
-        "the uncommitted file row renders from the snapshot"
+        cx.debug_bounds("insp-uncommitted").is_some(),
+        "the uncommitted row renders from the snapshot's counts"
+    );
+    assert!(
+        cx.debug_bounds("insp-commit").is_some(),
+        "and its Review link is there to open Changes"
     );
 }
 
@@ -1923,6 +1936,8 @@ fn the_list_edge_drags_inside_its_bounds(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_integration_switches_take_their_tabs_along(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "tabs-off", vec![entry("alpha", "/probe/alpha")]);
+    // GitHub data alone must not put a row on Overview while the switch is off
+    seed_github(&store, "/probe/alpha", 1, 1, cx);
     cx.read_entity(&store, |s, _| {
         s.update_settings(|settings| {
             settings.repos.enable_git_hub = false;
@@ -1932,7 +1947,7 @@ fn the_integration_switches_take_their_tabs_along(cx: &mut TestAppContext) {
     let cx = open_window(&store, cx);
     assert!(
         cx.debug_bounds("insp-github-open").is_none(),
-        "the GitHub card leaves"
+        "the GitHub rows leave with the switch"
     );
 
     cx.update_entity(&store, |s: &mut Store, cx| {
@@ -1964,24 +1979,25 @@ fn the_overview_links_open_their_tab(cx: &mut TestAppContext) {
 
     visit(cx, "insp-commit", "detail-tab-changes-panel");
     visit(cx, "insp-github-open", "detail-tab-issues-panel");
-    visit(cx, "insp-more-issues", "detail-tab-issues-panel");
 }
 
-/// With no issues the rail's GitHub link goes where the content is.
+/// With no issues the card's latest pull request opens the pull request
+/// itself, not its list: the pane is the one detail surface.
 #[gpui::test]
-fn the_github_link_prefers_the_tab_with_content(cx: &mut TestAppContext) {
+fn the_latest_pull_request_opens_its_detail(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "links-prs", vec![entry("alpha", "/probe/alpha")]);
     seed_github(&store, "/probe/alpha", 2, 0, cx);
     let cx = open_window(&store, cx);
 
-    click(cx, "insp-github-open");
+    assert!(cx.debug_bounds("insp-github-open").is_none());
+    click(cx, "insp-open-pr");
     draw(cx);
 
-    assert!(cx.debug_bounds("detail-tab-pulls-panel").is_some());
+    assert!(cx.debug_bounds("pull-request").is_some());
 }
 
 #[gpui::test]
-fn the_more_files_link_opens_changes(cx: &mut TestAppContext) {
+fn the_uncommitted_row_reviews_in_changes(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "links-files", vec![entry("alpha", "/probe/alpha")]);
     cx.update_entity(&store, |s: &mut Store, _| {
         let status_files = (0..4)
@@ -2001,33 +2017,74 @@ fn the_more_files_link_opens_changes(cx: &mut TestAppContext) {
     });
     let cx = open_window(&store, cx);
 
-    click(cx, "insp-more-files");
+    click(cx, "insp-commit");
     draw(cx);
 
     assert!(cx.debug_bounds("detail-tab-changes-panel").is_some());
 }
 
-/// Azure gets a rail section only for a repo with a project behind it.
+/// Azure only reaches Overview when its latest run failed; the row opens the
+/// Pipelines tab, where the rest of the project lives.
 #[gpui::test]
-fn the_rail_shows_azure_only_for_a_project(cx: &mut TestAppContext) {
+fn a_failed_azure_run_opens_its_pipelines(cx: &mut TestAppContext) {
     let (store, _net_rx) = scratch_store(cx, "azure-rail", vec![entry("alpha", "/probe/alpha")]);
     let cx = open_window(&store, cx);
-    assert!(cx.debug_bounds("insp-azure-open").is_none());
+    assert!(cx.debug_bounds("insp-azure-row").is_none());
 
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        let snapshot = warp_station_core::azure::AzureSnapshot {
-            available: true,
-            ..Default::default()
-        };
-        s.azure_by_folder
-            .insert("/probe/alpha".to_string(), std::sync::Arc::new(snapshot));
-        cx.notify();
-    });
-    draw(cx);
+    let seed = |cx: &mut gpui::VisualTestContext, failed: bool| {
+        cx.update_entity(&store, |s: &mut Store, cx| {
+            let snapshot = warp_station_core::azure::AzureSnapshot {
+                available: true,
+                pipelines: vec![warp_station_core::azure::PipelineRun {
+                    id: 7,
+                    build_number: "20261102.3".into(),
+                    definition_name: Some("Build and test".into()),
+                    result: failed.then(|| "failed".to_string()),
+                    status: Some("completed".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            s.azure_by_folder
+                .insert("/probe/alpha".to_string(), std::sync::Arc::new(snapshot));
+            cx.notify();
+        });
+        draw(cx);
+    };
 
+    seed(cx, false);
+    assert!(
+        cx.debug_bounds("insp-azure-row").is_none(),
+        "a green run leaves the card quiet"
+    );
+
+    seed(cx, true);
+    assert!(cx.debug_bounds("insp-azure-row").is_some());
     click(cx, "insp-azure-open");
-    draw(cx);
     assert!(cx.debug_bounds("detail-tab-pipelines-panel").is_some());
+    assert!(
+        cx.debug_bounds("pipeline-run-0").is_some(),
+        "the Pipelines tab lists the recent runs"
+    );
+    assert!(
+        cx.debug_bounds("azure-refresh").is_some(),
+        "and carries the refresh for its pass"
+    );
+}
+
+/// Nothing waiting says so, once, instead of an empty card.
+#[gpui::test]
+fn a_clean_tree_says_there_is_nothing_to_do(cx: &mut TestAppContext) {
+    let mut repo = entry("alpha", "/probe/alpha");
+    repo.git_modified_count = 0;
+    repo.git_to_push_count = 0;
+    let (store, _net_rx) = scratch_store(cx, "needs-clean", vec![repo]);
+    let cx = open_window(&store, cx);
+
+    assert!(cx.debug_bounds("insp-needs-clean").is_some());
+    assert!(cx.debug_bounds("insp-uncommitted").is_none());
+    assert!(cx.debug_bounds("insp-pull").is_none());
+    assert!(cx.debug_bounds("insp-push").is_none());
 }
 
 /// The wand's draft renders in place, and only Save touches the file.

@@ -134,6 +134,10 @@ impl Render for MainWindow {
             self.store.update(cx, |s, _| s.notes_requested = false);
             self.launch_notes(None, cx);
         }
+        if let Some(note) = self.store.read(cx).notes_open.clone() {
+            self.store.update(cx, |s, _| s.notes_open = None);
+            self.launch_notes(Some(note), cx);
+        }
         let mut root = div()
             .id("app-root")
             .role(gpui::Role::Application)
@@ -476,70 +480,76 @@ impl MainWindow {
                     .into_any_element(),
             );
         }
-        // one flat row budget shared by every kind: repo/note rows first,
-        // the ripgrep hits fill what is left
+        // One flat row budget shared by every kind, in the design's group
+        // order: repositories, then notes, then the code sweep. Each group
+        // names itself, so a row no longer carries its kind.
         const POPUP_ROWS: usize = 12;
+        let query = self.global_search.read(cx).value().trim().to_string();
         let mut rows = div().flex().flex_col().gap_0p5();
-        let mut shown = 0;
-        for (index, hit) in hits.iter().enumerate() {
-            if shown >= POPUP_ROWS {
-                break;
-            }
-            shown += 1;
-            let (title, detail, kind_color) = match hit {
-                crate::store::GlobalSearchHit::Repo { name, folder } => {
-                    (name.clone(), folder.clone(), theme::BLUE_BRIGHT)
+        let mut shown = 0usize;
+
+        let repos: Vec<&crate::store::GlobalSearchHit> = hits
+            .iter()
+            .filter(|hit| matches!(hit, crate::store::GlobalSearchHit::Repo { .. }))
+            .collect();
+        if !repos.is_empty() {
+            rows = rows.child(search_group("Repositories"));
+            for (index, hit) in repos.into_iter().enumerate() {
+                if shown >= POPUP_ROWS {
+                    break;
                 }
-                crate::store::GlobalSearchHit::Note { title, excerpt, .. } => {
-                    (title.clone(), excerpt.clone(), theme::BLUE_BRIGHT)
-                }
-            };
-            let hit_for_click = hit.clone();
-            let index_for_probe = index;
-            rows = rows.child(
-                div()
-                    .id(("search-hit", index as u64))
-                    .debug_selector(move || format!("search-hit-{index_for_probe}"))
-                    .a11y_button(format!("{title} — {detail}"))
-                    .cursor_pointer()
-                    .rounded_md()
-                    .px_2()
-                    .py_1()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .hover(|s| s.bg(theme::HOVER_BG))
+                shown += 1;
+                let crate::store::GlobalSearchHit::Repo { name, folder } = hit else {
+                    continue;
+                };
+                let hit_for_click = hit.clone();
+                rows = rows.child(
+                    search_hit_row(
+                        index,
+                        "search-hit",
+                        "icons/icon-folder.svg",
+                        marked_text(name, &query, theme::TEXT_DIM, false),
+                        marked_text(folder, &query, theme::TEXT_FAINT, true),
+                    )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_search_hit(&hit_for_click, window, cx);
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(theme::font_meta()))
-                            .text_color(kind_color)
-                            .child(match hit {
-                                crate::store::GlobalSearchHit::Repo { .. } => "repo",
-                                crate::store::GlobalSearchHit::Note { .. } => "note",
-                            }),
+                    })),
+                );
+            }
+        }
+
+        let notes: Vec<&crate::store::GlobalSearchHit> = hits
+            .iter()
+            .filter(|hit| matches!(hit, crate::store::GlobalSearchHit::Note { .. }))
+            .collect();
+        if !notes.is_empty() {
+            rows = rows.child(search_group("Notes"));
+            for (index, hit) in notes.into_iter().enumerate() {
+                if shown >= POPUP_ROWS {
+                    break;
+                }
+                shown += 1;
+                let crate::store::GlobalSearchHit::Note { title, excerpt, .. } = hit else {
+                    continue;
+                };
+                let hit_for_click = hit.clone();
+                rows = rows.child(
+                    search_hit_row(
+                        index,
+                        "search-note",
+                        "icons/icon-note.svg",
+                        marked_text(title, &query, theme::TEXT_DIM, false),
+                        marked_text(excerpt, &query, theme::TEXT_FAINT, false),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(theme::font_body()))
-                                    .text_color(theme::TEXT_DIM)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(theme::font_control()))
-                                    .text_color(theme::TEXT_FAINT)
-                                    .child(detail),
-                            ),
-                    ),
-            );
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate_search_hit(&hit_for_click, window, cx);
+                    })),
+                );
+            }
+        }
+
+        if !code_hits.is_empty() && shown < POPUP_ROWS {
+            rows = rows.child(search_group("Code"));
         }
         for (index, hit) in code_hits.iter().enumerate() {
             if shown >= POPUP_ROWS {
@@ -576,20 +586,18 @@ impl MainWindow {
                     .py_1()
                     .flex()
                     .flex_row()
-                    .items_center()
+                    .items_start()
                     .gap_2()
                     .overflow_hidden()
                     .hover(|s| s.bg(theme::HOVER_BG))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate_code_hit(hit_for_click.clone(), window, cx);
                     }))
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_size(px(theme::font_meta()))
-                            .text_color(theme::PURPLE_BRIGHT)
-                            .child("code"),
-                    )
+                    .child(icon(
+                        "icons/icon-code.svg",
+                        px(theme::icon_small()),
+                        theme::TEXT_MUTED,
+                    ))
                     .child(
                         div()
                             .min_w_0()
@@ -629,7 +637,13 @@ impl MainWindow {
                                     .whitespace_nowrap()
                                     .text_size(px(theme::font_control()))
                                     .child(div().text_color(theme::TEXT_FAINT).child(before))
-                                    .child(div().text_color(theme::BLUE_BRIGHT).child(matched))
+                                    .child(
+                                        div()
+                                            .rounded(px(2.))
+                                            .bg(theme::ACCENT_SOFT)
+                                            .text_color(theme::ACCENT_INK)
+                                            .child(matched),
+                                    )
                                     .child(div().text_color(theme::TEXT_FAINT).child(after)),
                             ),
                     )
@@ -743,6 +757,106 @@ impl MainWindow {
         }
         cx.notify();
     }
+}
+
+/// A group heading inside the search results.
+fn search_group(title: &'static str) -> gpui::AnyElement {
+    div()
+        .px_2()
+        .pt_2()
+        .pb_1()
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::TEXT_DIM)
+        .child(title)
+        .into_any_element()
+}
+
+/// One search hit's shell: the kind's glyph over a title and a detail line.
+fn search_hit_row(
+    index: usize,
+    id: &'static str,
+    icon_path: &'static str,
+    title: gpui::AnyElement,
+    detail: gpui::AnyElement,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id((id, index as u64))
+        .debug_selector(move || format!("{id}-{index}"))
+        .cursor_pointer()
+        .rounded_md()
+        .px_2()
+        .py_1()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap_2()
+        .overflow_hidden()
+        .hover(|s| s.bg(theme::HOVER_BG))
+        .child(icon(icon_path, px(theme::icon_small()), theme::TEXT_MUTED))
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .child(title)
+                .child(detail),
+        )
+}
+
+/// `text` with the query's match on the accent-soft fill the design gives a
+/// search hit. Case folding can change byte lengths, so a length mismatch
+/// (or a non-boundary) leaves the text whole rather than slicing mid-glyph.
+fn marked_text(text: &str, query: &str, ink: gpui::Rgba, mono: bool) -> gpui::AnyElement {
+    let size = if mono {
+        px(theme::font_mono_meta())
+    } else {
+        px(theme::font_body())
+    };
+    let family = if mono {
+        theme::code_font()
+    } else {
+        theme::ui_font()
+    };
+    let folded = text.to_lowercase();
+    let needle = query.trim().to_lowercase();
+    let hit = (!needle.is_empty() && folded.len() == text.len())
+        .then(|| folded.find(&needle))
+        .flatten()
+        .filter(|at| {
+            let end = at + needle.len();
+            end <= text.len() && text.is_char_boundary(*at) && text.is_char_boundary(end)
+        });
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .font_family(family)
+        .text_size(size);
+    match hit {
+        Some(at) => {
+            row = row
+                .child(div().text_color(ink).child(text[..at].to_string()))
+                .child(
+                    div()
+                        .rounded(px(2.))
+                        .bg(theme::ACCENT_SOFT)
+                        .text_color(theme::ACCENT_INK)
+                        .child(text[at..at + needle.len()].to_string()),
+                )
+                .child(
+                    div()
+                        .text_color(ink)
+                        .child(text[at + needle.len()..].to_string()),
+                );
+        }
+        None => {
+            row = row.child(div().text_color(ink).child(text.to_string()));
+        }
+    }
+    row.into_any_element()
 }
 
 pub(crate) fn window_button(

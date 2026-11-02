@@ -129,6 +129,9 @@ pub struct Store {
     /// E2E hook: WARP_STATION_NOTES=1 asks for Notes on launch; the main
     /// window's render drains it into a warp-notes launch.
     pub notes_requested: bool,
+    /// A note file to open in the notes app (the Summary detail's Open in
+    /// Notes); the main window's render drains it into that launch.
+    pub notes_open: Option<std::path::PathBuf>,
     /// The tab open in the detail pane.
     pub detail_tab: WorkspaceTab,
     /// Repositories opened in a tab of their own, in strip order.
@@ -253,6 +256,7 @@ impl Store {
             global_search: Vec::new(),
             // E2E hook: WARP_STATION_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("WARP_STATION_NOTES").as_deref() == Ok("1"),
+            notes_open: None,
             // E2E hook: WARP_STATION_SHEET=<tab> opens that detail tab on launch
             detail_tab: std::env::var("WARP_STATION_SHEET")
                 .ok()
@@ -842,6 +846,11 @@ impl Store {
     }
 
     /// Kicks the yesterday-summary wand across every tracked repo.
+    /// Opens one note in the external notes app; the window drains this.
+    pub fn open_note_in_notes(&mut self, path: std::path::PathBuf) {
+        self.notes_open = Some(path);
+    }
+
     pub fn run_summary(&mut self, cx: &mut Context<Self>) {
         if self.summary_busy {
             return;
