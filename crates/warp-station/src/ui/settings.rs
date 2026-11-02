@@ -674,14 +674,10 @@ impl SettingsPage {
                     .child(Textarea::new(&this.scan_folders).bordered(true).with_size(theme::field_size()).h(px(240.)).aria_label("Scan folders"))
                     .child(label("Excluded folders (one per line)"))
                     .child(Textarea::new(&this.excluded_folders).bordered(true).with_size(theme::field_size()).h(px(100.)).aria_label("Excluded folders"))
-                    .child(two_col(
-                        field_row("Git folder pattern", &this.git_folder_pattern),
-                        field_row("Solution file pattern", &this.solution_file_pattern),
-                    ))
-                    .child(two_col(
-                        field_row("Platform folder name", &this.platform_folder_name),
-                        field_row("Max scan depth", &this.max_scan_depth),
-                    ))
+                    .child(field_row("Git folder pattern", &this.git_folder_pattern))
+                    .child(field_row("Solution file pattern", &this.solution_file_pattern))
+                    .child(field_row("Platform folder name", &this.platform_folder_name))
+                    .child(field_row("Max scan depth", &this.max_scan_depth))
                     .child(switch_row("Group repos by folder", this.group_by_root, cx.listener(|this, _, _, cx| {
                         this.group_by_root = !this.group_by_root;
                         cx.notify();
@@ -703,28 +699,22 @@ impl SettingsPage {
             })],
             Section::ExternalTools => vec![
                 self.card("Editors and terminal", cx, |this, cx, card| {
-                    card.child(two_col(
-                        switch_row("Enable Visual Studio (Windows)", this.enable_visual_studio, cx.listener(|this, _, _, cx| {
+                    card.child(switch_row("Enable Visual Studio (Windows)", this.enable_visual_studio, cx.listener(|this, _, _, cx| {
                             this.enable_visual_studio = !this.enable_visual_studio;
                             cx.notify();
-                        })),
-                        switch_row("Enable VS Code", this.enable_vscode, cx.listener(|this, _, _, cx| {
+                        })))
+                    .child(switch_row("Enable VS Code", this.enable_vscode, cx.listener(|this, _, _, cx| {
                             this.enable_vscode = !this.enable_vscode;
                             cx.notify();
-                        })),
-                    ))
+                        })))
                     .child(switch_row("Enable Terminal", this.enable_terminal, cx.listener(|this, _, _, cx| {
                         this.enable_terminal = !this.enable_terminal;
                         cx.notify();
                     })))
-                    .child(two_col(
-                        field_row("VS Code executable", &this.vscode_executable),
-                        field_row("VS Code profile", &this.vscode_profile),
-                    ))
-                    .child(two_col(
-                        field_row("Terminal executable", &this.terminal_executable),
-                        field_row("IDE executable", &this.ide_executable),
-                    ))
+                    .child(field_row("VS Code executable", &this.vscode_executable))
+                    .child(field_row("VS Code profile", &this.vscode_profile))
+                    .child(field_row("Terminal executable", &this.terminal_executable))
+                    .child(field_row("IDE executable", &this.ide_executable))
                     .child(switch_row("Cross-repo code search", this.enable_code_search, cx.listener(|this, _, _, cx| {
                         this.enable_code_search = !this.enable_code_search;
                         cx.notify();
@@ -1130,17 +1120,6 @@ fn placeholder_chips(placeholders: &[&'static str]) -> impl IntoElement + use<> 
         );
     }
     row
-}
-
-/// Two fields (or switches) sharing one row, each half of the card width.
-fn two_col(a: impl IntoElement, b: impl IntoElement) -> gpui::AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .gap_3()
-        .child(div().flex_1().min_w(px(0.)).child(a))
-        .child(div().flex_1().min_w(px(0.)).child(b))
-        .into_any_element()
 }
 
 fn field_row(label_text: &str, field: &Entity<InputState>) -> impl IntoElement + use<> {
