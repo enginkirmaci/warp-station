@@ -1101,9 +1101,12 @@ impl AzurePullAction {
     /// The HTTP method the verb needs.
     pub fn method(&self) -> &'static str {
         match self {
-            Self::CancelAutoComplete => "DELETE",
-            Self::Complete | Self::Reopen | Self::Abandon => "PATCH",
-            Self::Vote { .. } | Self::SetAutoComplete { .. } | Self::AddReviewer { .. } => "PUT",
+            Self::Complete
+            | Self::Reopen
+            | Self::Abandon
+            | Self::SetAutoComplete { .. }
+            | Self::CancelAutoComplete => "PATCH",
+            Self::Vote { .. } | Self::AddReviewer { .. } => "PUT",
         }
     }
 
@@ -1304,8 +1307,49 @@ pub async fn pull_action(
             .await
             .map(|_| ());
     }
+    let settled = !matches!(
+        action,
+        AzurePullAction::Vote { .. } | AzurePullAction::AddReviewer { .. }
+    );
+    let wants = action.clone();
     let (method, url, body) = action_request(&base, action, pull)?;
-    client.request(method, &url, body).await.map(|_| ())
+    client.request(method, &url, body).await?;
+    // Azure can answer the verb before the record shows its effect; a reload
+    // right after would then draw the old state. Give the record a moment to
+    // settle so the caller's re-read is the one it asked for.
+    if settled {
+        for _ in 0..6 {
+            let record = client
+                .get_json::<serde_json::Value>(&format!("{base}?api-version=7.1"))
+                .await;
+            if record
+                .as_ref()
+                .is_some_and(|record| action_settled(&wants, record))
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the pull request record now shows the verb's effect. Azure writes
+/// the status and the auto-complete fields asynchronously, so the caller polls
+/// this before it re-reads the record.
+fn action_settled(action: &AzurePullAction, record: &serde_json::Value) -> bool {
+    let status = record.get("status").and_then(|value| value.as_str());
+    let auto_complete = record
+        .get("autoCompleteSetBy")
+        .is_some_and(|value| !value.is_null());
+    match action {
+        AzurePullAction::Complete => status == Some("completed"),
+        AzurePullAction::Abandon => status == Some("abandoned"),
+        AzurePullAction::Reopen => status == Some("active"),
+        AzurePullAction::SetAutoComplete { .. } => auto_complete || status == Some("completed"),
+        AzurePullAction::CancelAutoComplete => !auto_complete,
+        AzurePullAction::Vote { .. } | AzurePullAction::AddReviewer { .. } => true,
+    }
 }
 
 /// The request a verb becomes: method, URL and JSON body. Split out so the
@@ -1360,18 +1404,26 @@ fn action_request(
             format!("{base}?api-version=7.1"),
             Some(serde_json::json!({ "status": "abandoned" })),
         ),
+        // Auto-complete is a field on the pull request, not a subresource:
+        // Azure has no `/autocomplete` controller and answers 404 there.
         AzurePullAction::SetAutoComplete { reviewer } => (
-            "PUT",
-            format!("{base}/autocomplete?api-version=7.1"),
+            "PATCH",
+            format!("{base}?api-version=7.1"),
             Some(serde_json::json!({
                 "autoCompleteSetBy": { "id": reviewer },
                 "completionOptions": options(),
             })),
         ),
+        // Azure unsets auto-complete with the empty GUID, not a null id: a
+        // null is accepted as a no-op and leaves the setting in place.
         AzurePullAction::CancelAutoComplete => (
-            "DELETE",
-            format!("{base}/autocomplete?api-version=7.1"),
-            None,
+            "PATCH",
+            format!("{base}?api-version=7.1"),
+            Some(serde_json::json!({
+                "autoCompleteSetBy": {
+                    "id": "00000000-0000-0000-0000-000000000000"
+                }
+            })),
         ),
         // the person's descriptor is turned into an identity GUID in
         // `pull_action`, before this shape can be built
@@ -2356,6 +2408,31 @@ mod tests {
         assert!(action_request(base, action, &pull_for_verbs()).is_err());
     }
 
+    /// The verbs that change the record settle asynchronously; the poll's
+    /// predicate has to know what each one is waiting for.
+    #[test]
+    fn a_verb_is_settled_when_the_record_shows_its_effect() {
+        let active = serde_json::json!({"status": "active"});
+        let completed = serde_json::json!({"status": "completed"});
+        let abandoned = serde_json::json!({"status": "abandoned"});
+        let auto = serde_json::json!({"status": "active", "autoCompleteSetBy": {"id": "me"}});
+        let set = AzurePullAction::SetAutoComplete {
+            reviewer: "me".into(),
+        };
+        assert!(!action_settled(&AzurePullAction::Complete, &active));
+        assert!(action_settled(&AzurePullAction::Complete, &completed));
+        assert!(action_settled(&AzurePullAction::Abandon, &abandoned));
+        assert!(action_settled(&AzurePullAction::Reopen, &active));
+        assert!(!action_settled(&set, &active));
+        assert!(action_settled(&set, &auto));
+        assert!(action_settled(&set, &completed), "it can merge at once");
+        assert!(!action_settled(&AzurePullAction::CancelAutoComplete, &auto));
+        assert!(action_settled(
+            &AzurePullAction::CancelAutoComplete,
+            &active
+        ));
+    }
+
     #[test]
     fn base64_matches_known_vectors() {
         assert_eq!(base64(b":"), "Og==");
@@ -2689,16 +2766,21 @@ mod tests {
             &pull,
         )
         .unwrap();
-        assert_eq!(method, "PUT");
-        assert!(url.ends_with("/autocomplete?api-version=7.1"));
+        assert_eq!(method, "PATCH");
+        assert_eq!(url, format!("{base}?api-version=7.1"));
         let body = body.unwrap();
         assert_eq!(body["autoCompleteSetBy"]["id"], "me-1");
         assert!(body.get("completionOptions").is_some());
 
-        let (method, _, body) =
+        let (method, url, body) =
             action_request(base, AzurePullAction::CancelAutoComplete, &pull).unwrap();
-        assert_eq!(method, "DELETE");
-        assert!(body.is_none());
+        assert_eq!(method, "PATCH");
+        assert_eq!(url, format!("{base}?api-version=7.1"));
+        assert_eq!(
+            body.unwrap()["autoCompleteSetBy"]["id"],
+            "00000000-0000-0000-0000-000000000000",
+            "the empty GUID is how Azure unsets auto-complete"
+        );
 
         // a completion without the source commit is refused before the call
         let mut bare = pull.clone();
