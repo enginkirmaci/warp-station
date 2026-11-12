@@ -43,7 +43,11 @@ fn probe_matches_cli_status() {
     );
 
     let branch = git(&["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-    assert_eq!(probe.branch_name.as_deref(), Some(branch.trim()));
+    let branch = branch.trim();
+    // A tag checkout is detached and git prints `HEAD`; the probe names that
+    // state `(detached)` for the UI.
+    let expected = if branch == "HEAD" { "(detached)" } else { branch };
+    assert_eq!(probe.branch_name.as_deref(), Some(expected));
 
     let head_count = git(&["rev-list", "--count", "HEAD"]).unwrap_or_default();
     assert!(head_count.trim().parse::<usize>().is_ok_and(|n| n > 0));
