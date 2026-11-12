@@ -2614,7 +2614,21 @@ impl Store {
     ) -> bool {
         match source {
             warp_station_core::activity::ActivitySource::GitHub => {
+                // The switch alone would count an Azure-only repository as a
+                // GitHub source, so the New verb and the empty-state copy
+                // pointed at GitHub for a repo it has never seen. Keep the
+                // row "loading" until the probe settles, keep a repository
+                // with a GitHub remote shown through a failed probe, and stop
+                // showing one that settled unavailable without a remote.
                 self.settings().repos.enable_github
+                    && (self
+                        .github_by_folder
+                        .get(folder)
+                        .is_none_or(|snapshot| snapshot.available)
+                        || self.repos.iter().any(|repo| {
+                            repo.folder_path.to_string_lossy().as_ref() == folder
+                                && repo.github_web_url.is_some()
+                        }))
             }
             warp_station_core::activity::ActivitySource::Azure => {
                 self.settings().repos.enable_azure_devops
@@ -5097,6 +5111,77 @@ mod tests {
             tabs.contains(&WorkspaceTab::Issues),
             "Azure work items list under Issues, so the tab stays too"
         );
+
+        let _ = std::fs::remove_file(&scratch);
+    }
+
+    /// The GitHub switch says the integration is on, not that this repository
+    /// is a GitHub one. Until the probe settles the row is still "loading" and
+    /// counts as shown; once it says unavailable for a folder with no GitHub
+    /// remote, the surface must stop treating it as a GitHub source — or an
+    /// Azure-only repository loses its "New work item" verb and reads
+    /// "Connect GitHub to file an issue".
+    #[test]
+    fn a_repo_without_a_github_remote_stops_being_shown_as_github() {
+        use warp_station_core::activity::ActivitySource;
+        use warp_station_core::azure::AzureSnapshot;
+        use warp_station_core::github::GitHubSnapshot;
+
+        let (tx, _rx) = async_channel::unbounded();
+        let scratch = std::env::temp_dir().join(format!(
+            "warp-station-source-shown-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&scratch, "{}").expect("scratch settings");
+        let mut store = Store::with_settings(tx, Arc::new(SettingsService::at(scratch.clone())));
+        let folder = "/probe/azure".to_string();
+        store.replace_repos(vec![RepoEntry {
+            name: "azure".into(),
+            folder_path: std::path::PathBuf::from(&folder),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = true;
+        });
+        // the probe is still out: the row is loading, not absent
+        assert!(store.source_shown(&folder, ActivitySource::GitHub));
+
+        store
+            .github_by_folder
+            .insert(folder.clone(), Arc::new(GitHubSnapshot::default()));
+        store.azure_by_folder.insert(
+            folder.clone(),
+            Arc::new(AzureSnapshot {
+                available: true,
+                ..Default::default()
+            }),
+        );
+        assert!(
+            !store.source_shown(&folder, ActivitySource::GitHub),
+            "a settled unavailable probe on a repo with no GitHub remote is not a GitHub source"
+        );
+        assert!(store.source_shown(&folder, ActivitySource::Azure));
+
+        // a repository that does have a GitHub remote stays shown even while
+        // gh is failing: the remote, not the last answer, decides.
+        store.repos[0].github_web_url = Some("https://github.com/owner/repo".into());
+        assert!(store.source_shown(&folder, ActivitySource::GitHub));
 
         let _ = std::fs::remove_file(&scratch);
     }

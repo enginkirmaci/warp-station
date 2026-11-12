@@ -77,6 +77,26 @@ impl Render for AzureView {
                 settings.repos.enable_github,
             )
         };
+        // A probe that settles without an answer is not the same as a
+        // repository without a remote: a bad PAT or a logged-out gh must be
+        // named, so the empty state says which one to check.
+        let (azure_remote, github_remote) = folder
+            .as_deref()
+            .map(|folder| {
+                let store = self.store.read(cx);
+                let settings = store.settings();
+                (
+                    warp_station_core::azure::remote_for(
+                        std::path::Path::new(folder),
+                        &settings.repos.azure_devops_url,
+                    )
+                    .is_some(),
+                    store
+                        .selected_entry()
+                        .is_some_and(|repo| repo.github_web_url.is_some()),
+                )
+            })
+            .unwrap_or((false, false));
         let azure_ok = azure.as_ref().is_some_and(|snapshot| snapshot.available);
         let github_ok = github.as_ref().is_some_and(|snapshot| snapshot.available);
         if !azure_ok && !github_ok {
@@ -90,7 +110,10 @@ impl Render for AzureView {
                         .into()
                 }
             } else {
-                "This repository has no GitHub or Azure DevOps remote.".into()
+                unavailable_note(
+                    azure_enabled && azure_remote,
+                    github_enabled && github_remote,
+                )
             });
         }
 
@@ -1206,4 +1229,49 @@ fn primary_button(
         ))
         .child(label)
         .into_any_element()
+}
+
+/// The Pipelines empty state when every enabled probe settled without an
+/// answer. Only a repository with no enabled remote at all may say so; a bad
+/// token or a logged-out gh has a remote and needs to be named instead.
+fn unavailable_note(azure: bool, github: bool) -> String {
+    match (azure, github) {
+        (true, true) => {
+            "GitHub and Azure DevOps did not answer — check the integrations in Settings, then Refresh."
+                .into()
+        }
+        (true, false) => {
+            "Azure DevOps did not answer — check the token in Settings, then Refresh.".into()
+        }
+        (false, true) => "GitHub did not answer — check the gh login, then Refresh.".into(),
+        (false, false) => "This repository has no GitHub or Azure DevOps remote.".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unavailable_note;
+
+    /// A settled-but-unavailable probe used to read "This repository has no
+    /// GitHub or Azure DevOps remote" even when the remote was there and the
+    /// token was the problem.
+    #[test]
+    fn a_failed_probe_names_the_integration_it_requires() {
+        assert_eq!(
+            unavailable_note(true, false),
+            "Azure DevOps did not answer — check the token in Settings, then Refresh."
+        );
+        assert_eq!(
+            unavailable_note(false, true),
+            "GitHub did not answer — check the gh login, then Refresh."
+        );
+        assert_eq!(
+            unavailable_note(true, true),
+            "GitHub and Azure DevOps did not answer — check the integrations in Settings, then Refresh."
+        );
+        assert_eq!(
+            unavailable_note(false, false),
+            "This repository has no GitHub or Azure DevOps remote."
+        );
+    }
 }

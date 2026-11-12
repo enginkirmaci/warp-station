@@ -587,6 +587,39 @@ fn an_azure_only_setup_still_draws_the_pull_request_tab(cx: &mut TestAppContext)
     );
 }
 
+/// The GitHub switch is on by default, so an Azure-only repository used to
+/// read as a GitHub source: the Issues tab showed "Connect GitHub to file an
+/// issue" and carried no New verb at all. A settled unavailable GitHub probe
+/// (this repo's remote is Azure) must leave the work item verb in place.
+#[gpui::test]
+fn an_azure_repo_stays_azure_when_the_github_switch_is_on(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "azure-both-switches");
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = true;
+            settings.repos.azure_devops_pat = "pat".into();
+        });
+    });
+    draw(cx);
+    seed_github(&store, GitHubSnapshot::default(), cx);
+    seed_azure(
+        &store,
+        AzureSnapshot {
+            available: true,
+            url: Some("https://dev.azure.com/o/p/_git/r".into()),
+            ..Default::default()
+        },
+        cx,
+    );
+    click(cx, "detail-tab-issues");
+    assert!(
+        cx.debug_bounds("list-new").is_some(),
+        "the Azure work item verb is the only create target this repository has"
+    );
+}
+
 /// The policy that keeps the primary on Set auto-complete.
 fn blocked_policy() -> Vec<AzurePolicy> {
     vec![AzurePolicy {
