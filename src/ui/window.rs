@@ -46,7 +46,7 @@ const SEARCH_W: f32 = 460.;
 
 /// The About screen's Legal card reads this out in the app: the license text
 /// ships with the binary, not only with the repository.
-const ABOUT_LICENSE: &str = include_str!("../../../../LICENSE");
+const ABOUT_LICENSE: &str = include_str!("../../LICENSE");
 
 pub struct MainWindow {
     pub store: Entity<Store>,
