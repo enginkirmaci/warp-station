@@ -8102,7 +8102,7 @@ dependencies = [
 
 [[package]]
 name = "warp-station"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -8130,7 +8130,7 @@ dependencies = [
 
 [[package]]
 name = "warp-station-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "async-channel",

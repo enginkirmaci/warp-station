@@ -33,10 +33,12 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
+    // The app repository root: the nearest ancestor that carries .git. The
+    // old fixed depth assumed the monorepo's apps/<name> nesting.
     let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .nth(2)
-        .unwrap()
+        .find(|path| path.join(".git").exists())
+        .expect("probe repo should be a git checkout")
         .to_path_buf();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
@@ -98,10 +100,12 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
+    // The app repository root: the nearest ancestor that carries .git. The
+    // old fixed depth assumed the monorepo's apps/<name> nesting.
     let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .nth(2)
-        .unwrap()
+        .find(|path| path.join(".git").exists())
+        .expect("probe repo should be a git checkout")
         .to_path_buf();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
@@ -1139,10 +1143,12 @@ fn the_history_list_lays_out_only_its_visible_rows(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
+    // The app repository root: the nearest ancestor that carries .git. The
+    // old fixed depth assumed the monorepo's apps/<name> nesting.
     let here = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .nth(2)
-        .unwrap()
+        .find(|path| path.join(".git").exists())
+        .expect("probe repo should be a git checkout")
         .to_path_buf();
 
     let (net_tx, _net_rx) = async_channel::unbounded();
