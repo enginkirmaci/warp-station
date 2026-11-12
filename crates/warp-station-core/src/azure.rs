@@ -1759,9 +1759,16 @@ fn ancestor_of<'a>(
 /// `Jobs` card, so such a run still shows its breakdown instead of "no stages
 /// reported".
 pub fn parse_timeline(json: &serde_json::Value) -> Vec<RunStage> {
-    let records: Vec<TimelineRecord> = json
-        .get("value")
-        .and_then(|v| v.as_array())
+    // The timeline endpoint names its array `records`; older fixtures used
+    // `value`. Read the real key first, and keep the friendlier shape as a
+    // fallback.
+    let records: Vec<TimelineRecord> = ["records", "value"]
+        .iter()
+        .find_map(|key| {
+            json.get(key)
+                .and_then(|v| v.as_array())
+                .filter(|rows| !rows.is_empty())
+        })
         .map(|rows| {
             rows.iter()
                 .filter_map(|r| {
@@ -1805,8 +1812,27 @@ pub fn parse_timeline(json: &serde_json::Value) -> Vec<RunStage> {
         .map(|stage| (stage, Vec::new()))
         .collect();
     stages.sort_by_key(|(stage, _)| stage.order);
+    // A YAML job comes as a Phase wrapping exactly one Job of the same name;
+    // that is one execution, not two rows. A matrix phase keeps its legs (and
+    // its own name), so the grouping is still visible there.
+    let wraps_one_same_named_job = |phase: &TimelineRecord| {
+        if !phase.kind.eq_ignore_ascii_case("phase") {
+            return false;
+        }
+        let mut children = records.iter().filter(|candidate| {
+            candidate.parent.as_deref() == Some(phase.id.as_str())
+                && candidate.kind.eq_ignore_ascii_case("job")
+        });
+        let Some(only) = children.next() else {
+            return false;
+        };
+        children.next().is_none() && only.name == phase.name
+    };
     let mut loose: Vec<&TimelineRecord> = Vec::new();
     for record in records.iter().filter(|r| is_job(&r.kind)) {
+        if wraps_one_same_named_job(record) {
+            continue;
+        }
         match stage_id_of(record, &by_id) {
             Some(stage_id) => {
                 if let Some((_, jobs)) = stages.iter_mut().find(|(stage, _)| stage.id == stage_id) {
@@ -1822,7 +1848,13 @@ pub fn parse_timeline(json: &serde_json::Value) -> Vec<RunStage> {
         .map(|(stage, mut jobs)| {
             jobs.sort_by_key(|job| job.order);
             RunStage {
-                name: stage.name.clone(),
+                // Azure names the implicit single stage `__default`; the
+                // pipeline author never wrote that, so show a plain word.
+                name: if stage.name == "__default" {
+                    "Default".to_string()
+                } else {
+                    stage.name.clone()
+                },
                 jobs: jobs
                     .into_iter()
                     .map(|job| timeline_job(job, &tasks))
@@ -2192,7 +2224,7 @@ mod tests {
         assert!(parse_build(&serde_json::json!({"buildNumber": "x"})).is_none());
     }
 
-    const TIMELINE: &str = r#"{"records": [], "value": [
+    const TIMELINE: &str = r#"{"records": [
         {"id": "s1", "parentId": null, "type": "Stage", "name": "Build",
          "state": "completed", "result": "succeeded", "order": 1},
         {"id": "s2", "parentId": null, "type": "Stage", "name": "Test",
@@ -2251,7 +2283,7 @@ mod tests {
         assert!(parse_timeline(&serde_json::json!({})).is_empty());
         assert!(parse_timeline(&serde_json::json!({"value": []})).is_empty());
 
-        let cards = parse_timeline(&serde_json::json!({"value": [
+        let cards = parse_timeline(&serde_json::json!({"records": [
             {"id": "j1", "type": "Job", "name": "Build",
              "state": "completed", "result": "succeeded", "order": 1},
             {"id": "t1", "parentId": "j1", "type": "Task", "name": "cargo build",
@@ -2274,6 +2306,28 @@ mod tests {
         assert!(cards[0].jobs[0].steps[1].is_running());
         assert!(cards[0].jobs[1].steps.is_empty(), "a job with no tasks yet");
         assert_eq!(cards[0].done(), 1, "Build succeeded");
+    }
+
+    /// A single-job YAML arrives as Stage `__default` > Phase `Job` > Job
+    /// `Job`. The phase is the job's wrapper, not a second execution, and the
+    /// stage carries Azure's placeholder name; the card must show one job and
+    /// a readable stage.
+    #[test]
+    fn a_wrapping_phase_and_the_default_stage_read_as_one_job() {
+        let cards = parse_timeline(&serde_json::json!({"records": [
+            {"id": "s1", "type": "Stage", "name": "__default", "order": 1},
+            {"id": "p1", "parentId": "s1", "type": "Phase", "name": "Job", "order": 1},
+            {"id": "j1", "parentId": "p1", "type": "Job", "name": "Job", "order": 1},
+            {"id": "t1", "parentId": "j1", "type": "Task", "name": "Probe",
+             "state": "completed", "result": "succeeded", "order": 1}
+        ]}));
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].name, "Default");
+        let names: Vec<&str> = cards[0].jobs.iter().map(|job| job.name.as_str()).collect();
+        assert_eq!(names, ["Job"], "the wrapper phase is not a second row");
+        assert_eq!(cards[0].jobs[0].steps.len(), 1);
+        assert_eq!(cards[0].jobs[0].steps[0].name, "Probe");
     }
 
     #[test]

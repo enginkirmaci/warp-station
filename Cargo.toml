@@ -1,6 +1,6 @@
 [package]
 name = "warp-station"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 description = "Warp Station — repository workbench"
 license = "GPL-3.0"
