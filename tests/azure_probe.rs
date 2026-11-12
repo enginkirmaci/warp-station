@@ -14,8 +14,8 @@ use warp_station::store::Store;
 use warp_station::ui::window::MainWindow;
 use warp_station_core::activity::RunState;
 use warp_station_core::azure::{
-    AzureComment, AzureFile, AzureItem, AzurePolicy, AzurePull, AzurePullDetail, AzureSnapshot,
-    AzureThread, PipelineRun, RunDetail, RunJob, RunStage,
+    AzureComment, AzureFile, AzureItem, AzurePolicy, AzurePull, AzurePullAction, AzurePullDetail,
+    AzureSnapshot, AzureThread, AzureUser, PipelineRun, RunDetail, RunJob, RunStage,
 };
 use warp_station_core::github::{GitHubRun, GitHubSnapshot};
 use warp_station_core::repo_store::RepoEntry;
@@ -750,6 +750,83 @@ fn the_azure_pull_detail_draws_its_head_and_overview(cx: &mut TestAppContext) {
     draw(cx);
     assert!(cx.debug_bounds("azure-pull-files").is_some());
     assert!(cx.debug_bounds("azure-pull-file-0").is_some());
+}
+
+/// The Reviewers card's Add control opens the organization's people and the
+/// chosen person becomes an AddReviewer action, not a client-side guess.
+#[gpui::test]
+fn the_reviewers_card_adds_a_person_from_the_list(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "azure-reviewer-add");
+    let cx = open_window(&store, cx);
+    enable_azure(&store, cx);
+    seed_azure(
+        &store,
+        AzureSnapshot {
+            available: true,
+            pulls: vec![AzureItem {
+                number: 214,
+                title: "Sync the bridge".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        cx,
+    );
+    click(cx, "detail-tab-pulls");
+    click(cx, "PR-az-214");
+
+    let mut pull = azure_pull();
+    pull.reviewers.clear();
+    pull.me = Some("me-1".into());
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzurePullLoaded {
+                folder: "/probe/alpha".into(),
+                number: 214,
+                detail: Some(Box::new(AzurePullDetail {
+                    pull,
+                    policies: Vec::new(),
+                    threads: Vec::new(),
+                })),
+            },
+            cx,
+        );
+        s.azure_users.insert(
+            "/probe/alpha".into(),
+            vec![AzureUser {
+                descriptor: "msa.G".into(),
+                display_name: "Günkut Zeybek".into(),
+                unique_name: "g@example.com".into(),
+            }],
+        );
+        cx.notify();
+    });
+    draw(cx);
+
+    assert!(
+        cx.debug_bounds("azure-add-reviewer").is_some(),
+        "the active card carries the Add control"
+    );
+    click(cx, "azure-add-reviewer");
+    assert!(
+        cx.debug_bounds("azure-reviewer-row-0").is_some(),
+        "the people list opens"
+    );
+    click(cx, "azure-reviewer-row-0");
+
+    let mut found = false;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::AzurePullAction { number, action, .. } = command
+            && number == 214
+            && matches!(
+                action,
+                AzurePullAction::AddReviewer { ref descriptor } if descriptor == "msa.G"
+            )
+        {
+            found = true;
+        }
+    }
+    assert!(found, "the picker sends the AddReviewer verb");
 }
 
 /// The Files tab reads the changed files, and a file's diff is its own ask.

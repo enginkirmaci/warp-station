@@ -362,6 +362,99 @@ impl AzureSnapshot {
     }
 }
 
+/// One person the repository's organization can review a pull request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AzureUser {
+    /// The Graph descriptor, what the reviewer lookup needs.
+    pub descriptor: String,
+    pub display_name: String,
+    /// The sign-in name, shown under the display name in the picker.
+    pub unique_name: String,
+}
+
+/// The Graph API's host: the public service answers it on vssps, a company
+/// server under the collection the remote already named.
+fn graph_base(remote: &AzureRemote) -> String {
+    match remote.base_url.strip_prefix("https://dev.azure.com/") {
+        Some(org) => format!("https://vssps.dev.azure.com/{org}"),
+        None => remote.base_url.clone(),
+    }
+}
+
+/// The people who may be added as reviewers. Service identities and groups
+/// are not people to a pull request, so they are dropped.
+pub fn parse_users(payload: &serde_json::Value) -> Vec<AzureUser> {
+    let mut users: Vec<AzureUser> = payload
+        .get("value")
+        .and_then(|value| value.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|user| {
+                    let descriptor = user.get("descriptor").and_then(|v| v.as_str())?;
+                    let person = descriptor.starts_with("msa.")
+                        || descriptor.starts_with("aad.")
+                        || descriptor.starts_with("bnd.");
+                    if !person
+                        || user.get("subjectKind").and_then(|v| v.as_str()) != Some("user")
+                        || user.get("metaType").and_then(|v| v.as_str()) != Some("member")
+                    {
+                        return None;
+                    }
+                    let display_name = user.get("displayName").and_then(|v| v.as_str())?.trim();
+                    if display_name.is_empty() {
+                        return None;
+                    }
+                    let unique_name = user
+                        .get("principalName")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| user.get("mailAddress").and_then(|v| v.as_str()))
+                        .unwrap_or_default();
+                    Some(AzureUser {
+                        descriptor: descriptor.to_string(),
+                        display_name: display_name.to_string(),
+                        unique_name: unique_name.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    users.sort_by_key(|user| user.display_name.to_lowercase());
+    users.dedup_by(|a, b| a.descriptor == b.descriptor);
+    users
+}
+
+/// The organization's people, for the reviewer picker.
+pub async fn users(folder: &Path, pat: &str, custom_base: &str) -> Option<Vec<AzureUser>> {
+    let remote = remote_for(folder, custom_base)?;
+    let client = Client::new(pat);
+    let payload = client
+        .get_json::<serde_json::Value>(&format!(
+            "{}/_apis/graph/users?api-version=7.1-preview.1",
+            graph_base(&remote)
+        ))
+        .await?;
+    Some(parse_users(&payload))
+}
+
+/// The identity GUID a Graph descriptor's storage key resolves to. The
+/// reviewer endpoint wants this GUID, not the descriptor.
+async fn reviewer_storage_key(
+    client: &Client,
+    remote: &AzureRemote,
+    descriptor: &str,
+) -> Option<String> {
+    let url = format!(
+        "{}/_apis/graph/storagekeys/{}?api-version=7.1-preview.1",
+        graph_base(remote),
+        escape_query(descriptor)
+    );
+    let payload = client.get_json::<serde_json::Value>(&url).await?;
+    payload
+        .get("value")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
 /// The PAT from settings or the environment fallbacks.
 pub fn resolve_pat(configured: &str) -> Option<String> {
     if !configured.trim().is_empty() {
@@ -997,6 +1090,11 @@ pub enum AzurePullAction {
         reviewer: String,
     },
     CancelAutoComplete,
+    /// Add a person as an optional reviewer. The Graph descriptor is resolved
+    /// to an identity GUID before the reviewer call.
+    AddReviewer {
+        descriptor: String,
+    },
 }
 
 impl AzurePullAction {
@@ -1005,7 +1103,7 @@ impl AzurePullAction {
         match self {
             Self::CancelAutoComplete => "DELETE",
             Self::Complete | Self::Reopen | Self::Abandon => "PATCH",
-            Self::Vote { .. } | Self::SetAutoComplete { .. } => "PUT",
+            Self::Vote { .. } | Self::SetAutoComplete { .. } | Self::AddReviewer { .. } => "PUT",
         }
     }
 
@@ -1019,6 +1117,7 @@ impl AzurePullAction {
             Self::Abandon => format!("Abandoned !{number}"),
             Self::SetAutoComplete { .. } => format!("Auto-complete set on !{number}"),
             Self::CancelAutoComplete => format!("Auto-complete cancelled on !{number}"),
+            Self::AddReviewer { .. } => format!("Added a reviewer to !{number}"),
         }
     }
 }
@@ -1195,6 +1294,16 @@ pub async fn pull_action(
         "{}/{}/_apis/git/repositories/{}/pullrequests/{number}",
         remote.base_url, remote.project, remote.repository
     );
+    if let AzurePullAction::AddReviewer { descriptor } = &action {
+        let key = reviewer_storage_key(&client, &remote, descriptor)
+            .await
+            .ok_or("Azure did not resolve that person")?;
+        let url = format!("{base}/reviewers/{}?api-version=7.1", escape_query(&key));
+        return client
+            .request("PUT", &url, Some(serde_json::json!({ "vote": 0 })))
+            .await
+            .map(|_| ());
+    }
     let (method, url, body) = action_request(&base, action, pull)?;
     client.request(method, &url, body).await.map(|_| ())
 }
@@ -1264,6 +1373,11 @@ fn action_request(
             format!("{base}/autocomplete?api-version=7.1"),
             None,
         ),
+        // the person's descriptor is turned into an identity GUID in
+        // `pull_action`, before this shape can be built
+        AzurePullAction::AddReviewer { .. } => {
+            return Err("the reviewer's identity is resolved before the request".into());
+        }
     })
 }
 
@@ -2183,6 +2297,63 @@ mod tests {
     fn non_azure_urls_rejected() {
         assert!(parse_url("https://github.com/owner/repo.git", None).is_none());
         assert!(parse_url("git@github.com:owner/repo.git", None).is_none());
+    }
+
+    /// The reviewer picker lists people, not the organization's service
+    /// identities or groups, and keeps the sign-in name the row shows.
+    #[test]
+    fn the_people_list_keeps_members_and_drops_services() {
+        let payload = serde_json::json!({"value": [
+            {"descriptor": "msa.G", "displayName": "Günkut Zeybek",
+             "principalName": "g@example.com", "subjectKind": "user", "metaType": "member"},
+            {"descriptor": "aad.E", "displayName": "Engin KIRMACI",
+             "mailAddress": "e@example.com", "subjectKind": "user", "metaType": "member"},
+            {"descriptor": "svc.B", "displayName": "Build Service (org)",
+             "subjectKind": "user", "metaType": "member"},
+            {"descriptor": "msa.G", "displayName": "Günkut Zeybek",
+             "subjectKind": "user", "metaType": "member"},
+            {"descriptor": "grp.T", "displayName": "Team", "subjectKind": "group",
+             "metaType": "member"}
+        ]});
+
+        let users = parse_users(&payload);
+        let names: Vec<&str> = users.iter().map(|u| u.display_name.as_str()).collect();
+        assert_eq!(names, ["Engin KIRMACI", "Günkut Zeybek"]);
+        assert_eq!(users[0].descriptor, "aad.E");
+        assert_eq!(users[0].unique_name, "e@example.com");
+        assert_eq!(users[1].unique_name, "g@example.com");
+    }
+
+    /// The public service answers Graph on vssps; a company server answers it
+    /// under the collection the remote named.
+    #[test]
+    fn the_graph_host_follows_the_server_shape() {
+        let public = AzureRemote {
+            base_url: "https://dev.azure.com/org".into(),
+            project: "p".into(),
+            repository: "r".into(),
+        };
+        assert_eq!(graph_base(&public), "https://vssps.dev.azure.com/org");
+
+        let company = AzureRemote {
+            base_url: "http://server/tfs/Collection".into(),
+            project: "p".into(),
+            repository: "r".into(),
+        };
+        assert_eq!(graph_base(&company), "http://server/tfs/Collection");
+    }
+
+    /// Adding a reviewer is a PUT, but its identity GUID comes from a Graph
+    /// lookup first; the plain request shape is not enough on its own.
+    #[test]
+    fn adding_a_reviewer_resolves_its_identity_first() {
+        let action = AzurePullAction::AddReviewer {
+            descriptor: "msa.G".into(),
+        };
+        assert_eq!(action.method(), "PUT");
+        assert_eq!(action.done_word(7), "Added a reviewer to !7");
+        let base = "https://dev.azure.com/o/p/_apis/git/repositories/r/pullrequests/214";
+        assert!(action_request(base, action, &pull_for_verbs()).is_err());
     }
 
     #[test]

@@ -161,6 +161,12 @@ pub struct Store {
         std::collections::HashMap<String, Arc<warp_station_core::github::GitHubSnapshot>>,
     pub azure_by_folder:
         std::collections::HashMap<String, Arc<warp_station_core::azure::AzureSnapshot>>,
+    /// The organization's people, for the reviewer picker. A folder with a
+    /// read in flight is in `loading`; a failed read is in `failed`, so the
+    /// picker can offer Retry instead of an empty list.
+    pub azure_users: std::collections::HashMap<String, Vec<warp_station_core::azure::AzureUser>>,
+    pub azure_users_loading: std::collections::HashSet<String>,
+    pub azure_users_failed: std::collections::HashSet<String>,
     pub github_details: Option<warp_station_core::github::GitHubRepoDetails>,
     /// Closed rows by (folder, pull_requests, source), loaded when a tab
     /// first asks and kept as the shared row vocabulary so the union reads
@@ -455,6 +461,9 @@ impl Store {
             history_loaded: false,
             github_by_folder: std::collections::HashMap::new(),
             azure_by_folder: std::collections::HashMap::new(),
+            azure_users: std::collections::HashMap::new(),
+            azure_users_loading: std::collections::HashSet::new(),
+            azure_users_failed: std::collections::HashSet::new(),
             github_details: None,
             closed: std::collections::HashMap::new(),
             open_pull: None,
@@ -1284,6 +1293,19 @@ impl Store {
                         self.notify_error("Azure DevOps did not answer".to_string());
                     }
                     Err(err) => self.notify_error(err),
+                }
+                cx.notify();
+            }
+            UiEvent::AzureUsersLoaded { folder, users } => {
+                self.azure_users_loading.remove(&folder);
+                match users {
+                    Some(users) => {
+                        self.azure_users_failed.remove(&folder);
+                        self.azure_users.insert(folder, users);
+                    }
+                    None => {
+                        self.azure_users_failed.insert(folder);
+                    }
                 }
                 cx.notify();
             }
@@ -3451,6 +3473,37 @@ impl Store {
             number,
         });
         let _ = cx;
+    }
+
+    /// The organization's people, for the reviewer picker, once per folder.
+    pub fn load_azure_users(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        if self.azure_users.contains_key(&folder) || self.azure_users_loading.contains(&folder) {
+            return;
+        }
+        let Some((pat, custom_base)) = self.azure_auth() else {
+            return;
+        };
+        self.azure_users_loading.insert(folder.clone());
+        let _ = self.net.send_blocking(NetCommand::AzureUsers {
+            folder: std::path::PathBuf::from(&folder),
+            pat,
+            custom_base,
+        });
+        cx.notify();
+    }
+
+    /// Ask again after a failed read.
+    pub fn retry_azure_users(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        self.azure_users.remove(&folder);
+        self.azure_users_failed.remove(&folder);
+        self.azure_users_loading.remove(&folder);
+        self.load_azure_users(cx);
     }
 
     /// The Commits tab: the pull request's commits, once.

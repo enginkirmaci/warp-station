@@ -19,7 +19,9 @@ use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Window, div, px};
 use gpui_kit::base::text::TextView;
-use warp_station_core::azure::{AzureFile, AzurePolicy, AzurePull, AzurePullAction, AzureThread};
+use warp_station_core::azure::{
+    AzureFile, AzurePolicy, AzurePull, AzurePullAction, AzureThread, AzureUser,
+};
 use warp_station_core::settings::DiffViewMode;
 use warpui_kit_core::{motion, shell};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
@@ -68,6 +70,8 @@ pub struct AzurePullView {
     diff_scroll: DiffScrollHandles,
     review_menu: bool,
     primary_menu: bool,
+    /// The reviewer picker is open under the Reviewers card.
+    reviewer_menu: bool,
     /// The pull request the view's own state belongs to.
     showing: Option<u64>,
     /// The view is the whole detail pane: the workbench's list is not beside it.
@@ -90,6 +94,7 @@ impl AzurePullView {
             diff_scroll: DiffScrollHandles::default(),
             review_menu: false,
             primary_menu: false,
+            reviewer_menu: false,
             showing: None,
             stacked: false,
             column_width: f32::MAX,
@@ -116,6 +121,7 @@ impl AzurePullView {
         self.file_ix = 0;
         self.review_menu = false;
         self.primary_menu = false;
+        self.reviewer_menu = false;
     }
 }
 
@@ -551,7 +557,7 @@ impl AzurePullView {
             .flex()
             .flex_col()
             .gap_4()
-            .child(reviewers_card(pull));
+            .child(self.reviewers_card(pull, open, cx));
         body.child(
             div()
                 .flex()
@@ -563,6 +569,301 @@ impl AzurePullView {
                 .child(side),
         )
         .into_any_element()
+    }
+
+    /// The Reviewers side card, with the Add control and its inline people
+    /// picker. The list comes from the organization's Graph users.
+    fn reviewers_card(
+        &self,
+        pull: &AzurePull,
+        open: &crate::store::OpenAzurePull,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let folder = open.folder.clone();
+        let acting = open.acting;
+        let (users, loading, failed) = {
+            let store = self.store.read(cx);
+            (
+                store.azure_users.get(&folder).cloned().unwrap_or_default(),
+                store.azure_users_loading.contains(&folder),
+                store.azure_users_failed.contains(&folder),
+            )
+        };
+        let this = cx.entity();
+
+        let mut body = div().px_4().py_2().flex().flex_col();
+        if pull.reviewers.is_empty() && !self.reviewer_menu {
+            body = body.child(note_line("No reviewers yet."));
+        }
+        let required: Vec<_> = pull.reviewers.iter().filter(|r| r.required).collect();
+        let optional: Vec<_> = pull.reviewers.iter().filter(|r| !r.required).collect();
+        for (label, rows) in [("Required", required), ("Optional", optional)] {
+            if rows.is_empty() {
+                continue;
+            }
+            let mut group = div()
+                .py_1()
+                .flex()
+                .flex_col()
+                .border_t_1()
+                .border_color(theme::row_line())
+                .child(
+                    div()
+                        .py(px(2.))
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_muted())
+                        .child(label),
+                );
+            for reviewer in rows {
+                let color = if reviewer.is_rejected() {
+                    theme::DANGER
+                } else if reviewer.is_approved() {
+                    theme::SUCCESS_BRIGHT
+                } else {
+                    theme::text_muted()
+                };
+                let path = if reviewer.is_rejected() {
+                    "icons/icon-close.svg"
+                } else if reviewer.is_approved() {
+                    "icons/icon-check.svg"
+                } else {
+                    "icons/icon-clock.svg"
+                };
+                group = group.child(
+                    div()
+                        .h(px(44.))
+                        .flex()
+                        .items_center()
+                        .gap_2p5()
+                        .child(avatar(&reviewer.name, 24.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_body()))
+                                        .text_color(theme::text())
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .child(reviewer.name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_meta()))
+                                        .text_color(theme::text_muted())
+                                        .child(reviewer.vote_word()),
+                                ),
+                        )
+                        .child(icon(path, px(theme::icon_small()), color)),
+                );
+            }
+            body = body.child(group);
+        }
+
+        if self.reviewer_menu {
+            let mut picker = div()
+                .pt_2()
+                .mt_1()
+                .border_t_1()
+                .border_color(theme::row_line())
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(note_line("Add reviewer"));
+            if loading {
+                picker = picker.child(note_line("Loading people…"));
+            } else if failed {
+                let store_click = self.store.clone();
+                picker = picker.child(note_line("Could not load people.")).child(
+                    div()
+                        .id("azure-reviewer-retry")
+                        .debug_selector(|| "azure-reviewer-retry".into())
+                        .a11y_button("Retry")
+                        .cursor_pointer()
+                        .h(px(28.))
+                        .px_2()
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(theme::line_strong())
+                        .flex()
+                        .items_center()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text())
+                        .hover(|d| d.bg(theme::raised()))
+                        .on_click(move |_, _, cx| {
+                            store_click.update(cx, |store, cx| store.retry_azure_users(cx));
+                        })
+                        .child("Retry"),
+                );
+            } else {
+                let existing: Vec<String> = pull
+                    .reviewers
+                    .iter()
+                    .map(|reviewer| reviewer.name.to_lowercase())
+                    .collect();
+                let candidates: Vec<AzureUser> = users
+                    .into_iter()
+                    .filter(|user| !existing.contains(&user.display_name.to_lowercase()))
+                    .collect();
+                if candidates.is_empty() {
+                    picker = picker.child(note_line("Everyone is already a reviewer."));
+                }
+                for (ix, user) in candidates.into_iter().enumerate() {
+                    let store_click = self.store.clone();
+                    let this_click = this.clone();
+                    let descriptor = user.descriptor.clone();
+                    let display = user.display_name.clone();
+                    let unique = user.unique_name.clone();
+                    let row = div()
+                        .id(SharedString::from(format!("azure-reviewer-{ix}")))
+                        .debug_selector(move || format!("azure-reviewer-row-{ix}"))
+                        .a11y_button(display.clone())
+                        .h(px(40.))
+                        .px_2()
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .hover(|d| d.bg(theme::raised()))
+                        .when(!acting, |d| d.cursor_pointer())
+                        .on_click(move |_, _, cx| {
+                            if acting {
+                                return;
+                            }
+                            store_click.update(cx, |store, cx| {
+                                store.act_on_azure_pull(
+                                    AzurePullAction::AddReviewer {
+                                        descriptor: descriptor.clone(),
+                                    },
+                                    cx,
+                                );
+                            });
+                            this_click.update(cx, |view, cx| {
+                                view.reviewer_menu = false;
+                                cx.notify();
+                            });
+                        })
+                        .child(avatar(&display, 24.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_body()))
+                                        .text_color(theme::text())
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .child(display),
+                                )
+                                .when(!unique.is_empty(), |d| {
+                                    d.child(
+                                        div()
+                                            .text_size(px(theme::font_meta()))
+                                            .text_color(theme::text_muted())
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(unique),
+                                    )
+                                }),
+                        );
+                    picker = picker.child(row);
+                }
+            }
+            body = body.child(picker);
+        }
+
+        let mut add = None;
+        if pull.is_active() {
+            let store_click = self.store.clone();
+            let this_click = this.clone();
+            let open_now = self.reviewer_menu;
+            add = Some(
+                div()
+                    .id("azure-add-reviewer")
+                    .debug_selector(|| "azure-add-reviewer".into())
+                    .a11y_button("Add reviewer")
+                    .cursor_pointer()
+                    .h(px(24.))
+                    .px_2()
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(theme::line_strong())
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text_muted())
+                    .hover(|d| d.bg(theme::raised()))
+                    .on_click(move |_, _, cx| {
+                        if !open_now {
+                            store_click.update(cx, |store, cx| store.load_azure_users(cx));
+                        }
+                        this_click.update(cx, |view, cx| {
+                            view.reviewer_menu = !open_now;
+                            cx.notify();
+                        });
+                    })
+                    .child(icon(
+                        if open_now {
+                            "icons/icon-close.svg"
+                        } else {
+                            "icons/icon-plus.svg"
+                        },
+                        px(theme::icon_small()),
+                        theme::text_muted(),
+                    ))
+                    .child(if open_now { "Close" } else { "Add" }),
+            );
+        }
+
+        div()
+            .debug_selector(|| "azure-pull-reviewers-card".into())
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme::hairline())
+            .bg(theme::surface())
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .h(px(40.))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(theme::row_line())
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(theme::font_heading()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::text())
+                            .child("Reviewers"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_muted())
+                            .child(format!(
+                                "{} required",
+                                pull.reviewers.iter().filter(|r| r.required).count()
+                            )),
+                    )
+                    .children(add),
+            )
+            .child(body)
+            .into_any_element()
     }
 
     // ---- Files ------------------------------------------------------------
@@ -966,6 +1267,16 @@ impl AzurePullView {
     }
 }
 
+/// One quiet line in a side card.
+fn note_line(text: &str) -> AnyElement {
+    div()
+        .py_1()
+        .text_size(px(theme::font_meta()))
+        .text_color(theme::text_muted())
+        .child(text.to_string())
+        .into_any_element()
+}
+
 /// The state pill: Active, Draft, Completed or Abandoned.
 fn state_pill(pull: Option<&AzurePull>) -> AnyElement {
     let (label, color) = match pull {
@@ -1288,125 +1599,6 @@ fn description_card(pull: &AzurePull) -> AnyElement {
             .into_any_element(),
     };
     card("azure-pull-description", "Description", "", body)
-}
-
-fn reviewers_card(pull: &AzurePull) -> AnyElement {
-    let mut body = div().px_4().py_2().flex().flex_col();
-    if pull.reviewers.is_empty() {
-        body = body.child(
-            div()
-                .py_2()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::text_muted())
-                .child("No reviewers yet."),
-        );
-    }
-    let required: Vec<_> = pull.reviewers.iter().filter(|r| r.required).collect();
-    let optional: Vec<_> = pull.reviewers.iter().filter(|r| !r.required).collect();
-    for (label, rows) in [("Required", required), ("Optional", optional)] {
-        if rows.is_empty() {
-            continue;
-        }
-        let mut group = div()
-            .py_1()
-            .flex()
-            .flex_col()
-            .border_t_1()
-            .border_color(theme::row_line())
-            .child(
-                div()
-                    .py(px(2.))
-                    .text_size(px(theme::font_meta()))
-                    .text_color(theme::text_muted())
-                    .child(label),
-            );
-        for reviewer in rows {
-            let color = if reviewer.is_rejected() {
-                theme::DANGER
-            } else if reviewer.is_approved() {
-                theme::SUCCESS_BRIGHT
-            } else {
-                theme::text_muted()
-            };
-            let path = if reviewer.is_rejected() {
-                "icons/icon-close.svg"
-            } else if reviewer.is_approved() {
-                "icons/icon-check.svg"
-            } else {
-                "icons/icon-clock.svg"
-            };
-            group = group.child(
-                div()
-                    .h(px(44.))
-                    .flex()
-                    .items_center()
-                    .gap_2p5()
-                    .child(avatar(&reviewer.name, 24.))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(theme::font_body()))
-                                    .text_color(theme::text())
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_ellipsis()
-                                    .child(reviewer.name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(theme::font_meta()))
-                                    .text_color(theme::text_muted())
-                                    .child(reviewer.vote_word()),
-                            ),
-                    )
-                    .child(icon(path, px(theme::icon_small()), color)),
-            );
-        }
-        body = body.child(group);
-    }
-    div()
-        .debug_selector(|| "azure-pull-reviewers-card".into())
-        .rounded(px(8.))
-        .border_1()
-        .border_color(theme::hairline())
-        .bg(theme::surface())
-        .overflow_hidden()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .h(px(40.))
-                .px_4()
-                .flex()
-                .items_center()
-                .gap_2()
-                .border_b_1()
-                .border_color(theme::row_line())
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(theme::font_heading()))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text())
-                        .child("Reviewers"),
-                )
-                .child(
-                    div()
-                        .text_size(px(theme::font_meta()))
-                        .text_color(theme::text_muted())
-                        .child(format!(
-                            "{} required",
-                            pull.reviewers.iter().filter(|r| r.required).count()
-                        )),
-                ),
-        )
-        .child(body)
-        .into_any_element()
 }
 
 /// The comment threads, with Azure's resolution state on each.

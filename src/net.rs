@@ -213,6 +213,12 @@ pub enum NetCommand {
         action: warp_station_core::azure::AzurePullAction,
         pull: Box<warp_station_core::azure::AzurePull>,
     },
+    /// The organization's people, for the reviewer picker.
+    AzureUsers {
+        folder: PathBuf,
+        pat: String,
+        custom_base: String,
+    },
     /// One AI wand run: the prompt is built here, the turn runs in
     /// warp-agent over its door (launching it when merely closed).
     Wand {
@@ -614,6 +620,12 @@ pub enum UiEvent {
         number: u64,
         action: warp_station_core::azure::AzurePullAction,
         result: Result<(), String>,
+    },
+    /// `None` is a failed read: the picker offers Retry instead of an empty
+    /// list that would read as "nobody can review".
+    AzureUsersLoaded {
+        folder: String,
+        users: Option<Vec<warp_station_core::azure::AzureUser>>,
     },
     WandLog {
         wand_id: String,
@@ -1160,6 +1172,21 @@ fn spawn_read_intake(
                             number,
                             action,
                             result,
+                        });
+                    });
+                }
+                NetCommand::AzureUsers {
+                    folder,
+                    pat,
+                    custom_base,
+                } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let users =
+                            warp_station_core::azure::users(&folder, &pat, &custom_base).await;
+                        let _ = evt_tx.send_blocking(UiEvent::AzureUsersLoaded {
+                            folder: folder.to_string_lossy().to_string(),
+                            users,
                         });
                     });
                 }
@@ -1789,6 +1816,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             | NetCommand::AzurePullCommits { .. }
             | NetCommand::AzurePullFileDiff { .. }
             | NetCommand::AzurePullAction { .. }
+            | NetCommand::AzureUsers { .. }
             | NetCommand::LoadChanges { .. } => {}
             NetCommand::LoadHistory { folder } => {
                 let (commits, unpushed) = tokio::task::spawn_blocking({
