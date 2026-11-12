@@ -1,33 +1,34 @@
 [package]
 name = "warp-station-core"
-version.workspace = true
-edition.workspace = true
+version = "0.1.1"
+edition = "2024"
 description = "Headless Warp Station services — no gpui dependencies"
-license.workspace = true
+license = "GPL-3.0"
+repository = "https://github.com/enginkirmaci/warp-station"
 publish = false
 
 [dependencies]
 # io/logging halves only — default-features keeps gpui out of this crate's
 # "testable without a display" graph
-warpui-kit-platform = { workspace = true, default-features = false }
+warpui-kit-platform = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-platform", default-features = false }
 
 # third-party
-anyhow = { workspace = true }
-async-channel = { workspace = true }
-chrono = { workspace = true, features = ["std", "serde"] }
-futures-util = { workspace = true }
+anyhow = "1"
+async-channel = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+futures-util = "0.3"
 git2 = { version = "0.21", default-features = false }
-reqwest = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "net", "io-util", "sync"] }
+tracing = "0.1"
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile = "3"
 
 [target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
+libc = "0.2"
 
 # WinRT toasts on Windows (Action Center): the crate wraps Windows.UI.Notifications
 # and falls back to PowerShell's whitelisted AppUserModelID, so toasts appear

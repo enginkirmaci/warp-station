@@ -1,0 +1,11 @@
+# Build and packaging facts read by the app's own build and release tooling.
+[app]
+package = "warp-station"
+icon_prefix = "warp-station"
+scalable_svg = "assets/icons/logo.svg"
+notes = """
+Repository workbench (warp-station + warp-station-core). Its AI surface drives
+warp-agent's loopback door (~/.warp/agent/ipc.port + ipc.token), launches
+warp-notes with --store/--repo/--root/--note and reads the same ~/.warp/snapit
+settings warp-snapit does. Linux deliverable: warp-station alone.
+"""

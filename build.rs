@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 fn main() {
     warpui_kit_build::emit(
         warpui_kit_build::AppInfo::new("Warp Station", "Repository workbench", "warp-station.exe")
-            .with_icon("../../packaging/windows/warp-station.ico"),
+            .with_icon("packaging/windows/warp-station.ico"),
     );
     embed_assets();
 }

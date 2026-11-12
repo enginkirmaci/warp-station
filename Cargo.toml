@@ -1,0 +1,50 @@
+[package]
+name = "warp-station"
+version = "0.1.1"
+edition = "2024"
+description = "Warp Station — repository workbench"
+license = "GPL-3.0"
+repository = "https://github.com/enginkirmaci/warp-station"
+publish = false
+
+# src/lib.rs is the probe boundary (tests/ build the real views); the binary is
+# a thin bootstrap over it. Both targets come from cargo's defaults.
+
+[dependencies]
+warp-station-core = { path = "crates/warp-station-core" }
+# kit line: pinned by tag, patched to kits/ by warp-suite's local build
+warpui-kit-core = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-core" }
+warpui-kit-platform = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-platform" }
+warpui-kit-diff = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-diff", features = ["all-languages"] }
+warpui-kit-markdown = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-markdown" }
+warpui-kit-picker = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-picker" }
+
+# the gpui stack, pinned here because the app builds standalone
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["wayland", "x11"] }
+gpui-kit = "0.9"
+
+# third-party
+anyhow = "1"
+async-channel = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+futures-util = "0.3"
+# the Add-Repositories Browse… button; portal backend shares gpui's ashpd
+# stack on Linux (no GTK dependency), IFileDialog on Windows
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "net", "io-util", "sync"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+# headless UI probes (tests/); feature-unifies with the normal gpui-kit dep
+# only under `cargo test`
+gpui-kit = { version = "0.9", features = ["test-support"] }
+# the warp watcher cycle test's throwaway endpoint dir
+tempfile = "3"
+
+[build-dependencies]
+warpui-kit-build = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-build" }
