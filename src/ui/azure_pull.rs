@@ -675,10 +675,10 @@ impl AzurePullView {
                 ))
                 .into_any_element()
         } else {
-            diff_controls::state(if loaded.is_none() {
-                "Reading the file…"
-            } else {
-                "No textual changes"
+            diff_controls::state(match loaded {
+                None => "Reading the file…",
+                Some((_, None)) => "Could not read the file.",
+                Some((_, Some(_))) => "No textual changes",
             })
         };
 

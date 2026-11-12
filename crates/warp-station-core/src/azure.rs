@@ -1124,7 +1124,10 @@ pub async fn pull_file_diff(
     number: u64,
     path: &str,
 ) -> Option<String> {
-    let detail = pull_refs(folder, pat, custom_base, number).await?;
+    // A pull request's diff reads target -> source: the base is the "before"
+    // side and the head is the "after" side. Asking for the pair in PR order
+    // would render every added line as a deletion.
+    let (source, target) = pull_refs(folder, pat, custom_base, number).await?;
     let remote = remote_for(folder, custom_base)?;
     let client = Client::new(pat);
     let items = |version: &str| {
@@ -1137,12 +1140,8 @@ pub async fn pull_file_diff(
             escape_query(version)
         )
     };
-    let before = client
-        .get_json::<serde_json::Value>(&items(&detail.0))
-        .await;
-    let after = client
-        .get_json::<serde_json::Value>(&items(&detail.1))
-        .await;
+    let before = client.get_json::<serde_json::Value>(&items(&target)).await;
+    let after = client.get_json::<serde_json::Value>(&items(&source)).await;
     let text = |payload: Option<serde_json::Value>| {
         payload
             .as_ref()
@@ -1938,7 +1937,7 @@ impl Client {
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Option<T> {
-        let response = self.send(reqwest::Method::GET, url, None).await?;
+        let response = self.send_json(reqwest::Method::GET, url, None).await?;
         if response.status().as_u16() == 401 {
             tracing::warn!("azure devops: 401 — the PAT was rejected");
             return None;
@@ -1956,7 +1955,7 @@ impl Client {
         body: &B,
     ) -> Option<T> {
         let response = self
-            .send(
+            .send_json(
                 reqwest::Method::POST,
                 url,
                 Some(serde_json::to_vec(body).ok()?),
@@ -1983,7 +1982,7 @@ impl Client {
             .map(|value| serde_json::to_vec(&value).map_err(|err| err.to_string()))
             .transpose()?;
         let response = self
-            .send(method, url, payload)
+            .send_json(method, url, payload)
             .await
             .ok_or_else(|| "Azure DevOps did not answer".to_string())?;
         let status = response.status();
@@ -2027,16 +2026,41 @@ impl Client {
         response.text().await.ok()
     }
 
+    /// A JSON call asks for JSON explicitly: Azure serves the items endpoint's
+    /// `includeContent` body as octet-stream unless the request accepts JSON,
+    /// and a raw text body cannot be parsed into the file the diff needs.
+    async fn send_json(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<Vec<u8>>,
+    ) -> Option<reqwest::Response> {
+        self.send_with(method, url, body, true).await
+    }
+
     async fn send(
         &self,
         method: reqwest::Method,
         url: &str,
         body: Option<Vec<u8>>,
     ) -> Option<reqwest::Response> {
+        self.send_with(method, url, body, false).await
+    }
+
+    async fn send_with(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<Vec<u8>>,
+        accept_json: bool,
+    ) -> Option<reqwest::Response> {
         let mut request = self
             .http
             .request(method, url)
             .header("Authorization", &self.auth_header);
+        if accept_json {
+            request = request.header("Accept", "application/json");
+        }
         if let Some(body) = body {
             request = request
                 .header("Content-Type", "application/json")

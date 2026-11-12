@@ -4849,8 +4849,8 @@ pub struct OpenAzurePull {
     pub failed: bool,
     pub files: Option<Vec<warp_station_core::azure::AzureFile>>,
     pub commits: Option<Vec<warp_station_core::azure::AzureCommit>>,
-    /// The file whose diff is loaded: (path, patch). `None` inside is a file
-    /// with no textual change.
+    /// The file whose diff is loaded: (path, patch). `None` inside is a read
+    /// that failed (or a path with no content at either ref), not "no diff".
     pub diff: Option<(String, Option<String>)>,
     /// A verb is running: the head's buttons stay dead until it answers.
     pub acting: bool,
