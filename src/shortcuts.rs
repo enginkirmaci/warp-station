@@ -52,6 +52,7 @@ pub fn groups(settings: &AppSettings, repo: Option<&RepoEntry>) -> Vec<Group> {
         vec![
             row("Ctrl K", "Focus the search field"),
             row("? / Ctrl /", "Show this shortcut sheet"),
+            row("Ctrl \\", "Show or hide the repository list"),
             row(
                 "Esc",
                 "Close the topmost layer, then leave the section, then clear the search",
