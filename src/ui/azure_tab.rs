@@ -20,7 +20,7 @@ use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Window, div, px};
 use warp_station_core::activity::{
-    ActivityRun, ActivitySource, RunDetail, RunJob, RunStage, duration_between, sort_newest_first,
+    ActivityRun, ActivitySource, RunDetail, RunJob, RunStage, duration_between,
 };
 use warp_station_core::azure::AzureSnapshot;
 use warpui_kit_core::{motion, shell};
@@ -117,17 +117,13 @@ impl Render for AzureView {
             });
         }
 
-        // one list, both sources, newest first
-        let mut runs: Vec<ActivityRun> = Vec::new();
-        if let Some(snapshot) = azure.as_ref().filter(|snapshot| snapshot.available) {
-            runs.extend(snapshot.pipelines.iter().map(ActivityRun::of_azure));
-        }
-        if let Some(snapshot) = github.as_ref().filter(|snapshot| snapshot.available) {
-            runs.extend(snapshot.runs.iter().map(ActivityRun::of_github));
-        }
-        sort_newest_first(&mut runs);
+        // one list, both sources, newest first; a merged pull request's branch
+        // focus narrows the same assembly rather than a second one
+        let runs = folder
+            .as_deref()
+            .map_or_else(Vec::new, |folder| self.store.read(cx).focused_runs(folder));
 
-        let toolbar = self.render_toolbar(runs.first());
+        let toolbar = self.render_toolbar(runs.first(), cx);
         let body = self.render_workbench(
             &runs,
             azure.as_deref().filter(|snapshot| snapshot.available),
@@ -150,8 +146,25 @@ impl Render for AzureView {
 impl AzureView {
     /// The latest run's state of either source, where the other tabs put their
     /// toolbar, plus a refresh for the pass that filled it.
-    fn render_toolbar(&self, latest: Option<&ActivityRun>) -> AnyElement {
+    fn render_toolbar(&self, latest: Option<&ActivityRun>, cx: &mut Context<Self>) -> AnyElement {
+        let focus = self.store.read(cx).pipeline_branch.clone();
+        let waiting = self.store.read(cx).pipeline_watch_active();
         let (glyph, color, word, busy) = match latest {
+            None if focus.is_some() && waiting => (
+                "icons/icon-spinner.svg",
+                theme::BEHIND,
+                format!(
+                    "Waiting for a run on {}",
+                    focus.as_deref().unwrap_or_default()
+                ),
+                true,
+            ),
+            None if focus.is_some() => (
+                "icons/icon-clock.svg",
+                theme::text_muted(),
+                "No runs on this branch yet".to_string(),
+                false,
+            ),
             None => (
                 "icons/icon-clock.svg",
                 theme::text_muted(),
@@ -185,6 +198,11 @@ impl AzureView {
         };
         let store = self.store.clone();
         let source = latest.map(|run| run.source);
+        let busy_label = if latest.is_none() && waiting {
+            word.clone()
+        } else {
+            "Latest run in progress".to_string()
+        };
         let latest = div()
             .flex()
             .items_center()
@@ -195,7 +213,7 @@ impl AzureView {
                 div()
                     .id("azure-latest-status")
                     .role(gpui::Role::Status)
-                    .aria_label("Latest run in progress")
+                    .aria_label(busy_label)
                     .flex()
                     .items_center()
                     .child(motion::spinner(
@@ -227,6 +245,43 @@ impl AzureView {
             .border_color(theme::hairline())
             .child(latest)
             .child(div().flex_1())
+            .when_some(focus, |bar, branch| {
+                let store = self.store.clone();
+                let label = format!("on {branch}");
+                bar.child(
+                    div()
+                        .id("pipelines-branch")
+                        .debug_selector(|| "pipelines-branch".into())
+                        .a11y_button(format!("Clear the branch focus: {branch}"))
+                        .cursor_pointer()
+                        .h(px(shell::CONTROL_HEIGHT))
+                        .px_2()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(theme::line_strong())
+                        .bg(theme::panel())
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_dim())
+                        .hover(|s| s.bg(theme::raised()))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            store.update(cx, |store, cx| store.clear_pipeline_branch(cx));
+                        }))
+                        .child(icon(
+                            "icons/icon-source-branch.svg",
+                            px(theme::icon_tiny()),
+                            theme::BRANCH,
+                        ))
+                        .child(label)
+                        .child(icon(
+                            "icons/icon-close.svg",
+                            px(theme::icon_tiny()),
+                            theme::text_muted(),
+                        )),
+                )
+            })
             .children(source.map(|source| source_tag(source.label())))
             .child(
                 div()
@@ -262,10 +317,15 @@ impl AzureView {
     ) -> AnyElement {
         let pane_width = self.store.read(cx).pane_width;
         let stacked = pane_width < STACKED_PANE;
+        let focus = self.store.read(cx).pipeline_branch.clone();
+        let waiting = self.store.read(cx).pipeline_watch_active();
         // the first run is the selection where both columns show; the pane
         // never opens on an empty detail
         let open = self.store.read(cx).open_run.clone();
-        if !stacked && open.is_none() && !runs.is_empty() {
+        // a branch focus waiting for the merge-triggered run must not select an
+        // older run on the same branch just because it is first
+        let watching = self.store.read(cx).pipeline_watch_active();
+        if !stacked && open.is_none() && !runs.is_empty() && !watching {
             let first = runs[0].clone();
             self.store.update(cx, |store, cx| store.open_run(first, cx));
         }
@@ -289,7 +349,10 @@ impl AzureView {
             ));
         }
         if runs.is_empty() {
-            rows = rows.child(no_runs_note(azure.is_some(), github_ok));
+            rows = rows.child(match focus.as_deref() {
+                Some(branch) => focused_empty_note(branch, waiting),
+                None => no_runs_note(azure.is_some(), github_ok),
+            });
         }
         let mut sources: Vec<&'static str> = Vec::new();
         if azure.is_some_and(|snapshot| !snapshot.pipelines.is_empty()) {
@@ -321,10 +384,11 @@ impl AzureView {
                     .border_color(theme::hairline())
                     .text_size(px(theme::font_meta()))
                     .text_color(theme::text_dim())
-                    .child(if runs.is_empty() {
-                        "No runs".to_string()
-                    } else {
-                        format!("Recent {}", runs.len())
+                    .child(match (focus.as_deref(), runs.is_empty()) {
+                        (Some(branch), true) => format!("No runs on {branch}"),
+                        (Some(branch), false) => format!("{} on {branch}", runs.len()),
+                        (None, true) => "No runs".to_string(),
+                        (None, false) => format!("Recent {}", runs.len()),
                     })
                     .child(div().flex_1())
                     .children(sources.into_iter().map(source_tag)),
@@ -689,6 +753,41 @@ fn no_runs_note(azure: bool, github: bool) -> AnyElement {
                 .text_size(px(theme::font_meta()))
                 .text_color(theme::text_muted())
                 .child(detail),
+        )
+        .into_any_element()
+}
+
+/// A branch focus with no row yet: the merge landed, the run it starts is not
+/// in the list. Waiting is the normal state for the first seconds, not an
+/// error; after the wait expires the note says how to get the whole list back.
+fn focused_empty_note(branch: &str, waiting: bool) -> AnyElement {
+    div()
+        .debug_selector(|| "runs-empty-branch".into())
+        .px_4()
+        .py_3()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(theme::font_body()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::text_dim())
+                .child(if waiting {
+                    "Waiting for a run".to_string()
+                } else {
+                    "No run on this branch yet".to_string()
+                }),
+        )
+        .child(
+            div()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .child(if waiting {
+                    format!("The pipeline this merge started has not appeared on {branch} yet.")
+                } else {
+                    format!("Nothing has run on {branch}. Clear the focus to see every branch.")
+                }),
         )
         .into_any_element()
 }

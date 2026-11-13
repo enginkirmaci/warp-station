@@ -7,7 +7,7 @@
 //! patches, dropdown state, the commit draft).
 
 use crate::net::{GitAction, NetCommand};
-use crate::store::Store;
+use crate::store::{PullShortcut, Store};
 use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::{A11y, icon};
@@ -2498,8 +2498,117 @@ impl ChangesView {
                 GitAction::Sync,
             ));
         }
+        // the pushed branch's next step: the form, or the pull request that
+        // already has this head. It is state, so it survives a restart and a
+        // repo switch; the Workflow setting only decides whether it also opens
+        // by itself.
+        if let Some(shortcut) = store.pull_shortcut() {
+            // the toolbar is tight on a stacked pane: the verb keeps its icon
+            // and shortens its word, the full sentence stays the tooltip
+            let compact = store.pane_width < 900.;
+            let show_tooltips = store.settings().general.show_tooltips;
+            bar = bar.child(div().flex_1()).child(pull_shortcut_button(
+                shortcut,
+                self.store.clone(),
+                compact,
+                show_tooltips,
+            ));
+        }
         bar.into_any_element()
     }
+}
+
+/// The git toolbar's PR verb. Create opens the writing form (GitHub) or the
+/// platform's create page (Azure); View opens the pull request the branch
+/// already has.
+fn pull_shortcut_button(
+    shortcut: PullShortcut,
+    store: Entity<Store>,
+    compact: bool,
+    show_tooltips: bool,
+) -> gpui::AnyElement {
+    use warp_station_core::activity::ActivitySource;
+    let reference = match shortcut {
+        PullShortcut::Create { .. } => None,
+        PullShortcut::Open { source, number } => Some(if source == ActivitySource::Azure {
+            format!("!{number}")
+        } else {
+            format!("#{number}")
+        }),
+    };
+    let label = reference.as_deref().map_or_else(
+        || {
+            if compact {
+                "PR".to_string()
+            } else {
+                "Create PR".to_string()
+            }
+        },
+        |reference| {
+            if compact {
+                reference.to_string()
+            } else {
+                format!("View PR {reference}")
+            }
+        },
+    );
+    let azure_create = matches!(
+        shortcut,
+        PullShortcut::Create {
+            source: ActivitySource::Azure
+        }
+    );
+    let a11y = reference.as_deref().map_or_else(
+        || {
+            if azure_create {
+                "Create pull request on Azure DevOps".to_string()
+            } else {
+                "Create pull request".to_string()
+            }
+        },
+        |reference| format!("View pull request {reference}"),
+    );
+    let tooltip = a11y.clone();
+    let selector = if reference.is_some() {
+        "rail-view-pr"
+    } else {
+        "rail-create-pr"
+    };
+    let button = div()
+        .id(selector)
+        .debug_selector(move || selector.to_string())
+        .a11y_button(a11y)
+        .flex_shrink_0()
+        .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+        .px_3()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::panel())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::text())
+        .hover(|style| style.bg(theme::raised()))
+        .on_click(move |_, _, cx| {
+            store.update(cx, |store, cx| match shortcut {
+                PullShortcut::Create { .. } => store.start_new_pull(cx),
+                PullShortcut::Open { source, number } => {
+                    store.open_pull_shortcut(source, number, cx)
+                }
+            });
+        })
+        .child(icon(
+            "icons/icon-git-pull-request.svg",
+            px(theme::icon_small()),
+            theme::text_dim(),
+        ))
+        .child(label);
+    crate::ui::with_tooltip(button, show_tooltips, tooltip).into_any_element()
 }
 
 fn section_header(

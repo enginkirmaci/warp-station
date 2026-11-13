@@ -35,7 +35,40 @@ pub struct AppSettings {
     #[serde(default)]
     pub changes: ChangesSettings,
     #[serde(default)]
+    pub workflow: WorkflowSettings,
+    #[serde(default)]
     pub notifications: NotificationsSettings,
+}
+
+/// The push → pull request → pipeline path. `auto_advance` is the master: with
+/// it off the same steps are still offered as buttons, they just never move the
+/// screen on their own. The two step switches are true by default so flipping
+/// the master on does what its label says without a second visit here.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+pub struct WorkflowSettings {
+    /// After a push or publish, open the Create pull request step; after a
+    /// merge, open the Pipelines watch. Never creates or merges anything.
+    pub auto_advance: bool,
+    /// The post-push half of `auto_advance`.
+    pub open_pull_request_after_push: bool,
+    /// The post-merge half of `auto_advance`.
+    pub open_pipelines_after_merge: bool,
+    /// Keep polling the run the user is watching after the Pipelines tab is
+    /// left, so the run-end toast finds them on another tab. This starts no
+    /// poll of its own; it only continues one that is already armed.
+    pub watch_in_background: bool,
+}
+
+impl Default for WorkflowSettings {
+    fn default() -> Self {
+        Self {
+            auto_advance: false,
+            open_pull_request_after_push: true,
+            open_pipelines_after_merge: true,
+            watch_in_background: true,
+        }
+    }
 }
 
 /// What a desktop notification may interrupt the desktop with. The section is
@@ -56,6 +89,8 @@ pub struct NotificationsSettings {
     /// Mirrors confirmation toasts: merges, commits, agent handoffs,
     /// generation drafts, password copies.
     pub action_confirmations: bool,
+    /// Mirrors a watched pipeline's end: passed, failed or skipped.
+    pub pipelines: bool,
     /// Retired with the bulk fetch pass. Kept in the schema so an existing
     /// settings file with the key still parses and a save never drops it;
     /// nothing emits the category any more.
@@ -69,6 +104,7 @@ impl Default for NotificationsSettings {
             only_when_unfocused: true,
             errors: true,
             action_confirmations: true,
+            pipelines: true,
             fetch_summaries: true,
         }
     }
@@ -705,6 +741,31 @@ mod tests {
         assert!(s.nuget_local.enable_nuget);
         assert!(!s.keep_awake.enabled);
         assert_eq!(s.repos.branch_name_prefix, "users/enginkirmaci");
+    }
+
+    #[test]
+    fn old_files_get_the_workflow_defaults() {
+        // a settings file written before the section existed parses as every
+        // default: the master off, the two steps ready, watching on
+        let s: AppSettings = serde_json::from_str("{}").expect("an empty settings object");
+        assert_eq!(s.workflow, WorkflowSettings::default());
+        assert!(!s.workflow.auto_advance);
+        assert!(s.workflow.open_pull_request_after_push);
+        assert!(s.workflow.open_pipelines_after_merge);
+        assert!(s.workflow.watch_in_background);
+        assert!(s.notifications.pipelines);
+    }
+
+    #[test]
+    fn workflow_keys_round_trip() {
+        let mut s = AppSettings::default();
+        s.workflow.auto_advance = true;
+        s.workflow.watch_in_background = true;
+        s.notifications.pipelines = false;
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: AppSettings = serde_json::from_str(&json).expect("parse back");
+        assert_eq!(back.workflow, s.workflow);
+        assert!(!back.notifications.pipelines);
     }
 
     #[test]

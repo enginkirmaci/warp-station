@@ -430,6 +430,40 @@ impl AzurePullView {
                     },
                 ));
             }
+            // a completed pull request steps on to the build its merge target
+            // started; Azure keeps the pull request and the runs in one column,
+            // so this replaces the detail with the run list
+            if pull.is_completed() {
+                let store_click = self.store.clone();
+                let target = pull.target_branch();
+                let branch = if target.trim().is_empty() {
+                    open.item
+                        .target_ref_name
+                        .as_deref()
+                        .map(|target| target.trim_start_matches("refs/heads/").to_string())
+                        .unwrap_or_default()
+                } else {
+                    target
+                };
+                if !branch.trim().is_empty() {
+                    let since = pull.closed.as_deref().and_then(|text| {
+                        chrono::DateTime::parse_from_rfc3339(text)
+                            .ok()
+                            .map(|at| at.with_timezone(&chrono::Local))
+                    });
+                    actions = actions.child(plain_button(
+                        "azure-pipelines",
+                        "Pipelines",
+                        "icons/icon-play.svg",
+                        !acting,
+                        move |_, _, cx| {
+                            store_click.update(cx, |store, cx| {
+                                store.watch_pipelines_for(branch.clone(), since, false, cx)
+                            });
+                        },
+                    ));
+                }
+            }
             title_row = title_row.child(actions);
         }
 

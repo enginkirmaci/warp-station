@@ -1966,6 +1966,34 @@ fn head_actions(
                 },
             ));
         }
+        // a merged pull request's next step is the pipeline the merge
+        // started: one press lands on its branch, already followed
+        if closed && pull.is_merged() {
+            let store = store.clone();
+            let branch = if pull.base_ref_name.trim().is_empty() {
+                pull.head_ref_name.clone()
+            } else {
+                pull.base_ref_name.clone()
+            };
+            if !branch.trim().is_empty() {
+                let since = pull.merged_at.as_deref().and_then(|text| {
+                    chrono::DateTime::parse_from_rfc3339(text)
+                        .ok()
+                        .map(|at| at.with_timezone(&chrono::Local))
+                });
+                row = row.child(plain_button(
+                    "pull-pipelines",
+                    "Pipelines",
+                    "icons/icon-play.svg",
+                    true,
+                    move |_, _, cx| {
+                        store.update(cx, |store, cx| {
+                            store.watch_pipelines_for(branch.clone(), since, false, cx)
+                        });
+                    },
+                ));
+            }
+        }
     }
 
     row.child(

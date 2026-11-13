@@ -107,6 +107,18 @@ Keep this order; several steps depend on the previous one:
   through the free `gh api rate_limit` probe when a call fails). Do not tighten
   the cadence or poll while the tab is hidden without redoing that budget;
   `follow_probe` drives the loop headlessly.
+  A merged pull request's **Pipelines** verb sets `Store::pipeline_branch` to
+  its merge target and either opens the newest run on that branch or waits for
+  the run the merge starts. Only rows at or after the merge qualify (a minute
+  of clock slack; no timestamp is not hidden), so an older run on the target
+  branch is never mistaken for the merge's. The wait reads the runs list every
+  15 s for up to five minutes (`PIPELINE_WATCH` — at most 20 list calls, then
+  it stops). The branch focus is session-only and its chip clears it.
+  `workflow.watch_in_background` is the one deliberate exception to hidden-tab
+  polling: it continues the detail cadence of a run that was already being
+  watched (and, while a merge watch still has no run, its bounded 15 s runs
+  read), and the run-end toast is gated by `notifications.pipelines` (desktop
+  only; the in-app toast always lands).
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
   Changes files, History commits, PR/Issues); the window delegates only while
   it owns the focus itself. The OS title carries `Store::activity()` next to

@@ -103,6 +103,9 @@ pub enum Category {
     Errors,
     /// "Merged #12", "Password copied …" — the `ActionConfirmations` toggle.
     ActionConfirmations,
+    /// "Pipeline kits #48 passed" — the `Pipelines` toggle. A run-end toast is
+    /// not an action the user took, so it gets its own switch.
+    PipelineResults,
 }
 
 impl Category {
@@ -110,6 +113,7 @@ impl Category {
         match self {
             Category::Errors => settings.errors,
             Category::ActionConfirmations => settings.action_confirmations,
+            Category::PipelineResults => settings.pipelines,
         }
     }
 }
@@ -375,6 +379,36 @@ mod tests {
             notice.map(|n| (n.severity, n.summary == "Warp Station")),
             Some((Severity::Info, true)),
             "the event reads as info under the app's own name"
+        );
+    }
+
+    #[test]
+    fn pipeline_results_have_their_own_row() {
+        // the new category defaults on, but its own switch cuts only it
+        let no_pipelines = settings_with(|s| s.pipelines = false);
+        let (_s, mut dedup) = gate();
+        assert!(
+            wants_desktop(
+                Category::PipelineResults,
+                Severity::Success,
+                "Pipeline kits #48 passed",
+                Some(false),
+                &no_pipelines,
+                &mut dedup,
+            )
+            .is_none()
+        );
+        assert!(
+            wants_desktop(
+                Category::ActionConfirmations,
+                Severity::Info,
+                "Merged #12",
+                Some(false),
+                &no_pipelines,
+                &mut dedup,
+            )
+            .is_some(),
+            "the other categories keep their rows"
         );
     }
 

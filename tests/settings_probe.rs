@@ -271,6 +271,82 @@ fn filtered_picker_filters_and_dismisses(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// The Workflow section carries the master, its two narrowed steps and the
+/// background-watch switch; flipping the master persists and reveals the
+/// step switches it gates.
+#[gpui_kit::gpui::test]
+fn the_workflow_section_carries_the_flow_switches(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-workflow-probe-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".warp")).unwrap();
+    // SAFETY: process-global env; serialized against the sibling HOME probes
+    unsafe {
+        std::env::set_var("HOME", &home);
+        #[cfg(windows)]
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    click(cx, "settings-workflow");
+    assert!(
+        cx.debug_bounds("settings-row-Automate the flow").is_some(),
+        "the master switch renders"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-Keep watching in the background")
+            .is_some(),
+        "the background-watch row renders"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-Open the PR step after push")
+            .is_none(),
+        "the step switches stay folded until the master is on"
+    );
+
+    let row = cx
+        .debug_bounds("settings-row-Automate the flow")
+        .expect("the master row is on screen");
+    cx.simulate_click(
+        gpui::point(row.right() - gpui::px(20.), row.center().y),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.update(|_, _| {
+            warp_station_core::settings::SettingsService::open()
+                .get()
+                .workflow
+                .auto_advance
+        }),
+        "the master flip persists into the settings file"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-Open the PR step after push")
+            .is_some()
+            && cx
+                .debug_bounds("settings-row-Open Pipelines after merge")
+                .is_some(),
+        "the two gated steps open under the master"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// The AI card's harness radio and Variant picker: the door catalog's
 /// harnesses render as radios, switching to dsh scopes the Model picker to
 /// that catalog, picking a model exposes its variants, and Save persists the
@@ -1271,7 +1347,11 @@ fn notifications_section_rows_persist(cx: &mut TestAppContext) {
             .is_some(),
         "the unfocused gate renders"
     );
-    for row in ["settings-row-Errors", "settings-row-Action confirmations"] {
+    for row in [
+        "settings-row-Errors",
+        "settings-row-Action confirmations",
+        "settings-row-Pipeline results",
+    ] {
         assert!(
             cx.debug_bounds(row).is_some(),
             "the category rows render ({row})"

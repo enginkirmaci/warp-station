@@ -4,7 +4,7 @@
 
 use gpui::prelude::*;
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
-use warp_station::store::Store;
+use warp_station::store::{Store, WorkspaceTab};
 use warp_station::ui::window::MainWindow;
 
 /// Serializes the HOME-swapping new-branch probe against its siblings.
@@ -93,6 +93,86 @@ fn changes_view_draws_over_real_data(cx: &mut TestAppContext) {
 
     let loaded = cx.read_entity(&store, |s, _| s.changes_loaded_for.is_some());
     assert!(loaded, "changes should be loaded for the selected repo");
+}
+
+/// A pushed feature branch with no pull request draws the toolbar's Create
+/// verb; an open pull request with that head turns the same slot into View.
+#[gpui_kit::gpui::test]
+fn the_toolbar_offers_the_branchs_pull_request_step(cx: &mut TestAppContext) {
+    use warp_station_core::github::{GitHubItem, GitHubSnapshot};
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(net_tx, scratch_service("changes-pull-step"));
+        store.replace_repos(vec![warp_station_core::repo_store::RepoEntry {
+            name: "probe-repo".into(),
+            folder_path: std::path::PathBuf::from("/probe/flow"),
+            solution_path: None,
+            tags: vec![],
+            git_branch_name: Some("feat/flow".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: Some("https://github.com/o/flow".into()),
+            azure_work_item_count: 0,
+        }]);
+        store.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = false;
+            // the probe binary stands in for gh; nothing is spawned
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        store.select_repo("/probe/flow", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store
+    });
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("rail-create-pr").is_some(),
+        "a pushed branch with no pull request draws Create PR"
+    );
+    assert!(
+        cx.debug_bounds("rail-view-pr").is_none(),
+        "and not the View verb"
+    );
+
+    // the branch already has an open pull request
+    cx.update_entity(&store, |s, _| {
+        s.github_by_folder.insert(
+            "/probe/flow".into(),
+            std::sync::Arc::new(GitHubSnapshot {
+                available: true,
+                pulls: vec![GitHubItem {
+                    number: 12,
+                    head_ref_name: Some("feat/flow".into()),
+                    is_pull_request: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        );
+    });
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("rail-view-pr").is_some(),
+        "the open pull request turns the verb into View PR"
+    );
 }
 
 #[gpui_kit::gpui::test]

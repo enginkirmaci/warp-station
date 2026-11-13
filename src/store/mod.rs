@@ -50,6 +50,13 @@ const FOLLOW_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(1
 const FOLLOW_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 /// A run that never reports a finish is followed at most this long.
 const FOLLOW_MAX: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// A merge-triggered run takes a moment to leave the queue: while the
+/// Pipelines focus has no match, the lightweight runs list is read this often,
+/// for at most [PIPELINE_WATCH_MAX]. Only the tab's own focus (or the
+/// `workflow.watch_in_background` switch) drives it, so this never becomes a
+/// second always-on cadence.
+const PIPELINE_WATCH: std::time::Duration = std::time::Duration::from_secs(15);
+const PIPELINE_WATCH_MAX: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// The slice of a platform's window the follow loop leaves untouched: 20 of
 /// Azure's 200 TSTUs per five minutes, and a rounding error of GitHub's 5 000
 /// requests an hour. When the answers say only this much is left, the cadence
@@ -211,6 +218,11 @@ pub struct Store {
     /// E2E hook: WARP_STATION_NEW_PULL=1 opens the New pull request form the
     /// first time the Pull requests tab draws; the workbench drains it.
     pub new_pull_requested: bool,
+    /// A push just landed and the Workflow setting wants the form: armed here
+    /// and consumed by the workspace reload, because the branch's pushed state
+    /// is only in that answer. The deadline keeps a reload that never comes
+    /// from surprising a later one.
+    pending_pull_advance: Option<(String, std::time::Instant)>,
     /// The run open in the Pipelines tab: its lazy detail answers when the
     /// timeline and log array come back.
     pub open_run: Option<OpenRun>,
@@ -219,6 +231,13 @@ pub struct Store {
     /// The Pipelines tab's run-list cadence: the folder and when the next
     /// lightweight runs call is due.
     list_follow: Option<(String, std::time::Instant)>,
+    /// The branch the Pipelines tab is focused on, set by a merged pull
+    /// request's Pipelines button and cleared by its chip. Session-only: it
+    /// belongs to the repository it was set in.
+    pub pipeline_branch: Option<String>,
+    /// Waiting for the first run on that branch, when the merge-triggered one
+    /// has not appeared in the list yet.
+    pipeline_watch: Option<PipelineWatch>,
     /// The Azure pull request open in the Pipelines tab, when one is.
     pub open_azure_pull: Option<OpenAzurePull>,
     /// Keys already asked for ("detail", "files", "commits", "diff:<path>"),
@@ -482,10 +501,13 @@ impl Store {
             open_run: None,
             run_follow: None,
             list_follow: None,
+            pipeline_branch: None,
+            pipeline_watch: None,
             open_azure_pull: None,
             azure_pull_requested: std::collections::HashSet::new(),
             confirm_azure_abandon: None,
             new_pull_requested: std::env::var("WARP_STATION_NEW_PULL").as_deref() == Ok("1"),
+            pending_pull_advance: None,
             closed_requested: std::collections::HashSet::new(),
             closed_failed: std::collections::HashSet::new(),
             wand_busy: None,
@@ -851,6 +873,7 @@ impl Store {
                 // with the probes so the next launch paints them at once
                 if applied {
                     self.persist_cache_soon(cx);
+                    self.maybe_advance_pull_after_push(cx);
                 }
                 self.reproject();
                 cx.notify();
@@ -1066,10 +1089,25 @@ impl Store {
                 }
                 match result {
                     Ok(()) => {
+                        // the merge target, before the reload can replace the
+                        // open pull: the run it starts lands on this branch
+                        let merge_target = self.open_pull.as_ref().and_then(|open| {
+                            open.pull
+                                .as_ref()
+                                .map(|pull| pull.base_ref_name.clone())
+                                .or_else(|| open.item.base_ref_name.clone())
+                        });
                         self.notify_success(format!("Merged #{number}"));
                         self.reload_open_pull();
                         self.kick_github_pass(&[std::path::PathBuf::from(&folder)]);
                         self.forget_closed(&folder, true);
+                        if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                            self.maybe_watch_pipelines_after_merge(
+                                merge_target,
+                                Some(chrono::Local::now() - chrono::Duration::minutes(2)),
+                                cx,
+                            );
+                        }
                     }
                     Err(err) if err.is_empty() => {
                         self.notify_error(format!("Could not merge #{number}"));
@@ -1187,6 +1225,7 @@ impl Store {
                 {
                     Arc::make_mut(snapshot).runs = runs;
                 }
+                self.resolve_pipeline_watch(cx);
                 self.park_list_follow(&folder, budget);
                 cx.notify();
             }
@@ -1200,6 +1239,7 @@ impl Store {
                 {
                     Arc::make_mut(snapshot).pipelines = runs;
                 }
+                self.resolve_pipeline_watch(cx);
                 self.park_list_follow(&folder, budget);
                 cx.notify();
             }
@@ -1277,7 +1317,26 @@ impl Store {
                 }
                 match result {
                     Ok(()) => {
-                        self.notify_success(action.done_word(number));
+                        let done_word = action.done_word(number);
+                        let completing =
+                            matches!(action, warp_station_core::azure::AzurePullAction::Complete);
+                        // the completion's run lands on the target branch; keep
+                        // it before the record reload replaces the detail
+                        let merge_target = completing
+                            .then(|| {
+                                self.open_azure_pull.as_ref().and_then(|open| {
+                                    open.detail
+                                        .as_ref()
+                                        .map(|detail| detail.pull.target_branch())
+                                        .or_else(|| {
+                                            open.item.target_ref_name.as_deref().map(|target| {
+                                                target.trim_start_matches("refs/heads/").to_string()
+                                            })
+                                        })
+                                })
+                            })
+                            .flatten();
+                        self.notify_success(done_word);
                         // the record changed: read it again rather than guess
                         let key = (folder.clone(), number, "detail".to_string());
                         self.azure_pull_requested.remove(&key);
@@ -1288,6 +1347,15 @@ impl Store {
                         self.load_azure_pull(cx);
                         // the project's cards and the rail read the pass
                         self.kick_azure_pass(&[std::path::PathBuf::from(&folder)]);
+                        if let Some(target) = merge_target
+                            && self.selected_repo.as_deref() == Some(folder.as_str())
+                        {
+                            self.maybe_watch_pipelines_after_merge(
+                                Some(target),
+                                Some(chrono::Local::now() - chrono::Duration::minutes(2)),
+                                cx,
+                            );
+                        }
                     }
                     Err(err) if err.trim().is_empty() => {
                         self.notify_error("Azure DevOps did not answer".to_string());
@@ -1598,6 +1666,9 @@ impl Store {
                         self.notify_info(format!("Commit message ready for {name}"));
                     }
                 } else {
+                    if matches!(label, "push" | "publish") {
+                        self.arm_pull_advance(&folder);
+                    }
                     self.notify_success(match (label, commit_hash.as_deref()) {
                         ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
                         ("fetch", _) => format!("Fetched {name}"),
@@ -2323,6 +2394,52 @@ impl Store {
         self.notify(NoticeKind::Error, text);
     }
 
+    /// A watched pipeline's end: the toast always lands, the desktop copy is
+    /// gated by its own `notifications.pipelines` switch rather than by the
+    /// action-confirmation row a success/error toast usually belongs to.
+    fn notify_pipeline(&mut self, kind: NoticeKind, text: impl Into<String>) {
+        let settings = self.settings().notifications;
+        let focused = self.window_focused;
+        if let Some(desktop) = self.notices.push_for(
+            kind,
+            warp_station_core::desktop_notifications::Category::PipelineResults,
+            text,
+            focused,
+            &settings,
+        ) {
+            notices::publish_desktop(desktop);
+        }
+    }
+
+    /// One toast per watched run, worded by its outcome. The row's own name
+    /// and number are enough; the branch is on screen behind the toast.
+    fn announce_run_finished(
+        &mut self,
+        _source: warp_station_core::activity::ActivitySource,
+        run: &warp_station_core::activity::ActivityRun,
+        state: Option<warp_station_core::activity::RunState>,
+    ) {
+        use warp_station_core::activity::RunState;
+        let (kind, outcome) = match state {
+            Some(RunState::Succeeded) => (NoticeKind::Success, "passed"),
+            Some(RunState::Failed) => (NoticeKind::Error, "failed"),
+            Some(RunState::Skipped) => (NoticeKind::Info, "was skipped"),
+            _ => return,
+        };
+        let name = if run.name.trim().is_empty() {
+            "Pipeline"
+        } else {
+            run.name.trim()
+        };
+        let label = run.label.trim();
+        let text = if label.is_empty() {
+            format!("Pipeline {name} {outcome}")
+        } else {
+            format!("Pipeline {name} {label} {outcome}")
+        };
+        self.notify_pipeline(kind, text);
+    }
+
     /// The toast's close button.
     pub fn dismiss_notice(&mut self, id: u64, cx: &mut Context<Self>) {
         if self.notices.dismiss(id) {
@@ -3040,6 +3157,17 @@ impl Store {
         run: warp_station_core::activity::ActivityRun,
         cx: &mut Context<Self>,
     ) {
+        self.open_run_with(run, false, cx);
+    }
+
+    /// [`Self::open_run`], with the merge watch's flag: the first finished
+    /// answer raises a toast even if the run was over when it was opened.
+    fn open_run_with(
+        &mut self,
+        run: warp_station_core::activity::ActivityRun,
+        announce_finish: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
@@ -3048,7 +3176,10 @@ impl Store {
             run,
             detail: None,
             failed: false,
+            announce_finish,
         });
+        // a click (or the watch resolving) ends the wait for a run to appear
+        self.pipeline_watch = None;
         self.run_follow = None;
         self.load_run_detail(cx);
         self.arm_run_follow();
@@ -3063,6 +3194,173 @@ impl Store {
             cx.notify();
         }
         open
+    }
+
+    /// The runs of one repository from both sources, newest first. The
+    /// Pipelines list and the merge watch read the same assembly, so the
+    /// branch focus can never show a row the watch would not pick.
+    pub fn runs_for(&self, folder: &str) -> Vec<warp_station_core::activity::ActivityRun> {
+        use warp_station_core::activity::{ActivityRun, ActivitySource};
+        let mut runs = Vec::new();
+        if let Some(snapshot) = self
+            .azure_by_folder
+            .get(folder)
+            .filter(|snapshot| snapshot.available)
+        {
+            runs.extend(snapshot.pipelines.iter().map(ActivityRun::of_azure));
+        }
+        if self.source_shown(folder, ActivitySource::GitHub)
+            && let Some(snapshot) = self
+                .github_by_folder
+                .get(folder)
+                .filter(|snapshot| snapshot.available)
+        {
+            runs.extend(snapshot.runs.iter().map(ActivityRun::of_github));
+        }
+        warp_station_core::activity::sort_newest_first(&mut runs);
+        runs
+    }
+
+    /// [`Self::runs_for`] narrowed to the merged pull request's target branch,
+    /// while that focus is set.
+    pub fn focused_runs(&self, folder: &str) -> Vec<warp_station_core::activity::ActivityRun> {
+        let mut runs = self.runs_for(folder);
+        if let Some(branch) = self.pipeline_branch.as_deref() {
+            runs.retain(|run| run.display_branch().as_deref() == Some(branch));
+        }
+        runs
+    }
+
+    fn newest_run_on_branch(
+        &self,
+        folder: &str,
+        branch: &str,
+        since: Option<chrono::DateTime<chrono::Local>>,
+    ) -> Option<warp_station_core::activity::ActivityRun> {
+        self.runs_for(folder).into_iter().find(|run| {
+            run.display_branch().as_deref() == Some(branch) && run_started_after(run, since)
+        })
+    }
+
+    /// The merge success hook: the Workflow setting moves the pane to the
+    /// pipeline the merge started. With the master off the same step is the
+    /// pull request's Pipelines button, one click away.
+    fn maybe_watch_pipelines_after_merge(
+        &mut self,
+        branch: Option<String>,
+        since: Option<chrono::DateTime<chrono::Local>>,
+        cx: &mut Context<Self>,
+    ) {
+        let workflow = self.settings().workflow;
+        if !workflow.auto_advance || !workflow.open_pipelines_after_merge {
+            return;
+        }
+        let Some(branch) = branch.filter(|branch| !branch.trim().is_empty()) else {
+            return;
+        };
+        self.watch_pipelines_for(branch, since, true, cx);
+    }
+
+    /// The merged pull request's next step: open Pipelines on `branch`, select
+    /// its newest run, and follow it. When the merge-triggered run has not
+    /// appeared yet, wait for the list to name it and open it then.
+    ///
+    /// `branch` is the merge target (`base_ref_name` / Azure's `target`), not
+    /// the source branch: the merge commit and its run land there.
+    pub fn watch_pipelines_for(
+        &mut self,
+        branch: String,
+        since: Option<chrono::DateTime<chrono::Local>>,
+        announce: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let branch = branch.trim().trim_start_matches("refs/heads/").to_string();
+        if branch.is_empty() {
+            return;
+        }
+        self.open_detail_tab(WorkspaceTab::Pipelines, cx);
+        // the Azure pull request lives in this column: the run list takes it
+        self.open_azure_pull = None;
+        self.azure_pull_requested.clear();
+        self.confirm_azure_abandon = None;
+        self.pipeline_branch = Some(branch.clone());
+        self.close_run(cx);
+        if let Some(run) = self.newest_run_on_branch(&folder, &branch, since) {
+            self.open_run_with(run, announce, cx);
+        } else {
+            let now = std::time::Instant::now();
+            self.pipeline_watch = Some(PipelineWatch {
+                folder: folder.clone(),
+                branch,
+                since,
+                announce,
+                next_poll: now,
+                until: now + PIPELINE_WATCH_MAX,
+            });
+            // first read now; the once-a-second beat keeps it going
+            self.check_pipeline_watch(now, cx);
+        }
+        cx.notify();
+    }
+
+    /// The branch chip's X: back to the repository's whole run list. The open
+    /// run stays open.
+    pub fn clear_pipeline_branch(&mut self, cx: &mut Context<Self>) {
+        let had_focus = self.pipeline_branch.take().is_some();
+        let was_waiting = self.pipeline_watch.take().is_some();
+        if had_focus || was_waiting {
+            cx.notify();
+        }
+    }
+
+    /// Whether the Pipelines tab is waiting for a merge-triggered run to
+    /// appear: the toolbar's spinner and the probes' handle.
+    pub fn pipeline_watch_active(&self) -> bool {
+        self.pipeline_watch.is_some()
+    }
+
+    /// One watch poll: re-read the lightweight runs list until the branch's
+    /// first run appears, or the wait expires. The list's answer resolves the
+    /// watch in [`Self::resolve_pipeline_watch`].
+    fn check_pipeline_watch(&mut self, now: std::time::Instant, cx: &mut Context<Self>) {
+        let Some(mut watch) = self.pipeline_watch.clone() else {
+            return;
+        };
+        if self.selected_repo.as_deref() != Some(watch.folder.as_str()) {
+            self.pipeline_watch = None;
+            return;
+        }
+        if now >= watch.until {
+            // a merge that starts no pipeline is not an error: stop quietly
+            self.pipeline_watch = None;
+            cx.notify();
+            return;
+        }
+        if now < watch.next_poll {
+            return;
+        }
+        watch.next_poll = now + PIPELINE_WATCH;
+        self.pipeline_watch = Some(watch.clone());
+        self.follow_runs(&watch.folder, now);
+    }
+
+    /// The runs list answered while the focus was waiting: the first run on
+    /// the branch is opened and followed.
+    fn resolve_pipeline_watch(&mut self, cx: &mut Context<Self>) {
+        let Some(watch) = self.pipeline_watch.clone() else {
+            return;
+        };
+        if self.selected_repo.as_deref() != Some(watch.folder.as_str()) {
+            self.pipeline_watch = None;
+            return;
+        }
+        let Some(run) = self.newest_run_on_branch(&watch.folder, &watch.branch, watch.since) else {
+            return;
+        };
+        self.open_run_with(run, watch.announce, cx);
     }
 
     /// The selected run's detail: the timeline and log for an Azure pipeline,
@@ -3161,10 +3459,22 @@ impl Store {
     /// while it can still change, and the run list behind it. Only while the
     /// Pipelines tab is the one on screen — a hidden pane spends no requests.
     pub fn check_run_follow(&mut self, now: std::time::Instant, cx: &mut Context<Self>) {
-        if self.active_detail_tab() != WorkspaceTab::Pipelines {
+        let on_screen = self.active_detail_tab() == WorkspaceTab::Pipelines;
+        if !on_screen
+            && (!self.settings().workflow.watch_in_background
+                || (self.run_follow.is_none() && self.pipeline_watch.is_none()))
+        {
+            // a hidden pane spends no requests unless the user asked a
+            // watched run to keep going
             return;
         }
-        self.check_run_list_follow(now, cx);
+        if self.pipeline_watch.is_some() {
+            // waiting for the merge-triggered run: the branch's first
+            // matching row is what the list read is for
+            self.check_pipeline_watch(now, cx);
+        } else if on_screen {
+            self.check_run_list_follow(now, cx);
+        }
         let Some(mut follow) = self.run_follow.clone() else {
             return;
         };
@@ -3303,6 +3613,18 @@ impl Store {
         let matches = self.open_run.as_ref().is_some_and(|open| {
             open.folder == folder && open.run.id == run_id && open.run.source == source
         });
+        // before the answer lands: was this a run the pane was watching go,
+        // and did the merge watch ask for its finish to be announced even if
+        // it was already over when the detail arrived?
+        let (was_going, announce) = self.open_run.as_ref().map_or((false, false), |open| {
+            (
+                open.folder == folder
+                    && open.run.id == run_id
+                    && open.run.source == source
+                    && followable(&open.run),
+                open.announce_finish,
+            )
+        });
         if matches {
             match detail {
                 Some(mut detail) => {
@@ -3330,6 +3652,33 @@ impl Store {
                 }
             }
         }
+        let finished_state = self
+            .open_run
+            .as_ref()
+            .filter(|open| {
+                open.folder == folder && open.run.id == run_id && open.run.source == source
+            })
+            .and_then(|open| open.detail.as_ref())
+            .and_then(|detail| detail.state);
+        let still_going = finished_state.is_none_or(|state| {
+            !matches!(
+                state,
+                warp_station_core::activity::RunState::Succeeded
+                    | warp_station_core::activity::RunState::Failed
+                    | warp_station_core::activity::RunState::Skipped
+            )
+        });
+        let finished_run = (matches && !still_going && (was_going || announce))
+            .then(|| {
+                self.open_run.as_mut().map(|open| {
+                    open.announce_finish = false;
+                    open.run.clone()
+                })
+            })
+            .flatten();
+        if let Some(run) = finished_run {
+            self.announce_run_finished(run.source, &run, finished_state);
+        }
         let Some(mut follow) = self.run_follow.take() else {
             cx.notify();
             return;
@@ -3356,19 +3705,6 @@ impl Store {
             cx.notify();
             return;
         }
-        let finished_state = self
-            .open_run
-            .as_ref()
-            .and_then(|open| open.detail.as_ref())
-            .and_then(|detail| detail.state);
-        let still_going = finished_state.is_none_or(|state| {
-            !matches!(
-                state,
-                warp_station_core::activity::RunState::Succeeded
-                    | warp_station_core::activity::RunState::Failed
-                    | warp_station_core::activity::RunState::Skipped
-            )
-        });
         if !still_going {
             // the run is over: the log first (a failure's reason is worth one
             // more call), then the list's last word
@@ -3644,6 +3980,216 @@ impl Store {
     }
 
     // ---- the New pull request form -----------------------------------------
+
+    /// A push landed: remember that the Workflow setting wants the form once
+    /// the repository's status reloads. `git_to_push_count` is still the old
+    /// value at this event, so the decision waits for the probe.
+    fn arm_pull_advance(&mut self, folder: &str) {
+        let workflow = self.settings().workflow;
+        if !workflow.auto_advance || !workflow.open_pull_request_after_push {
+            return;
+        }
+        if self.selected_repo.as_deref() != Some(folder) {
+            return;
+        }
+        self.pending_pull_advance = Some((
+            folder.to_string(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        ));
+    }
+
+    /// The status probe the push scheduled: the branch's own pushed count is
+    /// in it now, so the form can open against a settled state. Azure's create
+    /// page stays a click — launching a browser without one is more than the
+    /// automation promised.
+    fn maybe_advance_pull_after_push(&mut self, cx: &mut Context<Self>) {
+        let Some((folder, deadline)) = self.pending_pull_advance.clone() else {
+            return;
+        };
+        if self.selected_repo.as_deref() != Some(folder.as_str()) {
+            self.pending_pull_advance = None;
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            self.pending_pull_advance = None;
+            return;
+        }
+        let settled = self
+            .selected_entry()
+            .is_some_and(|entry| entry.git_to_push_count == 0 && entry.git_branch_published);
+        if !settled {
+            return;
+        }
+        self.pending_pull_advance = None;
+        if !self.github_create_available(&folder) {
+            return;
+        }
+        if matches!(self.pull_shortcut(), Some(PullShortcut::Create { .. })) {
+            self.start_new_pull(cx);
+        }
+    }
+
+    /// The next pull-request step the selected repository's branch offers.
+    /// This is state, not a one-shot: a branch pushed before a restart still
+    /// offers Create, and one with an open pull request offers View instead.
+    pub fn pull_shortcut(&self) -> Option<PullShortcut> {
+        use warp_station_core::activity::ActivitySource;
+        let folder = self.selected_repo.as_deref()?;
+        let entry = self.selected_entry()?;
+        let branch = entry
+            .git_branch_name
+            .as_deref()
+            .filter(|branch| !branch.is_empty() && *branch != "(detached)")?;
+        // a pull request only makes sense once the branch itself is on the
+        // remote; uncommitted work is not the PR's business
+        if !entry.git_has_remote || !entry.git_branch_published || entry.git_to_push_count > 0 {
+            return None;
+        }
+        if branch == self.default_branch() {
+            return None;
+        }
+        // an open pull request for this head wins, whichever platform owns it
+        if let Some(snapshot) = self
+            .github_by_folder
+            .get(folder)
+            .filter(|snapshot| snapshot.available)
+            && let Some(item) = snapshot
+                .pulls
+                .iter()
+                .find(|pull| pull.head_ref_name.as_deref() == Some(branch))
+        {
+            return Some(PullShortcut::Open {
+                source: ActivitySource::GitHub,
+                number: item.number,
+            });
+        }
+        if let Some(snapshot) = self
+            .azure_by_folder
+            .get(folder)
+            .filter(|snapshot| snapshot.available)
+            && let Some(item) = snapshot.pulls.iter().find(|pull| {
+                pull.source_ref_name
+                    .as_deref()
+                    .map(|source| source.trim_start_matches("refs/heads/"))
+                    == Some(branch)
+            })
+        {
+            return Some(PullShortcut::Open {
+                source: ActivitySource::Azure,
+                number: item.number,
+            });
+        }
+        // Create: GitHub's in-pane form first, then Azure's create page
+        if self.github_create_available(folder) {
+            return Some(PullShortcut::Create {
+                source: ActivitySource::GitHub,
+            });
+        }
+        if self.azure_auth().is_some()
+            && self
+                .azure_by_folder
+                .get(folder)
+                .is_some_and(|snapshot| snapshot.available)
+        {
+            return Some(PullShortcut::Create {
+                source: ActivitySource::Azure,
+            });
+        }
+        None
+    }
+
+    /// Whether the repository resolved as a GitHub one this pass (the switch,
+    /// `gh`, and a URL or an available snapshot). A branch with a GitHub remote
+    /// still counts while the first snapshot is on its way.
+    fn github_create_available(&self, folder: &str) -> bool {
+        if self.gh_exe().is_none() {
+            return false;
+        }
+        self.github_by_folder
+            .get(folder)
+            .is_some_and(|snapshot| snapshot.available)
+            || self
+                .repos
+                .iter()
+                .find(|repo| repo.folder_path.to_string_lossy() == folder)
+                .is_some_and(|repo| repo.github_web_url.is_some())
+    }
+
+    /// The toolbar's Create verb: the GitHub form in the Pull requests tab, or
+    /// Azure's own create page (the app has no Azure form).
+    pub fn start_new_pull(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        if self.github_create_available(&folder) {
+            if self.detail_tab != WorkspaceTab::PullRequests {
+                self.open_detail_tab(WorkspaceTab::PullRequests, cx);
+            }
+            self.open_new_pull(cx);
+            return;
+        }
+        let url = self
+            .azure_by_folder
+            .get(&folder)
+            .filter(|snapshot| snapshot.available)
+            .and_then(|snapshot| snapshot.new_pull_request_url());
+        if let Some(url) = url {
+            let _ = warp_station_core::terminal::open_folder(&url);
+            self.notify_info("Opening Azure DevOps to create the pull request");
+        }
+    }
+
+    /// The toolbar's View verb: the existing pull request for this branch.
+    pub fn open_pull_shortcut(
+        &mut self,
+        source: warp_station_core::activity::ActivitySource,
+        number: u64,
+        cx: &mut Context<Self>,
+    ) {
+        use warp_station_core::activity::ActivitySource;
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        match source {
+            ActivitySource::GitHub => {
+                let item = self
+                    .github_by_folder
+                    .get(&folder)
+                    .filter(|snapshot| snapshot.available)
+                    .and_then(|snapshot| {
+                        snapshot
+                            .pulls
+                            .iter()
+                            .find(|pull| pull.number == number)
+                            .cloned()
+                    });
+                match item {
+                    Some(item) => self.open_pull_request(item, cx),
+                    None => self.notify_error(format!("Pull request #{number} is not in the list")),
+                }
+            }
+            ActivitySource::Azure => {
+                let item = self
+                    .azure_by_folder
+                    .get(&folder)
+                    .filter(|snapshot| snapshot.available)
+                    .and_then(|snapshot| {
+                        snapshot
+                            .pulls
+                            .iter()
+                            .find(|pull| pull.number == number)
+                            .cloned()
+                    });
+                match item {
+                    Some(item) => {
+                        self.open_detail_tab(WorkspaceTab::Pipelines, cx);
+                        self.open_azure_pull(item, cx);
+                    }
+                    None => self.notify_error(format!("Pull request !{number} is not in the list")),
+                }
+            }
+        }
+    }
 
     /// Opens the form with the branches it would most likely want: the checked
     /// out branch as the source, the repository's default branch as the base.
@@ -4262,6 +4808,9 @@ impl Store {
         self.open_run = None;
         self.run_follow = None;
         self.list_follow = None;
+        self.pending_pull_advance = None;
+        self.pipeline_branch = None;
+        self.pipeline_watch = None;
         self.pull_diff.clear();
         self.pull_diff_requested.clear();
         self.pull_commit_files.clear();
@@ -4859,6 +5408,20 @@ pub enum WorkspaceTab {
     Pipelines,
 }
 
+/// The next pull-request step a repository's pushed branch offers: open the
+/// writing form (or Azure's create page), or revisit the pull request that
+/// already has this head branch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PullShortcut {
+    Create {
+        source: warp_station_core::activity::ActivitySource,
+    },
+    Open {
+        source: warp_station_core::activity::ActivitySource,
+        number: u64,
+    },
+}
+
 /// A pull request open in the detail pane. It stays on `item`, the list's row,
 /// until `pull`, the full view, answers.
 #[derive(Clone, Debug)]
@@ -4921,6 +5484,28 @@ pub struct OpenRun {
     pub detail: Option<warp_station_core::activity::RunDetail>,
     /// The detail call failed: the pane says so instead of spinning.
     pub failed: bool,
+    /// The run came from the merge watch, not a user click: its first answer
+    /// that says the run finished is worth a toast even when it was already
+    /// over by the time the detail landed.
+    pub announce_finish: bool,
+}
+
+/// A merged pull request's target branch, waiting for the run the merge
+/// started to show up in the lightweight runs list.
+#[derive(Clone, Debug)]
+pub struct PipelineWatch {
+    folder: String,
+    branch: String,
+    /// The merge time: rows older than this are not the run the merge
+    /// started. `None` accepts the branch's newest row.
+    since: Option<chrono::DateTime<chrono::Local>>,
+    /// The auto-merge hook asked for the finish to be announced even if the
+    /// run was already over when it appeared; a button press did not.
+    announce: bool,
+    /// The next list read is due; first one immediately.
+    next_poll: std::time::Instant,
+    /// Give up after this: a merge that starts no pipeline is not an error.
+    until: std::time::Instant,
 }
 
 /// The live follow of an open run in the Pipelines tab. While the run can
@@ -4965,6 +5550,26 @@ fn followable(run: &warp_station_core::activity::ActivityRun) -> bool {
         warp_station_core::activity::RunState::Queued
             | warp_station_core::activity::RunState::Running
     )
+}
+
+/// Whether a run started at or after the merge that should have triggered it.
+/// A minute of slack covers runner clocks and the queue's own timestamp; a row
+/// with no timestamp is not hidden by the filter.
+fn run_started_after(
+    run: &warp_station_core::activity::ActivityRun,
+    since: Option<chrono::DateTime<chrono::Local>>,
+) -> bool {
+    let Some(since) = since else {
+        return true;
+    };
+    let Some(at) = run
+        .at
+        .as_deref()
+        .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+    else {
+        return true;
+    };
+    at.with_timezone(&chrono::Local) + chrono::Duration::seconds(60) >= since
 }
 
 /// Whether a run's log is worth a call once it is over. An Actions run's log
@@ -5258,6 +5863,142 @@ mod tests {
             wants_log(Azure, Some(RunState::Succeeded)),
             "the build's closing log entry is worth reading either way"
         );
+    }
+
+    /// The Changes toolbar's PR verb follows the branch, not the last action:
+    /// a pushed feature branch offers Create, an open pull request with that
+    /// head offers View, and the default branch or unpushed work offers
+    /// neither.
+    #[test]
+    fn a_pushed_branch_offers_create_then_view() {
+        use warp_station_core::activity::ActivitySource;
+        use warp_station_core::github::{GitHubItem, GitHubSnapshot};
+
+        let (tx, _rx) = async_channel::unbounded();
+        let scratch = std::env::temp_dir().join(format!(
+            "warp-station-pull-shortcut-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&scratch, "{}").expect("scratch settings");
+        let mut store = Store::with_settings(tx, Arc::new(SettingsService::at(scratch.clone())));
+        let folder = "/probe/alpha".to_string();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from(&folder),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("feat/flow".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: Some("https://github.com/o/alpha".into()),
+            azure_work_item_count: 0,
+        }]);
+        store.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = false;
+            // the test binary stands in for gh so the machine's PATH is not
+            // part of the assertion
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        store.selected_repo = Some(folder.clone());
+        assert_eq!(
+            store.pull_shortcut(),
+            Some(PullShortcut::Create {
+                source: ActivitySource::GitHub
+            })
+        );
+
+        // the branch already has an open pull request: the verb becomes View
+        store.github_by_folder.insert(
+            folder,
+            Arc::new(GitHubSnapshot {
+                available: true,
+                pulls: vec![GitHubItem {
+                    number: 7,
+                    head_ref_name: Some("feat/flow".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        );
+        assert_eq!(
+            store.pull_shortcut(),
+            Some(PullShortcut::Open {
+                source: ActivitySource::GitHub,
+                number: 7
+            })
+        );
+
+        store.repos[0].git_branch_name = Some("main".into());
+        assert_eq!(store.pull_shortcut(), None, "the default branch has no PR");
+        store.repos[0].git_branch_name = Some("feat/flow".into());
+        store.repos[0].git_to_push_count = 1;
+        assert_eq!(store.pull_shortcut(), None, "unpushed work is not a PR yet");
+
+        let _ = std::fs::remove_file(&scratch);
+    }
+
+    /// The Pipelines branch focus narrows the same newest-first assembly the
+    /// full list uses; clearing it brings the other branches back.
+    #[test]
+    fn the_pipelines_focus_narrows_to_the_merge_target() {
+        use warp_station_core::github::{GitHubRun, GitHubSnapshot};
+
+        let (tx, _rx) = async_channel::unbounded();
+        let scratch = std::env::temp_dir().join(format!(
+            "warp-station-pipeline-focus-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&scratch, "{}").expect("scratch settings");
+        let mut store = Store::with_settings(tx, Arc::new(SettingsService::at(scratch.clone())));
+        let folder = "/probe/alpha".to_string();
+        store.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = false;
+        });
+        let run = |id: u64, branch: &str, created: &str| GitHubRun {
+            id,
+            number: id,
+            name: "kits".into(),
+            title: format!("run {id}"),
+            branch: Some(branch.into()),
+            status: Some("completed".into()),
+            conclusion: Some("success".into()),
+            url: None,
+            created_at: Some(created.into()),
+        };
+        store.github_by_folder.insert(
+            folder.clone(),
+            Arc::new(GitHubSnapshot {
+                available: true,
+                runs: vec![
+                    run(1, "feat/flow", "2026-11-11T15:00:00Z"),
+                    run(2, "main", "2026-11-11T16:00:00Z"),
+                ],
+                ..Default::default()
+            }),
+        );
+        assert_eq!(store.runs_for(&folder).len(), 2, "both branches by default");
+        store.pipeline_branch = Some("main".into());
+        let focused = store.focused_runs(&folder);
+        assert_eq!(focused.len(), 1);
+        assert_eq!(focused[0].branch.as_deref(), Some("main"));
+        store.pipeline_branch = None;
+        assert_eq!(store.focused_runs(&folder).len(), 2);
+
+        let _ = std::fs::remove_file(&scratch);
     }
 
     /// The follow cadence is per source and bounded: GitHub's one-request

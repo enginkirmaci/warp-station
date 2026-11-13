@@ -39,13 +39,14 @@ enum Section {
     Appearance,
     Repositories,
     Git,
+    Workflow,
     ExternalTools,
     Ai,
     Integrations,
 }
 
 /// The sections in list order: value, row id, title, what it holds.
-const SECTIONS: [(Section, &str, &str, &str); 8] = [
+const SECTIONS: [(Section, &str, &str, &str); 9] = [
     (
         Section::General,
         "settings-general",
@@ -71,6 +72,12 @@ const SECTIONS: [(Section, &str, &str, &str); 8] = [
         "Folders, patterns and grouping",
     ),
     (Section::Git, "settings-git", "Git", "Branch naming"),
+    (
+        Section::Workflow,
+        "settings-workflow",
+        "Workflow",
+        "Push, pull request and pipeline steps",
+    ),
     (
         Section::ExternalTools,
         "settings-tools",
@@ -103,6 +110,7 @@ pub struct SettingsPage {
     notify_only_unfocused: bool,
     notify_errors: bool,
     notify_actions: bool,
+    notify_pipelines: bool,
     // Scanning
     scan_folders: Entity<TextareaState>,
     /// The scan roots the folders area was seeded with. A save compares the
@@ -122,6 +130,11 @@ pub struct SettingsPage {
     auto_refresh_minutes: Entity<InputState>,
     // Git
     branch_name_prefix: Entity<InputState>,
+    // Workflow
+    flow_auto_advance: bool,
+    flow_open_pull: bool,
+    flow_open_pipelines: bool,
+    flow_watch_background: bool,
     // External tools
     vscode_executable: Entity<InputState>,
     vscode_profile: Entity<InputState>,
@@ -343,6 +356,7 @@ impl SettingsPage {
             notify_only_unfocused: settings.notifications.only_when_unfocused,
             notify_errors: settings.notifications.errors,
             notify_actions: settings.notifications.action_confirmations,
+            notify_pipelines: settings.notifications.pipelines,
             scan_folders: area(window, cx, &scan_folders_text),
             scan_folders_seed: text_lines(&scan_folders_text),
             excluded_folders: area(window, cx, &line_list(&repos.excluded_folders)),
@@ -362,6 +376,10 @@ impl SettingsPage {
                     .unwrap_or_default(),
             ),
             branch_name_prefix: field(window, cx, &repos.branch_name_prefix),
+            flow_auto_advance: settings.workflow.auto_advance,
+            flow_open_pull: settings.workflow.open_pull_request_after_push,
+            flow_open_pipelines: settings.workflow.open_pipelines_after_merge,
+            flow_watch_background: settings.workflow.watch_in_background,
             vscode_executable: field(window, cx, &repos.vscode_executable),
             vscode_profile: field(window, cx, &repos.vscode_profile),
             terminal_executable: field(window, cx, &repos.terminal_executable),
@@ -537,6 +555,13 @@ impl SettingsPage {
             self.notify_only_unfocused,
             self.notify_errors,
             self.notify_actions,
+            self.notify_pipelines,
+        );
+        let workflow = (
+            self.flow_auto_advance,
+            self.flow_open_pull,
+            self.flow_open_pipelines,
+            self.flow_watch_background,
         );
         let snapit_auto_start = self.snapit_auto_start;
         let snapit_exe = Self::value(&self.snapit_executable, cx);
@@ -615,6 +640,11 @@ impl SettingsPage {
                 s.notifications.only_when_unfocused = notifications.1;
                 s.notifications.errors = notifications.2;
                 s.notifications.action_confirmations = notifications.3;
+                s.notifications.pipelines = notifications.4;
+                s.workflow.auto_advance = workflow.0;
+                s.workflow.open_pull_request_after_push = workflow.1;
+                s.workflow.open_pipelines_after_merge = workflow.2;
+                s.workflow.watch_in_background = workflow.3;
             });
             // grouping only reshapes the list: re-project, never rescan —
             // the repos and their folders did not change
@@ -998,6 +1028,19 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-notify-pipelines",
+                    "Pipeline results",
+                    "settings-row-Pipeline results".to_string(),
+                    "A watched run's pass, failure or skip",
+                    self.notify_pipelines,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.notify_pipelines = !this.notify_pipelines;
+                        this.save(cx);
+                        cx.notify();
+                    }),
+                ));
             }
             Section::Appearance => {
                 // the three appearance rows apply at once and carry the
@@ -1125,6 +1168,65 @@ impl SettingsPage {
                     rows.is_empty(),
                     window,
                     cx,
+                ));
+            }
+            Section::Workflow => {
+                // the master only moves screens; Create and Merge keep their
+                // own presses and the sub-switches narrow the two steps
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-flow-auto",
+                    "Automate the flow",
+                    "settings-row-Automate the flow".to_string(),
+                    "After a push, open the pull-request step; after a merge, open the pipeline",
+                    self.flow_auto_advance,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.flow_auto_advance = !this.flow_auto_advance;
+                        this.save(cx);
+                        cx.notify();
+                    }),
+                ));
+                if self.flow_auto_advance {
+                    rows.push(kit_settings::switch_row_with_desc(
+                        "set-flow-push",
+                        "Open the PR step after push",
+                        "settings-row-Open the PR step after push".to_string(),
+                        "The pushed branch's Create pull request step opens by itself (GitHub's in-pane form)",
+                        self.flow_open_pull,
+                        rows.is_empty(),
+                        cx.listener(|this, _, _, cx| {
+                            this.flow_open_pull = !this.flow_open_pull;
+                            this.save(cx);
+                            cx.notify();
+                        }),
+                    ));
+                    rows.push(kit_settings::switch_row_with_desc(
+                        "set-flow-merge",
+                        "Open Pipelines after merge",
+                        "settings-row-Open Pipelines after merge".to_string(),
+                        "The merged pull request's pipeline opens on its target branch",
+                        self.flow_open_pipelines,
+                        rows.is_empty(),
+                        cx.listener(|this, _, _, cx| {
+                            this.flow_open_pipelines = !this.flow_open_pipelines;
+                            this.save(cx);
+                            cx.notify();
+                        }),
+                    ));
+                }
+                rows.push(kit_settings::subhead("Watching"));
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-flow-watch",
+                    "Keep watching in the background",
+                    "settings-row-Keep watching in the background".to_string(),
+                    "A watched run keeps polling after you leave Pipelines, so its toast finds you on any tab",
+                    self.flow_watch_background,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.flow_watch_background = !this.flow_watch_background;
+                        this.save(cx);
+                        cx.notify();
+                    }),
                 ));
             }
             Section::ExternalTools => {

@@ -494,3 +494,459 @@ fn a_running_workflow_is_followed_on_the_github_cadence(cx: &mut TestAppContext)
         "a finished workflow is not followed"
     );
 }
+
+/// A watched run raises one end toast, on the first answer that says it
+/// finished; the log call that closes the follow does not repeat it.
+#[gpui::test]
+fn a_watched_run_raises_one_end_toast(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "toast");
+    seed(&store, cx);
+    let cx = open_window(&store, cx);
+    if store.read_with(cx, |s, _| s.open_run.is_none()) {
+        let run = ActivityRun::of_azure(&build(48, "inProgress", None));
+        cx.update_entity(&store, |s: &mut Store, cx| s.open_run(run, cx));
+        draw(cx);
+    }
+    let _ = detail_asks(&net_rx);
+    // the opening answer says the run is going
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunDetailLoaded {
+                folder: "/probe/alpha".into(),
+                build_id: 48,
+                detail: Some(detail(RunState::Running, "")),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        store.read_with(cx, |s, _| s.notices.list().is_empty()),
+        "a run still going says nothing"
+    );
+
+    // the first finished answer is the event; the pane then asks for the log
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunDetailLoaded {
+                folder: "/probe/alpha".into(),
+                build_id: 48,
+                detail: Some(detail(RunState::Failed, "")),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    let notices = store.read_with(cx, |s, _| {
+        s.notices
+            .list()
+            .iter()
+            .map(|notice| notice.text.clone())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        notices
+            .iter()
+            .filter(|text| text.contains("failed"))
+            .count(),
+        1,
+        "one toast for the finish: {notices:?}"
+    );
+    assert_eq!(detail_asks(&net_rx), [(48, true)], "the log is still asked");
+
+    // the closing log answer must not raise a second toast
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunDetailLoaded {
+                folder: "/probe/alpha".into(),
+                build_id: 48,
+                detail: Some(detail(RunState::Failed, "##[error]cargo fmt --check\n")),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    let repeats = store.read_with(cx, |s, _| {
+        s.notices
+            .list()
+            .iter()
+            .filter(|notice| notice.text.contains("failed"))
+            .count()
+    });
+    assert_eq!(repeats, 1, "the closing answer does not repeat the toast");
+}
+
+/// The merge watch's announce flag covers a run that finished before its
+/// detail landed; the button's own press does not (the reader is looking at
+/// the pane already).
+#[gpui::test]
+fn a_merge_watch_announces_a_run_that_ended_before_the_detail(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "announce");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.azure_by_folder.insert(
+            "/probe/alpha".to_string(),
+            std::sync::Arc::new(AzureSnapshot {
+                available: true,
+                pipelines: vec![build(48, "completed", Some("succeeded"))],
+                ..Default::default()
+            }),
+        );
+        s.select_repo("/probe/alpha", cx);
+    });
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.watch_pipelines_for("main".into(), None, true, cx)
+    });
+    draw(cx);
+    assert_eq!(
+        store.read_with(cx, |s, _| s.open_run.as_ref().map(|open| open.run.id)),
+        Some(48),
+        "the branch's run is opened"
+    );
+    let _ = detail_asks(&net_rx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunDetailLoaded {
+                folder: "/probe/alpha".into(),
+                build_id: 48,
+                detail: Some(detail(RunState::Succeeded, "")),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        store.read_with(cx, |s, _| s
+            .notices
+            .list()
+            .iter()
+            .any(|notice| notice.text.contains("passed"))),
+        "a run that ended before the detail still announces its result"
+    );
+}
+
+/// The background switch continues a run the user is already watching when
+/// Pipelines is left; with it off, a hidden tab spends no requests.
+#[gpui::test]
+fn a_watched_run_keeps_polling_after_leaving_pipelines(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "background");
+    seed(&store, cx);
+    let cx = open_window(&store, cx);
+    if store.read_with(cx, |s, _| s.open_run.is_none()) {
+        let run = ActivityRun::of_azure(&build(48, "inProgress", None));
+        cx.update_entity(&store, |s: &mut Store, cx| s.open_run(run, cx));
+        draw(cx);
+    }
+    let _ = detail_asks(&net_rx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunDetailLoaded {
+                folder: "/probe/alpha".into(),
+                build_id: 48,
+                detail: Some(detail(RunState::Running, "")),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    let later = Instant::now() + Duration::from_secs(22);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        // the shipped default is on: this half proves the off switch costs
+        // nothing, then the on switch is restored for the second half
+        s.update_settings(|settings| settings.workflow.watch_in_background = false);
+        s.open_detail_tab(WorkspaceTab::Changes, cx);
+        s.check_run_follow(later, cx);
+    });
+    draw(cx);
+    assert_eq!(
+        detail_asks(&net_rx),
+        [],
+        "a hidden tab with the switch off spends nothing"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| settings.workflow.watch_in_background = true);
+        s.check_run_follow(later, cx);
+    });
+    draw(cx);
+    assert_eq!(
+        detail_asks(&net_rx),
+        [(48, false)],
+        "the watched run keeps its detail cadence off screen"
+    );
+}
+
+/// A merged pull request's branch focus waits for the merge-triggered run in
+/// the lightweight list, opens it, and clears its wait; the chip's clear puts
+/// the whole list back.
+#[gpui::test]
+fn a_merged_branch_focus_waits_for_its_run(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "focus");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.azure_by_folder.insert(
+            "/probe/alpha".to_string(),
+            std::sync::Arc::new(AzureSnapshot {
+                available: true,
+                ..Default::default()
+            }),
+        );
+        s.select_repo("/probe/alpha", cx);
+    });
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.watch_pipelines_for("refs/heads/main".into(), None, false, cx)
+    });
+    draw(cx);
+    assert_eq!(
+        store.read_with(cx, |s, _| s.active_detail_tab()),
+        WorkspaceTab::Pipelines,
+        "the button lands on the pipelines tab"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.pipeline_branch.clone()),
+        Some("main".into()),
+        "the refs/heads/ spelling is stripped"
+    );
+    assert!(
+        store.read_with(cx, |s, _| s.pipeline_watch_active()),
+        "no run yet means the focus waits"
+    );
+    assert!(list_asks(&net_rx) >= 1, "the wait asks the runs list");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunsLoaded {
+                folder: "/probe/alpha".into(),
+                runs: Some(vec![build(48, "inProgress", None)]),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        !store.read_with(cx, |s, _| s.pipeline_watch_active()),
+        "the first matching row ends the wait"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.open_run.as_ref().map(|open| open.run.id)),
+        Some(48),
+        "the merge-triggered run is the selection"
+    );
+    assert_eq!(
+        detail_asks(&net_rx),
+        [(48, false)],
+        "and it is followed from its first answer"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| s.clear_pipeline_branch(cx));
+    assert_eq!(
+        store.read_with(cx, |s, _| s.pipeline_branch.clone()),
+        None,
+        "the chip is the way back to every branch"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.open_run.as_ref().map(|open| open.run.id)),
+        Some(48),
+        "clearing the focus keeps the run open"
+    );
+}
+
+/// The merge watch is about the run the merge started: an older run on the
+/// same branch is not selected while waiting, and the first row newer than the
+/// merge is.
+#[gpui::test]
+fn a_merge_watch_ignores_runs_from_before_the_merge(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "since");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.azure_by_folder.insert(
+            "/probe/alpha".to_string(),
+            std::sync::Arc::new(AzureSnapshot {
+                available: true,
+                pipelines: vec![build(48, "completed", Some("succeeded"))],
+                ..Default::default()
+            }),
+        );
+        s.select_repo("/probe/alpha", cx);
+    });
+    let cx = open_window(&store, cx);
+    let merged_at = chrono::Local::now();
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.watch_pipelines_for("main".into(), Some(merged_at), false, cx)
+    });
+    draw(cx);
+    assert!(
+        store.read_with(cx, |s, _| s.open_run.is_none()),
+        "the run from before the merge is not opened"
+    );
+    assert!(
+        store.read_with(cx, |s, _| s.pipeline_watch_active()),
+        "the focus waits for the merge-triggered run"
+    );
+
+    let mut merge_run = build(49, "inProgress", None);
+    merge_run.at = Some(chrono::Local::now().to_rfc3339());
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzureRunsLoaded {
+                folder: "/probe/alpha".into(),
+                runs: Some(vec![merge_run, build(48, "completed", Some("succeeded"))]),
+                budget: Default::default(),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert_eq!(
+        store.read_with(cx, |s, _| s.open_run.as_ref().map(|open| open.run.id)),
+        Some(49),
+        "the first run newer than the merge is selected"
+    );
+}
+
+/// A merged GitHub pull request draws the Pipelines verb in its head; the
+/// button is the manual half of the Workflow setting.
+#[gpui::test]
+fn a_merged_pull_offers_the_pipelines_button(cx: &mut TestAppContext) {
+    use warp_station_core::github::{GitHubItem, GitHubPull, GitHubSnapshot};
+
+    let (store, _net_rx) = scratch_store(cx, "merged-pr");
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        let item = GitHubItem {
+            number: 9,
+            title: "Merged".into(),
+            is_pull_request: true,
+            state: Some("MERGED".into()),
+            base_ref_name: Some("main".into()),
+            head_ref_name: Some("feat/flow".into()),
+            ..Default::default()
+        };
+        s.github_by_folder.insert(
+            "/probe/alpha".into(),
+            std::sync::Arc::new(GitHubSnapshot {
+                available: true,
+                pulls: vec![item.clone()],
+                ..Default::default()
+            }),
+        );
+    });
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.select_repo("/probe/alpha", cx);
+        s.open_pull_request(
+            GitHubItem {
+                number: 9,
+                title: "Merged".into(),
+                is_pull_request: true,
+                base_ref_name: Some("main".into()),
+                ..Default::default()
+            },
+            cx,
+        );
+        s.on_net_event(
+            UiEvent::GitHubPullLoaded {
+                folder: "/probe/alpha".into(),
+                number: 9,
+                pull: Some(Box::new(GitHubPull {
+                    number: 9,
+                    title: "Merged".into(),
+                    state: "MERGED".into(),
+                    base_ref_name: "main".into(),
+                    head_ref_name: "feat/flow".into(),
+                    ..Default::default()
+                })),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("pull-pipelines").is_some(),
+        "the merged pull request carries the Pipelines button"
+    );
+}
+
+/// The post-push advance waits for the settled status: the push event itself
+/// still carries the old ahead count, and the form should open against the
+/// branch the probe now says is on the remote.
+#[gpui::test]
+fn a_push_advances_to_the_pull_form(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "advance");
+    let folder = "/probe/alpha";
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.enable_azure_devops = false;
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+            settings.workflow.auto_advance = true;
+        });
+        s.replace_repos(vec![entry("alpha", folder)]);
+        s.repos[0].git_branch_name = Some("feat/flow".into());
+        s.repos[0].git_to_push_count = 1;
+        s.repos[0].git_branch_published = true;
+        s.select_repo(folder, cx);
+    });
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::GitDone {
+                folder: folder.into(),
+                label: "push",
+                error: None,
+                commit_hash: None,
+                detail: None,
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        store.read_with(cx, |s, _| s.new_pull.is_none()),
+        "the form waits for the settled status"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::StatusSettled {
+                probes: vec![warp_station_core::repo_store::StatusProbe {
+                    folder_path: folder.into(),
+                    branch_name: Some("feat/flow".into()),
+                    modified_count: 0,
+                    ahead_count: 0,
+                    behind_count: 0,
+                    last_commit_at: None,
+                    last_fetch_at: None,
+                    has_remote: true,
+                    branch_on_remote: true,
+                    github_web_url: Some("https://github.com/o/alpha".into()),
+                }],
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert_eq!(
+        store.read_with(cx, |s, _| s.active_detail_tab()),
+        WorkspaceTab::PullRequests,
+        "the advance lands on the pull request tab"
+    );
+    assert!(
+        store.read_with(cx, |s, _| s.new_pull.is_some()),
+        "with the form open on the pushed branch"
+    );
+}

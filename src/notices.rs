@@ -97,6 +97,20 @@ impl Notices {
         focused: Option<bool>,
         settings: &NotificationsSettings,
     ) -> Option<DesktopNotice> {
+        self.push_for(kind, kind.category(), text, focused, settings)
+    }
+
+    /// As [`Self::push`], for a notice whose desktop category is not the one
+    /// its toast kind implies — a finished pipeline is a success/error toast
+    /// under the Pipeline results switch, not an action confirmation.
+    pub fn push_for(
+        &mut self,
+        kind: NoticeKind,
+        category: desktop::Category,
+        text: impl Into<String>,
+        focused: Option<bool>,
+        settings: &NotificationsSettings,
+    ) -> Option<DesktopNotice> {
         let text = text.into();
         // ids start at 0: the probe selectors pin `toast-0`, so keep the
         // generation contract the old toast stack kept
@@ -112,7 +126,7 @@ impl Notices {
             self.toasts.remove(0);
         }
         desktop::wants_desktop(
-            kind.category(),
+            category,
             kind.severity(),
             &text,
             focused,
