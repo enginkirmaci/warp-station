@@ -906,6 +906,62 @@ fn the_azure_files_tab_asks_for_the_diff_it_shows(cx: &mut TestAppContext) {
     );
 }
 
+/// The Overview's composer sends the typed text as one comment verb and
+/// empties itself; a comment is a POST, not a pull request edit.
+#[gpui::test]
+fn the_azure_comment_composer_sends_the_text(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "azure-comment");
+    let cx = open_window(&store, cx);
+    seed_azure(
+        &store,
+        AzureSnapshot {
+            available: true,
+            pulls: vec![AzureItem {
+                number: 214,
+                title: "Sync the bridge".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        cx,
+    );
+    click(cx, "detail-tab-pulls");
+    click(cx, "PR-az-214");
+    seed_pull(&store, cx, blocked_policy());
+    enable_azure(&store, cx);
+    while net_rx.try_recv().is_ok() {}
+
+    assert!(
+        cx.debug_bounds("azure-pull-comment").is_some(),
+        "the composer sits under the threads"
+    );
+    assert!(cx.debug_bounds("azure-comment-field").is_some());
+    assert!(cx.debug_bounds("azure-comment-post").is_some());
+
+    click(cx, "azure-comment-field");
+    cx.simulate_keystrokes("nice");
+    draw(cx);
+    click(cx, "azure-comment-post");
+
+    let mut sent = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::AzurePullAction { action, .. } = command {
+            sent.push(action);
+        }
+    }
+    assert_eq!(
+        sent,
+        [AzurePullAction::Comment {
+            text: "nice".into()
+        }],
+        "one comment verb carries the typed text"
+    );
+    assert!(
+        cx.debug_bounds("azure-comment-field").is_some(),
+        "the composer stays after sending"
+    );
+}
+
 /// Every verb is one request: a vote, a completion, an abandonment (which asks
 /// first) and the auto-complete toggle.
 #[gpui::test]

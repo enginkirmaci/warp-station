@@ -19,11 +19,12 @@ use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Window, div, px};
 use gpui_kit::base::text::TextView;
+use gpui_kit::component::input::TextareaState;
 use warp_station_core::azure::{
     AzureFile, AzurePolicy, AzurePull, AzurePullAction, AzureThread, AzureUser,
 };
 use warp_station_core::settings::DiffViewMode;
-use warpui_kit_core::{motion, shell};
+use warpui_kit_core::{field, motion, shell};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 
 const STRIP_HEIGHT: f32 = 44.;
@@ -72,6 +73,8 @@ pub struct AzurePullView {
     primary_menu: bool,
     /// The reviewer picker is open under the Reviewers card.
     reviewer_menu: bool,
+    /// The "Add a comment" composer.
+    comment: Entity<TextareaState>,
     /// The pull request the view's own state belongs to.
     showing: Option<u64>,
     /// The view is the whole detail pane: the workbench's list is not beside it.
@@ -81,8 +84,11 @@ pub struct AzurePullView {
 }
 
 impl AzurePullView {
-    pub fn new(store: Entity<Store>, cx: &mut Context<Self>) -> Self {
+    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
+        let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Write a comment…"));
+        // the composer's button follows what is typed in it
+        cx.observe(&comment, |_, _, cx| cx.notify()).detach();
         let diff_view = store.read(cx).diff_view();
         let diff_wrap = store.read(cx).diff_wrap();
         Self {
@@ -95,6 +101,7 @@ impl AzurePullView {
             review_menu: false,
             primary_menu: false,
             reviewer_menu: false,
+            comment,
             showing: None,
             stacked: false,
             column_width: f32::MAX,
@@ -112,7 +119,7 @@ impl AzurePullView {
         false
     }
 
-    fn reset_for(&mut self, number: u64) {
+    fn reset_for(&mut self, number: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.showing == Some(number) {
             return;
         }
@@ -122,6 +129,8 @@ impl AzurePullView {
         self.review_menu = false;
         self.primary_menu = false;
         self.reviewer_menu = false;
+        self.comment
+            .update(cx, |state, cx| state.set_value("", window, cx));
     }
 }
 
@@ -132,7 +141,7 @@ impl Render for AzurePullView {
             return div().into_any_element();
         };
         let number = open.item.number;
-        self.reset_for(number);
+        self.reset_for(number, window, cx);
         // the tabs' data, asked for as the tab that needs them draws
         if self.tab == AzureTab::Files {
             self.store
@@ -168,7 +177,7 @@ impl Render for AzurePullView {
         let acting = open.acting;
 
         let body = match self.tab {
-            AzureTab::Overview => self.overview(pull, policies, threads, &open, cx),
+            AzureTab::Overview => self.overview(pull, policies, threads, &open, window, cx),
             AzureTab::Files => self.files_tab(&open, window, cx, &this, show_tooltips),
             AzureTab::Commits => self.commits_tab(&open, cx),
         };
@@ -519,6 +528,7 @@ impl AzurePullView {
         policies: &[AzurePolicy],
         threads: &[AzureThread],
         open: &crate::store::OpenAzurePull,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let body = div()
@@ -548,6 +558,7 @@ impl AzurePullView {
             .gap_4()
             .child(policies_card(pull, policies))
             .child(description_card(pull))
+            .child(self.comment_card(open, window, cx))
             .child(threads_card(threads, cx));
         let side = div()
             .flex_grow(1.)
@@ -1599,6 +1610,51 @@ fn description_card(pull: &AzurePull) -> AnyElement {
             .into_any_element(),
     };
     card("azure-pull-description", "Description", "", body)
+}
+
+impl AzurePullView {
+    /// The "Add a comment" box: a new thread whose first comment has no parent.
+    fn comment_card(
+        &self,
+        open: &crate::store::OpenAzurePull,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let body = self.comment.read(cx).value().trim().to_string();
+        let sendable = !body.is_empty() && !open.acting;
+        let store = self.store.clone();
+        let comment = self.comment.clone();
+        card(
+            "azure-pull-comment",
+            "Add a comment",
+            "Plain text",
+            div()
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(field::area(
+                    "azure-comment-field",
+                    &self.comment,
+                    window,
+                    cx,
+                ))
+                .child(div().flex().justify_end().child(primary_button_in(
+                    "azure-comment-post",
+                    "Comment",
+                    sendable,
+                    Shape::Whole,
+                    move |_, window, cx| {
+                        let text = body.clone();
+                        store.update(cx, |store, cx| {
+                            store.act_on_azure_pull(AzurePullAction::Comment { text }, cx);
+                        });
+                        comment.update(cx, |state, cx| state.set_value("", window, cx));
+                    },
+                )))
+                .into_any_element(),
+        )
+    }
 }
 
 /// The comment threads, with Azure's resolution state on each.

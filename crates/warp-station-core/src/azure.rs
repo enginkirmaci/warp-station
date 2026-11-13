@@ -1095,6 +1095,10 @@ pub enum AzurePullAction {
     AddReviewer {
         descriptor: String,
     },
+    /// A plain-text comment on the pull request, posted as a new thread.
+    Comment {
+        text: String,
+    },
 }
 
 impl AzurePullAction {
@@ -1106,6 +1110,7 @@ impl AzurePullAction {
             | Self::Abandon
             | Self::SetAutoComplete { .. }
             | Self::CancelAutoComplete => "PATCH",
+            Self::Comment { .. } => "POST",
             Self::Vote { .. } | Self::AddReviewer { .. } => "PUT",
         }
     }
@@ -1121,6 +1126,7 @@ impl AzurePullAction {
             Self::SetAutoComplete { .. } => format!("Auto-complete set on !{number}"),
             Self::CancelAutoComplete => format!("Auto-complete cancelled on !{number}"),
             Self::AddReviewer { .. } => format!("Added a reviewer to !{number}"),
+            Self::Comment { .. } => format!("Commented on !{number}"),
         }
     }
 }
@@ -1309,7 +1315,9 @@ pub async fn pull_action(
     }
     let settled = !matches!(
         action,
-        AzurePullAction::Vote { .. } | AzurePullAction::AddReviewer { .. }
+        AzurePullAction::Vote { .. }
+            | AzurePullAction::AddReviewer { .. }
+            | AzurePullAction::Comment { .. }
     );
     let wants = action.clone();
     let (method, url, body) = action_request(&base, action, pull)?;
@@ -1348,7 +1356,9 @@ fn action_settled(action: &AzurePullAction, record: &serde_json::Value) -> bool 
         AzurePullAction::Reopen => status == Some("active"),
         AzurePullAction::SetAutoComplete { .. } => auto_complete || status == Some("completed"),
         AzurePullAction::CancelAutoComplete => !auto_complete,
-        AzurePullAction::Vote { .. } | AzurePullAction::AddReviewer { .. } => true,
+        AzurePullAction::Vote { .. }
+        | AzurePullAction::AddReviewer { .. }
+        | AzurePullAction::Comment { .. } => true,
     }
 }
 
@@ -1423,6 +1433,19 @@ fn action_request(
                 "autoCompleteSetBy": {
                     "id": "00000000-0000-0000-0000-000000000000"
                 }
+            })),
+        ),
+        // A comment is a new thread whose first comment has no parent.
+        AzurePullAction::Comment { text } => (
+            "POST",
+            format!("{base}/threads?api-version=7.1"),
+            Some(serde_json::json!({
+                "comments": [{
+                    "parentCommentId": 0,
+                    "content": text,
+                    "commentType": "text",
+                }],
+                "status": "active",
             })),
         ),
         // the person's descriptor is turned into an identity GUID in
@@ -2800,6 +2823,29 @@ mod tests {
             body.unwrap()["autoCompleteSetBy"]["id"],
             "00000000-0000-0000-0000-000000000000",
             "the empty GUID is how Azure unsets auto-complete"
+        );
+
+        let (method, url, body) = action_request(
+            base,
+            AzurePullAction::Comment {
+                text: "Looks good".into(),
+            },
+            &pull,
+        )
+        .unwrap();
+        assert_eq!(method, "POST");
+        assert_eq!(url, format!("{base}/threads?api-version=7.1"));
+        let body = body.unwrap();
+        assert_eq!(body["comments"][0]["content"], "Looks good");
+        assert_eq!(body["comments"][0]["parentCommentId"], 0);
+        assert_eq!(body["status"], "active");
+        assert_eq!(
+            AzurePullAction::Comment { text: "x".into() }.method(),
+            "POST"
+        );
+        assert_eq!(
+            AzurePullAction::Comment { text: "x".into() }.done_word(214),
+            "Commented on !214"
         );
 
         // a completion without the source commit is refused before the call

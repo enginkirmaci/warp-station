@@ -35,7 +35,7 @@ impl DetailViews {
     pub fn new(store: &Entity<Store>, window: &mut Window, cx: &mut Context<ReposPage>) -> Self {
         let pull = cx.new(|cx| PullRequestView::new(store.clone(), window, cx));
         let new_pull = cx.new(|cx| NewPullView::new(store.clone(), window, cx));
-        let azure_pull = cx.new(|cx| AzurePullView::new(store.clone(), cx));
+        let azure_pull = cx.new(|cx| AzurePullView::new(store.clone(), window, cx));
         let issue_detail = cx.new(|cx| IssueDetailView::new(store.clone(), cx));
         Self {
             changes: cx.new(|cx| ChangesView::new(store.clone(), window, cx)),
