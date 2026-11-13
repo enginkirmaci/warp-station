@@ -1,7 +1,7 @@
-//! The repo launchers: one list behind the head's menu and the window's letter
-//! keys, so a row can never advertise a key that does nothing. The first entry
-//! is the primary action (the head's split button, on ↵); the list follows the
-//! settings' enable flags.
+//! The repo launchers: one list behind the head's menu and the window's
+//! `Shift`+letter chords, so a row can never advertise a key that does
+//! nothing. The first entry is the primary action (the head's split button and
+//! the row's second verb); the list follows the settings' enable flags.
 //!
 //! An entry describes its launch as a plain value: building the list starts
 //! nothing, which is what lets a test pin it.
@@ -88,8 +88,10 @@ pub struct Launcher {
     /// cannot hold the menu's verb ("Launch OpenCode CLI").
     pub short: &'static str,
     pub icon: &'static str,
-    /// The letter the window keymap answers to, as the menu's keycap shows it.
-    pub key: Option<&'static str>,
+    /// The letter the window answers to as `Shift`+letter, and the letter the
+    /// menu's keycap prints. Every launcher has one; the primary is no longer
+    /// special, because `↵` opens a tab instead.
+    pub key: &'static str,
     pub launch: Launch,
 }
 
@@ -110,7 +112,7 @@ fn launcher_iter<'a>(
                     label: "Open in VS Code",
                     short: "VS Code",
                     icon: "icons/icon-code.svg",
-                    key: None,
+                    key: "C",
                     launch: Launch::VsCode {
                         exe: settings.repos.vscode_executable.clone(),
                         profile: settings.repos.vscode_profile.clone(),
@@ -123,7 +125,7 @@ fn launcher_iter<'a>(
                             label: "Open solution in Visual Studio",
                             short: "Visual Studio",
                             icon: "icons/icon-sln-box.svg",
-                            key: Some("V"),
+                            key: "V",
                             launch: Launch::Solution {
                                 solution: solution.clone(),
                                 ide: settings.repos.ide_executable.clone(),
@@ -137,14 +139,14 @@ fn launcher_iter<'a>(
                     label: "Open in warp-agent",
                     short: "Warp Agent",
                     icon: "icons/icon-app-window.svg",
-                    key: Some("A"),
+                    key: "A",
                     launch: Launch::WarpAgent,
                 }),
                 3 => settings.opencode.enable_opencode.then(|| Launcher {
                     label: "Launch OpenCode CLI",
                     short: "OpenCode",
                     icon: "icons/icon-command.svg",
-                    key: Some("O"),
+                    key: "O",
                     launch: cli_launch(
                         settings,
                         &settings.repos.opencode_executable,
@@ -157,7 +159,7 @@ fn launcher_iter<'a>(
                     label: "Launch DeepSeek CLI",
                     short: "DeepSeek",
                     icon: "icons/icon-deepseek.svg",
-                    key: Some("D"),
+                    key: "D",
                     launch: cli_launch(
                         settings,
                         &settings.repos.deepseek_executable,
@@ -170,14 +172,14 @@ fn launcher_iter<'a>(
                     label: "Open folder",
                     short: "Folder",
                     icon: "icons/icon-folder.svg",
-                    key: Some("F"),
+                    key: "F",
                     launch: Launch::Folder,
                 }),
                 6 => settings.repos.enable_terminal.then(|| Launcher {
                     label: "Open terminal",
                     short: "Terminal",
                     icon: "icons/icon-terminal.svg",
-                    key: Some("T"),
+                    key: "T",
                     launch: Launch::Terminal {
                         terminal_exe: settings.repos.terminal_executable.clone(),
                     },
@@ -186,7 +188,7 @@ fn launcher_iter<'a>(
                     label: "Notes for this repo",
                     short: "Notes",
                     icon: "icons/icon-note.svg",
-                    key: Some("N"),
+                    key: "N",
                     launch: Launch::Notes {
                         exe: settings.warp_notes.executable.clone(),
                         store_root: warp_station_core::notes::resolve_store_root(
@@ -252,22 +254,22 @@ fn cli_launch(
     }
 }
 
-/// Runs the launcher a window key names: ↵ is the primary, a letter its row.
-/// Returns whether one answered.
-pub fn run_key(key: &str, store: &Entity<Store>, cx: &mut App) -> bool {
+/// The launcher a `Shift`+letter chord names, without running it. The caller
+/// owns the modifier check (only a shifted letter reaches here); this only
+/// matches the letter, case-insensitively.
+pub fn launcher_for_key(settings: &AppSettings, repo: &RepoEntry, key: &str) -> Option<Launcher> {
+    launchers(settings, repo)
+        .into_iter()
+        .find(|launcher| launcher.key.eq_ignore_ascii_case(key))
+}
+
+/// Runs the launcher a `Shift`+letter chord names. Returns whether one
+/// answered.
+pub fn run_letter(key: &str, store: &Entity<Store>, cx: &mut App) -> bool {
     let hit = {
         let state = store.read(cx);
         state.selected_entry().and_then(|repo| {
-            let mut list = launchers(&state.settings(), repo).into_iter();
-            let launcher = if key == "enter" {
-                list.next()
-            } else {
-                list.find(|launcher| {
-                    launcher
-                        .key
-                        .is_some_and(|letter| letter.eq_ignore_ascii_case(key))
-                })
-            }?;
+            let launcher = launcher_for_key(&state.settings(), repo, key)?;
             let folder = repo.folder_path.to_string_lossy().to_string();
             Some((launcher.launch, folder))
         })
@@ -320,7 +322,7 @@ mod tests {
     fn cli_argv(list: &[Launcher], key: &str) -> Vec<String> {
         let launcher = list
             .iter()
-            .find(|launcher| launcher.key == Some(key))
+            .find(|launcher| launcher.key == key)
             .expect("the launcher is listed");
         match &launcher.launch {
             Launch::Cli { argv, .. } => argv.clone(),
@@ -333,10 +335,10 @@ mod tests {
         let list = launchers(&all_enabled(), &repo());
 
         assert_eq!(list[0].label, "Open in VS Code");
-        assert_eq!(list[0].key, None, "the primary row answers to ↵");
+        assert_eq!(list[0].key, "C", "the primary row has a letter too");
 
-        let letters: Vec<&str> = list.iter().filter_map(|launcher| launcher.key).collect();
-        assert_eq!(letters, ["A", "O", "D", "F", "T", "N"]);
+        let letters: Vec<&str> = list.iter().map(|launcher| launcher.key).collect();
+        assert_eq!(letters, ["C", "A", "O", "D", "F", "T", "N"]);
     }
 
     #[test]
@@ -353,6 +355,24 @@ mod tests {
 
         assert_eq!(list.len(), 1, "the folder has no enable flag");
         assert_eq!(list[0].launch, Launch::Folder);
+    }
+
+    #[test]
+    fn the_lookup_matches_the_letter_case_insensitively() {
+        let settings = all_enabled();
+        let repo = repo();
+
+        assert_eq!(
+            launcher_for_key(&settings, &repo, "c").map(|launcher| launcher.label),
+            Some("Open in VS Code"),
+            "the shift chord matches the bare letter"
+        );
+        assert_eq!(
+            launcher_for_key(&settings, &repo, "C").map(|launcher| launcher.label),
+            Some("Open in VS Code"),
+            "a platform may report the shifted character"
+        );
+        assert!(launcher_for_key(&settings, &repo, "s").is_none());
     }
 
     #[test]
@@ -384,7 +404,7 @@ mod tests {
         let list = launchers(&settings, &repo());
         let opencode = list
             .iter()
-            .find(|launcher| launcher.key == Some("O"))
+            .find(|launcher| launcher.key == "O")
             .expect("listed while enabled");
 
         assert_eq!(opencode.launch, Launch::MissingModel { name: "OpenCode" });

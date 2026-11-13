@@ -18,12 +18,16 @@ use crate::ui::diff_controls;
 use crate::ui::pull_request::{plural, source_tag};
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Window, div, px};
+use gpui::{
+    AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
+    SharedString, Window, div, px,
+};
+use std::rc::Rc;
 use warp_station_core::activity::{
     ActivityRun, ActivitySource, RunDetail, RunJob, RunStage, duration_between,
 };
 use warp_station_core::azure::AzureSnapshot;
-use warpui_kit_core::{motion, shell};
+use warpui_kit_core::{list_nav, motion, pane_nav, shell};
 
 /// The workbench's list column, and the pane width under which it and the
 /// detail stop sharing the pane.
@@ -36,12 +40,30 @@ const LOG_ROWS: usize = 120;
 
 pub struct AzureView {
     pub store: Entity<Store>,
+    /// The run list's keyboard focus, its offset and the runs it stepped last
+    /// frame, in list order.
+    list_focus: FocusHandle,
+    list_scroll: ScrollHandle,
+    runs: Vec<ActivityRun>,
+    /// The panes on screen this frame: the run column registers itself while
+    /// it is drawn, and the detail's rails register from their own views.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl AzureView {
-    pub fn new(store: Entity<Store>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Entity<Store>,
+        pane_nav: Rc<pane_nav::PaneNav>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { store }
+        Self {
+            store,
+            list_focus: cx.focus_handle(),
+            list_scroll: ScrollHandle::default(),
+            runs: Vec::new(),
+            pane_nav,
+        }
     }
 
     /// Whether the pane is too narrow for both columns.
@@ -335,6 +357,7 @@ impl AzureView {
             .open_run
             .as_ref()
             .map(|open| (open.run.source, open.run.id));
+        self.runs = runs.to_vec();
         let store = self.store.clone();
         let this = cx.entity();
 
@@ -361,6 +384,12 @@ impl AzureView {
         if github_ok {
             sources.push(ActivitySource::GitHub.label());
         }
+        let focused = self.list_focus.is_focused(window);
+        // a stacked pane showing the open run hides the list behind the
+        // detail, so it is not a `←`/`→` stop then
+        if !stacked || selected.is_none() {
+            self.pane_nav.register(&self.list_focus);
+        }
         let list = div()
             .id("azure-runs-column")
             .debug_selector(|| "azure-runs-column".into())
@@ -370,8 +399,26 @@ impl AzureView {
             .flex()
             .flex_col()
             .border_r_1()
-            .border_color(theme::hairline())
+            .border_color(if focused {
+                gpui::Hsla::from(theme::accent())
+            } else {
+                gpui::Hsla::from(theme::hairline())
+            })
             .bg(theme::surface())
+            .track_focus(&self.list_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_runs_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.list_focus.is_focused(window) {
+                        window.focus(&this.list_focus, cx);
+                    }
+                }),
+            )
             .child(
                 div()
                     .flex_shrink_0()
@@ -381,9 +428,17 @@ impl AzureView {
                     .h(px(40.))
                     .px_4()
                     .border_b_1()
-                    .border_color(theme::hairline())
+                    .border_color(if focused {
+                        gpui::Hsla::from(theme::accent())
+                    } else {
+                        gpui::Hsla::from(theme::hairline())
+                    })
                     .text_size(px(theme::font_meta()))
-                    .text_color(theme::text_dim())
+                    .text_color(if focused {
+                        theme::text()
+                    } else {
+                        theme::text_dim()
+                    })
                     .child(match (focus.as_deref(), runs.is_empty()) {
                         (Some(branch), true) => format!("No runs on {branch}"),
                         (Some(branch), false) => format!("{} on {branch}", runs.len()),
@@ -400,6 +455,7 @@ impl AzureView {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(&self.list_scroll)
                     .child(rows),
             );
         let detail = div()
@@ -438,6 +494,40 @@ impl AzureView {
                 .child(detail)
                 .into_any_element()
         }
+    }
+
+    /// The run list's keys: a pane move first, then the run cursor.
+    fn handle_runs_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.list_focus, dir, window, cx);
+        }
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        let Some(key) = list_nav::list_key(event) else {
+            return false;
+        };
+        if !key.moves() {
+            return false;
+        }
+        let current = self.store.read(cx).open_run.as_ref().and_then(|open| {
+            self.runs
+                .iter()
+                .position(|run| run.source == open.run.source && run.id == open.run.id)
+        });
+        let Some(next) = list_nav::step(current, self.runs.len(), key, list_nav::DEFAULT_PAGE)
+        else {
+            return false;
+        };
+        let run = self.runs[next].clone();
+        self.store.update(cx, |store, cx| store.open_run(run, cx));
+        self.list_scroll.scroll_to_item(next);
+        true
     }
 
     /// One run row: state glyph, workflow or pipeline name and run number,

@@ -6303,6 +6303,28 @@ impl Store {
         }
         self.persist_cache_soon(cx);
     }
+
+    /// The header menu's Archive/Restore row and `Alt+A`: flip the marker and
+    /// name what happened. One action, so the menu label, the key and the
+    /// toast cannot drift.
+    pub fn toggle_repo_archived(&mut self, folder: &str, cx: &mut Context<Self>) {
+        let Some(entry) = self
+            .repos
+            .iter()
+            .find(|r| r.folder_path.to_string_lossy() == folder)
+        else {
+            return;
+        };
+        let archived = entry.is_archived();
+        let name = entry.name.clone();
+        self.set_repo_archived(folder, !archived, cx);
+        self.notify_success(if archived {
+            format!("Restored {name}")
+        } else {
+            format!("Archived {name}")
+        });
+        cx.notify();
+    }
 }
 
 #[derive(Clone, Debug)]

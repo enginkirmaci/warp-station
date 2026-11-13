@@ -19,9 +19,10 @@ use gpui::{
     px,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
+use std::rc::Rc;
 use warp_station_core::activity::{ActivityItem, ActivityKind, ActivitySource, IssueSort};
-use warpui_kit_core::list_nav;
 use warpui_kit_core::shell;
+use warpui_kit_core::{list_nav, pane_nav};
 
 /// The workbench's list column, and the pane width under which it and the
 /// pull request stop sharing the pane.
@@ -52,6 +53,9 @@ pub struct ItemListView {
     list_scroll: ScrollHandle,
     /// The rows the last render laid out, in the order the cursor steps.
     visible: Vec<ActivityItem>,
+    /// The panes on screen this frame: the list column registers itself, and
+    /// the detail's rails register from their own views.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl ItemListView {
@@ -63,6 +67,7 @@ impl ItemListView {
         new_pull: Entity<NewPullView>,
         issue_detail: Entity<IssueDetailView>,
         pull_requests: bool,
+        pane_nav: Rc<pane_nav::PaneNav>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -91,6 +96,7 @@ impl ItemListView {
             list_focus: cx.focus_handle(),
             list_scroll: ScrollHandle::default(),
             visible: Vec::new(),
+            pane_nav,
         }
     }
 
@@ -737,6 +743,11 @@ impl ItemListView {
                     .into_any_element(),
             );
         }
+        // the list column is a `←`/`→` stop only while it is on screen; a
+        // stacked pane showing the open item hides it behind the detail
+        if !stacked || (!writing && selected.is_none()) {
+            self.pane_nav.register(&self.list_focus);
+        }
         let list = div()
             .id(column_selector)
             .debug_selector(move || column_selector.into())
@@ -847,9 +858,12 @@ impl ItemListView {
     fn handle_list_key(
         &mut self,
         event: &gpui::KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.list_focus, dir, window, cx);
+        }
         if event.keystroke.modifiers.modified() {
             return false;
         }

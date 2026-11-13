@@ -443,3 +443,236 @@ fn issue_keys_follow_the_focused_list(cx: &mut TestAppContext) {
         "the focused issue list does not move the repo list"
     );
 }
+
+#[gpui::test]
+fn enter_opens_the_repo_in_a_tab(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store =
+            Store::with_settings(net_tx, scratch_service("enter_opens_the_repo_in_a_tab"));
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+    click(cx, "repo-row-0");
+
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.active_repo_tab.clone()),
+        Some("/probe/alpha".to_string()),
+        "Enter opens the row's own tab"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.repo_tabs.len()),
+        1,
+        "one tab was opened"
+    );
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/alpha"),
+        "the selection stays on the row"
+    );
+}
+
+#[gpui::test]
+fn alt_chords_act_on_the_repo_and_plain_letters_do_not(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("alt_chords_act_on_the_repo_and_plain_letters_do_not"),
+        );
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+            entry("gamma", "/probe/gamma"),
+        ]);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+    click(cx, "repo-row-0");
+
+    // no bare letter is bound any more: `c` no longer opens Changes
+    cx.simulate_keystrokes("c");
+    draw(cx);
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.active_detail_tab()),
+        warp_station::store::WorkspaceTab::Overview,
+        "a plain letter does nothing"
+    );
+
+    cx.simulate_keystrokes("alt-c");
+    draw(cx);
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.active_detail_tab()),
+        warp_station::store::WorkspaceTab::Changes,
+        "Alt+C opens the Changes tab"
+    );
+
+    cx.simulate_keystrokes("alt-f");
+    draw(cx);
+    assert!(
+        cx.read_entity(&store, |s, _| s.repos[0].is_favorite()),
+        "Alt+F favorites the row"
+    );
+
+    cx.simulate_keystrokes("alt-a");
+    draw(cx);
+    assert!(
+        cx.read_entity(&store, |s, _| s.repos[0].is_archived()),
+        "Alt+A archives the row"
+    );
+
+    // the archive view lists the archived repo; the same chord restores it
+    cx.update_entity(&store, |s: &mut Store, cx| s.toggle_show_archived(cx));
+    draw(cx);
+    click(cx, "repo-row-0");
+    cx.simulate_keystrokes("alt-a");
+    draw(cx);
+    assert!(
+        !cx.read_entity(&store, |s, _| s.repos[0].is_archived()),
+        "Alt+A restores it"
+    );
+}
+
+#[gpui::test]
+fn pane_keys_walk_from_the_repo_list_into_the_files(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store =
+            Store::with_settings(net_tx, scratch_service("pane_keys_walk_from_the_repo_list"));
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        store.set_changes(Some(changes(&["a.txt", "b.txt", "c.txt"])));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+    click(cx, "repo-row-0");
+    while net_rx.try_recv().is_ok() {}
+
+    // → moves the keyboard into the file list; ↓ steps its cursor
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    let mut asked = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::GetChangePatch { path, .. } = command {
+            asked = Some(path);
+        }
+    }
+    assert_eq!(
+        asked.as_deref(),
+        Some("b.txt"),
+        "the file list took the keyboard"
+    );
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/alpha"),
+        "the repo list stayed where it was"
+    );
+
+    // ← hands the keys back to the repo list
+    cx.simulate_keystrokes("left");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/beta"),
+        "the repo list took them back"
+    );
+
+    // Tab is the same move as →
+    cx.simulate_keystrokes("tab");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/beta"),
+        "Tab crossed into the file list, not the repo list"
+    );
+}
+
+#[gpui::test]
+fn pane_keys_do_not_wrap_or_cross_into_nothing(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("pane_keys_do_not_wrap_or_cross_into_nothing"),
+        );
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    // a clean tree draws no file list, so → from the repo list goes nowhere
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.changes_loaded_for = Some("/probe/alpha".into());
+        s.set_changes(Some(changes(&[])));
+    });
+    draw(cx);
+    click(cx, "repo-row-0");
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/beta"),
+        "no list on the right, so ↓ still moves the repo list"
+    );
+
+    // with files, the file list is the right stop: → again does nothing
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.set_changes(Some(changes(&["a.txt", "b.txt"])));
+    });
+    draw(cx);
+    cx.simulate_keystrokes("home");
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert_eq!(
+        selection(cx, &store).as_deref(),
+        Some("/probe/alpha"),
+        "→ at the right end never wraps back to the repo list"
+    );
+}

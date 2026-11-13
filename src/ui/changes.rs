@@ -21,7 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use warp_station_core::model::GitChangedFile;
 use warp_station_core::settings::DiffViewMode;
-use warpui_kit_core::{list_nav, motion};
+use warpui_kit_core::{list_nav, motion, pane_nav};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 use warpui_kit_picker::{
     FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
@@ -163,10 +163,26 @@ pub struct ChangesView {
     history_focus: FocusHandle,
     /// Keeps the keyboard-selected commit row in view.
     history_scroll: UniformListScrollHandle,
+    /// The panes on screen this frame, shared with the page and the list
+    /// views; this view registers whichever of its two lists it draws.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl ChangesView {
+    /// A view with its own (empty) pane order: the standalone probes and a
+    /// surface drawn outside the Repositories page use this.
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_pane_nav(store, Rc::new(pane_nav::PaneNav::new()), window, cx)
+    }
+
+    /// The page's view, sharing the pane order so `←`/`→` can cross from the
+    /// repository list into this view's lists.
+    pub fn with_pane_nav(
+        store: Entity<Store>,
+        pane_nav: Rc<pane_nav::PaneNav>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let new_branch_name = cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
         let branch_ui: Rc<RefCell<BranchUi>> = Rc::new(RefCell::new(BranchUi::default()));
         let branch_picker = build_branch_picker(
@@ -213,6 +229,7 @@ impl ChangesView {
             file_scroll: UniformListScrollHandle::default(),
             history_focus: cx.focus_handle(),
             history_scroll: UniformListScrollHandle::default(),
+            pane_nav,
         }
     }
 
@@ -516,6 +533,7 @@ impl Render for ChangesView {
         self.ensure_commit_file_selected(cx);
 
         if self.history_open {
+            self.pane_nav.register(&self.history_focus);
             return div()
                 .size_full()
                 .flex()
@@ -541,6 +559,7 @@ impl Render for ChangesView {
         let body = if clean {
             clean_state(&self.store, cx)
         } else {
+            self.pane_nav.register(&self.file_focus);
             let file_list = self.render_file_list(&file_groups, cx);
             // The list owns the row keys only while its handle holds the
             // focus; its head says so with the label's ink and its rule.
@@ -797,9 +816,12 @@ impl ChangesView {
     fn handle_file_key(
         &mut self,
         event: &gpui::KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.file_focus, dir, window, cx);
+        }
         if event.keystroke.modifiers.modified() || self.history_open {
             return false;
         }
@@ -859,9 +881,14 @@ impl ChangesView {
     fn handle_history_key(
         &mut self,
         event: &gpui::KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self
+                .pane_nav
+                .move_from(&self.history_focus, dir, window, cx);
+        }
         if event.keystroke.modifiers.modified() || !self.history_open {
             return false;
         }

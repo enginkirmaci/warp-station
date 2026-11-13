@@ -17,8 +17,9 @@ use gpui::{
     SharedString, Window, div, px,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
+use std::rc::Rc;
 use warp_station_core::settings::RepoSortMode;
-use warpui_kit_core::{list_nav, motion, shell};
+use warpui_kit_core::{list_nav, motion, pane_nav, shell};
 
 /// The pane head's running totals over the live (non-archived) list.
 #[derive(Default)]
@@ -64,11 +65,16 @@ pub struct ReposPage {
     repo_focus: FocusHandle,
     /// Keeps the keyboard-selected row in view.
     repo_scroll: ScrollHandle,
+    /// The panes on screen this frame, in left-to-right order: the page
+    /// registers the list and each view registers its own lists during its
+    /// render, so `←`/`→` can only land on a pane that is actually drawn.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl ReposPage {
     pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let views = DetailViews::new(&store, window, cx);
+        let pane_nav = Rc::new(pane_nav::PaneNav::new());
+        let views = DetailViews::new(&store, pane_nav.clone(), window, cx);
         let list_version = store.read(cx).list_version;
         let repo_focus = cx.focus_handle();
         cx.observe(&store, |this, store, cx| {
@@ -110,6 +116,7 @@ impl ReposPage {
             list_version,
             repo_focus,
             repo_scroll: ScrollHandle::new(),
+            pane_nav,
         }
     }
 }
@@ -124,7 +131,7 @@ impl ReposPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if event.keystroke.modifiers.modified() || self.layer_open() {
+        if self.layer_open() {
             return false;
         }
         if window
@@ -132,6 +139,37 @@ impl ReposPage {
             .iter()
             .any(|context| context.contains("Input"))
         {
+            return false;
+        }
+        // Pane moves belong to the focused list. The window also delegates
+        // this handler while it owns the focus, and a `→` from there must not
+        // send the keyboard into the detail.
+        if self.repo_focus.is_focused(window)
+            && let Some(dir) = pane_nav::direction(event)
+        {
+            return self.pane_nav.move_from(&self.repo_focus, dir, window, cx);
+        }
+        let modifiers = event.keystroke.modifiers;
+        // Shift+letter opens a launcher and Alt+letter acts on the repository.
+        // Both are modified chords, so they sit before the guard below that
+        // hands every other modified key back to the app.
+        if !event.is_held
+            && modifiers.shift
+            && !modifiers.control
+            && !modifiers.alt
+            && !modifiers.platform
+        {
+            return crate::ui::launchers::run_letter(event.keystroke.key.as_str(), &self.store, cx);
+        }
+        if !event.is_held
+            && modifiers.alt
+            && !modifiers.control
+            && !modifiers.shift
+            && !modifiers.platform
+        {
+            return self.run_alt_key(event.keystroke.key.as_str(), cx);
+        }
+        if modifiers.modified() {
             return false;
         }
         if let Some(key) = list_nav::list_key(event) {
@@ -146,32 +184,45 @@ impl ReposPage {
                     return true;
                 }
                 list_nav::ListKey::Enter => {
-                    return crate::ui::launchers::run_key("enter", &self.store, cx);
+                    let Some(folder) = self.store.read(cx).selected_repo.clone() else {
+                        return false;
+                    };
+                    self.store
+                        .update(cx, |store, cx| store.open_repo_tab(&folder, cx));
+                    return true;
                 }
                 list_nav::ListKey::Left | list_nav::ListKey::Right | list_nav::ListKey::Menu => {
                     return false;
                 }
             }
         }
-        // a held key repeats the row step; every other list key fires once
-        if event.is_held {
+        false
+    }
+
+    /// The `Alt`-chord repository verbs. `F` favorite, `A` archive/restore and
+    /// `C` the Changes tab; an unknown chord stays unbound.
+    fn run_alt_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let Some(folder) = self.store.read(cx).selected_repo.clone() else {
             return false;
-        }
-        match event.keystroke.key.as_str() {
-            "s" => {
-                if let Some(folder) = self.store.read(cx).selected_repo.clone() {
-                    self.store
-                        .update(cx, |store, cx| store.toggle_favorite(&folder, cx));
-                }
+        };
+        match key {
+            "f" | "F" => {
+                self.store
+                    .update(cx, |store, cx| store.toggle_favorite(&folder, cx));
                 true
             }
-            "c" => {
+            "a" | "A" => {
+                self.store
+                    .update(cx, |store, cx| store.toggle_repo_archived(&folder, cx));
+                true
+            }
+            "c" | "C" => {
                 self.store.update(cx, |store, cx| {
                     store.open_detail_tab(crate::store::WorkspaceTab::Changes, cx);
                 });
                 true
             }
-            key => crate::ui::launchers::run_key(key, &self.store, cx),
+            _ => false,
         }
     }
 
@@ -509,6 +560,9 @@ impl ReposPage {
 
 impl Render for ReposPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        // The pane order is rebuilt every frame: a list that is not drawn this
+        // time stops being a `←`/`→` stop.
+        self.pane_nav.begin_frame();
         // drain dialog-bound results the moment we are about to draw
         let drained_deep_scan = self
             .store
@@ -564,6 +618,9 @@ impl Render for ReposPage {
         self.ensure_tag_editor(window, cx);
         let list_width = self.store.read(cx).list_width();
         let list_visible = self.list_visible(window, cx);
+        if list_visible {
+            self.pane_nav.register(&self.repo_focus);
+        }
         // the detail pane's width this frame: the workbench splits or stacks on
         // it, and no view can measure its own column
         let pane_width = f32::from(window.viewport_size().width)

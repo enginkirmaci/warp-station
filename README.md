@@ -18,6 +18,20 @@ cache is disposable. The notes store is user content in `~/notes`. An old
 startup, a legacy `~/.devtools` root is absorbed into `~/.warp` on first
 launch, and the root files move into `~/.warp/station` once.
 
+## Keyboard
+
+`?` (or `Ctrl+/`, or the keyboard icon in the title bar) opens the shortcut
+sheet: every key the window answers to, grouped by the surface that owns it.
+`Esc` closes it.
+
+On a focused repository row: `↑`/`↓` move, `Enter` opens the repository as a
+tab, `Alt+F` favorites, `Alt+A` archives or restores, and `Alt+C` opens
+Changes. `Shift`+letter opens an app (`Shift+C` is VS Code; the launch menu
+shows the rest). `←`/`→` and `Tab`/`Shift+Tab` move the keyboard between the
+lists on screen — the repository list, Changes files, History commits, the
+PR/Issues list, Pipelines runs and the pull request's Files/Commits rails —
+and stop at the end instead of wrapping.
+
 ## warp-agent integration
 
 The AI surface (commit-message / README wands, the daily summary, the

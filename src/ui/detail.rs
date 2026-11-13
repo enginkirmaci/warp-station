@@ -18,7 +18,8 @@ use crate::ui::repos::ReposPage;
 use gpui::prelude::*;
 use gpui::{AnyElement, App, Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::input::InputState;
-use warpui_kit_core::{motion, shell};
+use std::rc::Rc;
+use warpui_kit_core::{motion, pane_nav::PaneNav, shell};
 
 /// The tabs' views. They read the selected repo from the store, so one set
 /// serves every repo and repo tab.
@@ -32,13 +33,20 @@ pub struct DetailViews {
 }
 
 impl DetailViews {
-    pub fn new(store: &Entity<Store>, window: &mut Window, cx: &mut Context<ReposPage>) -> Self {
-        let pull = cx.new(|cx| PullRequestView::new(store.clone(), window, cx));
+    pub fn new(
+        store: &Entity<Store>,
+        pane_nav: Rc<PaneNav>,
+        window: &mut Window,
+        cx: &mut Context<ReposPage>,
+    ) -> Self {
+        let pull = cx.new(|cx| PullRequestView::new(store.clone(), pane_nav.clone(), window, cx));
         let new_pull = cx.new(|cx| NewPullView::new(store.clone(), window, cx));
-        let azure_pull = cx.new(|cx| AzurePullView::new(store.clone(), window, cx));
+        let azure_pull =
+            cx.new(|cx| AzurePullView::new(store.clone(), pane_nav.clone(), window, cx));
         let issue_detail = cx.new(|cx| IssueDetailView::new(store.clone(), cx));
         Self {
-            changes: cx.new(|cx| ChangesView::new(store.clone(), window, cx)),
+            changes: cx
+                .new(|cx| ChangesView::with_pane_nav(store.clone(), pane_nav.clone(), window, cx)),
             pulls: cx.new(|cx| {
                 ItemListView::new(
                     store.clone(),
@@ -47,6 +55,7 @@ impl DetailViews {
                     new_pull.clone(),
                     issue_detail.clone(),
                     true,
+                    pane_nav.clone(),
                     window,
                     cx,
                 )
@@ -59,11 +68,12 @@ impl DetailViews {
                     new_pull,
                     issue_detail,
                     false,
+                    pane_nav.clone(),
                     window,
                     cx,
                 )
             }),
-            pipelines: cx.new(|cx| AzureView::new(store.clone(), cx)),
+            pipelines: cx.new(|cx| AzureView::new(store.clone(), pane_nav.clone(), cx)),
             readme: cx.new(|cx| ReadmeView::new(store.clone(), cx)),
         }
     }

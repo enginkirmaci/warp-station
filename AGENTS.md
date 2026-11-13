@@ -132,9 +132,16 @@ Keep this order; several steps depend on the previous one:
   identity GUID before the POST. The pipeline toast's button opens the run in
   the app; the desktop notification has no click callback on this path.
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
-  Changes files, History commits, PR/Issues); the window delegates only while
-  it owns the focus itself. The OS title carries `Store::activity()` next to
-  the titlebar chip. That chip also opens the running panel: `Store::running_jobs`
+  Changes files, History commits, PR/Issues, Pipelines runs, the PR/Azure
+  Files and Commits rails); the window delegates only while it owns the focus
+  itself. `Enter` opens the selected repository as a tab, app launchers are
+  `Shift`+letter (`Shift C` VS Code), and `Alt F`/`Alt A`/`Alt C` are
+  favorite, archive/restore and Changes. `warpui_kit_core::pane_nav` carries
+  `←`/`→` and `Tab`/`Shift+Tab` between the lists on screen, never wrapping;
+  the page clears its order per render and each view registers only while it
+  draws it. `?`/`Ctrl+/` and the titlebar icon open the shortcut sheet
+  (`src/shortcuts.rs` builds it from the launcher list and the fixed table).
+  The OS title carries `Store::activity()` next to the titlebar chip. That chip also opens the running panel: `Store::running_jobs`
   lists every live job (scan, per-repo git work, generation, summary, clones)
   in the order it started, and the panel closes when the last one lands. The
   Refresh button is a local scan plus the eager activity set; it never runs a

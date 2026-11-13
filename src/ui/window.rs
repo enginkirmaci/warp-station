@@ -90,6 +90,11 @@ pub struct MainWindow {
     window_title: String,
     /// The read-only text menu's action anchor; rendered once at the root.
     text_menu: Entity<TextMenuAnchor>,
+    /// The keyboard sheet is up over everything.
+    shortcuts_open: bool,
+    /// The sheet's focus, tracked by the card so the list underneath stops
+    /// taking keys while it is open.
+    shortcuts_focus: gpui::FocusHandle,
 }
 
 impl MainWindow {
@@ -173,10 +178,18 @@ impl MainWindow {
             window_handle,
             window_title: String::new(),
             text_menu,
+            // E2E hook: WARP_STATION_SHORTCUTS=1 opens the sheet on launch
+            // (a hidden window takes no pointer, so a capture needs the card
+            // to open itself).
+            shortcuts_open: matches!(std::env::var("WARP_STATION_SHORTCUTS").as_deref(), Ok("1")),
+            shortcuts_focus: cx.focus_handle(),
         };
         // keep the root focus handle live so Escape / Ctrl+K work before the
         // first input click; inputs take focus back when the user clicks them
         window.focus(&this.focus_handle, cx);
+        if this.shortcuts_open {
+            window.focus(&this.shortcuts_focus, cx);
+        }
         // a focused field can leave the tree with its popup or page, and the
         // window's keys would die with it until the next root click
         cx.on_focus_lost(window, |this, window, cx| {
@@ -277,6 +290,36 @@ impl Render for MainWindow {
                         s.notify(kind, message.to_string());
                         cx.notify();
                     });
+                    cx.stop_propagation();
+                    return;
+                }
+                // `?` and Ctrl+/ are the keyboard sheet; neither fires while a
+                // field owns the keys, so typing a question mark stays typing.
+                let in_field = window
+                    .context_stack()
+                    .iter()
+                    .any(|context| context.contains("Input"));
+                let help_key = !modifiers.alt
+                    && !modifiers.platform
+                    && (event.keystroke.key_char.as_deref() == Some("?")
+                        || key == "?"
+                        || (key == "/" && (modifiers.shift || modifiers.control)));
+                if help_key && !in_field {
+                    if this.shortcuts_open {
+                        this.close_shortcuts(window, cx);
+                    } else {
+                        this.open_shortcuts(window, cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
+                // The card owns the keyboard while it is up: no search focus,
+                // no tab keys and no clipboard action behind it. Escape is the
+                // one key it answers besides `?`.
+                if this.shortcuts_open {
+                    if key == "escape" {
+                        this.close_shortcuts(window, cx);
+                    }
                     cx.stop_propagation();
                     return;
                 }
@@ -391,6 +434,22 @@ impl Render for MainWindow {
                     this.about_license_open = false;
                     cx.notify();
                 }),
+            ));
+        }
+        if self.shortcuts_open {
+            let groups = {
+                let store = self.store.read(cx);
+                crate::shortcuts::groups(&store.settings(), store.selected_entry())
+            };
+            let owner = cx.entity();
+            root = root.child(warpui_kit_core::shortcuts::dialog(
+                "shortcut-sheet",
+                "Keyboard shortcuts",
+                &groups,
+                &self.shortcuts_focus,
+                move |_, window, cx| {
+                    owner.update(cx, |this, cx| this.close_shortcuts(window, cx));
+                },
             ));
         }
         root
@@ -815,6 +874,29 @@ impl MainWindow {
             self.store.update(cx, |s, cx| s.open_repo_tab(&folder, cx));
         }
         true
+    }
+
+    /// Opens the keyboard sheet and gives it the keys, so no list moves under
+    /// the card.
+    fn open_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.shortcuts_open {
+            return;
+        }
+        self.shortcuts_open = true;
+        window.focus(&self.shortcuts_focus, cx);
+        cx.notify();
+    }
+
+    /// Closes the sheet and hands the keyboard back to the window root; a
+    /// focused element that leaves the tree would otherwise leave the keys
+    /// dead until the next click.
+    fn close_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shortcuts_open {
+            return;
+        }
+        self.shortcuts_open = false;
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
     }
 
     /// The global-search results popup under the titlebar field.
@@ -1457,6 +1539,13 @@ impl MainWindow {
                     }),
                 ))
             })
+            .child(title_icon(
+                "shortcuts-toggle",
+                "Keyboard shortcuts",
+                "icons/icon-keyboard.svg",
+                show_tooltips,
+                cx.listener(|this, _, window, cx| this.open_shortcuts(window, cx)),
+            ))
             .child(div().mx_1().h(px(20.)).w(px(1.)).bg(theme::hairline()))
             .child(
                 // box to box: the row's gap belongs to the buttons before them

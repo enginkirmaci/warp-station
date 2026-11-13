@@ -14,14 +14,18 @@ use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
-use gpui::{AnyElement, App, Entity, FontWeight, Rgba, SharedString, Window, div, px};
+use gpui::{
+    AnyElement, App, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
+    SharedString, Window, div, px,
+};
 use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
+use std::rc::Rc;
 use warp_station_core::github::{
     CheckState, GitHubCheck, GitHubCommit, GitHubFilePatch, GitHubPull, PullAction,
 };
 use warp_station_core::settings::DiffViewMode;
-use warpui_kit_core::{field, motion, shell};
+use warpui_kit_core::{field, list_nav, motion, pane_nav, shell};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 
 /// The status strip's height, as the design's 44.
@@ -93,10 +97,27 @@ pub struct PullRequestView {
     /// The detail column's own width, set by the workbench. The Files and
     /// Commits rails stack above the diff under 900 px of it.
     pub column_width: f32,
+    /// The Files rail's keyboard focus and offset.
+    files_focus: FocusHandle,
+    files_scroll: ScrollHandle,
+    /// The Commits rail's keyboard focus and offset.
+    commits_focus: FocusHandle,
+    commits_scroll: ScrollHandle,
+    /// The last rendered rail lengths, for the cursor steps.
+    file_count: usize,
+    commit_count: usize,
+    /// The panes on screen this frame: the rail registers itself while its
+    /// inner tab is the one drawn.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl PullRequestView {
-    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Entity<Store>,
+        pane_nav: Rc<pane_nav::PaneNav>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Write a comment…"));
         // the composer's button follows what is typed in it, and the field is
@@ -121,6 +142,13 @@ impl PullRequestView {
             showing: None,
             stacked: false,
             column_width: f32::MAX,
+            files_focus: cx.focus_handle(),
+            files_scroll: ScrollHandle::default(),
+            commits_focus: cx.focus_handle(),
+            commits_scroll: ScrollHandle::default(),
+            file_count: 0,
+            commit_count: 0,
+            pane_nav,
         }
     }
 
@@ -140,6 +168,75 @@ impl PullRequestView {
         self.primary_menu = false;
         self.review_menu = false;
         cx.notify();
+    }
+
+    /// The Files rail's keys: a pane move first, then the row cursor.
+    fn handle_files_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.files_focus, dir, window, cx);
+        }
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        let Some(key) = list_nav::list_key(event) else {
+            return false;
+        };
+        if !key.moves() {
+            return false;
+        }
+        let Some(next) = list_nav::step(
+            Some(self.file_ix),
+            self.file_count,
+            key,
+            list_nav::DEFAULT_PAGE,
+        ) else {
+            return false;
+        };
+        self.file_ix = next;
+        self.files_scroll.scroll_to_item(next);
+        cx.notify();
+        true
+    }
+
+    /// The Commits rail's keys: a pane move first, then the row cursor.
+    fn handle_commits_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self
+                .pane_nav
+                .move_from(&self.commits_focus, dir, window, cx);
+        }
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        let Some(key) = list_nav::list_key(event) else {
+            return false;
+        };
+        if !key.moves() {
+            return false;
+        }
+        let Some(next) = list_nav::step(
+            Some(self.commit_ix),
+            self.commit_count,
+            key,
+            list_nav::DEFAULT_PAGE,
+        ) else {
+            return false;
+        };
+        self.commit_ix = next;
+        self.commit_file_ix = 0;
+        self.commits_scroll.scroll_to_item(next);
+        cx.notify();
+        true
     }
 
     /// A new pull request starts on Overview, with its own composer and no
@@ -748,7 +845,7 @@ impl PullRequestView {
     // ---- Files ------------------------------------------------------------
 
     fn files_tab(
-        &self,
+        &mut self,
         pull: Option<&GitHubPull>,
         diff: Option<&[GitHubFilePatch]>,
         window: &mut Window,
@@ -761,6 +858,7 @@ impl PullRequestView {
             (None, Some(pull)) => pull.files.iter().collect(),
             (None, None) => Vec::new(),
         };
+        self.file_count = files.len();
         if files.is_empty() {
             return div()
                 .flex_1()
@@ -777,24 +875,53 @@ impl PullRequestView {
         let ix = self.file_ix.min(files.len().saturating_sub(1));
         let file = files[ix];
 
-        let mut rail = div().flex().flex_col().child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(34.))
-                .px(px(16.))
-                .text_size(px(theme::font_meta()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text_dim())
-                .child("Files")
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::text_muted())
-                        .child(format!("{}", files.len())),
-                ),
-        );
+        let focused = self.files_focus.is_focused(window);
+        self.pane_nav.register(&self.files_focus);
+        let mut rail = div()
+            .flex()
+            .flex_col()
+            .track_focus(&self.files_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_files_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.files_focus.is_focused(window) {
+                        window.focus(&this.files_focus, cx);
+                    }
+                }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(34.))
+                    .px(px(16.))
+                    .border_b_1()
+                    .border_color(if focused {
+                        gpui::Hsla::from(theme::accent())
+                    } else {
+                        gpui::Hsla::from(theme::hairline())
+                    })
+                    .text_size(px(theme::font_meta()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if focused {
+                        theme::text()
+                    } else {
+                        theme::text_dim()
+                    })
+                    .child("Files")
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::text_muted())
+                            .child(format!("{}", files.len())),
+                    ),
+            );
         let mut rows = div()
             .id("pull-files")
             .debug_selector(|| "pull-files".into())
@@ -803,6 +930,7 @@ impl PullRequestView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
+            .track_scroll(&self.files_scroll)
             .py_1();
         for (index, entry) in files.iter().enumerate() {
             let selected = index == ix;
@@ -996,6 +1124,10 @@ impl PullRequestView {
                     .bg(theme::panel())
                     .border_b_1()
                     .border_color(theme::hairline())
+                    .debug_selector({
+                        let path = file.path.clone();
+                        move || format!("pull-diff-{path}")
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -1034,7 +1166,7 @@ impl PullRequestView {
 
     #[allow(clippy::too_many_arguments)]
     fn commits_tab(
-        &self,
+        &mut self,
         pull: Option<&GitHubPull>,
         files: Option<&[GitHubFilePatch]>,
         open: &OpenPull,
@@ -1053,9 +1185,12 @@ impl PullRequestView {
         if pull.commits.is_empty() {
             return diff_controls::state("No commits yet");
         }
+        self.commit_count = pull.commits.len();
         let ix = self.commit_ix.min(pull.commits.len() - 1);
         let commit = &pull.commits[ix];
 
+        let focused = self.commits_focus.is_focused(window);
+        self.pane_nav.register(&self.commits_focus);
         let mut list = div()
             .id("pull-commits")
             .debug_selector(|| "pull-commits".into())
@@ -1066,8 +1201,27 @@ impl PullRequestView {
             .flex()
             .flex_col()
             .border_r_1()
-            .border_color(theme::hairline())
+            .border_color(if focused {
+                gpui::Hsla::from(theme::accent())
+            } else {
+                gpui::Hsla::from(theme::hairline())
+            })
             .bg(theme::surface())
+            .track_focus(&self.commits_focus)
+            .track_scroll(&self.commits_scroll)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_commits_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.commits_focus.is_focused(window) {
+                        window.focus(&this.commits_focus, cx);
+                    }
+                }),
+            )
             .py_1();
         let mut day = String::new();
         for (index, entry) in pull.commits.iter().enumerate() {

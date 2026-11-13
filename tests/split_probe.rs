@@ -342,7 +342,7 @@ fn keymap_steps_rows_and_favorites(cx: &mut TestAppContext) {
     );
 
     draw(cx);
-    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("alt-f");
     cx.run_until_parked();
     assert!(
         cx.read_entity(&store, |s, _| s.repos[0].is_favorite()),
@@ -373,7 +373,7 @@ fn commit_key_opens_the_changes_tab(cx: &mut TestAppContext) {
         cx.debug_bounds("detail-tab-changes-panel").is_none(),
         "Overview comes first"
     );
-    cx.simulate_keystrokes("c");
+    cx.simulate_keystrokes("alt-c");
     cx.run_until_parked();
     draw(cx);
     assert!(
@@ -824,7 +824,7 @@ fn open_changes_tab(
     let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
     draw(cx);
 
-    cx.simulate_keystrokes("c");
+    cx.simulate_keystrokes("alt-c");
     draw(cx);
     draw(cx);
     assert!(
@@ -871,7 +871,7 @@ fn a_letter_key_runs_its_launcher(cx: &mut TestAppContext) {
     });
     let cx = open_window(&store, cx);
 
-    cx.simulate_keystrokes("a");
+    cx.simulate_keystrokes("shift-a");
     cx.run_until_parked();
 
     let mut opened = None;
@@ -894,7 +894,7 @@ fn a_held_letter_does_not_repeat(cx: &mut TestAppContext) {
     let cx = open_window(&store, cx);
 
     cx.simulate_event(gpui::KeyDownEvent {
-        keystroke: gpui::Keystroke::parse("s").expect("a keystroke"),
+        keystroke: gpui::Keystroke::parse("alt-f").expect("a keystroke"),
         is_held: true,
         prefer_character_input: false,
     });
@@ -918,7 +918,7 @@ fn the_keymap_stays_out_of_open_layers(cx: &mut TestAppContext) {
     let cx = open_window(&store, cx);
 
     let assert_rows_untouched = |cx: &mut gpui::VisualTestContext, layer: &str| {
-        cx.simulate_keystrokes("s");
+        cx.simulate_keystrokes("alt-f");
         draw(cx);
         cx.simulate_keystrokes("down");
         draw(cx);
@@ -1632,7 +1632,7 @@ fn the_tab_strip_switches_the_panel(cx: &mut TestAppContext) {
         cx.notify();
     });
     let cx = open_window(&store, cx);
-    cx.simulate_keystrokes("c");
+    cx.simulate_keystrokes("alt-c");
     draw(cx);
     draw(cx);
     assert!(cx.debug_bounds("detail-tab-changes-panel").is_some());
@@ -3958,5 +3958,79 @@ fn the_closed_list_asks_both_platforms(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("closed-retry-note").is_some(),
         "the failed half is named beside the rows"
+    );
+}
+
+/// The Files rail joins the pane order: `→` from the pull request list lands
+/// on it, `↓` steps its cursor, and `→` at the end never wraps.
+#[gpui::test]
+fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "pane-rail", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    // the row click gives the list the keyboard; it also re-asks for the
+    // pull, so the answer is seeded after it
+    click(cx, "PR-gh-0");
+
+    let mut pull = ready_pull(0);
+    pull.files = vec![
+        warp_station_core::github::GitHubFilePatch {
+            path: "src/main.rs".into(),
+            status: "M".into(),
+            additions: 2,
+            deletions: 1,
+            patch: String::new(),
+        },
+        warp_station_core::github::GitHubFilePatch {
+            path: "src/lib.rs".into(),
+            status: "M".into(),
+            additions: 1,
+            deletions: 0,
+            patch: String::new(),
+        },
+    ];
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_pull.as_mut().unwrap().pull = Some(pull);
+        cx.notify();
+    });
+    draw(cx);
+    click(cx, "pull-tab-files");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("pull-diff-src/main.rs").is_some(),
+        "the rail starts on the first file"
+    );
+
+    // clicking the inner tab blurred the list, so the pane probe takes the
+    // keyboard back from the list's head, not from a row (a row would re-ask
+    // for the pull and drop the seeded files)
+    let column = cx
+        .debug_bounds("pr-list-column")
+        .expect("the pull request list column renders");
+    cx.simulate_click(
+        gpui::point(
+            column.origin.x + gpui::px(20.),
+            column.origin.y + gpui::px(10.),
+        ),
+        gpui::Modifiers::default(),
+    );
+    draw(cx);
+
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("pull-diff-src/lib.rs").is_some(),
+        "↓ stepped the rail to the second file"
+    );
+
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("pull-diff-src/lib.rs").is_some(),
+        "→ at the rail never wraps back into the pull request list"
     );
 }

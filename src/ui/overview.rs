@@ -327,11 +327,11 @@ pub(crate) fn launch_menu(
                     theme::text_dim(),
                 ))
                 .child(div().flex_1().child(launcher.label))
-                .children(
-                    launcher
-                        .key
-                        .map(|key| keycap(key, theme::text_dim(), theme::key_border())),
-                ),
+                .child(keycap(
+                    format!("Shift {}", launcher.key),
+                    theme::text_dim(),
+                    theme::key_border(),
+                )),
         );
     }
     menu.into_any_element()
@@ -450,22 +450,11 @@ pub(crate) fn popup_menu(
     {
         let target = entities.clone();
         let path = folder.to_string();
-        let name = repo.name.clone();
         menu = menu.child(item(
             "insp-menu-archive",
             "icons/icon-package.svg",
             if archived { "Restore" } else { "Archive" },
-            Box::new(move |cx| {
-                target.update(cx, |s, cx| {
-                    s.set_repo_archived(&path, !archived, cx);
-                    s.notify_success(if archived {
-                        format!("Restored {name}")
-                    } else {
-                        format!("Archived {name}")
-                    });
-                    cx.notify();
-                });
-            }),
+            Box::new(move |cx| target.update(cx, |s, cx| s.toggle_repo_archived(&path, cx))),
         ));
     }
     menu.child(remove_row(state.remove_armed, entities, page))
@@ -949,11 +938,11 @@ fn open_in_section(launchers: &[Launcher], folder: &str, entities: &Entity<Store
                         .text_ellipsis()
                         .child(launcher.short),
                 )
-                .children(
-                    launcher
-                        .key
-                        .map(|key| keycap(key, theme::text_dim(), theme::key_border())),
-                ),
+                .child(keycap(
+                    format!("Shift {}", launcher.key),
+                    theme::text_dim(),
+                    theme::key_border(),
+                )),
         );
     }
     card(section_title("Open in".to_string()))

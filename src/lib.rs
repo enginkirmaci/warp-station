@@ -6,6 +6,7 @@ pub mod ipc;
 pub mod logging;
 pub mod net;
 pub mod notices;
+pub mod shortcuts;
 pub mod store;
 pub mod theme;
 pub mod ui;

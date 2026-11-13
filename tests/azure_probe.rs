@@ -1162,3 +1162,47 @@ fn a_narrow_pipelines_pane_keeps_one_column(cx: &mut TestAppContext) {
     );
     assert!(cx.debug_bounds("run-detail").is_none());
 }
+
+/// The run list is a keyboard pane too: `→` from the repository row lands on
+/// it and `↓` steps the cursor, opening the next run.
+#[gpui::test]
+fn the_pane_keys_walk_from_the_repo_list_into_the_runs(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "runs-focus");
+    let cx = open_window(&store, cx);
+    enable_azure(&store, cx);
+    let mut newest = run(9, "20261102.4", true);
+    newest.at = Some("2026-11-02T10:00:00Z".into());
+    let mut older = run(7, "20261102.3", false);
+    older.at = Some("2026-11-02T09:00:00Z".into());
+    seed_azure(
+        &store,
+        AzureSnapshot {
+            available: true,
+            url: Some("https://dev.azure.com/o/p".into()),
+            pipelines: vec![newest, older],
+            ..Default::default()
+        },
+        cx,
+    );
+    click(cx, "detail-tab-pipelines");
+    draw(cx);
+
+    click(cx, "repo-row-0");
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+
+    let open = cx.read_entity(&store, |s, _| s.open_run.as_ref().map(|open| open.run.id));
+    assert_eq!(open, Some(7), "↓ opened the second run");
+
+    // the list is the rightmost stop: → is a no-op, not a wrap
+    cx.simulate_keystrokes("right");
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    let open = cx.read_entity(&store, |s, _| s.open_run.as_ref().map(|open| open.run.id));
+    assert_eq!(
+        open,
+        Some(7),
+        "the cursor clamps at the end and never wraps"
+    );
+}

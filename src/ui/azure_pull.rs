@@ -17,14 +17,18 @@ use crate::ui::pull_request::{
 };
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Window, div, px};
+use gpui::{
+    AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
+    SharedString, Window, div, px,
+};
 use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
+use std::rc::Rc;
 use warp_station_core::azure::{
     AzureFile, AzurePolicy, AzurePull, AzurePullAction, AzureThread, AzureUser,
 };
 use warp_station_core::settings::DiffViewMode;
-use warpui_kit_core::{field, motion, shell};
+use warpui_kit_core::{field, list_nav, motion, pane_nav, shell};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 
 const STRIP_HEIGHT: f32 = 44.;
@@ -81,10 +85,22 @@ pub struct AzurePullView {
     pub stacked: bool,
     /// The detail column's width: the Files rail reads it.
     pub column_width: f32,
+    /// The Files rail's keyboard focus and offset, and the paths it steps.
+    files_focus: FocusHandle,
+    files_scroll: ScrollHandle,
+    file_paths: Vec<String>,
+    /// The panes on screen this frame: the Files rail registers itself while
+    /// its tab is drawn.
+    pane_nav: Rc<pane_nav::PaneNav>,
 }
 
 impl AzurePullView {
-    pub fn new(store: Entity<Store>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Entity<Store>,
+        pane_nav: Rc<pane_nav::PaneNav>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Write a comment…"));
         // the composer's button follows what is typed in it
@@ -105,6 +121,10 @@ impl AzurePullView {
             showing: None,
             stacked: false,
             column_width: f32::MAX,
+            files_focus: cx.focus_handle(),
+            files_scroll: ScrollHandle::default(),
+            file_paths: Vec::new(),
+            pane_nav,
         }
     }
 
@@ -117,6 +137,45 @@ impl AzurePullView {
             return true;
         }
         false
+    }
+
+    /// The Files rail's keys: a pane move first, then the row cursor. Azure
+    /// hands out no patch with the change list, so each step also asks for the
+    /// new file's diff.
+    fn handle_files_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.files_focus, dir, window, cx);
+        }
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        let Some(key) = list_nav::list_key(event) else {
+            return false;
+        };
+        if !key.moves() {
+            return false;
+        }
+        let Some(next) = list_nav::step(
+            Some(self.file_ix),
+            self.file_paths.len(),
+            key,
+            list_nav::DEFAULT_PAGE,
+        ) else {
+            return false;
+        };
+        self.file_ix = next;
+        self.files_scroll.scroll_to_item(next);
+        if let Some(path) = self.file_paths.get(next).cloned() {
+            self.store
+                .update(cx, |store, cx| store.load_azure_pull_diff(&path, cx));
+        }
+        cx.notify();
+        true
     }
 
     fn reset_for(&mut self, number: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -914,7 +973,7 @@ impl AzurePullView {
     // ---- Files ------------------------------------------------------------
 
     fn files_tab(
-        &self,
+        &mut self,
         open: &crate::store::OpenAzurePull,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -922,6 +981,7 @@ impl AzurePullView {
         show_tooltips: bool,
     ) -> AnyElement {
         let files = open.files.clone().unwrap_or_default();
+        self.file_paths = files.iter().map(|file| file.path.clone()).collect();
         if files.is_empty() {
             return diff_controls::state(if open.files.is_none() {
                 "Reading the changed files…"
@@ -932,24 +992,53 @@ impl AzurePullView {
         let ix = self.file_ix.min(files.len() - 1);
         let file = &files[ix];
 
-        let mut rail = div().flex().flex_col().child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(34.))
-                .px(px(16.))
-                .text_size(px(theme::font_meta()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text_dim())
-                .child("Files")
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::text_muted())
-                        .child(format!("{}", files.len())),
-                ),
-        );
+        let focused = self.files_focus.is_focused(window);
+        self.pane_nav.register(&self.files_focus);
+        let mut rail = div()
+            .flex()
+            .flex_col()
+            .track_focus(&self.files_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_files_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.files_focus.is_focused(window) {
+                        window.focus(&this.files_focus, cx);
+                    }
+                }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .h(px(34.))
+                    .px(px(16.))
+                    .border_b_1()
+                    .border_color(if focused {
+                        gpui::Hsla::from(theme::accent())
+                    } else {
+                        gpui::Hsla::from(theme::hairline())
+                    })
+                    .text_size(px(theme::font_meta()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if focused {
+                        theme::text()
+                    } else {
+                        theme::text_dim()
+                    })
+                    .child("Files")
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::text_muted())
+                            .child(format!("{}", files.len())),
+                    ),
+            );
         let mut rows = div()
             .id("azure-pull-files")
             .debug_selector(|| "azure-pull-files".into())
@@ -958,6 +1047,7 @@ impl AzurePullView {
             .overflow_y_scroll()
             .flex()
             .flex_col()
+            .track_scroll(&self.files_scroll)
             .py_1();
         for (index, entry) in files.iter().enumerate() {
             rows = rows.child(file_row(index, entry, index == ix, this));
@@ -1082,6 +1172,10 @@ impl AzurePullView {
                             .bg(theme::panel())
                             .border_b_1()
                             .border_color(theme::hairline())
+                            .debug_selector({
+                                let path = file.path.clone();
+                                move || format!("azure-pull-diff-{path}")
+                            })
                             .child(
                                 div()
                                     .flex_1()
