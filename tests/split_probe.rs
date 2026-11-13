@@ -3733,6 +3733,71 @@ fn the_last_arrangement_restores_on_a_restart(cx: &mut TestAppContext) {
     });
 }
 
+/// Azure work items filter by their own keys, and the same Sort menu the
+/// pull requests carry is on their toolbar.
+#[gpui::test]
+fn the_azure_work_items_filter_and_sort(cx: &mut TestAppContext) {
+    use std::sync::Arc;
+    use warp_station_core::azure::{AzureItem, AzureSnapshot};
+
+    let (store, _net_rx) = scratch_store(cx, "azure-filter", vec![entry("alpha", "/probe/alpha")]);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| {
+            settings.repos.enable_azure_devops = true;
+            settings.repos.azure_devops_pat = "pat".into();
+        });
+        s.azure_by_folder.insert(
+            "/probe/alpha".to_string(),
+            Arc::new(AzureSnapshot {
+                available: true,
+                work_items: vec![
+                    AzureItem {
+                        number: 3381,
+                        title: "Battery drains while syncing".into(),
+                        work_item_type: Some("Bug".into()),
+                        ..Default::default()
+                    },
+                    AzureItem {
+                        number: 3382,
+                        title: "Sync the bridge".into(),
+                        work_item_type: Some("Task".into()),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+        );
+        cx.notify();
+    });
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-issues");
+    assert!(cx.debug_bounds("Issue-az-3381").is_some());
+    assert!(cx.debug_bounds("Issue-az-3382").is_some());
+
+    click(cx, "issue-filter");
+    cx.simulate_keystrokes("3 3 8 1");
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-az-3381").is_some());
+    assert!(
+        cx.debug_bounds("Issue-az-3382").is_none(),
+        "the other work item is filtered out"
+    );
+
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(cx.debug_bounds("Issue-az-3382").is_some());
+
+    click(cx, "issue-sort");
+    assert!(cx.debug_bounds("issue-sort-menu").is_some());
+    click(cx, "issue-sort-comments");
+    assert!(cx.debug_bounds("issue-sort-menu").is_none());
+    assert_eq!(
+        store.read_with(cx, |s, _| s.settings().repos.issue_sort),
+        Some("comments".to_string())
+    );
+}
+
 /// Both platforms' rows in one list: each carries its own reference shape and
 /// its own source tag, and one list orders them for you.
 #[gpui::test]

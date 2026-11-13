@@ -2351,6 +2351,26 @@ mod tests {
         assert!(parse_url("git@github.com:owner/repo.git", None).is_none());
     }
 
+    /// The two create verbs on a merged list carry the Azure URLs the buttons
+    /// open: the repository's create page and the project's work item form.
+    #[test]
+    fn the_create_urls_name_the_repository_and_the_project() {
+        let snapshot = AzureSnapshot {
+            url: Some("https://dev.azure.com/o/p/_git/r".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            snapshot.new_pull_request_url().as_deref(),
+            Some("https://dev.azure.com/o/p/_git/r/pullrequestcreate")
+        );
+        assert_eq!(
+            snapshot.new_work_item_url().as_deref(),
+            Some("https://dev.azure.com/o/p/_workitems/create/Bug")
+        );
+        assert_eq!(AzureSnapshot::default().new_pull_request_url(), None);
+        assert_eq!(AzureSnapshot::default().new_work_item_url(), None);
+    }
+
     /// The reviewer picker lists people, not the organization's service
     /// identities or groups, and keeps the sign-in name the row shows.
     #[test]

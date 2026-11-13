@@ -10,6 +10,52 @@ use warp_station::ui::settings::SettingsPage;
 /// Serializes the HOME-swapping probes against each other.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The Integrations section carries the Azure controls, and the switch saves
+/// the integration flag immediately — the same row the live page shows.
+#[gpui_kit::gpui::test]
+fn the_integrations_section_carries_the_azure_controls(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-settings-azure-probe-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".warp")).unwrap();
+    // SAFETY: process-global env; serialized against the sibling HOME probes
+    unsafe {
+        std::env::set_var("HOME", &home);
+        #[cfg(windows)]
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "settings-integrations");
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.debug_bounds("settings-row-Azure DevOps").is_some(),
+        "the Azure switch is in Integrations"
+    );
+    assert!(
+        cx.debug_bounds("settings-field-Azure DevOps PAT").is_some(),
+        "the PAT field is in the same section"
+    );
+    assert!(
+        cx.debug_bounds("settings-field-Azure DevOps server URL")
+            .is_some(),
+        "the server URL field is in the same section"
+    );
+}
+
 #[gpui_kit::gpui::test]
 fn settings_page_draws_all_sections(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
