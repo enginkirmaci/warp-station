@@ -75,9 +75,10 @@ Keep this order; several steps depend on the previous one:
   `warpui-kit-core`; the app stores neither, and the accent follows the live
   palette like the other apps. Do not copy a fixed accent into a new app.
 - **Layout.** Everything lives under `~/.warp/station` (versioned
-  `settings.json` plus the disposable `cache/repos.json` and
-  `cache/models.json`), except the shared `~/.warp/ui.json`, `~/.warp/logs`,
-  the SnapIt settings at `~/.warp/snapit` and the notes content at `~/notes`.
+  `settings.json` plus the disposable `cache/repos.json`,
+  `cache/models.json` and `cache/flow.json`), except the shared
+  `~/.warp/ui.json`, `~/.warp/logs`, the SnapIt settings at `~/.warp/snapit`
+  and the notes content at `~/notes`.
 - **Settings.** Repo tags live in `settings.json` (`repos.repo_tags`), not in
   the cache. The contract is `../../docs/agents/settings-schema.md`.
 - **Folder groups.** `repos.group_repos_by_root` groups each repo under the
@@ -119,6 +120,17 @@ Keep this order; several steps depend on the previous one:
   watched (and, while a merge watch still has no run, its bounded 15 s runs
   read), and the run-end toast is gated by `notifications.pipelines` (desktop
   only; the in-app toast always lands).
+- **Flow strip.** `crates/warp-station-core/src/flow.rs` owns the disposable
+  `cache/flow.json`; `Store::flow_view` turns the live pull/run snapshots and
+  that record into the Changes strip's four steps, and `run_flow_action` is
+  the only dispatcher. `watch_all_runs_on_branch` tallies the merge branch's
+  runs from the lightweight list (never a second detail poll) and raises one
+  "2 of 3 passed" gate toast; a gate suppresses the per-run toast. The New
+  pull request form is now platform-neutral: GitHub goes through
+  `gh pr create`, Azure through the REST POST (`azure::create_pull`), and the
+  optional reviewer is passed through on GitHub and resolved to an Azure
+  identity GUID before the POST. The pipeline toast's button opens the run in
+  the app; the desktop notification has no click callback on this path.
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
   Changes files, History commits, PR/Issues); the window delegates only while
   it owns the focus itself. The OS title carries `Store::activity()` next to

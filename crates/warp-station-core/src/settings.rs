@@ -58,6 +58,9 @@ pub struct WorkflowSettings {
     /// left, so the run-end toast finds them on another tab. This starts no
     /// poll of its own; it only continues one that is already armed.
     pub watch_in_background: bool,
+    /// Follow every run the merge starts on the target branch, not only the
+    /// newest. The gate settles into one "N of M passed" toast.
+    pub watch_all_runs_on_branch: bool,
 }
 
 impl Default for WorkflowSettings {
@@ -67,6 +70,7 @@ impl Default for WorkflowSettings {
             open_pull_request_after_push: true,
             open_pipelines_after_merge: true,
             watch_in_background: true,
+            watch_all_runs_on_branch: false,
         }
     }
 }
@@ -753,6 +757,7 @@ mod tests {
         assert!(s.workflow.open_pull_request_after_push);
         assert!(s.workflow.open_pipelines_after_merge);
         assert!(s.workflow.watch_in_background);
+        assert!(!s.workflow.watch_all_runs_on_branch);
         assert!(s.notifications.pipelines);
     }
 

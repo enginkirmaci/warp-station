@@ -6,6 +6,7 @@
 //! policy, so the mirror semantics live in one place and the store's
 //! `notify_*` API stays the one call sites know.
 
+use warp_station_core::activity::ActivityRun;
 use warp_station_core::desktop_notifications::{
     self as desktop, Category, DesktopNotice, Severity,
 };
@@ -63,7 +64,17 @@ pub struct Notice {
     pub id: u64,
     pub kind: NoticeKind,
     pub text: String,
+    /// One follow-up the toast can offer — the pipeline result's "Open run".
+    /// The desktop copy cannot carry it: notify-send/WinRT have no callback on
+    /// this app's notification path.
+    pub action: Option<NoticeAction>,
     born: std::time::Instant,
+}
+
+/// A toast's one follow-up press.
+#[derive(Clone, Debug)]
+pub enum NoticeAction {
+    OpenRun { folder: String, run: ActivityRun },
 }
 
 /// A toast burst never stacks a wall of cards on top of each other; the same
@@ -97,7 +108,7 @@ impl Notices {
         focused: Option<bool>,
         settings: &NotificationsSettings,
     ) -> Option<DesktopNotice> {
-        self.push_for(kind, kind.category(), text, focused, settings)
+        self.push_for(kind, kind.category(), text, None, focused, settings)
     }
 
     /// As [`Self::push`], for a notice whose desktop category is not the one
@@ -108,6 +119,7 @@ impl Notices {
         kind: NoticeKind,
         category: desktop::Category,
         text: impl Into<String>,
+        action: Option<NoticeAction>,
         focused: Option<bool>,
         settings: &NotificationsSettings,
     ) -> Option<DesktopNotice> {
@@ -120,6 +132,7 @@ impl Notices {
             id,
             kind,
             text: text.clone(),
+            action,
             born: std::time::Instant::now(),
         });
         if self.toasts.len() > TOAST_CAP {

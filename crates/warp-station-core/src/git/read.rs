@@ -481,6 +481,43 @@ pub fn commit_details(folder: &Path, hash: &str) -> Option<GitCommitDetails> {
     .flatten()
 }
 
+/// The New pull request form's prefill: HEAD's one-line subject and the bodies
+/// of the commits between `base` and `head` (newest first), joined. A read,
+/// never a write.
+pub fn pull_prefill(folder: &Path, base: &str, head: &str) -> Option<(String, String)> {
+    with_repo(folder, |repo| {
+        let head_commit = repo.revparse_single(head).ok()?.peel_to_commit().ok()?;
+        let subject = head_commit
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+        let mut walk = repo.revwalk().ok()?;
+        walk.push(head_commit.id()).ok()?;
+        if let Some(base) = repo
+            .revparse_single(base)
+            .ok()
+            .and_then(|object| object.peel_to_commit().ok())
+        {
+            let _ = walk.hide(base.id());
+        }
+        let mut bodies = Vec::new();
+        for id in walk.flatten() {
+            let Ok(commit) = repo.find_commit(id) else {
+                continue;
+            };
+            if let Some(body) = message_body(commit.message().unwrap_or_default())
+                && !body.trim().is_empty()
+            {
+                bodies.push(body);
+            }
+        }
+        Some((subject, bodies.join("\n\n")))
+    })
+    .flatten()
+}
+
 /// One commit's patch restricted to a single file, capped. Rename detection
 /// stays off: a renamed path then renders its full new content.
 pub fn commit_file_patch(folder: &Path, hash: &str, path: &str) -> Option<String> {

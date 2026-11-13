@@ -10,10 +10,14 @@
 //! change its paths.
 
 use chrono::{DateTime, Datelike as _, Local};
+use serde::{Deserialize, Serialize};
 
 /// Where one activity row comes from. The tag on the row says it, and the
 /// open path and the wording follow it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum ActivitySource {
     #[default]
     GitHub,
@@ -334,7 +338,8 @@ impl ActivityCounts {
 }
 
 /// One run's state in the app's own words, whichever platform it ran on.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RunState {
     #[default]
     Queued,

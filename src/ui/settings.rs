@@ -135,6 +135,7 @@ pub struct SettingsPage {
     flow_open_pull: bool,
     flow_open_pipelines: bool,
     flow_watch_background: bool,
+    flow_watch_all: bool,
     // External tools
     vscode_executable: Entity<InputState>,
     vscode_profile: Entity<InputState>,
@@ -380,6 +381,7 @@ impl SettingsPage {
             flow_open_pull: settings.workflow.open_pull_request_after_push,
             flow_open_pipelines: settings.workflow.open_pipelines_after_merge,
             flow_watch_background: settings.workflow.watch_in_background,
+            flow_watch_all: settings.workflow.watch_all_runs_on_branch,
             vscode_executable: field(window, cx, &repos.vscode_executable),
             vscode_profile: field(window, cx, &repos.vscode_profile),
             terminal_executable: field(window, cx, &repos.terminal_executable),
@@ -562,6 +564,7 @@ impl SettingsPage {
             self.flow_open_pull,
             self.flow_open_pipelines,
             self.flow_watch_background,
+            self.flow_watch_all,
         );
         let snapit_auto_start = self.snapit_auto_start;
         let snapit_exe = Self::value(&self.snapit_executable, cx);
@@ -645,6 +648,7 @@ impl SettingsPage {
                 s.workflow.open_pull_request_after_push = workflow.1;
                 s.workflow.open_pipelines_after_merge = workflow.2;
                 s.workflow.watch_in_background = workflow.3;
+                s.workflow.watch_all_runs_on_branch = workflow.4;
             });
             // grouping only reshapes the list: re-project, never rescan —
             // the repos and their folders did not change
@@ -1191,7 +1195,7 @@ impl SettingsPage {
                         "set-flow-push",
                         "Open the PR step after push",
                         "settings-row-Open the PR step after push".to_string(),
-                        "The pushed branch's Create pull request step opens by itself (GitHub's in-pane form)",
+                        "The pushed branch's Create pull request step opens by itself in the pane",
                         self.flow_open_pull,
                         rows.is_empty(),
                         cx.listener(|this, _, _, cx| {
@@ -1224,6 +1228,19 @@ impl SettingsPage {
                     rows.is_empty(),
                     cx.listener(|this, _, _, cx| {
                         this.flow_watch_background = !this.flow_watch_background;
+                        this.save(cx);
+                        cx.notify();
+                    }),
+                ));
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-flow-watch-all",
+                    "Watch every run on the branch",
+                    "settings-row-Watch every run on the branch".to_string(),
+                    "A merge that starts several workflows reports one gate result (2 of 3 passed)",
+                    self.flow_watch_all,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.flow_watch_all = !this.flow_watch_all;
                         this.save(cx);
                         cx.notify();
                     }),

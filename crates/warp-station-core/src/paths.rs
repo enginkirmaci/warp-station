@@ -48,6 +48,12 @@ impl AppPaths {
     pub fn models_cache_file() -> PathBuf {
         Self::app_dir().join("cache").join("models.json")
     }
+    /// The per-branch flow record behind the Changes strip. Regenerable: it
+    /// carries no user setting and a deleted file only loses the strip's
+    /// remembered step until the passes answer again.
+    pub fn flow_cache_file() -> PathBuf {
+        Self::app_dir().join("cache").join("flow.json")
+    }
 }
 
 /// One-time layout compatibility: the prompt templates and the catalog cache

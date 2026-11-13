@@ -17,6 +17,7 @@ use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::input::{InputState, TextareaState};
+use warp_station_core::activity::ActivitySource;
 use warp_station_core::model::ComparePreview;
 use warpui_kit_core::{field, motion, shell};
 use warpui_kit_picker::{
@@ -82,6 +83,11 @@ pub struct NewPullView {
     primary_menu: bool,
     /// The form is the whole detail pane: the workbench's list is not beside it.
     pub stacked: bool,
+    /// The form generation the fields were seeded for; a reopened form gets
+    /// the prefill's subject/body, a later answer only fills empty fields.
+    form_seq: Option<u64>,
+    title_seeded: bool,
+    body_seeded: bool,
 }
 
 /// Which side of the branch row a picker belongs to.
@@ -98,7 +104,7 @@ impl NewPullView {
         let description =
             cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe the change…"));
         let reviewer =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search people or teams"));
+            cx.new(|cx| InputState::new(window, cx).placeholder("Reviewer login, name or email"));
         let source_picker = build_branch_picker(&store, BranchSide::Source, window, cx);
         let base_picker = build_branch_picker(&store, BranchSide::Base, window, cx);
         Self {
@@ -111,6 +117,9 @@ impl NewPullView {
             base_picker,
             primary_menu: false,
             stacked: false,
+            form_seq: None,
+            title_seeded: false,
+            body_seeded: false,
         }
     }
 
@@ -157,6 +166,39 @@ impl NewPullView {
 
 impl Render for NewPullView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        // the form's prefill is a read: seed the title from the workspace's
+        // tip commit and the body from base..head when the net answer lands,
+        // never over text the user already typed
+        let form = self.store.read(cx).new_pull.clone();
+        if let Some(form) = form.as_ref() {
+            if self.form_seq != Some(form.seq) {
+                self.form_seq = Some(form.seq);
+                self.title_seeded = false;
+                self.body_seeded = false;
+                self.title
+                    .update(cx, |state, cx| state.set_value("", window, cx));
+                self.description
+                    .update(cx, |state, cx| state.set_value("", window, cx));
+            }
+            if !self.title_seeded
+                && !form.prefill_title.trim().is_empty()
+                && self.title.read(cx).value().trim().is_empty()
+            {
+                let title = form.prefill_title.clone();
+                self.title
+                    .update(cx, |state, cx| state.set_value(&title, window, cx));
+                self.title_seeded = true;
+            }
+            if !self.body_seeded
+                && !form.prefill_body.trim().is_empty()
+                && self.description.read(cx).value().trim().is_empty()
+            {
+                let body = form.prefill_body.clone();
+                self.description
+                    .update(cx, |state, cx| state.set_value(&body, window, cx));
+                self.body_seeded = true;
+            }
+        }
         let this = cx.entity();
         self.store.update(cx, |store, _| store.load_compare());
 
@@ -182,6 +224,7 @@ impl Render for NewPullView {
             .unwrap_or_default();
         let creating = form.creating;
         let error = form.error.clone();
+        let source = form.source;
         let files = preview.counts().0;
         let commits = preview.counts().1;
 
@@ -214,7 +257,7 @@ impl Render for NewPullView {
             .flex()
             .flex_col()
             .bg(theme::panel())
-            .child(self.head_row(&repo_name, &this))
+            .child(self.head_row(&repo_name, source, &this))
             .child(self.branch_row(cx))
             .child(self.tab_strip(files, commits, &this))
             .child(body)
@@ -227,7 +270,7 @@ impl Render for NewPullView {
 impl NewPullView {
     // ---- head -------------------------------------------------------------
 
-    fn head_row(&self, repo_name: &str, this: &Entity<Self>) -> AnyElement {
+    fn head_row(&self, repo_name: &str, source: ActivitySource, this: &Entity<Self>) -> AnyElement {
         let mut title_row = div()
             .flex()
             .flex_row()
@@ -246,7 +289,7 @@ impl NewPullView {
                     .text_ellipsis()
                     .child("New pull request"),
             )
-            .child(source_tag("GitHub"));
+            .child(source_tag(source.label()));
         if self.stacked {
             let store = self.store.clone();
             let this = this.clone();

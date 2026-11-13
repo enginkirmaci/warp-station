@@ -64,6 +64,15 @@ pub enum NetCommand {
         folder: PathBuf,
         hash: String,
     },
+    /// The New pull request form's prefill: HEAD's subject and the message
+    /// bodies of base..head. `seq` names the form that asked, so a stale
+    /// answer cannot seed a form the user reopened.
+    TipMessage {
+        folder: PathBuf,
+        base: String,
+        head: String,
+        seq: u64,
+    },
     /// One drill-down file's patch.
     GetCommitFilePatch {
         folder: PathBuf,
@@ -140,6 +149,13 @@ pub enum NetCommand {
         folder: PathBuf,
         gh_exe: String,
         request: warp_station_core::github::NewPullRequest,
+    },
+    /// Opens the pull request the form filled in on Azure DevOps.
+    AzurePullCreate {
+        folder: PathBuf,
+        pat: String,
+        custom_base: String,
+        request: Box<warp_station_core::github::NewPullRequest>,
     },
     /// The Azure DevOps activity pass (2-way parallel REST probes).
     AzurePass {
@@ -500,6 +516,12 @@ pub enum UiEvent {
         folder: String,
         details: Option<warp_station_core::model::GitCommitDetails>,
     },
+    TipMessageLoaded {
+        folder: String,
+        seq: u64,
+        subject: String,
+        body: String,
+    },
     CommitFilePatchLoaded {
         folder: String,
         hash: String,
@@ -562,6 +584,11 @@ pub enum UiEvent {
         preview: Option<warp_station_core::model::ComparePreview>,
     },
     GitHubPullCreated {
+        folder: String,
+        request: Box<warp_station_core::github::NewPullRequest>,
+        result: Result<u64, String>,
+    },
+    AzurePullCreated {
         folder: String,
         request: Box<warp_station_core::github::NewPullRequest>,
         result: Result<u64, String>,
@@ -1053,6 +1080,28 @@ fn spawn_read_intake(
                         let _ = evt_tx.send_blocking(UiEvent::GitHubPullCreated {
                             folder: folder.to_string_lossy().to_string(),
                             request: Box::new(request),
+                            result,
+                        });
+                    });
+                }
+                NetCommand::AzurePullCreate {
+                    folder,
+                    pat,
+                    custom_base,
+                    request,
+                } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let result = warp_station_core::azure::create_pull(
+                            &folder,
+                            &pat,
+                            &custom_base,
+                            &request,
+                        )
+                        .await;
+                        let _ = evt_tx.send_blocking(UiEvent::AzurePullCreated {
+                            folder: folder.to_string_lossy().to_string(),
+                            request,
                             result,
                         });
                     });
@@ -1807,6 +1856,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             | NetCommand::GitHubPullAction { .. }
             | NetCommand::CompareBranches { .. }
             | NetCommand::GitHubPullCreate { .. }
+            | NetCommand::AzurePullCreate { .. }
             | NetCommand::AzureRunDetail { .. }
             | NetCommand::GitHubRunDetail { .. }
             | NetCommand::GitHubRuns { .. }
@@ -1849,6 +1899,27 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let _ = evt_tx.send_blocking(UiEvent::CommitDetailsLoaded {
                     folder: folder.to_string_lossy().to_string(),
                     details,
+                });
+            }
+            NetCommand::TipMessage {
+                folder,
+                base,
+                head,
+                seq,
+            } => {
+                let message = tokio::task::spawn_blocking({
+                    let folder = folder.clone();
+                    move || warp_station_core::git::read::pull_prefill(&folder, &base, &head)
+                })
+                .await
+                .ok()
+                .flatten();
+                let (subject, body) = message.unwrap_or_default();
+                let _ = evt_tx.send_blocking(UiEvent::TipMessageLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    seq,
+                    subject,
+                    body,
                 });
             }
             NetCommand::GetCommitFilePatch { folder, hash, path } => {

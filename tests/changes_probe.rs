@@ -106,7 +106,8 @@ fn the_toolbar_offers_the_branchs_pull_request_step(cx: &mut TestAppContext) {
 
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| {
-        let mut store = Store::with_settings(net_tx, scratch_service("changes-pull-step"));
+        let mut store =
+            Store::with_settings(net_tx, scratch_service("changes-pull-step")).without_flow_cache();
         store.replace_repos(vec![warp_station_core::repo_store::RepoEntry {
             name: "probe-repo".into(),
             folder_path: std::path::PathBuf::from("/probe/flow"),
@@ -151,6 +152,14 @@ fn the_toolbar_offers_the_branchs_pull_request_step(cx: &mut TestAppContext) {
         cx.debug_bounds("rail-view-pr").is_none(),
         "and not the View verb"
     );
+    assert!(
+        cx.debug_bounds("flow-strip").is_some(),
+        "the pushed branch draws the four-step flow strip"
+    );
+    assert!(
+        cx.debug_bounds("flow-step-create").is_some(),
+        "the strip starts at Create PR"
+    );
 
     // the branch already has an open pull request
     cx.update_entity(&store, |s, _| {
@@ -173,6 +182,18 @@ fn the_toolbar_offers_the_branchs_pull_request_step(cx: &mut TestAppContext) {
         cx.debug_bounds("rail-view-pr").is_some(),
         "the open pull request turns the verb into View PR"
     );
+    for step in ["create", "merge", "pipeline", "result"] {
+        let selector = match step {
+            "create" => "flow-step-create",
+            "merge" => "flow-step-merge",
+            "pipeline" => "flow-step-pipeline",
+            _ => "flow-step-result",
+        };
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "the strip draws the {step} step"
+        );
+    }
 }
 
 #[gpui_kit::gpui::test]

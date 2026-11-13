@@ -684,62 +684,86 @@ impl MainWindow {
             };
             let id = notice.id;
             let store = self.store.clone();
-            stack = stack.child(motion::enter(
-                ("toast-enter", id),
+            let mut card = div()
+                .id(("toast", id))
+                .debug_selector(move || format!("toast-{id}"))
+                .role(gpui::Role::Alert)
+                .aria_label(notice.text.clone())
+                .occlude()
+                .max_w(px(420.))
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_2()
+                .rounded_lg()
+                .border_1()
+                .border_color(if notice.kind == crate::store::NoticeKind::Error {
+                    theme::tint(theme::DANGER)
+                } else {
+                    gpui::Hsla::from(theme::hairline())
+                })
+                .bg(theme::popup())
+                .shadow_lg()
+                .p_2p5()
+                .child(icon(glyph, px(theme::icon_small()), color))
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_size(px(theme::font_body()))
+                        .text_color(if notice.kind == crate::store::NoticeKind::Error {
+                            theme::text()
+                        } else {
+                            theme::text_dim()
+                        })
+                        .child(notice.text.clone()),
+                );
+            if let Some(action) = notice.action.clone() {
+                let action_store = self.store.clone();
+                card = card.child(
+                    div()
+                        .id(("toast-open", id))
+                        .debug_selector(move || format!("toast-open-{id}"))
+                        .a11y_button("Open run")
+                        .cursor_pointer()
+                        .flex_shrink_0()
+                        .rounded_md()
+                        .px_1p5()
+                        .py_0p5()
+                        .text_size(px(theme::font_meta()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::accent_ink())
+                        .hover(|s| s.bg(theme::hover_bg()))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            action_store.update(cx, |s, cx| {
+                                s.open_notice_action(action.clone(), cx);
+                                s.dismiss_notice(id, cx);
+                            });
+                        })
+                        .child("Open run"),
+                );
+            }
+            card = card.child(
                 div()
-                    .id(("toast", id))
-                    .debug_selector(move || format!("toast-{id}"))
-                    .role(gpui::Role::Alert)
-                    .aria_label(notice.text.clone())
-                    .occlude()
-                    .max_w(px(420.))
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(if notice.kind == crate::store::NoticeKind::Error {
-                        theme::tint(theme::DANGER)
-                    } else {
-                        gpui::Hsla::from(theme::hairline())
+                    .id(("toast-close", id))
+                    .debug_selector(move || format!("toast-close-{id}"))
+                    .a11y_button("Dismiss notification")
+                    .cursor_pointer()
+                    .flex_shrink_0()
+                    .rounded_md()
+                    .p_0p5()
+                    .hover(|s| s.bg(theme::hover_bg()))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        store.update(cx, |s, cx| s.dismiss_notice(id, cx));
                     })
-                    .bg(theme::popup())
-                    .shadow_lg()
-                    .p_2p5()
-                    .child(icon(glyph, px(theme::icon_small()), color))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_size(px(theme::font_body()))
-                            .text_color(if notice.kind == crate::store::NoticeKind::Error {
-                                theme::text()
-                            } else {
-                                theme::text_dim()
-                            })
-                            .child(notice.text.clone()),
-                    )
-                    .child(
-                        div()
-                            .id(("toast-close", id))
-                            .debug_selector(move || format!("toast-close-{id}"))
-                            .a11y_button("Dismiss notification")
-                            .cursor_pointer()
-                            .flex_shrink_0()
-                            .rounded_md()
-                            .p_0p5()
-                            .hover(|s| s.bg(theme::hover_bg()))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                store.update(cx, |s, cx| s.dismiss_notice(id, cx));
-                            })
-                            .child(icon(
-                                "icons/icon-close.svg",
-                                px(theme::icon_small() - 4.),
-                                theme::text_faint(),
-                            )),
-                    ),
-            ));
+                    .child(icon(
+                        "icons/icon-close.svg",
+                        px(theme::icon_small() - 4.),
+                        theme::text_faint(),
+                    )),
+            );
+            stack = stack.child(motion::enter(("toast-enter", id), card));
         }
         Some(stack.into_any_element())
     }

@@ -276,10 +276,9 @@ impl ItemListView {
             .when_some(new_target, |bar, target| {
                 // the workbench's detail owns the one filled primary, so the
                 // list's New stays a plain button — and a pull request is
-                // written in the pane, not in the browser
+                // written in the pane on either platform
                 let store = self.store.clone();
                 let pull_requests = self.pull_requests;
-                let source = target.source;
                 let url = target.url.clone();
                 bar.child(
                     div()
@@ -301,10 +300,8 @@ impl ItemListView {
                         .text_color(theme::text())
                         .hover(|s| s.bg(theme::raised()))
                         .on_click(move |_, _, cx| {
-                            // the in-pane form is GitHub's; Azure opens its
-                            // own create page
-                            if pull_requests && source == ActivitySource::GitHub {
-                                store.update(cx, |store, cx| store.open_new_pull(cx));
+                            if pull_requests {
+                                store.update(cx, |store, cx| store.start_new_pull(cx));
                             } else if let Some(url) = url.as_ref() {
                                 let _ = warp_station_core::terminal::open_folder(url);
                             }
@@ -502,9 +499,9 @@ impl Render for ItemListView {
             items.retain(|item| item.matches(&self.query));
         }
 
-        // the New verb follows the platform the rows do: a GitHub pull request
-        // is written in the in-pane form, so it needs no snapshot URL; GitHub
-        // issues and Azure verbs open their platform's create page.
+        // the New verb follows the platform the rows do: a pull request is
+        // written in the in-pane form, so it needs no snapshot URL; GitHub
+        // issues and Azure work items open their platform's create page.
         let new_target = if self.pull_requests && github_on {
             Some(NewTarget {
                 source: ActivitySource::GitHub,

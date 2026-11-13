@@ -5,9 +5,10 @@
 pub mod projection;
 
 use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus};
-use crate::notices::{self, Notices};
+use crate::notices::{self, NoticeAction, Notices};
 use gpui::{App, Context};
 use std::sync::Arc;
+use warp_station_core::flow::{FlowGate, FlowPull, FlowPullState, FlowRecord, FlowRun};
 use warp_station_core::repo_store::{self, RepoEntry};
 use warp_station_core::settings::{AppSettings, DiffViewMode, RepoSortMode, SettingsService};
 
@@ -57,6 +58,9 @@ const FOLLOW_MAX: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 /// second always-on cadence.
 const PIPELINE_WATCH: std::time::Duration = std::time::Duration::from_secs(15);
 const PIPELINE_WATCH_MAX: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// The watch-all gate keeps reading the runs list until every run on the
+/// branch is quiet; cap it so a stuck pipeline cannot watch forever.
+const PIPELINE_GATE_MAX: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// The slice of a platform's window the follow loop leaves untouched: 20 of
 /// Azure's 200 TSTUs per five minutes, and a rounding error of GitHub's 5 000
 /// requests an hour. When the answers say only this much is left, the cadence
@@ -204,6 +208,9 @@ pub struct Store {
     pub confirm_abandon: Option<(u64, String)>,
     /// The New pull request form, when it is open.
     pub new_pull: Option<NewPullForm>,
+    /// The form's generation: a tip-message read that names an older one is
+    /// stale and must not seed the reopened form.
+    new_pull_seq: u64,
     /// The form's branch preview, keyed by (base, head). `Some(None)` is a
     /// compare that found nothing to say — a branch that does not resolve.
     pub compare: Option<(
@@ -238,6 +245,8 @@ pub struct Store {
     /// Waiting for the first run on that branch, when the merge-triggered one
     /// has not appeared in the list yet.
     pipeline_watch: Option<PipelineWatch>,
+    /// The watch-all setting's tally of every run the merge started.
+    pipeline_gate: Option<PipelineGate>,
     /// The Azure pull request open in the Pipelines tab, when one is.
     pub open_azure_pull: Option<OpenAzurePull>,
     /// Keys already asked for ("detail", "files", "commits", "diff:<path>"),
@@ -309,6 +318,12 @@ pub struct Store {
     /// A note file to open in the notes app (the Summary detail's Open in
     /// Notes); the main window's render drains it into that launch.
     pub notes_open: Option<std::path::PathBuf>,
+    /// The per-branch flow record behind the Changes strip. Regenerable cache:
+    /// a deleted file loses only the strip's remembered step.
+    pub flow: warp_station_core::flow::FlowCacheFile,
+    /// Where [`Self::flow`] is written; `None` keeps a probe or a test from
+    /// touching the owner's `~/.warp` cache.
+    flow_cache_path: Option<std::path::PathBuf>,
     /// The tab open in the detail pane.
     pub detail_tab: WorkspaceTab,
     /// Repositories opened in a tab of their own, in strip order.
@@ -495,6 +510,7 @@ impl Store {
             pull_comment_sent: false,
             confirm_abandon: None,
             new_pull: None,
+            new_pull_seq: 0,
             compare: None,
             compare_requested: std::collections::HashSet::new(),
             pull_created: false,
@@ -503,6 +519,7 @@ impl Store {
             list_follow: None,
             pipeline_branch: None,
             pipeline_watch: None,
+            pipeline_gate: None,
             open_azure_pull: None,
             azure_pull_requested: std::collections::HashSet::new(),
             confirm_azure_abandon: None,
@@ -532,6 +549,8 @@ impl Store {
             // E2E hook: WARP_STATION_NOTES=1 opens Notes (warp-notes) on launch
             notes_requested: std::env::var("WARP_STATION_NOTES").as_deref() == Ok("1"),
             notes_open: None,
+            flow: warp_station_core::flow::load_cache(),
+            flow_cache_path: Some(warp_station_core::flow::cache_path()),
             // E2E hook: WARP_STATION_SHEET=<tab> opens that detail tab on launch
             detail_tab: std::env::var("WARP_STATION_SHEET")
                 .ok()
@@ -671,6 +690,14 @@ impl Store {
         // Notes stay closed until the user asks for them (titlebar button,
         // repo-row note icon, tools menu, or a global-search hit).
         store
+    }
+
+    /// A probe's store: no flow records and no path to write them to, so a
+    /// headless test never reads or rewrites the owner's `cache/flow.json`.
+    pub fn without_flow_cache(mut self) -> Self {
+        self.flow = Default::default();
+        self.flow_cache_path = None;
+        self
     }
 
     pub fn settings(&self) -> AppSettings {
@@ -1073,6 +1100,28 @@ impl Store {
                         open.pull = Some(*pull);
                     }
                 }
+                let flow_pull = self
+                    .open_pull
+                    .as_ref()
+                    .filter(|open| open.folder == folder && open.item.number == number)
+                    .and_then(|open| open.pull.as_ref())
+                    .map(|pull| FlowPull {
+                        source: warp_station_core::activity::ActivitySource::GitHub,
+                        number: pull.number,
+                        title: pull.title.clone(),
+                        state: match pull.state.as_str() {
+                            "MERGED" => FlowPullState::Merged,
+                            "CLOSED" => FlowPullState::Closed,
+                            _ => FlowPullState::Open,
+                        },
+                        head: pull.head_ref_name.clone(),
+                        target: pull.base_ref_name.clone(),
+                        url: (!pull.url.is_empty()).then(|| pull.url.clone()),
+                        merged_at: pull.merged_at.clone(),
+                    });
+                if let Some(pull) = flow_pull {
+                    self.note_flow_pull(&folder, pull);
+                }
                 cx.notify();
             }
             UiEvent::GitHubMerged {
@@ -1091,16 +1140,32 @@ impl Store {
                     Ok(()) => {
                         // the merge target, before the reload can replace the
                         // open pull: the run it starts lands on this branch
-                        let merge_target = self.open_pull.as_ref().and_then(|open| {
-                            open.pull
-                                .as_ref()
-                                .map(|pull| pull.base_ref_name.clone())
-                                .or_else(|| open.item.base_ref_name.clone())
-                        });
+                        let (merge_target, merge_head, merge_time) = self
+                            .open_pull
+                            .as_ref()
+                            .map(|open| {
+                                let pull = open.pull.as_ref();
+                                (
+                                    pull.map(|pull| pull.base_ref_name.clone())
+                                        .or_else(|| open.item.base_ref_name.clone()),
+                                    pull.map(|pull| pull.head_ref_name.clone())
+                                        .or_else(|| open.item.head_ref_name.clone()),
+                                    pull.and_then(|pull| pull.merged_at.clone()),
+                                )
+                            })
+                            .unwrap_or_default();
                         self.notify_success(format!("Merged #{number}"));
                         self.reload_open_pull();
                         self.kick_github_pass(&[std::path::PathBuf::from(&folder)]);
                         self.forget_closed(&folder, true);
+                        self.note_flow_merge(
+                            &folder,
+                            merge_head.as_deref().unwrap_or_default(),
+                            merge_target.as_deref().unwrap_or_default(),
+                            warp_station_core::activity::ActivitySource::GitHub,
+                            number,
+                            merge_time.clone(),
+                        );
                         if self.selected_repo.as_deref() == Some(folder.as_str()) {
                             self.maybe_watch_pipelines_after_merge(
                                 merge_target,
@@ -1226,6 +1291,7 @@ impl Store {
                     Arc::make_mut(snapshot).runs = runs;
                 }
                 self.resolve_pipeline_watch(cx);
+                self.update_pipeline_gate(&folder, cx);
                 self.park_list_follow(&folder, budget);
                 cx.notify();
             }
@@ -1240,6 +1306,7 @@ impl Store {
                     Arc::make_mut(snapshot).pipelines = runs;
                 }
                 self.resolve_pipeline_watch(cx);
+                self.update_pipeline_gate(&folder, cx);
                 self.park_list_follow(&folder, budget);
                 cx.notify();
             }
@@ -1260,6 +1327,31 @@ impl Store {
                         open.item.is_draft = detail.pull.is_draft;
                         open.detail = Some(*detail);
                     }
+                }
+                let flow_pull = self
+                    .open_azure_pull
+                    .as_ref()
+                    .filter(|open| open.folder == folder && open.item.number == number)
+                    .and_then(|open| open.detail.as_ref())
+                    .map(|detail| {
+                        let pull = &detail.pull;
+                        FlowPull {
+                            source: warp_station_core::activity::ActivitySource::Azure,
+                            number: pull.number,
+                            title: pull.title.clone(),
+                            state: match pull.status.as_str() {
+                                "completed" => FlowPullState::Merged,
+                                "abandoned" => FlowPullState::Closed,
+                                _ => FlowPullState::Open,
+                            },
+                            head: pull.source_branch(),
+                            target: pull.target_branch(),
+                            url: pull.url.clone(),
+                            merged_at: pull.closed.clone(),
+                        }
+                    });
+                if let Some(pull) = flow_pull {
+                    self.note_flow_pull(&folder, pull);
                 }
                 cx.notify();
             }
@@ -1321,21 +1413,42 @@ impl Store {
                         let completing =
                             matches!(action, warp_station_core::azure::AzurePullAction::Complete);
                         // the completion's run lands on the target branch; keep
-                        // it before the record reload replaces the detail
-                        let merge_target = completing
+                        // the pair before the record reload replaces the detail
+                        let merge = completing
                             .then(|| {
-                                self.open_azure_pull.as_ref().and_then(|open| {
-                                    open.detail
-                                        .as_ref()
-                                        .map(|detail| detail.pull.target_branch())
+                                self.open_azure_pull.as_ref().map(|open| {
+                                    let detail = open.detail.as_ref().map(|detail| &detail.pull);
+                                    let head = detail
+                                        .map(|pull| pull.source_branch())
+                                        .or_else(|| {
+                                            open.item.source_ref_name.as_deref().map(|source| {
+                                                source.trim_start_matches("refs/heads/").to_string()
+                                            })
+                                        })
+                                        .unwrap_or_default();
+                                    let target = detail
+                                        .map(|pull| pull.target_branch())
                                         .or_else(|| {
                                             open.item.target_ref_name.as_deref().map(|target| {
                                                 target.trim_start_matches("refs/heads/").to_string()
                                             })
                                         })
+                                        .unwrap_or_default();
+                                    let at = detail.and_then(|pull| pull.closed.clone());
+                                    (head, target, at)
                                 })
                             })
                             .flatten();
+                        if let Some((head, target, at)) = merge.as_ref() {
+                            self.note_flow_merge(
+                                &folder,
+                                head,
+                                target,
+                                warp_station_core::activity::ActivitySource::Azure,
+                                number,
+                                at.clone(),
+                            );
+                        }
                         self.notify_success(done_word);
                         // the record changed: read it again rather than guess
                         let key = (folder.clone(), number, "detail".to_string());
@@ -1347,7 +1460,7 @@ impl Store {
                         self.load_azure_pull(cx);
                         // the project's cards and the rail read the pass
                         self.kick_azure_pass(&[std::path::PathBuf::from(&folder)]);
-                        if let Some(target) = merge_target
+                        if let Some((_, target, _)) = merge
                             && self.selected_repo.as_deref() == Some(folder.as_str())
                         {
                             self.maybe_watch_pipelines_after_merge(
@@ -1374,6 +1487,22 @@ impl Store {
                     None => {
                         self.azure_users_failed.insert(folder);
                     }
+                }
+                cx.notify();
+            }
+            UiEvent::TipMessageLoaded {
+                folder,
+                seq,
+                subject,
+                body,
+            } => {
+                if self.selected_repo.as_deref() == Some(folder.as_str())
+                    && let Some(form) = self.new_pull.as_mut().filter(|form| form.seq == seq)
+                {
+                    if form.prefill_title.trim().is_empty() {
+                        form.prefill_title = subject;
+                    }
+                    form.prefill_body = body;
                 }
                 cx.notify();
             }
@@ -1423,6 +1552,19 @@ impl Store {
                             is_pull_request: true,
                             ..Default::default()
                         };
+                        self.note_flow_pull(
+                            &folder,
+                            FlowPull {
+                                source: warp_station_core::activity::ActivitySource::GitHub,
+                                number,
+                                title: request.title.clone(),
+                                state: FlowPullState::Open,
+                                head: request.head.clone(),
+                                target: request.base.clone(),
+                                url: (!item.url.is_empty()).then(|| item.url.clone()),
+                                merged_at: None,
+                            },
+                        );
                         self.new_pull = None;
                         self.compare = None;
                         self.compare_requested.clear();
@@ -1438,6 +1580,68 @@ impl Store {
                         if let Some(form) = self.new_pull.as_mut() {
                             form.error = Some(if err.trim().is_empty() {
                                 "GitHub did not answer.".to_string()
+                            } else {
+                                err
+                            });
+                        }
+                    }
+                }
+                cx.notify();
+            }
+            UiEvent::AzurePullCreated {
+                folder,
+                request,
+                result,
+            } => {
+                if let Some(form) = self.new_pull.as_mut() {
+                    form.creating = false;
+                }
+                match result {
+                    Ok(number) => {
+                        let url = self
+                            .azure_by_folder
+                            .get(&folder)
+                            .and_then(|snapshot| snapshot.url.clone())
+                            .map(|url| {
+                                format!("{}/pullrequest/{number}", url.trim_end_matches('/'))
+                            })
+                            .unwrap_or_default();
+                        let item = warp_station_core::azure::AzureItem {
+                            number,
+                            title: request.title.clone(),
+                            url,
+                            state: Some("active".into()),
+                            is_draft: request.draft,
+                            source_ref_name: Some(format!("refs/heads/{}", request.head)),
+                            target_ref_name: Some(format!("refs/heads/{}", request.base)),
+                            ..Default::default()
+                        };
+                        self.note_flow_pull(
+                            &folder,
+                            FlowPull {
+                                source: warp_station_core::activity::ActivitySource::Azure,
+                                number,
+                                title: request.title.clone(),
+                                state: FlowPullState::Open,
+                                head: request.head.clone(),
+                                target: request.base.clone(),
+                                url: (!item.url.is_empty()).then(|| item.url.clone()),
+                                merged_at: None,
+                            },
+                        );
+                        self.new_pull = None;
+                        self.compare = None;
+                        self.compare_requested.clear();
+                        self.pull_created = true;
+                        self.open_azure_pull(item, cx);
+                        self.notify_success(format!("Created !{number}"));
+                        self.kick_azure_pass(&[std::path::PathBuf::from(&folder)]);
+                        self.forget_closed(&folder, true);
+                    }
+                    Err(err) => {
+                        if let Some(form) = self.new_pull.as_mut() {
+                            form.error = Some(if err.trim().is_empty() {
+                                "Azure DevOps did not answer.".to_string()
                             } else {
                                 err
                             });
@@ -1668,6 +1872,7 @@ impl Store {
                 } else {
                     if matches!(label, "push" | "publish") {
                         self.arm_pull_advance(&folder);
+                        self.note_flow_push(&folder);
                     }
                     self.notify_success(match (label, commit_hash.as_deref()) {
                         ("commit", Some(hash)) => format!("Committed {hash} to {name}"),
@@ -2397,13 +2602,19 @@ impl Store {
     /// A watched pipeline's end: the toast always lands, the desktop copy is
     /// gated by its own `notifications.pipelines` switch rather than by the
     /// action-confirmation row a success/error toast usually belongs to.
-    fn notify_pipeline(&mut self, kind: NoticeKind, text: impl Into<String>) {
+    fn notify_pipeline(
+        &mut self,
+        kind: NoticeKind,
+        text: impl Into<String>,
+        action: Option<NoticeAction>,
+    ) {
         let settings = self.settings().notifications;
         let focused = self.window_focused;
         if let Some(desktop) = self.notices.push_for(
             kind,
             warp_station_core::desktop_notifications::Category::PipelineResults,
             text,
+            action,
             focused,
             &settings,
         ) {
@@ -2415,7 +2626,7 @@ impl Store {
     /// and number are enough; the branch is on screen behind the toast.
     fn announce_run_finished(
         &mut self,
-        _source: warp_station_core::activity::ActivitySource,
+        folder: &str,
         run: &warp_station_core::activity::ActivityRun,
         state: Option<warp_station_core::activity::RunState>,
     ) {
@@ -2437,7 +2648,14 @@ impl Store {
         } else {
             format!("Pipeline {name} {label} {outcome}")
         };
-        self.notify_pipeline(kind, text);
+        self.notify_pipeline(
+            kind,
+            text,
+            Some(NoticeAction::OpenRun {
+                folder: folder.to_string(),
+                run: run.clone(),
+            }),
+        );
     }
 
     /// The toast's close button.
@@ -3281,6 +3499,7 @@ impl Store {
         if branch.is_empty() {
             return;
         }
+        let flow_branch = self.flow_branch();
         self.open_detail_tab(WorkspaceTab::Pipelines, cx);
         // the Azure pull request lives in this column: the run list takes it
         self.open_azure_pull = None;
@@ -3289,12 +3508,16 @@ impl Store {
         self.pipeline_branch = Some(branch.clone());
         self.close_run(cx);
         if let Some(run) = self.newest_run_on_branch(&folder, &branch, since) {
+            if let Some(flow_branch) = flow_branch.as_deref() {
+                self.note_flow_run(&folder, flow_branch, &run);
+            }
             self.open_run_with(run, announce, cx);
         } else {
             let now = std::time::Instant::now();
             self.pipeline_watch = Some(PipelineWatch {
                 folder: folder.clone(),
                 branch,
+                flow_branch: flow_branch.clone(),
                 since,
                 announce,
                 next_poll: now,
@@ -3302,6 +3525,9 @@ impl Store {
             });
             // first read now; the once-a-second beat keeps it going
             self.check_pipeline_watch(now, cx);
+        }
+        if let Some(target) = self.pipeline_branch.clone() {
+            self.start_pipeline_gate(&folder, &target, since, flow_branch, cx);
         }
         cx.notify();
     }
@@ -3311,7 +3537,8 @@ impl Store {
     pub fn clear_pipeline_branch(&mut self, cx: &mut Context<Self>) {
         let had_focus = self.pipeline_branch.take().is_some();
         let was_waiting = self.pipeline_watch.take().is_some();
-        if had_focus || was_waiting {
+        let was_gating = self.pipeline_gate.take().is_some();
+        if had_focus || was_waiting || was_gating {
             cx.notify();
         }
     }
@@ -3360,7 +3587,762 @@ impl Store {
         let Some(run) = self.newest_run_on_branch(&watch.folder, &watch.branch, watch.since) else {
             return;
         };
+        if let Some(flow_branch) = watch.flow_branch.as_deref() {
+            self.note_flow_run(&watch.folder, flow_branch, &run);
+        }
         self.open_run_with(run, watch.announce, cx);
+        self.start_pipeline_gate(
+            &watch.folder,
+            &watch.branch,
+            watch.since,
+            watch.flow_branch.clone(),
+            cx,
+        );
+    }
+
+    // ---- the watch-all merge gate ------------------------------------------
+
+    /// The runs on the focus branch since the merge, tallied. The gate never
+    /// reads a run's detail; it only reads the lightweight runs list, so the
+    /// open run's own follow stays the only detail cadence.
+    fn gate_flow(&self, gate: &PipelineGate, settled: bool) -> FlowGate {
+        use warp_station_core::activity::RunState;
+        let mut flow = FlowGate {
+            total: gate.runs.len(),
+            settled,
+            at: Some(chrono::Local::now().to_rfc3339()),
+            ..Default::default()
+        };
+        for state in gate.runs.values() {
+            match state {
+                RunState::Succeeded => flow.passed += 1,
+                RunState::Failed => flow.failed += 1,
+                RunState::Skipped => flow.skipped += 1,
+                RunState::Running | RunState::Queued => flow.running += 1,
+            }
+        }
+        flow
+    }
+
+    /// Starts the watch-all tally when the setting is on and the branch
+    /// already has a run. The list answer keeps it current.
+    fn start_pipeline_gate(
+        &mut self,
+        folder: &str,
+        branch: &str,
+        since: Option<chrono::DateTime<chrono::Local>>,
+        flow_branch: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.settings().workflow.watch_all_runs_on_branch {
+            return;
+        }
+        let runs: Vec<warp_station_core::activity::ActivityRun> = self
+            .runs_for(folder)
+            .into_iter()
+            .filter(|run| {
+                run.display_branch().as_deref() == Some(branch) && run_started_after(run, since)
+            })
+            .collect();
+        if runs.is_empty() {
+            return;
+        }
+        let mut states = std::collections::BTreeMap::new();
+        for run in &runs {
+            states.insert((run.source, run.id), run.state);
+        }
+        let now = std::time::Instant::now();
+        let gate = PipelineGate {
+            folder: folder.to_string(),
+            branch: branch.to_string(),
+            flow_branch,
+            since,
+            runs: states,
+            quiet_polls: 0,
+            next_poll: now + PIPELINE_WATCH,
+            until: now + PIPELINE_GATE_MAX,
+        };
+        let flow = self.gate_flow(&gate, false);
+        if let Some(flow_branch) = gate.flow_branch.as_deref() {
+            self.note_flow_gate(folder, flow_branch, flow);
+        }
+        self.pipeline_gate = Some(gate);
+        cx.notify();
+    }
+
+    /// One runs-list answer: fold every run on the branch into the tally, and
+    /// settle after two quiet answers. A newly started run resets the quiet
+    /// count, so a workflow that starts a beat later still joins the gate.
+    fn update_pipeline_gate(&mut self, folder: &str, cx: &mut Context<Self>) {
+        let Some(mut gate) = self.pipeline_gate.clone() else {
+            return;
+        };
+        if gate.folder != folder {
+            return;
+        }
+        let runs: Vec<warp_station_core::activity::ActivityRun> = self
+            .runs_for(folder)
+            .into_iter()
+            .filter(|run| {
+                run.display_branch().as_deref() == Some(gate.branch.as_str())
+                    && run_started_after(run, gate.since)
+            })
+            .collect();
+        let mut states = std::collections::BTreeMap::new();
+        let mut running = 0;
+        for run in &runs {
+            states.insert((run.source, run.id), run.state);
+            if run.is_running() || run.state == warp_station_core::activity::RunState::Queued {
+                running += 1;
+            }
+        }
+        // a run that dropped off the list's window keeps its last finished
+        // state; only a running one is allowed to disappear
+        for (key, state) in &gate.runs {
+            if !states.contains_key(key)
+                && !matches!(
+                    state,
+                    warp_station_core::activity::RunState::Running
+                        | warp_station_core::activity::RunState::Queued
+                )
+            {
+                states.insert(*key, *state);
+            }
+        }
+        gate.runs = states;
+        gate.quiet_polls = if running > 0 { 0 } else { gate.quiet_polls + 1 };
+        let flow = self.gate_flow(&gate, running == 0 && gate.quiet_polls >= 2);
+        if let Some(flow_branch) = gate.flow_branch.as_deref() {
+            self.note_flow_gate(folder, flow_branch, flow);
+        }
+        if running == 0 && gate.quiet_polls >= 2 {
+            self.settle_pipeline_gate(gate);
+        } else {
+            self.pipeline_gate = Some(gate);
+        }
+        cx.notify();
+    }
+
+    /// The gate's one toast: "Merge gate on main: 2 of 3 passed". A failure
+    /// leads; the action opens the newest failed run, or the newest run.
+    fn settle_pipeline_gate(&mut self, gate: PipelineGate) {
+        let flow = self.gate_flow(&gate, true);
+        if let Some(flow_branch) = gate.flow_branch.as_deref() {
+            self.note_flow_gate(&gate.folder, flow_branch, flow.clone());
+        }
+        self.pipeline_gate = None;
+        if flow.total == 0 {
+            return;
+        }
+        let kind = if flow.failed > 0 {
+            NoticeKind::Error
+        } else if flow.all_passed() {
+            NoticeKind::Success
+        } else {
+            NoticeKind::Info
+        };
+        let runs = self.runs_for(&gate.folder);
+        let action = runs
+            .iter()
+            .find(|run| run.state == warp_station_core::activity::RunState::Failed)
+            .or_else(|| runs.first())
+            .map(|run| NoticeAction::OpenRun {
+                folder: gate.folder.clone(),
+                run: run.clone(),
+            });
+        let text = format!("Merge gate on {}: {}", gate.branch, flow.summary());
+        self.notify_pipeline(kind, text, action);
+    }
+
+    /// One gate poll: the list read is the gate's only request. The open run's
+    /// detail follow keeps its own cadence.
+    fn check_pipeline_gate(&mut self, now: std::time::Instant, cx: &mut Context<Self>) {
+        let Some(mut gate) = self.pipeline_gate.clone() else {
+            return;
+        };
+        if self.selected_repo.as_deref() != Some(gate.folder.as_str()) {
+            self.pipeline_gate = None;
+            return;
+        }
+        if now >= gate.until {
+            // a stuck run is not a result: stop watching without a toast
+            self.pipeline_gate = None;
+            cx.notify();
+            return;
+        }
+        if now < gate.next_poll {
+            return;
+        }
+        gate.next_poll = now + PIPELINE_WATCH;
+        self.pipeline_gate = Some(gate.clone());
+        self.follow_runs(&gate.folder, now);
+    }
+
+    // ---- the Changes flow strip --------------------------------------------
+
+    /// Writes the flow cache at most once per change; it is a small JSON file
+    /// and the events that touch it are pushes, merges and run ends, not
+    /// render ticks.
+    fn save_flow(&mut self) {
+        let Some(path) = self.flow_cache_path.clone() else {
+            return;
+        };
+        if let Err(err) = warp_station_core::flow::save_to(&path, &self.flow) {
+            tracing::warn!("could not save the flow cache: {err}");
+        }
+    }
+
+    fn update_flow(&mut self, folder: &str, branch: &str, change: impl FnOnce(&mut FlowRecord)) {
+        let now = chrono::Local::now().to_rfc3339();
+        {
+            let record = self.flow.record(folder, branch, now);
+            change(record);
+        }
+        self.save_flow();
+    }
+
+    fn flow_branch(&self) -> Option<String> {
+        let branch = self.selected_entry()?.git_branch_name.clone()?;
+        (!branch.is_empty() && branch != "(detached)").then_some(branch)
+    }
+
+    /// A successful push on the selected branch starts or refreshes its flow.
+    /// The default branch has no pull-request path, so it writes nothing.
+    pub fn note_flow_push(&mut self, folder: &str) {
+        if self.selected_repo.as_deref() != Some(folder) {
+            return;
+        }
+        let Some(branch) = self.flow_branch() else {
+            return;
+        };
+        if branch == self.default_branch() {
+            return;
+        }
+        let now = chrono::Local::now().to_rfc3339();
+        self.update_flow(folder, &branch, |record| record.begin_push(now));
+    }
+
+    fn note_flow_pull(&mut self, folder: &str, pull: FlowPull) {
+        if pull.head.trim().is_empty() {
+            return;
+        }
+        let branch = pull.head.clone();
+        self.update_flow(folder, &branch, move |record| {
+            // a detail read that raced the merge must not turn the finished
+            // step back into "open"
+            let stale_open = record.pull.as_ref().is_some_and(|old| {
+                old.state == FlowPullState::Merged
+                    && old.source == pull.source
+                    && old.number == pull.number
+                    && pull.state == FlowPullState::Open
+            });
+            if !stale_open {
+                record.pull = Some(pull);
+            }
+        });
+    }
+
+    fn note_flow_merge(
+        &mut self,
+        folder: &str,
+        head: &str,
+        target: &str,
+        source: warp_station_core::activity::ActivitySource,
+        number: u64,
+        merged_at: Option<String>,
+    ) {
+        let head = head.trim();
+        if head.is_empty() {
+            return;
+        }
+        let at = merged_at.unwrap_or_else(|| chrono::Local::now().to_rfc3339());
+        let target = target.trim_start_matches("refs/heads/").to_string();
+        self.update_flow(folder, head, |record| {
+            let pull = record.pull.get_or_insert_with(|| FlowPull {
+                source,
+                number,
+                title: String::new(),
+                state: FlowPullState::Open,
+                head: head.to_string(),
+                target: target.clone(),
+                url: None,
+                merged_at: None,
+            });
+            pull.state = FlowPullState::Merged;
+            pull.target = target;
+            pull.merged_at = Some(at);
+        });
+    }
+
+    fn note_flow_run(
+        &mut self,
+        folder: &str,
+        branch: &str,
+        run: &warp_station_core::activity::ActivityRun,
+    ) {
+        self.update_flow(folder, branch, |record| {
+            record.run = Some(FlowRun::of(run));
+        });
+    }
+
+    fn note_flow_gate(&mut self, folder: &str, branch: &str, gate: FlowGate) {
+        self.update_flow(folder, branch, |record| record.gate = Some(gate));
+    }
+
+    /// The live pull request for a branch, newest answer first: the open
+    /// lists, then the open detail (which can be merged/closed), then the
+    /// record.
+    fn live_flow_pull(&self, folder: &str, branch: &str) -> Option<FlowPull> {
+        use warp_station_core::activity::ActivitySource;
+        let pull_state = |state: &str| match state {
+            "MERGED" | "completed" => FlowPullState::Merged,
+            "CLOSED" | "abandoned" => FlowPullState::Closed,
+            _ => FlowPullState::Open,
+        };
+        if let Some(snapshot) = self
+            .github_by_folder
+            .get(folder)
+            .filter(|snapshot| snapshot.available)
+            && let Some(item) = snapshot
+                .pulls
+                .iter()
+                .find(|pull| pull.head_ref_name.as_deref() == Some(branch))
+        {
+            return Some(FlowPull {
+                source: ActivitySource::GitHub,
+                number: item.number,
+                title: item.title.clone(),
+                state: pull_state(item.state.as_deref().unwrap_or("OPEN")),
+                head: branch.to_string(),
+                target: item.base_ref_name.clone().unwrap_or_default(),
+                url: (!item.url.is_empty()).then(|| item.url.clone()),
+                merged_at: None,
+            });
+        }
+        if let Some(snapshot) = self
+            .azure_by_folder
+            .get(folder)
+            .filter(|snapshot| snapshot.available)
+            && let Some(item) = snapshot.pulls.iter().find(|pull| {
+                pull.source_ref_name
+                    .as_deref()
+                    .map(|source| source.trim_start_matches("refs/heads/"))
+                    == Some(branch)
+            })
+        {
+            return Some(FlowPull {
+                source: ActivitySource::Azure,
+                number: item.number,
+                title: item.title.clone(),
+                state: pull_state(item.state.as_deref().unwrap_or("active")),
+                head: branch.to_string(),
+                target: item
+                    .target_ref_name
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim_start_matches("refs/heads/")
+                    .to_string(),
+                url: (!item.url.is_empty()).then(|| item.url.clone()),
+                merged_at: None,
+            });
+        }
+        if let Some(open) = self.open_pull.as_ref().filter(|open| open.folder == folder) {
+            let pull = open.pull.as_ref();
+            let head = pull
+                .map(|pull| pull.head_ref_name.as_str())
+                .or(open.item.head_ref_name.as_deref());
+            if head == Some(branch) {
+                let state = pull
+                    .map(|pull| pull.state.as_str())
+                    .or(open.item.state.as_deref())
+                    .unwrap_or("OPEN");
+                return Some(FlowPull {
+                    source: ActivitySource::GitHub,
+                    number: open.item.number,
+                    title: pull.map_or_else(|| open.item.title.clone(), |pull| pull.title.clone()),
+                    state: pull_state(state),
+                    head: branch.to_string(),
+                    target: pull
+                        .map(|pull| pull.base_ref_name.clone())
+                        .or(open.item.base_ref_name.clone())
+                        .unwrap_or_default(),
+                    url: pull
+                        .map(|pull| pull.url.clone())
+                        .or((!open.item.url.is_empty()).then(|| open.item.url.clone())),
+                    merged_at: pull.and_then(|pull| pull.merged_at.clone()),
+                });
+            }
+        }
+        if let Some(open) = self
+            .open_azure_pull
+            .as_ref()
+            .filter(|open| open.folder == folder)
+        {
+            let detail = open.detail.as_ref().map(|detail| &detail.pull);
+            let head = detail.map(|pull| pull.source_branch()).or_else(|| {
+                open.item
+                    .source_ref_name
+                    .as_deref()
+                    .map(|source| source.trim_start_matches("refs/heads/").to_string())
+            });
+            if head.as_deref() == Some(branch) {
+                let state = detail
+                    .map(|pull| pull.status.as_str())
+                    .or(open.item.state.as_deref())
+                    .unwrap_or("active");
+                return Some(FlowPull {
+                    source: ActivitySource::Azure,
+                    number: open.item.number,
+                    title: detail
+                        .map_or_else(|| open.item.title.clone(), |pull| pull.title.clone()),
+                    state: pull_state(state),
+                    head: branch.to_string(),
+                    target: detail
+                        .map(|pull| pull.target_branch())
+                        .or_else(|| {
+                            open.item
+                                .target_ref_name
+                                .as_deref()
+                                .map(|target| target.trim_start_matches("refs/heads/").to_string())
+                        })
+                        .unwrap_or_default(),
+                    url: detail
+                        .and_then(|pull| pull.url.clone())
+                        .or((!open.item.url.is_empty()).then(|| open.item.url.clone())),
+                    merged_at: detail.and_then(|pull| pull.closed.clone()),
+                });
+            }
+        }
+        None
+    }
+
+    /// The record's run with the live list and the open detail applied over
+    /// it; when there is no record, a merged pull's newest run on the target
+    /// is the fallback.
+    fn flow_run(
+        &self,
+        folder: &str,
+        record: Option<&FlowRecord>,
+        pull: Option<&FlowPull>,
+    ) -> Option<FlowRun> {
+        let mut run = record.and_then(|record| record.run.clone());
+        if let Some(run) = run.as_mut() {
+            if let Some(live) = self
+                .runs_for(folder)
+                .into_iter()
+                .find(|row| row.source == run.source && row.id == run.id)
+            {
+                run.state = live.state;
+                run.branch = live.branch.clone();
+                run.url = live.url.clone().or(run.url.clone());
+                run.at = live.at.clone().or(run.at.clone());
+            }
+            if let Some(open) = self.open_run.as_ref().filter(|open| {
+                open.folder == folder && open.run.source == run.source && open.run.id == run.id
+            }) {
+                run.state = open.run.state;
+            }
+        }
+        if run.is_none()
+            && let Some(pull) = pull.filter(|pull| pull.is_merged())
+        {
+            let since = pull
+                .merged_at
+                .as_deref()
+                .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+                .map(|at| at.with_timezone(&chrono::Local));
+            if let Some(live) = self.newest_run_on_branch(folder, &pull.target, since) {
+                run = Some(FlowRun::of(&live));
+            }
+        }
+        run
+    }
+
+    /// The four steps for the selected branch, or `None` when the branch has
+    /// no push, pull request or run to talk about.
+    pub fn flow_view(&self) -> Option<FlowView> {
+        use warp_station_core::activity::{ActivitySource, RunState};
+        let folder = self.selected_repo.as_deref()?;
+        let entry = self.selected_entry()?;
+        let branch = entry
+            .git_branch_name
+            .as_deref()
+            .filter(|branch| !branch.is_empty() && *branch != "(detached)")?;
+        if branch == self.default_branch() {
+            return None;
+        }
+        let record = self.flow.get(folder, branch);
+        // a merge is irreversible: a stale open-list snapshot must not undo
+        // the record's merged step for the same pull request
+        let pull = match self.live_flow_pull(folder, branch) {
+            Some(live) => {
+                let merged = record
+                    .and_then(|record| record.pull.as_ref())
+                    .filter(|pull| {
+                        pull.state == FlowPullState::Merged
+                            && pull.source == live.source
+                            && pull.number == live.number
+                    });
+                merged.cloned().or(Some(live))
+            }
+            None => record.and_then(|record| record.pull.clone()),
+        };
+        let pushed =
+            entry.git_has_remote && entry.git_branch_published && entry.git_to_push_count == 0;
+        let source_available = self.github_create_available(folder)
+            || (self.azure_auth().is_some()
+                && self
+                    .azure_by_folder
+                    .get(folder)
+                    .is_some_and(|snapshot| snapshot.available));
+        let run = self.flow_run(folder, record, pull.as_ref());
+        let gate = record.and_then(|record| record.gate.clone());
+        if !pushed && pull.is_none() && run.is_none() && gate.is_none() {
+            return None;
+        }
+        // a pushed branch with no integration that can open a pull request has
+        // no flow to offer; the Changes toolbar is where the push lives
+        if pushed && pull.is_none() && !source_available {
+            return None;
+        }
+
+        let reference = |pull: &FlowPull| match pull.source {
+            ActivitySource::Azure => format!("!{}", pull.number),
+            ActivitySource::GitHub => format!("#{}", pull.number),
+        };
+        let pull_word = |pull: &FlowPull| match pull.state {
+            FlowPullState::Open => "open",
+            FlowPullState::Merged => "merged",
+            FlowPullState::Closed => "closed",
+        };
+        let open_pull = pull.as_ref().map(|pull| FlowAction::OpenPull {
+            source: pull.source,
+            number: pull.number,
+            url: pull.url.clone(),
+        });
+        let target = pull
+            .as_ref()
+            .map(|pull| pull.target.clone())
+            .filter(|target| !target.is_empty())
+            .unwrap_or_else(|| self.default_branch());
+        let since = pull.as_ref().and_then(|pull| {
+            pull.merged_at
+                .as_deref()
+                .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+                .map(|at| at.with_timezone(&chrono::Local))
+        });
+        let merged = pull
+            .as_ref()
+            .is_some_and(|pull| pull.state == FlowPullState::Merged);
+
+        let create = FlowStepView {
+            key: "create",
+            label: "Create PR",
+            state: if pull.is_some() {
+                FlowStepState::Done
+            } else if pushed && source_available {
+                FlowStepState::Current
+            } else {
+                FlowStepState::Blocked
+            },
+            detail: match pull.as_ref() {
+                Some(pull) => format!("{} {}", reference(pull), pull_word(pull)),
+                None if pushed && source_available => format!("Pushed {branch}"),
+                None if pushed => "No pull request integration".to_string(),
+                None => "Push the branch first".to_string(),
+            },
+            action: open_pull.clone().or(if pushed && source_available {
+                Some(FlowAction::CreatePull)
+            } else {
+                None
+            }),
+        };
+        let merge = FlowStepView {
+            key: "merge",
+            label: "Merge",
+            state: match pull.as_ref().map(|pull| pull.state) {
+                Some(FlowPullState::Merged) => FlowStepState::Done,
+                Some(FlowPullState::Open) => FlowStepState::Current,
+                _ => FlowStepState::Blocked,
+            },
+            detail: match pull.as_ref() {
+                Some(pull) if pull.state == FlowPullState::Merged => {
+                    format!("Merged into {}", pull.target)
+                }
+                Some(pull) if pull.state == FlowPullState::Open => {
+                    format!("{} open · ready to merge", reference(pull))
+                }
+                Some(pull) => format!("{} closed", reference(pull)),
+                None => "No pull request".to_string(),
+            },
+            action: open_pull.clone(),
+        };
+        let gate_summary = gate.as_ref().map(FlowGate::summary);
+        let pipeline = FlowStepView {
+            key: "pipeline",
+            label: "Pipeline",
+            state: if !merged {
+                FlowStepState::Blocked
+            } else if gate.as_ref().is_some_and(|gate| gate.settled)
+                || run.as_ref().is_some_and(FlowRun::finished)
+            {
+                FlowStepState::Done
+            } else {
+                FlowStepState::Current
+            },
+            detail: if !merged {
+                "Merge the pull request first".to_string()
+            } else if let Some(summary) = gate_summary.clone() {
+                summary
+            } else if let Some(run) = run.as_ref() {
+                format!(
+                    "{} {}",
+                    run.label,
+                    match run.state {
+                        RunState::Succeeded => "passed",
+                        RunState::Failed => "failed",
+                        RunState::Skipped => "skipped",
+                        RunState::Running => "running",
+                        RunState::Queued => "queued",
+                    }
+                )
+            } else {
+                format!("Waiting for a run on {target}")
+            },
+            action: merged.then(|| FlowAction::WatchPipeline {
+                branch: target.clone(),
+                since,
+            }),
+        };
+        let result = FlowStepView {
+            key: "result",
+            label: "Result",
+            state: if gate.as_ref().is_some_and(|gate| gate.settled)
+                || run.as_ref().is_some_and(FlowRun::finished)
+            {
+                FlowStepState::Done
+            } else if merged && (run.is_some() || gate.is_some()) {
+                FlowStepState::Current
+            } else {
+                FlowStepState::Blocked
+            },
+            detail: if let Some(summary) = gate_summary {
+                summary
+            } else if let Some(run) = run.as_ref() {
+                match run.state {
+                    RunState::Succeeded => "Passed".to_string(),
+                    RunState::Failed => "Failed".to_string(),
+                    RunState::Skipped => "Skipped".to_string(),
+                    RunState::Running => "Running".to_string(),
+                    RunState::Queued => "Queued".to_string(),
+                }
+            } else {
+                "No result yet".to_string()
+            },
+            action: run
+                .as_ref()
+                .map(|run| FlowAction::OpenRun {
+                    folder: folder.to_string(),
+                    run: Box::new(run.to_activity_run()),
+                })
+                .or_else(|| {
+                    merged.then(|| FlowAction::WatchPipeline {
+                        branch: target.clone(),
+                        since,
+                    })
+                }),
+        };
+        Some(FlowView {
+            branch: branch.to_string(),
+            steps: vec![create, merge, pipeline, result],
+        })
+    }
+
+    /// The flow strip's one dispatch: every action is a press, never an
+    /// automatic step.
+    pub fn run_flow_action(&mut self, action: FlowAction, cx: &mut Context<Self>) {
+        match action {
+            FlowAction::CreatePull => self.start_new_pull(cx),
+            FlowAction::OpenPull {
+                source,
+                number,
+                url,
+            } => self.open_flow_pull(source, number, url, cx),
+            FlowAction::WatchPipeline { branch, since } => {
+                self.watch_pipelines_for(branch, since, false, cx)
+            }
+            FlowAction::OpenRun { folder, run } => self.open_flow_run(folder, *run, cx),
+        }
+    }
+
+    /// The toast's follow-up press. The desktop copy has no callback on this
+    /// app's notification path, so this is the in-app half.
+    pub fn open_notice_action(&mut self, action: NoticeAction, cx: &mut Context<Self>) {
+        match action {
+            NoticeAction::OpenRun { folder, run } => self.open_flow_run(folder, run, cx),
+        }
+    }
+
+    fn open_flow_run(
+        &mut self,
+        folder: String,
+        run: warp_station_core::activity::ActivityRun,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_repo.as_deref() != Some(folder.as_str()) {
+            self.select_repo(&folder, cx);
+        }
+        self.open_detail_tab(WorkspaceTab::Pipelines, cx);
+        if let Some(branch) = run.display_branch() {
+            self.pipeline_branch = Some(branch);
+        }
+        let live = self
+            .runs_for(&folder)
+            .into_iter()
+            .find(|row| row.source == run.source && row.id == run.id);
+        self.open_run(live.unwrap_or(run), cx);
+    }
+
+    /// A completed step's link: the in-app row when the live list still has
+    /// it, otherwise the record's own URL (a merged or closed pull request is
+    /// not in the open list after a restart).
+    fn open_flow_pull(
+        &mut self,
+        source: warp_station_core::activity::ActivitySource,
+        number: u64,
+        url: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        use warp_station_core::activity::ActivitySource;
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let listed = match source {
+            ActivitySource::GitHub => self
+                .github_by_folder
+                .get(&folder)
+                .filter(|snapshot| snapshot.available)
+                .is_some_and(|snapshot| snapshot.pulls.iter().any(|pull| pull.number == number)),
+            ActivitySource::Azure => self
+                .azure_by_folder
+                .get(&folder)
+                .filter(|snapshot| snapshot.available)
+                .is_some_and(|snapshot| snapshot.pulls.iter().any(|pull| pull.number == number)),
+        };
+        if listed {
+            self.open_pull_shortcut(source, number, cx);
+            return;
+        }
+        if let Some(url) = url.filter(|url| !url.trim().is_empty()) {
+            let _ = warp_station_core::terminal::open_folder(&url);
+            let label = match source {
+                ActivitySource::GitHub => format!("#{number}"),
+                ActivitySource::Azure => format!("!{number}"),
+            };
+            self.notify_info(format!("Opening pull request {label}"));
+            return;
+        }
+        self.open_pull_shortcut(source, number, cx);
     }
 
     /// The selected run's detail: the timeline and log for an Azure pipeline,
@@ -3462,7 +4444,9 @@ impl Store {
         let on_screen = self.active_detail_tab() == WorkspaceTab::Pipelines;
         if !on_screen
             && (!self.settings().workflow.watch_in_background
-                || (self.run_follow.is_none() && self.pipeline_watch.is_none()))
+                || (self.run_follow.is_none()
+                    && self.pipeline_watch.is_none()
+                    && self.pipeline_gate.is_none()))
         {
             // a hidden pane spends no requests unless the user asked a
             // watched run to keep going
@@ -3472,6 +4456,9 @@ impl Store {
             // waiting for the merge-triggered run: the branch's first
             // matching row is what the list read is for
             self.check_pipeline_watch(now, cx);
+        } else if self.pipeline_gate.is_some() {
+            // the watch-all gate: the same lightweight list read
+            self.check_pipeline_gate(now, cx);
         } else if on_screen {
             self.check_run_list_follow(now, cx);
         }
@@ -3652,6 +4639,34 @@ impl Store {
                 }
             }
         }
+        // keep the strip's remembered run in step with the detail, but only
+        // when the record owns this run and the state actually moved
+        if matches {
+            let flow_branch = self.flow_branch();
+            let state = self
+                .open_run
+                .as_ref()
+                .filter(|open| {
+                    open.folder == folder && open.run.id == run_id && open.run.source == source
+                })
+                .map(|open| open.run.state);
+            if let (Some(branch), Some(state)) = (flow_branch, state) {
+                let moved = self
+                    .flow
+                    .get(&folder, &branch)
+                    .and_then(|record| record.run.as_ref())
+                    .is_some_and(|run| {
+                        run.source == source && run.id == run_id && run.state != state
+                    });
+                if moved {
+                    self.update_flow(&folder, &branch, |record| {
+                        if let Some(run) = record.run.as_mut() {
+                            run.state = state;
+                        }
+                    });
+                }
+            }
+        }
         let finished_state = self
             .open_run
             .as_ref()
@@ -3668,7 +4683,11 @@ impl Store {
                     | warp_station_core::activity::RunState::Skipped
             )
         });
-        let finished_run = (matches && !still_going && (was_going || announce))
+        let in_gate = self
+            .pipeline_gate
+            .as_ref()
+            .is_some_and(|gate| gate.runs.contains_key(&(source, run_id)));
+        let finished_run = (matches && !still_going && (was_going || announce) && !in_gate)
             .then(|| {
                 self.open_run.as_mut().map(|open| {
                     open.announce_finish = false;
@@ -3677,7 +4696,7 @@ impl Store {
             })
             .flatten();
         if let Some(run) = finished_run {
-            self.announce_run_finished(run.source, &run, finished_state);
+            self.announce_run_finished(&folder, &run, finished_state);
         }
         let Some(mut follow) = self.run_follow.take() else {
             cx.notify();
@@ -4021,9 +5040,6 @@ impl Store {
             return;
         }
         self.pending_pull_advance = None;
-        if !self.github_create_available(&folder) {
-            return;
-        }
         if matches!(self.pull_shortcut(), Some(PullShortcut::Create { .. })) {
             self.start_new_pull(cx);
         }
@@ -4079,7 +5095,7 @@ impl Store {
                 number: item.number,
             });
         }
-        // Create: GitHub's in-pane form first, then Azure's create page
+        // Create in the pane: GitHub wins when both integrations resolve
         if self.github_create_available(folder) {
             return Some(PullShortcut::Create {
                 source: ActivitySource::GitHub,
@@ -4115,28 +5131,24 @@ impl Store {
                 .is_some_and(|repo| repo.github_web_url.is_some())
     }
 
-    /// The toolbar's Create verb: the GitHub form in the Pull requests tab, or
-    /// Azure's own create page (the app has no Azure form).
+    /// The toolbar's Create verb: the in-pane form for whichever integration
+    /// resolved this repository.
     pub fn start_new_pull(&mut self, cx: &mut Context<Self>) {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
-        if self.github_create_available(&folder) {
-            if self.detail_tab != WorkspaceTab::PullRequests {
-                self.open_detail_tab(WorkspaceTab::PullRequests, cx);
-            }
-            self.open_new_pull(cx);
+        let azure = self.azure_auth().is_some()
+            && self
+                .azure_by_folder
+                .get(&folder)
+                .is_some_and(|snapshot| snapshot.available);
+        if !self.github_create_available(&folder) && !azure {
             return;
         }
-        let url = self
-            .azure_by_folder
-            .get(&folder)
-            .filter(|snapshot| snapshot.available)
-            .and_then(|snapshot| snapshot.new_pull_request_url());
-        if let Some(url) = url {
-            let _ = warp_station_core::terminal::open_folder(&url);
-            self.notify_info("Opening Azure DevOps to create the pull request");
+        if self.detail_tab != WorkspaceTab::PullRequests {
+            self.open_detail_tab(WorkspaceTab::PullRequests, cx);
         }
+        self.open_new_pull(cx);
     }
 
     /// The toolbar's View verb: the existing pull request for this branch.
@@ -4199,12 +5211,54 @@ impl Store {
             .and_then(|repo| repo.git_branch_name.clone())
             .unwrap_or_default();
         let base = self.default_branch();
+        let folder = self.selected_repo.clone();
+        let source = match folder.as_deref() {
+            Some(folder) if self.github_create_available(folder) => {
+                warp_station_core::activity::ActivitySource::GitHub
+            }
+            Some(folder)
+                if self.azure_auth().is_some()
+                    && self
+                        .azure_by_folder
+                        .get(folder)
+                        .is_some_and(|snapshot| snapshot.available) =>
+            {
+                warp_station_core::activity::ActivitySource::Azure
+            }
+            _ => warp_station_core::activity::ActivitySource::GitHub,
+        };
+        // the tip commit's subject is already in the workspace read; the
+        // message body comes back from the net thread without holding render
+        let title = self
+            .recent_commits
+            .first()
+            .map(|commit| commit.subject.clone())
+            .unwrap_or_default();
+        self.new_pull_seq = self.new_pull_seq.wrapping_add(1);
+        let seq = self.new_pull_seq;
         self.new_pull = Some(NewPullForm {
+            source,
             head,
             base,
             error: None,
             creating: false,
+            seq,
+            prefill_title: title,
+            prefill_body: String::new(),
         });
+        if let Some(folder) = folder {
+            let (base, head) = self
+                .new_pull
+                .as_ref()
+                .map(|form| (form.base.clone(), form.head.clone()))
+                .unwrap_or_default();
+            let _ = self.net.send_blocking(NetCommand::TipMessage {
+                folder: std::path::PathBuf::from(folder),
+                base,
+                head,
+                seq,
+            });
+        }
         self.compare = None;
         self.compare_requested.clear();
         cx.notify();
@@ -4332,6 +5386,7 @@ impl Store {
             reviewer: Some(reviewer).filter(|name| !name.trim().is_empty()),
             draft,
         };
+        let source = form.source;
         if let Some(problem) = request.problem() {
             if let Some(form) = self.new_pull.as_mut() {
                 form.error = Some(problem.to_string());
@@ -4339,13 +5394,6 @@ impl Store {
             cx.notify();
             return;
         }
-        let Some(gh_exe) = self.gh_exe() else {
-            if let Some(form) = self.new_pull.as_mut() {
-                form.error = Some("The gh CLI is not available.".to_string());
-            }
-            cx.notify();
-            return;
-        };
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
@@ -4353,11 +5401,39 @@ impl Store {
             form.creating = true;
             form.error = None;
         }
-        let _ = self.net.send_blocking(NetCommand::GitHubPullCreate {
-            folder: std::path::PathBuf::from(folder),
-            gh_exe,
-            request,
-        });
+        match source {
+            warp_station_core::activity::ActivitySource::GitHub => {
+                let Some(gh_exe) = self.gh_exe() else {
+                    if let Some(form) = self.new_pull.as_mut() {
+                        form.creating = false;
+                        form.error = Some("The gh CLI is not available.".to_string());
+                    }
+                    cx.notify();
+                    return;
+                };
+                let _ = self.net.send_blocking(NetCommand::GitHubPullCreate {
+                    folder: std::path::PathBuf::from(folder),
+                    gh_exe,
+                    request,
+                });
+            }
+            warp_station_core::activity::ActivitySource::Azure => {
+                let Some((pat, custom_base)) = self.azure_auth() else {
+                    if let Some(form) = self.new_pull.as_mut() {
+                        form.creating = false;
+                        form.error = Some("The Azure DevOps PAT is not configured.".to_string());
+                    }
+                    cx.notify();
+                    return;
+                };
+                let _ = self.net.send_blocking(NetCommand::AzurePullCreate {
+                    folder: std::path::PathBuf::from(folder),
+                    pat,
+                    custom_base,
+                    request: Box::new(request),
+                });
+            }
+        }
         cx.notify();
     }
 
@@ -4811,6 +5887,7 @@ impl Store {
         self.pending_pull_advance = None;
         self.pipeline_branch = None;
         self.pipeline_watch = None;
+        self.pipeline_gate = None;
         self.pull_diff.clear();
         self.pull_diff_requested.clear();
         self.pull_commit_files.clear();
@@ -5409,8 +6486,8 @@ pub enum WorkspaceTab {
 }
 
 /// The next pull-request step a repository's pushed branch offers: open the
-/// writing form (or Azure's create page), or revisit the pull request that
-/// already has this head branch.
+/// in-pane writing form, or revisit the pull request that already has this
+/// head branch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PullShortcut {
     Create {
@@ -5420,6 +6497,54 @@ pub enum PullShortcut {
         source: warp_station_core::activity::ActivitySource,
         number: u64,
     },
+}
+
+/// How one step of the Changes flow strip reads: done, the one the branch is
+/// on now, or not reachable yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowStepState {
+    Done,
+    Current,
+    Blocked,
+}
+
+/// What a flow strip step opens. A done step is a link back; the current one
+/// is the next action. Nothing here creates or merges without a press.
+#[derive(Clone, Debug)]
+pub enum FlowAction {
+    CreatePull,
+    OpenPull {
+        source: warp_station_core::activity::ActivitySource,
+        number: u64,
+        url: Option<String>,
+    },
+    WatchPipeline {
+        branch: String,
+        since: Option<chrono::DateTime<chrono::Local>>,
+    },
+    OpenRun {
+        folder: String,
+        run: Box<warp_station_core::activity::ActivityRun>,
+    },
+}
+
+/// One step of the Changes strip.
+#[derive(Clone, Debug)]
+pub struct FlowStepView {
+    /// The debug-selector/state key: `create`, `merge`, `pipeline`, `result`.
+    pub key: &'static str,
+    pub label: &'static str,
+    pub state: FlowStepState,
+    /// The one-line fact under the label.
+    pub detail: String,
+    pub action: Option<FlowAction>,
+}
+
+/// The whole strip for the selected branch.
+#[derive(Clone, Debug)]
+pub struct FlowView {
+    pub branch: String,
+    pub steps: Vec<FlowStepView>,
 }
 
 /// A pull request open in the detail pane. It stays on `item`, the list's row,
@@ -5448,11 +6573,18 @@ pub struct OpenIssue {
 /// between, and what the last attempt said.
 #[derive(Clone, Debug, Default)]
 pub struct NewPullForm {
+    /// Which integration writes this pull request.
+    pub source: warp_station_core::activity::ActivitySource,
     pub head: String,
     pub base: String,
     /// Why the form refuses to send, or what `gh` answered.
     pub error: Option<String>,
     pub creating: bool,
+    /// The form's generation; a tip-message answer for an older one is stale.
+    pub seq: u64,
+    /// The tip commit's subject, and the message body once the read answers.
+    pub prefill_title: String,
+    pub prefill_body: String,
 }
 
 /// One Azure pull request open in the Pipelines tab: its row until the record
@@ -5496,6 +6628,9 @@ pub struct OpenRun {
 pub struct PipelineWatch {
     folder: String,
     branch: String,
+    /// The branch the flow strip belongs to (the PR's head when the watch was
+    /// armed); a checkout while waiting must not move the record.
+    flow_branch: Option<String>,
     /// The merge time: rows older than this are not the run the merge
     /// started. `None` accepts the branch's newest row.
     since: Option<chrono::DateTime<chrono::Local>>,
@@ -5505,6 +6640,27 @@ pub struct PipelineWatch {
     /// The next list read is due; first one immediately.
     next_poll: std::time::Instant,
     /// Give up after this: a merge that starts no pipeline is not an error.
+    until: std::time::Instant,
+}
+
+/// The watch-all setting's merge gate: every run on the target branch since
+/// the merge, tallied from the lightweight runs list. It never polls a second
+/// detail; the open run's own follow is the only detail read.
+#[derive(Clone, Debug)]
+struct PipelineGate {
+    folder: String,
+    branch: String,
+    /// The branch the flow record belongs to (the PR's head).
+    flow_branch: Option<String>,
+    since: Option<chrono::DateTime<chrono::Local>>,
+    runs: std::collections::BTreeMap<
+        (warp_station_core::activity::ActivitySource, u64),
+        warp_station_core::activity::RunState,
+    >,
+    /// Consecutive list answers with no running run; the gate settles on the
+    /// second so a workflow that starts a beat later still joins.
+    quiet_polls: u32,
+    next_poll: std::time::Instant,
     until: std::time::Instant,
 }
 
@@ -5997,6 +7153,106 @@ mod tests {
         assert_eq!(focused[0].branch.as_deref(), Some("main"));
         store.pipeline_branch = None;
         assert_eq!(store.focused_runs(&folder).len(), 2);
+
+        let _ = std::fs::remove_file(&scratch);
+    }
+
+    /// The strip's four steps follow the record: pushed → open pull → merged
+    /// → a finished run, with the action each state offers.
+    #[test]
+    fn the_flow_strip_walks_create_merge_pipeline_result() {
+        use warp_station_core::activity::{ActivitySource, RunState};
+        use warp_station_core::flow::{FlowPull, FlowPullState, FlowRun};
+
+        let (tx, _rx) = async_channel::unbounded();
+        let scratch = std::env::temp_dir().join(format!(
+            "warp-station-flow-view-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&scratch, "{}").expect("scratch settings");
+        let mut store = Store::with_settings(tx, Arc::new(SettingsService::at(scratch.clone())))
+            .without_flow_cache();
+        store.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        let folder = "/probe/alpha";
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from(folder),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("feat/flow".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: Some("https://github.com/o/alpha".into()),
+            azure_work_item_count: 0,
+        }]);
+        store.selected_repo = Some(folder.into());
+
+        let view = store.flow_view().expect("a pushed branch has a flow");
+        assert_eq!(view.steps[0].state, FlowStepState::Current);
+        assert!(matches!(view.steps[0].action, Some(FlowAction::CreatePull)));
+        assert_eq!(view.steps[1].state, FlowStepState::Blocked);
+
+        let now = chrono::Local::now().to_rfc3339();
+        let record = store.flow.record(folder, "feat/flow", now.clone());
+        record.pull = Some(FlowPull {
+            source: ActivitySource::Azure,
+            number: 21,
+            title: "Land the flow".into(),
+            state: FlowPullState::Open,
+            head: "feat/flow".into(),
+            target: "main".into(),
+            url: None,
+            merged_at: None,
+        });
+        let view = store.flow_view().expect("open pull");
+        assert_eq!(view.steps[0].state, FlowStepState::Done);
+        assert_eq!(view.steps[1].state, FlowStepState::Current);
+        assert!(matches!(
+            view.steps[1].action,
+            Some(FlowAction::OpenPull {
+                source: ActivitySource::Azure,
+                number: 21,
+                ..
+            })
+        ));
+
+        let record = store.flow.record(folder, "feat/flow", now.clone());
+        let pull = record.pull.as_mut().expect("pull");
+        pull.state = FlowPullState::Merged;
+        pull.merged_at = Some(now.clone());
+        record.run = Some(FlowRun {
+            source: ActivitySource::Azure,
+            id: 48,
+            name: "kits".into(),
+            label: "20261111.48".into(),
+            state: RunState::Succeeded,
+            branch: Some("main".into()),
+            url: None,
+            at: Some(now),
+        });
+        let view = store.flow_view().expect("merged run");
+        for step in &view.steps {
+            assert_eq!(step.state, FlowStepState::Done, "{}", step.label);
+        }
+        assert!(matches!(
+            view.steps[3].action,
+            Some(FlowAction::OpenRun { .. })
+        ));
 
         let _ = std::fs::remove_file(&scratch);
     }

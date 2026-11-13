@@ -13,6 +13,7 @@ use warp_station::store::{Store, WorkspaceTab};
 use warp_station::ui::window::MainWindow;
 use warp_station_core::activity::{ActivityRun, RunDetail, RunJob, RunStage, RunState};
 use warp_station_core::azure::{AzureSnapshot, PipelineRun};
+use warp_station_core::model::GitCommitInfo;
 use warp_station_core::repo_store::RepoEntry;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
@@ -44,6 +45,25 @@ fn scratch_store(
     cx: &mut TestAppContext,
     name: &str,
 ) -> (gpui::Entity<Store>, async_channel::Receiver<NetCommand>) {
+    // one scratch HOME for the whole binary: the store's repo and flow caches
+    // resolve through it, so a probe never rewrites the owner's ~/.warp
+    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| {
+        let home = std::env::temp_dir().join(format!(
+            "warp-station-follow-probe-home-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".warp")).expect("probe home");
+        // SAFETY: one process-wide environment set, guarded by the OnceLock
+        unsafe {
+            std::env::set_var("HOME", &home);
+            #[cfg(windows)]
+            std::env::set_var("USERPROFILE", &home);
+            std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+        }
+        home
+    });
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
@@ -577,6 +597,37 @@ fn a_watched_run_raises_one_end_toast(cx: &mut TestAppContext) {
             .count()
     });
     assert_eq!(repeats, 1, "the closing answer does not repeat the toast");
+    let toast_id = store
+        .read_with(cx, |s, _| s.notices.list().first().map(|notice| notice.id))
+        .expect("the toast row");
+    let open = Box::leak(format!("toast-open-{toast_id}").into_boxed_str());
+    assert!(cx.debug_bounds(open).is_some(), "the toast offers Open run");
+
+    // the toast's follow-up opens the run it reported
+    let action = store
+        .read_with(cx, |s, _| {
+            s.notices
+                .list()
+                .iter()
+                .find_map(|notice| notice.action.clone())
+        })
+        .expect("the pipeline toast carries an action");
+    assert!(matches!(
+        action,
+        warp_station::notices::NoticeAction::OpenRun { .. }
+    ));
+    cx.update_entity(&store, |s: &mut Store, cx| s.open_notice_action(action, cx));
+    draw(cx);
+    assert_eq!(
+        store.read_with(cx, |s, _| s.active_detail_tab()),
+        WorkspaceTab::Pipelines,
+        "Open run lands on the Pipelines tab"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s.open_run.as_ref().map(|open| open.run.id)),
+        Some(48),
+        "and opens the run the toast named"
+    );
 }
 
 /// The merge watch's announce flag covers a run that finished before its
@@ -809,6 +860,169 @@ fn a_merge_watch_ignores_runs_from_before_the_merge(cx: &mut TestAppContext) {
     );
 }
 
+/// With the watch-all switch on, a merge gate tallies every workflow on the
+/// target branch and raises one "1 of 2 passed · 1 failed" toast, not two.
+#[gpui::test]
+fn the_watch_all_gate_reports_the_whole_merge(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "gate");
+    let folder = "/probe/alpha";
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| settings.workflow.watch_all_runs_on_branch = true);
+        s.replace_repos(vec![entry("alpha", folder)]);
+        s.repos[0].git_branch_name = Some("feat/flow".into());
+        s.azure_by_folder.insert(
+            folder.to_string(),
+            std::sync::Arc::new(AzureSnapshot {
+                available: true,
+                pipelines: vec![build(48, "inProgress", None), build(49, "inProgress", None)],
+                ..Default::default()
+            }),
+        );
+        s.select_repo(folder, cx);
+    });
+    let cx = open_window(&store, cx);
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.watch_pipelines_for("main".into(), None, false, cx)
+    });
+    draw(cx);
+
+    let finished = vec![
+        build(48, "completed", Some("succeeded")),
+        build(49, "completed", Some("failed")),
+    ];
+    // two quiet list answers settle the gate, so a workflow that starts a
+    // beat later still joins
+    for _ in 0..2 {
+        cx.update_entity(&store, |s: &mut Store, cx| {
+            s.on_net_event(
+                UiEvent::AzureRunsLoaded {
+                    folder: folder.into(),
+                    runs: Some(finished.clone()),
+                    budget: Default::default(),
+                },
+                cx,
+            );
+        });
+        draw(cx);
+    }
+    let notices = store.read_with(cx, |s, _| {
+        s.notices
+            .list()
+            .iter()
+            .map(|notice| notice.text.clone())
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        notices
+            .iter()
+            .any(|text| text.starts_with("Merge gate on main:")
+                && text.contains("1 of 2 passed")
+                && text.contains("1 failed")),
+        "one gate toast: {notices:?}"
+    );
+    assert_eq!(
+        notices
+            .iter()
+            .filter(|text| text.starts_with("Pipeline ") && text.contains("failed"))
+            .count(),
+        0,
+        "the gate owns the result; no per-run toast"
+    );
+    let gate = store.read_with(cx, |s, _| {
+        s.flow
+            .get(folder, "feat/flow")
+            .and_then(|record| record.gate.clone())
+    });
+    assert!(
+        gate.is_some_and(|gate| gate.settled && gate.passed == 1 && gate.failed == 1),
+        "the flow record keeps the settled gate"
+    );
+}
+
+/// The in-pane form writes an Azure pull request through the REST command, and
+/// the created record lands in the flow strip's pull step.
+#[gpui::test]
+fn the_form_creates_an_azure_pull_request(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "azure-create");
+    let folder = "/probe/alpha";
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.replace_repos(vec![entry("alpha", folder)]);
+        s.repos[0].git_branch_name = Some("feat/flow".into());
+        s.azure_by_folder.insert(
+            folder.to_string(),
+            std::sync::Arc::new(AzureSnapshot {
+                available: true,
+                url: Some("https://dev.azure.com/o/p/_git/alpha".into()),
+                ..Default::default()
+            }),
+        );
+        s.select_repo(folder, cx);
+        s.open_new_pull(cx);
+    });
+    assert_eq!(
+        store.read_with(cx, |s, _| s.new_pull.as_ref().map(|form| form.source)),
+        Some(warp_station_core::activity::ActivitySource::Azure),
+        "the GitHub switch is off, so the form targets Azure"
+    );
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.create_pull(
+            "Land the flow".into(),
+            "The details.".into(),
+            String::new(),
+            false,
+            cx,
+        )
+    });
+    let mut request = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::AzurePullCreate {
+            folder: target,
+            request: created,
+            ..
+        } = command
+        {
+            assert_eq!(target.to_string_lossy(), folder);
+            request = Some(created);
+        }
+    }
+    let request = request.expect("the Azure create command");
+    assert_eq!(request.head, "feat/flow");
+    assert_eq!(request.base, "main");
+    assert_eq!(request.title, "Land the flow");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzurePullCreated {
+                folder: folder.into(),
+                request: request.clone(),
+                result: Ok(21),
+            },
+            cx,
+        );
+    });
+    assert!(
+        store.read_with(cx, |s, _| s.new_pull.is_none()),
+        "the form closes on success"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s
+            .open_azure_pull
+            .as_ref()
+            .map(|open| open.item.number)),
+        Some(21),
+        "the created pull request opens in the pane"
+    );
+    assert_eq!(
+        store.read_with(cx, |s, _| s
+            .flow
+            .get(folder, "feat/flow")
+            .and_then(|record| record.pull.as_ref())
+            .map(|pull| pull.number)),
+        Some(21),
+        "the flow strip remembers the new pull request"
+    );
+}
+
 /// A merged GitHub pull request draws the Pipelines verb in its head; the
 /// button is the manual half of the Workflow setting.
 #[gpui::test]
@@ -948,5 +1162,100 @@ fn a_push_advances_to_the_pull_form(cx: &mut TestAppContext) {
     assert!(
         store.read_with(cx, |s, _| s.new_pull.is_some()),
         "with the form open on the pushed branch"
+    );
+}
+
+/// The form starts with the tip commit's subject as its title; the commit
+/// bodies follow from the net thread, and a stale answer is ignored.
+#[gpui::test]
+fn the_new_pull_form_prefills_from_the_tip_commit(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(cx, "prefill");
+    let folder = "/probe/alpha";
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        s.replace_repos(vec![entry("alpha", folder)]);
+        s.repos[0].git_branch_name = Some("feat/flow".into());
+        s.repos[0].github_web_url = Some("https://github.com/o/alpha".into());
+        s.select_repo(folder, cx);
+        s.recent_commits = vec![GitCommitInfo {
+            hash: "a".repeat(40),
+            subject: "Land the flow".into(),
+            author: Some("A".into()),
+            date: chrono::Local::now(),
+        }];
+        s.open_new_pull(cx);
+    });
+    let form = store
+        .read_with(cx, |s, _| s.new_pull.clone())
+        .expect("the form is open");
+    assert_eq!(form.prefill_title, "Land the flow");
+    let mut asked = false;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::TipMessage { seq, .. } = command {
+            assert_eq!(seq, form.seq);
+            asked = true;
+        }
+    }
+    assert!(asked, "the form asks for the tip message body");
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::TipMessageLoaded {
+                folder: folder.into(),
+                seq: form.seq,
+                subject: String::new(),
+                body: "The details behind the change.".into(),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        store.read_with(cx, |s, _| s
+            .new_pull
+            .as_ref()
+            .map(|f| f.prefill_body.clone())),
+        Some("The details behind the change.".into())
+    );
+
+    // an answer for an older generation is ignored
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::TipMessageLoaded {
+                folder: folder.into(),
+                seq: form.seq.wrapping_sub(1),
+                subject: "Stale".into(),
+                body: "stale".into(),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        store.read_with(cx, |s, _| s
+            .new_pull
+            .as_ref()
+            .map(|f| f.prefill_body.clone())),
+        Some("The details behind the change.".into()),
+        "a stale generation does not overwrite the form"
+    );
+
+    // the form itself draws with the prefilled fields
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_detail_tab(WorkspaceTab::PullRequests, cx);
+    });
+    let cx = open_window(&store, cx);
+    draw(cx);
+    assert!(
+        cx.debug_bounds("new-pull-title").is_some(),
+        "the form draws its title field"
+    );
+    assert!(
+        cx.debug_bounds("new-pull-overview").is_some(),
+        "the form's overview is on screen"
     );
 }

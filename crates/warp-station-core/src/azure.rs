@@ -1138,6 +1138,82 @@ fn short_ref(reference: &str) -> String {
         .to_string()
 }
 
+/// Opens a pull request through the REST API. The repository name the remote
+/// carries is enough; no id lookup is needed. An optional reviewer name is
+/// resolved against the organization's people to the identity GUID the create
+/// body wants; a name with no match refuses the create rather than dropping
+/// the reviewer silently.
+pub async fn create_pull(
+    folder: &Path,
+    pat: &str,
+    custom_base: &str,
+    request: &crate::github::NewPullRequest,
+) -> Result<u64, String> {
+    let remote = remote_for(folder, custom_base).ok_or("not an Azure DevOps repository")?;
+    let client = Client::new(pat);
+    let url = format!(
+        "{}/{}/_apis/git/repositories/{}/pullrequests?api-version=7.1",
+        remote.base_url, remote.project, remote.repository
+    );
+    let reviewer_id = match request
+        .reviewer
+        .as_deref()
+        .map(str::trim)
+        .filter(|who| !who.is_empty())
+    {
+        Some(who) => {
+            let people = users(folder, pat, custom_base)
+                .await
+                .ok_or_else(|| "Azure DevOps did not answer the reviewer lookup.".to_string())?;
+            let person = people
+                .iter()
+                .find(|person| {
+                    person.display_name.eq_ignore_ascii_case(who)
+                        || person.unique_name.eq_ignore_ascii_case(who)
+                })
+                .ok_or_else(|| format!("No Azure DevOps user matches \"{who}\"."))?;
+            Some(
+                reviewer_storage_key(&client, &remote, &person.descriptor)
+                    .await
+                    .ok_or_else(|| {
+                        format!("Azure DevOps did not resolve \"{who}\" to an identity.")
+                    })?,
+            )
+        }
+        None => None,
+    };
+    let answer = client
+        .request(
+            "POST",
+            &url,
+            Some(create_pull_body(request, reviewer_id.as_deref())),
+        )
+        .await?;
+    answer
+        .get("pullRequestId")
+        .and_then(|id| id.as_u64())
+        .ok_or_else(|| "Azure DevOps did not name the pull request it created".to_string())
+}
+
+/// The REST body: Azure names refs in full, and the form's short branch names
+/// are what it wants under `refs/heads/`.
+pub fn create_pull_body(
+    request: &crate::github::NewPullRequest,
+    reviewer_id: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "sourceRefName": format!("refs/heads/{}", request.head.trim()),
+        "targetRefName": format!("refs/heads/{}", request.base.trim()),
+        "title": request.title.trim(),
+        "description": request.body,
+        "isDraft": request.draft,
+    });
+    if let Some(id) = reviewer_id {
+        body["reviewers"] = serde_json::json!([{ "id": id }]);
+    }
+    body
+}
+
 /// Resolves a pull request into every call the detail makes: the record with
 /// its reviewers and the web link, the policy evaluations, the comment
 /// threads, and the signed-in user for the vote.
@@ -2947,6 +3023,39 @@ mod follow_tests {
             .len(),
             1,
             "a name with a space still matches its URL form"
+        );
+    }
+}
+
+#[cfg(test)]
+mod create_tests {
+    use super::create_pull_body;
+    use crate::github::NewPullRequest;
+
+    #[test]
+    fn the_create_body_names_both_refs_and_the_draft_flag() {
+        let request = NewPullRequest {
+            title: "Land the flow".into(),
+            body: "The details.".into(),
+            base: "main".into(),
+            head: "feat/flow".into(),
+            reviewer: Some("Engin".into()),
+            draft: true,
+        };
+        let body = create_pull_body(&request, None);
+        assert_eq!(body["sourceRefName"], "refs/heads/feat/flow");
+        assert_eq!(body["targetRefName"], "refs/heads/main");
+        assert_eq!(body["title"], "Land the flow");
+        assert_eq!(body["description"], "The details.");
+        assert_eq!(body["isDraft"], true);
+        assert!(
+            body.get("reviewers").is_none(),
+            "no resolved reviewer id, no reviewers field"
+        );
+        let body = create_pull_body(&request, Some("11111111-2222-3333-4444-555555555555"));
+        assert_eq!(
+            body["reviewers"][0]["id"],
+            "11111111-2222-3333-4444-555555555555"
         );
     }
 }

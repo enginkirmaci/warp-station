@@ -195,3 +195,28 @@ fn unpushed_hashes_answerable() {
         assert!(read::unpushed_hashes(&root).is_some());
     }
 }
+
+#[test]
+fn the_pull_prefill_matches_the_log() {
+    let Some(root) = require() else { return };
+    let head = git(&["rev-parse", "HEAD"]).unwrap_or_default();
+    let base = git(&["rev-parse", "HEAD~1"]).unwrap_or_default();
+    if head.trim().is_empty() || base.trim().is_empty() {
+        return;
+    }
+    let (subject, body) = read::pull_prefill(&root, base.trim(), head.trim()).expect("prefill");
+    let cli_subject = git(&["log", "-1", "--format=%s"]).unwrap_or_default();
+    assert_eq!(subject, cli_subject.trim(), "tip subject");
+
+    // the body carries every commit's message body in base..head
+    for revision in ["HEAD", "HEAD~1"] {
+        let cli_body = git(&["log", "-1", "--format=%b", revision]).unwrap_or_default();
+        let cli_body = cli_body.trim();
+        if !cli_body.is_empty() {
+            assert!(
+                body.contains(cli_body),
+                "the {revision} message body is in the prefill"
+            );
+        }
+    }
+}

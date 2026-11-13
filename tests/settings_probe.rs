@@ -312,6 +312,11 @@ fn the_workflow_section_carries_the_flow_switches(cx: &mut TestAppContext) {
         "the background-watch row renders"
     );
     assert!(
+        cx.debug_bounds("settings-row-Watch every run on the branch")
+            .is_some(),
+        "the watch-all row renders"
+    );
+    assert!(
         cx.debug_bounds("settings-row-Open the PR step after push")
             .is_none(),
         "the step switches stay folded until the master is on"
