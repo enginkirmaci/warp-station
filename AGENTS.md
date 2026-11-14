@@ -148,7 +148,15 @@ Keep this order; several steps depend on the previous one:
   numbered strip scroll all panes to the block (`UniformListScrollHandle`), the
   Split/Columns toggle needs a pane wider than 1000 px, and the Base pane only
   appears for `merge.conflictStyle=diff3` (a merge-style file has no base
-  section to map). Wheel scrolling is per pane. The row menu needs
+  section to map). Wheel scrolling is per pane. The Result is a live
+  `TextareaState`: every user edit is reduced to its smallest changed span
+  (`minimal_edit`) and each block's `result_ranges` entry is remapped through
+  it (`map_range`); a touched block loses its pick and counts as manual. Takes
+  rewrite the block's range in `result` and shift the later ranges; Accept
+  refuses while a conflict marker line remains. `ConflictPick` (the core type)
+  carries Local, Incoming and the two both-side orders; `ConflictSide` stays
+  the whole-file vocabulary. `block_word_highlights` marks the changed middle
+  of the current block's corresponding lines. The row menu needs
   `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
   table now carries the picker so the linked build uses the local kit — the app
   repository needs a kit tag/pin bump before it builds standalone. Branch rows

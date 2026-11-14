@@ -43,12 +43,15 @@ Right-click a branch in the Changes branch selector for its menu: **Merge into
 current branch** runs `git merge <branch>`, and Checkout, Copy branch name and
 Delete live beside it. A stopped merge shows a band above the Changes toolbar
 and the conflicted files in the list; the merge editor shows the whole
-**Local** and **Incoming** files with each block washed, a numbered strip that
-jumps every pane to a conflict, the assembled **Result**, and Accept Merge
-writes the file and stages it. **Columns** lays the panes out in one row on a
-wide window, and **Base** adds the diff3 base when the repository writes one.
-Right-clicking a conflicted file offers **Resolve with Local** / **Resolve with
-Incoming** to take a whole side in one step. Continue then commits the merge
+**Local** and **Incoming** files with each block washed and its changed words
+tinted, a numbered strip that jumps every pane to a conflict, and the
+**Result**, which is directly editable and is what Accept Merge writes.
+**L+I** / **I+L** write both sides in either order, **Columns** lays the panes
+out in one row on a wide window, **Base** adds the diff3 base when the
+repository writes one, and **Reset** restores the markers and clears the
+picks. A double-click on a conflicted row opens the editor, and right-clicking
+it offers **Resolve with Local** / **Resolve with Incoming** to take a whole
+side in one step. Continue then commits the merge
 with git's own `MERGE_MSG`, or Abort restores the pre-merge tree.
 
 ## warp-agent integration

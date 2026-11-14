@@ -223,6 +223,68 @@ fn marker_run(line: &str, marker: char) -> usize {
     line.chars().take_while(|ch| *ch == marker).count()
 }
 
+/// What a block writes into the Result: one side, or both sides in either
+/// order. [`ConflictSide`] stays the whole-file vocabulary (checkboxes, the
+/// row menu); a pick is the block-level resolution, Take both included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConflictPick {
+    Local,
+    Incoming,
+    LocalThenIncoming,
+    IncomingThenLocal,
+}
+
+impl ConflictPick {
+    pub fn text(self, block: &GitConflictBlock) -> String {
+        match self {
+            Self::Local => block.local.clone(),
+            Self::Incoming => block.incoming.clone(),
+            Self::LocalThenIncoming => format!("{}{}", block.local, block.incoming),
+            Self::IncomingThenLocal => format!("{}{}", block.incoming, block.local),
+        }
+    }
+}
+
+/// The worktree text with every block replaced by its pick, in order; an
+/// unpicked block keeps its markers. The second half is each block's byte
+/// range in the returned text, which the editor remaps as the Result is
+/// edited.
+pub fn assemble_picks_tracked(
+    text: &str,
+    blocks: &[GitConflictBlock],
+    picks: &[Option<ConflictPick>],
+) -> (String, Vec<Range<usize>>) {
+    let mut result = String::with_capacity(text.len());
+    let mut ranges = Vec::with_capacity(blocks.len());
+    let mut cursor = 0;
+    for (block, pick) in blocks.iter().zip(picks) {
+        if block.range.start < cursor || block.range.end > text.len() {
+            ranges.push(0..0);
+            continue;
+        }
+        result.push_str(&text[cursor..block.range.start]);
+        let start = result.len();
+        match pick {
+            Some(pick) => result.push_str(&pick.text(block)),
+            None => result.push_str(&text[block.range.clone()]),
+        }
+        ranges.push(start..result.len());
+        cursor = block.range.end;
+    }
+    result.push_str(&text[cursor..]);
+    (result, ranges)
+}
+
+/// [`assemble_picks_tracked`] without the ranges: the bulk take and the old
+/// callers.
+pub fn assemble_picks(
+    text: &str,
+    blocks: &[GitConflictBlock],
+    picks: &[Option<ConflictPick>],
+) -> String {
+    assemble_picks_tracked(text, blocks, picks).0
+}
+
 /// The worktree text with every block replaced by the chosen side, in order.
 /// `choices[i]` is block `i`; a missing or `None` choice keeps the block's
 /// incoming side out and writes nothing for it (the UI only assembles when
@@ -346,6 +408,33 @@ mod tests {
         assert_eq!(incoming, "a\ni\nz\n");
         let unresolved = assemble(text, &blocks, &[None]);
         assert_eq!(unresolved, text);
+    }
+
+    #[test]
+    fn picks_take_both_sides_in_either_order() {
+        let text = "a\n<<<<<<< HEAD\nl\n=======\ni\n>>>>>>> m\nz\n";
+        let blocks = parse_conflict_blocks(text).expect("well-formed");
+        let both_local = assemble_picks(text, &blocks, &[Some(ConflictPick::LocalThenIncoming)]);
+        assert_eq!(both_local, "a\nl\ni\nz\n");
+        let both_incoming = assemble_picks(text, &blocks, &[Some(ConflictPick::IncomingThenLocal)]);
+        assert_eq!(both_incoming, "a\ni\nl\nz\n");
+        let (tracked, ranges) =
+            assemble_picks_tracked(text, &blocks, &[Some(ConflictPick::LocalThenIncoming)]);
+        assert_eq!(&tracked[ranges[0].clone()], "l\ni\n");
+    }
+
+    #[test]
+    fn tracked_ranges_follow_multiple_blocks() {
+        let text = "one\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> m\nmid\n<<<<<<< HEAD\nc\n=======\nd\n>>>>>>> m\nend\n";
+        let blocks = parse_conflict_blocks(text).expect("well-formed");
+        let picks = [
+            Some(ConflictPick::Incoming),
+            Some(ConflictPick::LocalThenIncoming),
+        ];
+        let (result, ranges) = assemble_picks_tracked(text, &blocks, &picks);
+        assert_eq!(result, "one\nb\nmid\nc\nd\nend\n");
+        assert_eq!(&result[ranges[0].clone()], "b\n");
+        assert_eq!(&result[ranges[1].clone()], "c\nd\n");
     }
 
     #[test]

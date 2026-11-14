@@ -13,13 +13,15 @@ use crate::ui::diff_controls;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, FocusHandle, FontWeight, MouseButton, ScrollStrategy, SharedString,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    Context, Entity, FocusHandle, FontWeight, HighlightStyle, MouseButton, ScrollStrategy,
+    SharedString, StyledText, Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
 };
-use gpui_kit::component::input::{InputState, TextareaState};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use std::cell::RefCell;
 use std::rc::Rc;
-use warp_station_core::git::conflict::{ConflictSide, assemble};
+use warp_station_core::git::conflict::{
+    ConflictPick, ConflictSide, GitConflictBlock, GitConflictFile, assemble_picks_tracked,
+};
 use warp_station_core::model::GitChangedFile;
 use warp_station_core::settings::DiffViewMode;
 use warpui_kit_core::{list_nav, motion, pane_nav};
@@ -147,6 +149,8 @@ pub struct ChangesView {
     menu_focus: FocusHandle,
     /// The conflicted file row's context menu.
     file_menu: Option<FileMenu>,
+    /// The last file-row press, for the 400 ms double-click window.
+    last_file_click: Option<(String, std::time::Instant)>,
     /// The Local/Incoming/Result editor, when a conflict row is open.
     merge_editor: Option<MergeEditor>,
     /// The editor's keyboard owner; F7/F10/F11 and Ctrl+Enter live here.
@@ -235,6 +239,7 @@ impl ChangesView {
             branch_ui,
             menu_focus,
             file_menu: None,
+            last_file_click: None,
             merge_editor: None,
             editor_focus: cx.focus_handle(),
             commit_message,
@@ -406,6 +411,31 @@ impl ChangesView {
     }
 
     /// Shows a file's diff, loading its patch the first time.
+    /// A plain press selects the row; a second press on the same conflicted
+    /// row within 400 ms opens its editor.
+    fn click_file(
+        &mut self,
+        path: &str,
+        staged: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let double = self.last_file_click.as_ref().is_some_and(|(last, at)| {
+            last == path && at.elapsed() < std::time::Duration::from_millis(400)
+        });
+        self.last_file_click = Some((path.to_string(), std::time::Instant::now()));
+        self.select_file(path, staged, cx);
+        if double {
+            let conflicted =
+                self.store.read(cx).merge_state().is_some_and(|merge| {
+                    merge.conflicted.iter().any(|conflicted| conflicted == path)
+                });
+            if conflicted {
+                self.open_merge_editor(path.to_string(), window, cx);
+            }
+        }
+    }
+
     fn select_file(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
         let key = (path.to_string(), staged);
         self.selected_file = Some(key.clone());
@@ -1397,7 +1427,7 @@ impl ChangesView {
             .when(!selected, |d| d.hover(|s| s.bg(theme::panel())))
             .on_click({
                 let path = file.path.clone();
-                cx.listener(move |this, _, _, cx| this.select_file(&path, staged, cx))
+                cx.listener(move |this, _, window, cx| this.click_file(&path, staged, window, cx))
             })
             .on_mouse_down(
                 MouseButton::Right,
@@ -3237,14 +3267,18 @@ impl ChangesView {
             choices: Vec::new(),
             current: 0,
             whole: None,
-            manual: false,
-            manual_text: None,
             layout: MergeLayout::Split,
             show_base: false,
             local_scroll: UniformListScrollHandle::default(),
             incoming_scroll: UniformListScrollHandle::default(),
             base_scroll: UniformListScrollHandle::default(),
             scrolled: false,
+            result: String::new(),
+            result_ranges: Vec::new(),
+            result_input: None,
+            result_subscription: None,
+            manual_blocks: Vec::new(),
+            ready: false,
         });
         self.store
             .update(cx, |store, cx| store.load_merge_conflict(&path, cx));
@@ -3330,83 +3364,205 @@ impl ChangesView {
         cx.notify();
     }
 
+    /// The open editor's conflicted file, when the store has it.
+    fn editor_file(&self, cx: &gpui::App) -> Option<GitConflictFile> {
+        let editor = self.merge_editor.as_ref()?;
+        self.store
+            .read(cx)
+            .merge_conflict()
+            .filter(|file| file.path == editor.path)
+            .cloned()
+    }
+
+    /// Mirrors `result` into the editable area without treating the write as
+    /// a user edit: the change handler ignores a value equal to `result`.
+    fn push_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_ref() else {
+            return;
+        };
+        let Some(input) = editor.result_input.clone() else {
+            return;
+        };
+        let text = editor.result.clone();
+        input.update(cx, |state, cx| state.set_value(&text, window, cx));
+    }
+
     /// Checks a side for the current block (or the whole file when it has no
-    /// blocks); checking the chosen side again unchecks it.
-    fn choose_side(&mut self, side: ConflictSide, cx: &mut Context<Self>) {
-        let Some(editor) = self.merge_editor.as_mut() else {
+    /// blocks); checking the chosen side again puts the markers back.
+    fn choose_side(&mut self, side: ConflictSide, window: &mut Window, cx: &mut Context<Self>) {
+        let pick = match side {
+            ConflictSide::Local => ConflictPick::Local,
+            ConflictSide::Incoming => ConflictPick::Incoming,
+        };
+        let Some(editor) = self.merge_editor.as_ref() else {
             return;
         };
         if editor.choices.is_empty() {
-            editor.whole = if editor.whole == Some(side) {
-                None
-            } else {
-                Some(side)
-            };
-        } else {
-            let index = editor.current.min(editor.choices.len() - 1);
-            editor.choices[index] = if editor.choices[index] == Some(side) {
-                None
-            } else {
-                Some(side)
-            };
-        }
-        cx.notify();
-    }
-
-    fn take_all(&mut self, side: ConflictSide, cx: &mut Context<Self>) {
-        let Some(editor) = self.merge_editor.as_mut() else {
-            return;
-        };
-        if editor.choices.is_empty() {
-            editor.whole = Some(side);
-        } else {
-            editor.choices.fill(Some(side));
-        }
-        cx.notify();
-    }
-
-    /// Toggles the manual result editor, seeded with the current assembly.
-    fn toggle_manual(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .merge_editor
-            .as_ref()
-            .is_none_or(|editor| editor.manual)
-        {
+            let whole = editor.whole;
             if let Some(editor) = self.merge_editor.as_mut() {
-                editor.manual = false;
+                editor.whole = if whole == Some(side) {
+                    None
+                } else {
+                    Some(side)
+                };
             }
             cx.notify();
             return;
         }
-        let seed = match self.merge_editor.as_ref() {
-            Some(editor) => self
-                .store
-                .read(cx)
-                .merge_conflict()
-                .filter(|file| file.path == editor.path)
-                .map(|file| assemble(&file.worktree, &file.blocks, &editor.choices))
-                .unwrap_or_default(),
-            None => return,
+        let index = editor.current.min(editor.choices.len() - 1);
+        let already = editor.choices.get(index).copied().flatten();
+        let next = if already == Some(pick) {
+            None
+        } else {
+            Some(pick)
         };
-        let editor = self.merge_editor.as_mut().expect("checked above");
-        let text = match editor.manual_text.clone() {
-            Some(text) => text,
-            None => {
-                let text = cx.new(|cx| TextareaState::new(window, cx).placeholder("Resolved file"));
-                editor.manual_text = Some(text.clone());
-                text
+        self.take_block(index, next, window, cx);
+    }
+
+    /// Replaces one block's range in the Result with its pick (or the original
+    /// marker text when clearing) and shifts every later block's range.
+    fn take_block(
+        &mut self,
+        index: usize,
+        pick: Option<ConflictPick>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file) = self.editor_file(cx) else {
+            return;
+        };
+        let Some(block) = file.blocks.get(index) else {
+            return;
+        };
+        let text = match pick {
+            Some(pick) => pick.text(block),
+            None => file.worktree[block.range.clone()].to_string(),
+        };
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        let Some(range) = editor.result_ranges.get(index).cloned() else {
+            return;
+        };
+        if range.end > editor.result.len()
+            || !editor.result.is_char_boundary(range.start)
+            || !editor.result.is_char_boundary(range.end)
+        {
+            return;
+        }
+        let delta = text.len() as isize - (range.end - range.start) as isize;
+        let mut result = String::with_capacity(editor.result.len().saturating_add_signed(delta));
+        result.push_str(&editor.result[..range.start]);
+        result.push_str(&text);
+        result.push_str(&editor.result[range.end..]);
+        for (ix, other) in editor.result_ranges.iter_mut().enumerate() {
+            if ix == index {
+                *other = range.start..range.start + text.len();
+            } else if other.start >= range.end {
+                other.start = other.start.saturating_add_signed(delta);
+                other.end = other.end.saturating_add_signed(delta);
             }
-        };
-        text.update(cx, |state, cx| {
-            state.set_value(seed, window, cx);
-            state.focus(window, cx);
-        });
-        editor.manual = true;
+        }
+        editor.choices[index] = pick;
+        editor.manual_blocks[index] = false;
+        editor.result = result;
+        self.push_result(window, cx);
         cx.notify();
     }
 
-    /// Writes the resolution and stages it; the reload closes the row.
-    fn accept_merge(&mut self, cx: &mut Context<Self>) {
+    /// Take both: replaces the range with the two sides in the given order.
+    fn take_both(&mut self, incoming_first: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_ref() else {
+            return;
+        };
+        let index = editor.current.min(editor.choices.len().saturating_sub(1));
+        let pick = if incoming_first {
+            ConflictPick::IncomingThenLocal
+        } else {
+            ConflictPick::LocalThenIncoming
+        };
+        self.take_block(index, Some(pick), window, cx);
+    }
+
+    fn take_all(&mut self, side: ConflictSide, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self.editor_file(cx) else {
+            return;
+        };
+        if file.blocks.is_empty() {
+            if let Some(editor) = self.merge_editor.as_mut() {
+                editor.whole = Some(side);
+            }
+            cx.notify();
+            return;
+        }
+        let pick = match side {
+            ConflictSide::Local => ConflictPick::Local,
+            ConflictSide::Incoming => ConflictPick::Incoming,
+        };
+        let picks = vec![Some(pick); file.blocks.len()];
+        let (result, ranges) = assemble_picks_tracked(&file.worktree, &file.blocks, &picks);
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        editor.choices = picks;
+        editor.manual_blocks = vec![false; file.blocks.len()];
+        editor.result = result;
+        editor.result_ranges = ranges;
+        self.push_result(window, cx);
+        cx.notify();
+    }
+
+    /// Puts the marker-bearing worktree text back and clears every pick.
+    fn reset_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self.editor_file(cx) else {
+            return;
+        };
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        editor.result = file.worktree.clone();
+        editor.result_ranges = file
+            .blocks
+            .iter()
+            .map(|block| block.range.clone())
+            .collect();
+        editor.choices.fill(None);
+        editor.manual_blocks.fill(false);
+        editor.whole = None;
+        self.push_result(window, cx);
+        cx.notify();
+    }
+
+    /// A user edit in the Result: remaps every block range through the
+    /// smallest changed span; a block the edit touches becomes manual and
+    /// loses its pick.
+    fn on_result_edited(&mut self, value: String, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        if value == editor.result {
+            return;
+        }
+        let (start, old_end, new_end) = minimal_edit(&editor.result, &value);
+        for (index, range) in editor.result_ranges.iter_mut().enumerate() {
+            let overlaps = !(range.end <= start || range.start >= old_end);
+            map_range(range, start, old_end, new_end);
+            if overlaps {
+                if let Some(choice) = editor.choices.get_mut(index) {
+                    *choice = None;
+                }
+                if let Some(manual) = editor.manual_blocks.get_mut(index) {
+                    *manual = true;
+                }
+            }
+        }
+        editor.result = value;
+        cx.notify();
+    }
+
+    /// Writes the Result as it stands and stages it; the reload closes the
+    /// row. A result still holding markers is refused.
+    fn accept_merge(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = self.merge_editor.as_ref() else {
             return;
         };
@@ -3420,18 +3576,13 @@ impl ChangesView {
         else {
             return;
         };
-        let text = if editor.manual {
-            editor
-                .manual_text
-                .as_ref()
-                .map(|text| text.read(cx).value().to_string())
-        } else if file.blocks.is_empty() {
+        let text = if file.blocks.is_empty() {
             editor.whole.map(|side| match side {
                 ConflictSide::Local => file.local.clone(),
                 ConflictSide::Incoming => file.incoming.clone(),
             })
-        } else if editor.choices.iter().all(Option::is_some) {
-            Some(assemble(&file.worktree, &file.blocks, &editor.choices))
+        } else if editor.ready && !holds_conflict_markers(&editor.result) {
+            Some(editor.result.clone())
         } else {
             None
         };
@@ -3456,7 +3607,7 @@ impl ChangesView {
             return true;
         }
         if event.keystroke.modifiers.control && event.keystroke.key == "enter" {
-            self.accept_merge(cx);
+            self.accept_merge(_window, cx);
             return true;
         }
         match event.keystroke.key.to_lowercase().as_str() {
@@ -3472,11 +3623,11 @@ impl ChangesView {
                 true
             }
             "f10" => {
-                self.take_all(ConflictSide::Incoming, cx);
+                self.take_all(ConflictSide::Incoming, _window, cx);
                 true
             }
             "f11" => {
-                self.take_all(ConflictSide::Local, cx);
+                self.take_all(ConflictSide::Local, _window, cx);
                 true
             }
             _ => false,
@@ -3562,41 +3713,79 @@ impl ChangesView {
                 )
                 .into_any_element();
         };
-        {
+        let seed = {
             let editor = self.merge_editor.as_mut().expect("the path came from it");
             if editor.choices.len() != file.blocks.len() {
                 editor.choices.resize(file.blocks.len(), None);
+                editor.manual_blocks.resize(file.blocks.len(), false);
                 editor.current = editor.current.min(editor.choices.len().saturating_sub(1));
             }
-            if !editor.scrolled {
-                editor.scrolled = true;
-                self.scroll_to_current(cx);
+            if editor.ready {
+                false
+            } else {
+                editor.ready = true;
+                editor.result = file.worktree.clone();
+                editor.result_ranges = file
+                    .blocks
+                    .iter()
+                    .map(|block| block.range.clone())
+                    .collect();
+                if editor.result_input.is_none() {
+                    let input = cx.new(|cx| {
+                        TextareaState::new(window, cx).default_value(editor.result.clone())
+                    });
+                    let subscription =
+                        cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
+                            if matches!(event, InputEvent::Change) {
+                                let value = input.read(cx).value().to_string();
+                                this.on_result_edited(value, cx);
+                            }
+                        });
+                    editor.result_input = Some(input);
+                    editor.result_subscription = Some(subscription);
+                }
+                !editor.scrolled
             }
+        };
+        if seed {
+            if let Some(editor) = self.merge_editor.as_mut() {
+                editor.scrolled = true;
+            }
+            self.scroll_to_current(cx);
         }
-        let (choices, current, manual) = {
+
+        let (choices, current, manual_blocks, ready, result_accept) = {
             let editor = self.merge_editor.as_ref().expect("checked");
-            (editor.choices.clone(), editor.current, editor.manual)
+            (
+                editor.choices.clone(),
+                editor.current,
+                editor.manual_blocks.clone(),
+                editor.ready,
+                !holds_conflict_markers(&editor.result),
+            )
         };
         let total = file.blocks.len();
-        let resolved = if manual {
-            total
-        } else if total == 0 {
+        let resolved = if total == 0 {
             usize::from(
                 self.merge_editor
                     .as_ref()
                     .is_some_and(|editor| editor.whole.is_some()),
             )
         } else {
-            choices.iter().filter(|choice| choice.is_some()).count()
+            (0..total)
+                .filter(|index| {
+                    choices.get(*index).copied().flatten().is_some()
+                        || manual_blocks.get(*index).copied().unwrap_or(false)
+                })
+                .count()
         };
-        let accept = manual
-            || if total == 0 {
-                self.merge_editor
-                    .as_ref()
-                    .is_some_and(|editor| editor.whole.is_some())
-            } else {
-                choices.iter().all(Option::is_some)
-            };
+        let accept = if total == 0 {
+            self.merge_editor
+                .as_ref()
+                .is_some_and(|editor| editor.whole.is_some())
+        } else {
+            ready && result_accept
+        };
         let whole = self.merge_editor.as_ref().and_then(|editor| editor.whole);
         let current = if total == 0 {
             0
@@ -3607,14 +3796,15 @@ impl ChangesView {
         let local_chosen = if total == 0 {
             whole == Some(ConflictSide::Local)
         } else {
-            choices.get(current).copied().flatten() == Some(ConflictSide::Local)
+            choices.get(current).copied().flatten() == Some(ConflictPick::Local)
         };
         let incoming_chosen = if total == 0 {
             whole == Some(ConflictSide::Incoming)
         } else {
-            choices.get(current).copied().flatten() == Some(ConflictSide::Incoming)
+            choices.get(current).copied().flatten() == Some(ConflictPick::Incoming)
         };
-
+        let (local_highlights, incoming_highlights) =
+            block.map(block_word_highlights).unwrap_or_default();
         let layout = self
             .merge_editor
             .as_ref()
@@ -3633,7 +3823,6 @@ impl ChangesView {
                 resolved,
                 total,
                 accept,
-                manual,
                 layout,
                 columns_available,
                 base_available,
@@ -3682,32 +3871,39 @@ impl ChangesView {
                 })
                 .when(!is_current, |chip| chip.bg(theme::well()))
                 .on_click(cx.listener(move |this, _, _, cx| this.set_current(index, cx)));
-            if let Some(side) = chosen {
-                chip = chip.child(icon(
-                    if side == ConflictSide::Local {
-                        "icons/icon-check.svg"
-                    } else {
-                        "icons/icon-arrow-down.svg"
-                    },
-                    px(theme::icon_tiny()),
-                    if side == ConflictSide::Local {
-                        theme::SUCCESS_BRIGHT
-                    } else {
-                        theme::accent()
-                    },
-                ));
-            } else {
-                chip = chip.child(format!("{}", index + 1));
+            match chosen {
+                Some(ConflictPick::Local) => {
+                    chip = chip.child(icon(
+                        "icons/icon-check.svg",
+                        px(theme::icon_tiny()),
+                        theme::SUCCESS_BRIGHT,
+                    ));
+                }
+                Some(ConflictPick::Incoming) => {
+                    chip = chip.child(icon(
+                        "icons/icon-arrow-down.svg",
+                        px(theme::icon_tiny()),
+                        theme::accent(),
+                    ));
+                }
+                Some(ConflictPick::LocalThenIncoming | ConflictPick::IncomingThenLocal) => {
+                    chip = chip.child("±");
+                }
+                None if manual_blocks.get(index).copied().unwrap_or(false) => {
+                    chip = chip.child(icon(
+                        "icons/icon-check.svg",
+                        px(theme::icon_tiny()),
+                        theme::text_muted(),
+                    ));
+                }
+                None => chip = chip.child(format!("{}", index + 1)),
             }
             strip = strip.child(chip);
         }
 
-        let result_text = if manual {
-            String::new()
-        } else {
-            assemble(&file.worktree, &file.blocks, &choices)
-        };
         let font_detail = theme::font_mono_meta();
+        let local_highlights = Rc::new(local_highlights);
+        let incoming_highlights = Rc::new(incoming_highlights);
         let local_scroll = self
             .merge_editor
             .as_ref()
@@ -3749,11 +3945,13 @@ impl ChangesView {
                 text: &file.local,
                 ranges: local_ranges,
                 current: current_local,
+                highlight: local_highlights,
+                highlight_color: theme::DANGER,
                 scroll: &local_scroll,
                 font_detail,
-                on_toggle: Some(Box::new(
-                    cx.listener(|this, _, _, cx| this.choose_side(ConflictSide::Local, cx)),
-                )),
+                on_toggle: Some(Box::new(cx.listener(|this, _, window, cx| {
+                    this.choose_side(ConflictSide::Local, window, cx)
+                }))),
             },
             window,
             cx,
@@ -3766,10 +3964,12 @@ impl ChangesView {
                 text: &file.incoming,
                 ranges: incoming_ranges,
                 current: current_incoming,
+                highlight: incoming_highlights,
+                highlight_color: theme::SUCCESS_BRIGHT,
                 scroll: &incoming_scroll,
                 font_detail,
-                on_toggle: Some(Box::new(cx.listener(|this, _, _, cx| {
-                    this.choose_side(ConflictSide::Incoming, cx)
+                on_toggle: Some(Box::new(cx.listener(|this, _, window, cx| {
+                    this.choose_side(ConflictSide::Incoming, window, cx)
                 }))),
             },
             window,
@@ -3791,6 +3991,8 @@ impl ChangesView {
                     text: &base_text,
                     ranges: base_ranges,
                     current: block.map(|block| block.base_lines.clone()),
+                    highlight: Rc::new(Vec::new()),
+                    highlight_color: theme::text_dim(),
                     scroll: &base_scroll,
                     font_detail,
                     on_toggle: None,
@@ -3802,42 +4004,25 @@ impl ChangesView {
             None
         };
 
-        let result: gpui::AnyElement = if manual {
-            let text = self
-                .merge_editor
-                .as_ref()
-                .and_then(|editor| editor.manual_text.clone());
-            match text {
-                Some(text) => div()
-                    .flex_1()
-                    .min_h_0()
-                    .p_2()
-                    .child(warpui_kit_core::field::area(
-                        "merge-result",
-                        &text,
-                        window,
-                        cx,
-                    ))
-                    .into_any_element(),
-                None => div().into_any_element(),
-            }
-        } else {
-            div()
+        let result_input = self
+            .merge_editor
+            .as_ref()
+            .and_then(|editor| editor.result_input.clone());
+        let result: gpui::AnyElement = match result_input {
+            Some(input) => div()
                 .id("merge-result-scroll")
                 .debug_selector(|| "merge-result-scroll".into())
                 .flex_1()
                 .min_h_0()
                 .p_2()
-                .overflow_y_scroll()
-                .child(warpui_kit_diff::render_code(
-                    &result_text,
-                    None,
-                    theme::text(),
-                    font_detail,
+                .child(warpui_kit_core::field::mono_area(
+                    "merge-result",
+                    &input,
                     window,
                     cx,
                 ))
-                .into_any_element()
+                .into_any_element(),
+            None => div().into_any_element(),
         };
         let result_pane = div()
             .flex_1()
@@ -3910,7 +4095,6 @@ impl ChangesView {
             resolved,
             total,
             accept,
-            manual,
             layout,
             columns_available,
             base_available,
@@ -4001,15 +4185,31 @@ impl ChangesView {
             .child(merge_verb(
                 "merge-take-local",
                 "Take all Local",
-                !manual,
-                cx.listener(|this, _, _, cx| this.take_all(ConflictSide::Local, cx)),
+                total > 0,
+                cx.listener(|this, _, window, cx| this.take_all(ConflictSide::Local, window, cx)),
             ))
             .child(merge_verb(
                 "merge-take-incoming",
                 "Take all Incoming",
-                !manual,
-                cx.listener(|this, _, _, cx| this.take_all(ConflictSide::Incoming, cx)),
+                total > 0,
+                cx.listener(|this, _, window, cx| {
+                    this.take_all(ConflictSide::Incoming, window, cx)
+                }),
             ))
+            .when(total > 0, |head| {
+                head.child(merge_verb(
+                    "merge-both-local-first",
+                    "L+I",
+                    true,
+                    cx.listener(|this, _, window, cx| this.take_both(false, window, cx)),
+                ))
+                .child(merge_verb(
+                    "merge-both-incoming-first",
+                    "I+L",
+                    true,
+                    cx.listener(|this, _, window, cx| this.take_both(true, window, cx)),
+                ))
+            })
             .child(merge_verb(
                 "merge-layout",
                 if layout == MergeLayout::Columns {
@@ -4029,20 +4229,16 @@ impl ChangesView {
                 ))
             })
             .child(merge_verb(
-                "merge-manual",
-                if manual {
-                    "Block choices"
-                } else {
-                    "Edit manually"
-                },
-                true,
-                cx.listener(|this, _, window, cx| this.toggle_manual(window, cx)),
+                "merge-reset",
+                "Reset",
+                total > 0,
+                cx.listener(|this, _, window, cx| this.reset_result(window, cx)),
             ))
             .child(crate::ui::primary_button(
                 "merge-accept",
                 "Accept Merge",
                 accept,
-                cx.listener(|this, _, _, cx| this.accept_merge(cx)),
+                cx.listener(|this, _, window, cx| this.accept_merge(window, cx)),
             ));
         head.into_any_element()
     }
@@ -4136,13 +4332,137 @@ fn merge_icon_verb(
         .into_any_element()
 }
 
+/// The smallest span that turns `old` into `new`: (start, old end, new end),
+/// on char boundaries.
+fn minimal_edit(old: &str, new: &str) -> (usize, usize, usize) {
+    let max = old.len().min(new.len());
+    let mut prefix = 0;
+    while prefix < max && old.as_bytes()[prefix] == new.as_bytes()[prefix] {
+        prefix += 1;
+    }
+    while prefix > 0 && (!old.is_char_boundary(prefix) || !new.is_char_boundary(prefix)) {
+        prefix -= 1;
+    }
+    let mut suffix = 0;
+    while suffix < old.len() - prefix
+        && suffix < new.len() - prefix
+        && old.as_bytes()[old.len() - 1 - suffix] == new.as_bytes()[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    while suffix > 0
+        && (!old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix))
+    {
+        suffix -= 1;
+    }
+    (prefix, old.len() - suffix, new.len() - suffix)
+}
+
+/// Maps a block range through one edit. A range before the edit stays, one
+/// after shifts by the length delta, and one the edit touches grows to cover
+/// the edited span.
+fn map_range(range: &mut std::ops::Range<usize>, start: usize, old_end: usize, new_end: usize) {
+    let delta = new_end as isize - old_end as isize;
+    if range.end <= start {
+        return;
+    }
+    if range.start >= old_end {
+        range.start = range.start.saturating_add_signed(delta);
+        range.end = range.end.saturating_add_signed(delta);
+        return;
+    }
+    let new_start = range.start.min(start);
+    let new_end_pos = if range.end >= old_end {
+        range.end.saturating_add_signed(delta)
+    } else {
+        new_end
+    };
+    *range = new_start..new_end_pos.max(new_start);
+}
+
+/// True while a conflict marker line is left: the gate on Accept.
+fn holds_conflict_markers(text: &str) -> bool {
+    text.lines().any(|line| {
+        line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") || line.starts_with("|||||||")
+    })
+}
+
+/// The changed middle of two corresponding lines, char-boundary safe; `None`
+/// when the lines are equal.
+fn changed_span(a: &str, b: &str) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prefix = 0;
+    while prefix < a_chars.len() && prefix < b_chars.len() && a_chars[prefix] == b_chars[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < a_chars.len() - prefix
+        && suffix < b_chars.len() - prefix
+        && a_chars[a_chars.len() - 1 - suffix] == b_chars[b_chars.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let byte_span = |chars: &[char], start: usize, end: usize| -> std::ops::Range<usize> {
+        let start_byte: usize = chars[..start].iter().map(|c| c.len_utf8()).sum();
+        let end_byte: usize = chars[..end].iter().map(|c| c.len_utf8()).sum();
+        start_byte..end_byte
+    };
+    let a_range = byte_span(&a_chars, prefix, a_chars.len() - suffix);
+    let b_range = byte_span(&b_chars, prefix, b_chars.len() - suffix);
+    if a_range.is_empty() && b_range.is_empty() {
+        None
+    } else {
+        Some((a_range, b_range))
+    }
+}
+
+/// Changed words per line: (absolute line index, spans in that line).
+type WordHighlights = Vec<(usize, Vec<std::ops::Range<usize>>)>;
+
+/// The current block's changed words per line, as absolute stage line indexes:
+/// (Local lines, Incoming lines). Lines the other side does not have, and the
+/// middle of a line that differs, are marked.
+fn block_word_highlights(block: &GitConflictBlock) -> (WordHighlights, WordHighlights) {
+    let mut local_lines: Vec<&str> = block
+        .local
+        .split('\n')
+        .map(|line| line.trim_end_matches('\r'))
+        .collect();
+    let mut incoming_lines: Vec<&str> = block
+        .incoming
+        .split('\n')
+        .map(|line| line.trim_end_matches('\r'))
+        .collect();
+    if block.local.ends_with('\n') {
+        local_lines.pop();
+    }
+    if block.incoming.ends_with('\n') {
+        incoming_lines.pop();
+    }
+    let mut local = Vec::new();
+    let mut incoming = Vec::new();
+    for index in 0..local_lines.len().max(incoming_lines.len()) {
+        let a = local_lines.get(index).copied().unwrap_or("");
+        let b = incoming_lines.get(index).copied().unwrap_or("");
+        if let Some((a_range, b_range)) = changed_span(a, b) {
+            if !a_range.is_empty() {
+                local.push((block.local_lines.start + index, vec![a_range]));
+            }
+            if !b_range.is_empty() {
+                incoming.push((block.incoming_lines.start + index, vec![b_range]));
+            }
+        }
+    }
+    (local, incoming)
+}
+
 /// The editor head's state: the path, progress, and which verbs are live.
 struct MergeHead {
     path: String,
     resolved: usize,
     total: usize,
     accept: bool,
-    manual: bool,
     layout: MergeLayout,
     columns_available: bool,
     base_available: bool,
@@ -4162,6 +4482,9 @@ struct MergeSide<'a> {
     ranges: Rc<Vec<std::ops::Range<usize>>>,
     /// The block under the cursor, washed stronger.
     current: Option<std::ops::Range<usize>>,
+    /// Changed words per absolute line in the current block.
+    highlight: Rc<WordHighlights>,
+    highlight_color: gpui::Rgba,
     scroll: &'a UniformListScrollHandle,
     font_detail: f32,
     /// The take checkbox; `None` for the read-only Base pane.
@@ -4183,6 +4506,8 @@ fn merge_side(
         text,
         ranges,
         current,
+        highlight,
+        highlight_color,
         scroll,
         font_detail,
         on_toggle,
@@ -4203,7 +4528,7 @@ fn merge_side(
     let list = uniform_list(
         SharedString::from(format!("{id}-file")),
         count,
-        move |range, _window, _cx| {
+        move |range, window, _cx| {
             range
                 .map(|ix| {
                     let line = lines.get(ix).cloned().unwrap_or_default();
@@ -4222,6 +4547,34 @@ fn merge_side(
                     } else if in_block {
                         row = row.bg(theme::raised());
                     }
+                    let runs: Vec<(std::ops::Range<usize>, HighlightStyle)> = highlight
+                        .iter()
+                        .find(|(line_ix, _)| *line_ix == ix)
+                        .map(|(_, spans)| {
+                            spans
+                                .iter()
+                                .cloned()
+                                .map(|span| {
+                                    (
+                                        span,
+                                        HighlightStyle {
+                                            background_color: Some(theme::tint(highlight_color)),
+                                            ..Default::default()
+                                        },
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut style = window.text_style();
+                    style.color = theme::text().into();
+                    let text_element: gpui::AnyElement = if runs.is_empty() {
+                        div().min_w_0().truncate().child(line).into_any_element()
+                    } else {
+                        StyledText::new(line.to_string())
+                            .with_default_highlights(&style, runs)
+                            .into_any_element()
+                    };
                     row.child(
                         div()
                             .w(px(gutter_w))
@@ -4233,7 +4586,7 @@ fn merge_side(
                             .text_color(theme::text_dim())
                             .child(format!("{}", ix + 1)),
                     )
-                    .child(div().flex_1().min_w_0().pl_2().truncate().child(line))
+                    .child(div().flex_1().min_w_0().pl_2().child(text_element))
                 })
                 .collect()
         },
@@ -4769,13 +5122,11 @@ struct FileMenu {
 /// store when the net thread answers.
 struct MergeEditor {
     path: String,
-    /// One choice per marker block; `None` is unresolved.
-    choices: Vec<Option<ConflictSide>>,
+    /// One pick per marker block; `None` is unresolved (or edited by hand).
+    choices: Vec<Option<ConflictPick>>,
     current: usize,
     /// The whole-file choice for a conflict with no marker blocks.
     whole: Option<ConflictSide>,
-    manual: bool,
-    manual_text: Option<Entity<TextareaState>>,
     /// Side-by-side sides over the result, or three/four columns in one row.
     layout: MergeLayout,
     /// The optional Base pane; only offered when every block has a diff3 base.
@@ -4786,6 +5137,19 @@ struct MergeEditor {
     /// The first block was scrolled to once the file landed; later renders
     /// leave the reader's scroll alone.
     scrolled: bool,
+    /// The editable Result: the marker-bearing worktree text, with each take
+    /// and each keystroke applied in place.
+    result: String,
+    /// Each block's byte range in `result`, parallel to the blocks.
+    result_ranges: Vec<std::ops::Range<usize>>,
+    /// The editable area behind `result`; `None` until the file lands.
+    result_input: Option<Entity<TextareaState>>,
+    /// Kept so the area's change handler lives as long as the editor.
+    result_subscription: Option<Subscription>,
+    /// Blocks the user edited directly; a take clears the flag.
+    manual_blocks: Vec<bool>,
+    /// The file's worktree text and ranges were seeded.
+    ready: bool,
 }
 
 /// How the editor's panes arrange: the default split (sides above the result)
@@ -5148,4 +5512,45 @@ fn new_branch_form(
                 ),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod merge_edit_tests {
+    use super::*;
+
+    #[test]
+    fn edits_before_a_block_shift_it() {
+        let (start, old_end, new_end) = minimal_edit("abcXYZdef", "abcZZdef");
+        assert_eq!((start, old_end, new_end), (3, 5, 4));
+        let mut before = 0..3;
+        map_range(&mut before, start, old_end, new_end);
+        assert_eq!(before, 0..3);
+        let mut after = 6..9;
+        map_range(&mut after, start, old_end, new_end);
+        assert_eq!(after, 5..8);
+    }
+
+    #[test]
+    fn an_edit_inside_a_block_grows_its_range() {
+        let (start, old_end, new_end) = minimal_edit("abcdef", "abcQQef");
+        assert_eq!((start, old_end, new_end), (3, 4, 5));
+        let mut range = 2..6;
+        map_range(&mut range, start, old_end, new_end);
+        assert_eq!(range, 2..7);
+    }
+
+    #[test]
+    fn marker_lines_gate_accept() {
+        assert!(holds_conflict_markers("a\n<<<<<<< HEAD\nb\n"));
+        assert!(holds_conflict_markers(">>>>>>> feat\n"));
+        assert!(!holds_conflict_markers("resolved\n"));
+    }
+
+    #[test]
+    fn changed_span_marks_only_the_middle() {
+        let (a, b) = changed_span("let x = 1;", "let y = 1;").expect("lines differ");
+        assert_eq!(&"let x = 1;"[a], "x");
+        assert_eq!(&"let y = 1;"[b], "y");
+        assert!(changed_span("same", "same").is_none());
+    }
 }

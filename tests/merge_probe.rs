@@ -81,6 +81,34 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
     );
 }
 
+/// Opens the editor from the pane's button and hands it the file the net
+/// thread would load.
+fn open_editor(
+    cx: &mut VisualTestContext,
+    repo: &Path,
+    store: &gpui::Entity<Store>,
+    net_rx: &async_channel::Receiver<NetCommand>,
+) {
+    click(cx, "open-merge-editor");
+    cx.run_until_parked();
+    drain(net_rx);
+    let file = warp_station_core::git::conflict::conflict_file(repo, "shared.txt")
+        .expect("the conflict file");
+    let folder = repo.to_string_lossy().to_string();
+    cx.update_entity(store, |store, cx| {
+        store.on_net_event(
+            UiEvent::MergeConflictLoaded {
+                folder,
+                path: "shared.txt".into(),
+                file: Some(file),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
 /// A store primed with the fixture's snapshot, branches and Changes tab.
 fn probe_store(
     cx: &mut TestAppContext,
@@ -366,6 +394,66 @@ fn a_diff3_conflict_offers_the_base_pane(cx: &mut TestAppContext) {
     assert!(
         cx.debug_bounds("merge-base").is_some(),
         "the toggle shows the Base pane"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
+/// Take both writes Local then Incoming into the Result, and Accept sends
+/// that text to git.
+#[gpui_kit::gpui::test]
+fn taking_both_sides_sends_both_to_the_result(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = stopped_merge("both");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-both");
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    open_editor(cx, &repo, &store, &net_rx);
+
+    click(cx, "merge-both-local-first");
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "merge-accept");
+    cx.run_until_parked();
+    let commands = drain(&net_rx);
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::Git {
+                action: GitAction::ResolveConflict { path, text: Some(text) },
+                ..
+            } if path == "shared.txt" && text == "main\nfeat\n"
+        )),
+        "Accept sends the both-side result"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
+/// Two presses inside the double-click window open the conflicted row's
+/// editor.
+#[gpui_kit::gpui::test]
+fn double_clicking_a_conflicted_row_opens_the_editor(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = stopped_merge("double-click");
+    let (store, _net_rx) = probe_store(cx, &repo, "merge-double");
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    click(cx, "u-shared.txt");
+    cx.run_until_parked();
+    click(cx, "u-shared.txt");
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("merge-editor").is_some(),
+        "the second press opens the merge editor"
     );
 
     let _ = std::fs::remove_dir_all(&repo);
