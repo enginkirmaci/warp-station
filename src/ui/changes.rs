@@ -1175,6 +1175,10 @@ impl ChangesView {
             .group("file-row")
             .relative()
             .flex_shrink_0()
+            // the list lays each item out as a root: without `w_full` a row
+            // shrinks to its content and its hover/selected fill stops short
+            // of the pane
+            .w_full()
             .h(px(FILE_ROW_H))
             .pl(px(13.))
             .pr_2()
@@ -1483,6 +1487,7 @@ impl ChangesView {
             .a11y_button(format!("{} — {}, {}", row.subject, row.author, row.rel))
             .cursor_pointer()
             .flex_shrink_0()
+            .w_full()
             .h(px(HISTORY_ROW_HEIGHT))
             .flex()
             .flex_col()
@@ -2014,6 +2019,7 @@ impl ChangesView {
             .aria_selected(selected)
             .cursor_pointer()
             .flex_shrink_0()
+            .w_full()
             .h(px(COMMIT_RAIL_ROW_H))
             .pl(px(13.))
             .pr_2()
@@ -2706,6 +2712,7 @@ fn section_header(
         .flex_row()
         .items_center()
         .gap_1p5()
+        .w_full()
         .h(px(FILE_ROW_H))
         .px_1()
         .rounded(px(4.))

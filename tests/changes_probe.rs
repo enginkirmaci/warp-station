@@ -281,6 +281,43 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
         cx.debug_bounds("commit-subject").is_some(),
         "the detail names the commit it shows"
     );
+
+    // both virtualized lists stretch their items: a row laid out as a root
+    // without `w_full` shrinks to its content, so the selected fill and the
+    // counts stop mid-pane
+    let head_short = cx
+        .read_entity(&store, |s, _| {
+            s.history().first().map(|c| c.short_hash().to_string())
+        })
+        .unwrap_or_default();
+    let history = cx
+        .debug_bounds("history-list")
+        .expect("the history list draws");
+    let row_selector: &'static str = Box::leak(format!("commit-{head_short}").into_boxed_str());
+    let row = cx
+        .debug_bounds(row_selector)
+        .expect("the newest commit row draws");
+    assert_eq!(
+        row.origin.x, history.origin.x,
+        "the history row starts at the list's edge"
+    );
+    assert_eq!(
+        row.size.width, history.size.width,
+        "the history row spans the list, not its own content"
+    );
+    if let Some(rail) = cx.debug_bounds("commit-files") {
+        let file_row = cx
+            .debug_bounds("commit-file-0")
+            .expect("the commit rail's first row draws");
+        assert_eq!(
+            file_row.origin.x, rail.origin.x,
+            "the rail row starts at the list's edge"
+        );
+        assert_eq!(
+            file_row.size.width, rail.size.width,
+            "the rail row spans the list, not its own content"
+        );
+    }
 }
 
 /// The Changes rail only offers verbs that can act right now: no fetch without
@@ -494,6 +531,26 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
         assert!(
             discard.origin.x < toggle.origin.x,
             "{path}: discard sits left of the stage toggle: discard {discard:?}, toggle {toggle:?}"
+        );
+    }
+
+    // a virtualized item is laid out as its own root: the row has to say
+    // `w_full`, or its hover and selected fill stop at its content instead of
+    // reaching the pane's edge (the reads and the counts sat mid-row)
+    let list = cx
+        .debug_bounds("changes-list")
+        .expect("the changes list draws");
+    for selector in ["u-unstaged.txt", "s-staged.txt"] {
+        let row = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("the {selector} row draws"));
+        assert_eq!(
+            row.origin.x, list.origin.x,
+            "{selector} starts at the list's edge"
+        );
+        assert_eq!(
+            row.size.width, list.size.width,
+            "{selector} spans the list, not its own content"
         );
     }
 
