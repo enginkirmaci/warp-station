@@ -125,7 +125,7 @@ impl SummaryPage {
             .items_center()
             .gap_2()
             .text_size(px(theme::font_control()))
-            .font_weight(FontWeight::SEMIBOLD)
+            .font_weight(FontWeight::MEDIUM)
             .when(live, |d| {
                 d.cursor_pointer()
                     .bg(theme::accent())

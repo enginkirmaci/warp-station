@@ -2798,7 +2798,7 @@ pub(crate) fn primary_button_in(
         .items_center()
         .gap_2()
         .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(theme::on_accent());
     button = match shape {
         Shape::Whole => button.rounded(px(6.)),

@@ -880,11 +880,9 @@ fn primary_action(
         .items_center()
         .gap_2()
         .text_size(px(theme::font_control()))
-        .font_weight(if filled {
-            FontWeight::SEMIBOLD
-        } else {
-            FontWeight::MEDIUM
-        })
+        // the fill marks the primary; the label weight stays the family's one
+        // button weight, so a filled twin never reads larger than its neighbor
+        .font_weight(FontWeight::MEDIUM)
         .text_color(ink)
         .hover(move |el| el.bg(hover))
         .on_click(move |_, _, cx| launch.run(&path, &target, cx))

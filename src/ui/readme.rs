@@ -157,7 +157,7 @@ impl Render for ReadmeView {
                         .items_center()
                         .gap_1()
                         .text_size(px(theme::font_body()))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .font_weight(FontWeight::MEDIUM)
                         .bg(theme::accent())
                         .text_color(theme::on_accent())
                         .hover(|s| s.opacity(0.9))

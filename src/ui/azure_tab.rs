@@ -1406,7 +1406,7 @@ fn primary_button(
         .items_center()
         .gap_2()
         .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(theme::on_accent())
         .cursor_pointer()
         .hover(|s| s.bg(theme::accent_hover()))

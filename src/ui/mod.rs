@@ -315,7 +315,7 @@ pub fn primary_button(
         .rounded(px(6.))
         .bg(theme::accent())
         .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(theme::on_accent())
         .when(!enabled, |d| d.opacity(0.45))
         .child(label)

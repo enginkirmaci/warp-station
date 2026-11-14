@@ -75,7 +75,7 @@ impl Render for SnapItPage {
             .gap_2()
             .bg(theme::accent())
             .text_size(px(theme::font_control()))
-            .font_weight(FontWeight::SEMIBOLD)
+            .font_weight(FontWeight::MEDIUM)
             .text_color(theme::on_accent())
             .hover(|s| s.bg(theme::accent_hover()))
             .on_click(cx.listener(|this, _, _, cx| this.toggle(cx)))
@@ -262,7 +262,7 @@ impl Render for KeepAwakePage {
                     .items_center()
                     .bg(theme::accent())
                     .text_size(px(theme::font_control()))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::on_accent())
                     .hover(|s| s.bg(theme::accent_hover()))
                     .on_click(cx.listener(|this, _, _, cx| {

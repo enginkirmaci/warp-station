@@ -381,7 +381,7 @@ fn primary_button(
         .gap_2()
         .cursor_pointer()
         .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(theme::on_accent())
         .hover(|s| s.bg(theme::accent_hover()))
         .on_click(on_click)
