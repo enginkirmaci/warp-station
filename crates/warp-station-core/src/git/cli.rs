@@ -61,15 +61,29 @@ async fn run_git(
     timeout: Duration,
     max_output_bytes: Option<usize>,
 ) -> anyhow::Result<process::ProcessRunResult> {
+    run_git_with_env(working_dir, args, timeout, max_output_bytes, &[]).await
+}
+
+/// [`run_git`] with extra environment entries, for the one command that would
+/// otherwise open an editor (`git merge --continue`).
+async fn run_git_with_env(
+    working_dir: &Path,
+    args: &[String],
+    timeout: Duration,
+    max_output_bytes: Option<usize>,
+    extra_env: &[(&str, &str)],
+) -> anyhow::Result<process::ProcessRunResult> {
+    let mut environment: Vec<(String, String)> = vec![("GIT_TERMINAL_PROMPT".into(), "0".into())];
+    for (key, value) in extra_env {
+        environment.push(((*key).into(), (*value).into()));
+    }
     let result = process::run(ProcessRunOptions {
         file_name: "git",
         args,
         working_dir: Some(working_dir),
         timeout: Some(timeout),
         max_output_bytes,
-        // a credential prompt has no console to appear in — fail fast instead
-        // of blocking to the timeout
-        environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
+        environment,
         ..Default::default()
     })
     .await?;
@@ -284,6 +298,72 @@ pub async fn push(folder: &Path) -> GitOutcome {
     sync(folder, &["push".into()]).await
 }
 
+/// What a `git merge` press produced. `Stopped` and `UpToDate` are states the
+/// pane shows, not failures: the snapshot carries the conflicts, and merging a
+/// branch that is already contained is a no-op worth saying out loud.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// A fast-forward or a merge commit landed.
+    Merged,
+    /// The merge stopped with `MERGE_HEAD` in place; the worktree has markers.
+    Stopped,
+    /// The branch was already contained: HEAD did not move.
+    UpToDate,
+    /// git refused before any merge state existed (dirty tree, bad source).
+    Failed(Option<String>),
+}
+
+/// `git merge <source>` into the current branch.
+///
+/// The endings are read back from the repository, not parsed out of git's
+/// localized output: a stopped merge is `MERGE_HEAD`, and an unmoved HEAD is
+/// the "already up to date" case.
+pub async fn merge(folder: &Path, source: &str) -> MergeOutcome {
+    let before = read::head_oid(folder);
+    let run = run_git(folder, &["merge".into(), source.into()], SYNC_TIMEOUT, None).await;
+    match run {
+        Ok(result) if result.succeeded() => {
+            if read::head_oid(folder) == before {
+                MergeOutcome::UpToDate
+            } else {
+                MergeOutcome::Merged
+            }
+        }
+        Ok(result) => {
+            if read::merge_in_progress(folder) {
+                MergeOutcome::Stopped
+            } else {
+                MergeOutcome::Failed(summarize_sync_error(&result.stderr))
+            }
+        }
+        Err(err) => MergeOutcome::Failed(Some(err.to_string())),
+    }
+}
+
+/// Commits a stopped merge. `--continue` runs the commit on the prepared
+/// `MERGE_MSG`, and `GIT_EDITOR=true` accepts that message without a terminal.
+pub async fn merge_continue(folder: &Path) -> GitOutcome {
+    match run_git_with_env(
+        folder,
+        &["merge".into(), "--continue".into()],
+        PROCESS_TIMEOUT,
+        None,
+        &[("GIT_EDITOR", "true")],
+    )
+    .await
+    {
+        Ok(result) => GitOutcome::from(&result),
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
+    }
+}
+
+pub async fn merge_abort(folder: &Path) -> GitOutcome {
+    simple(folder, &["merge".into(), "--abort".into()]).await
+}
+
 pub async fn publish_branch(folder: &Path, branch: &str) -> GitSyncResult {
     let Some(remote) = read::default_remote_name(folder) else {
         return GitSyncResult::err(Some("no remote configured".into()));
@@ -462,5 +542,133 @@ mod tests {
             vec!["fetch", "--prune", "--no-tags", "origin"]
         );
         assert_eq!(fetch_args(None), vec!["fetch", "--prune"]);
+    }
+}
+
+/// The real `git merge` endings, through the CLI the app spawns: the fixture
+/// builds two branches that edit the same line, and every assertion is the
+/// repository state the surface reads back.
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use git2::build::CheckoutBuilder;
+
+    /// A repo whose HEAD is `refs/heads/main` from the first commit on. The
+    /// identity lives in the repo config: a machine without one still gets a
+    /// merge commit, and the test never touches the process environment.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ws-merge-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "t").unwrap();
+        config.set_str("user.email", "t@example.com").unwrap();
+        dir
+    }
+
+    fn commit(repo: &git2::Repository, path: &str, text: &str, message: &str) -> git2::Oid {
+        std::fs::write(repo.workdir().unwrap().join(path), text).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new(path)).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .unwrap()
+    }
+
+    fn switch(repo: &git2::Repository, branch: &str) {
+        repo.set_head(&format!("refs/heads/{branch}")).unwrap();
+        repo.checkout_head(Some(CheckoutBuilder::new().force()))
+            .unwrap();
+    }
+
+    /// `main` edits a line, `feat` edits the same line: the merge stops.
+    fn conflicting(name: &str) -> std::path::PathBuf {
+        let dir = scratch(name);
+        let repo = git2::Repository::open(&dir).unwrap();
+        commit(&repo, "shared.txt", "base\n", "base");
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feat", &head, false).unwrap();
+        switch(&repo, "feat");
+        commit(&repo, "shared.txt", "feat\n", "feat edit");
+        switch(&repo, "main");
+        commit(&repo, "shared.txt", "main\n", "main edit");
+        dir
+    }
+
+    fn read(dir: &std::path::Path, path: &str) -> String {
+        std::fs::read_to_string(dir.join(path)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_conflicting_merge_stops_with_markers_and_aborts_back() {
+        let dir = conflicting("abort");
+        assert_eq!(merge(&dir, "feat").await, MergeOutcome::Stopped);
+        assert!(read::merge_in_progress(&dir), "MERGE_HEAD is in place");
+        assert!(
+            read(&dir, "shared.txt").contains("<<<<<<<"),
+            "the worktree carries conflict markers"
+        );
+
+        let aborted = merge_abort(&dir).await;
+        assert!(aborted.ok, "{:?}", aborted.error);
+        assert!(!read::merge_in_progress(&dir));
+        assert_eq!(
+            read(&dir, "shared.txt"),
+            "main\n",
+            "abort restores the side"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn resolving_then_continuing_lands_the_merge_commit() {
+        let dir = conflicting("continue");
+        assert_eq!(merge(&dir, "feat").await, MergeOutcome::Stopped);
+        let before = read::head_oid(&dir);
+        std::fs::write(dir.join("shared.txt"), "resolved\n").unwrap();
+        assert!(stage(&dir, "shared.txt").await.ok);
+
+        let done = merge_continue(&dir).await;
+        assert!(done.ok, "{:?}", done.error);
+        assert!(!read::merge_in_progress(&dir));
+        assert_ne!(read::head_oid(&dir), before, "a merge commit landed");
+        assert_eq!(read(&dir, "shared.txt"), "resolved\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_contained_branch_is_up_to_date_and_a_new_one_merges() {
+        let dir = scratch("outcomes");
+        {
+            let repo = git2::Repository::open(&dir).unwrap();
+            commit(&repo, "base.txt", "base\n", "base");
+            let head = repo.head().unwrap().peel_to_commit().unwrap();
+            repo.branch("feat", &head, false).unwrap();
+        }
+        assert_eq!(merge(&dir, "feat").await, MergeOutcome::UpToDate);
+
+        {
+            let repo = git2::Repository::open(&dir).unwrap();
+            switch(&repo, "feat");
+            commit(&repo, "feat.txt", "feat\n", "feat work");
+            switch(&repo, "main");
+        }
+        assert_eq!(merge(&dir, "feat").await, MergeOutcome::Merged);
+        assert!(!read::merge_in_progress(&dir));
+        assert_eq!(read(&dir, "feat.txt"), "feat\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

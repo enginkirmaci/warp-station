@@ -108,7 +108,16 @@ pub fn groups(settings: &AppSettings, repo: Option<&RepoEntry>) -> Vec<Group> {
             "Commit the staged changes, from the message box",
         )],
     );
-    vec![window, tabs, lists, repositories, changes]
+    let merge = Group::new(
+        "Merge conflicts",
+        vec![
+            row("F7 / Shift F7", "Next / previous conflict"),
+            row("F10 / F11", "Take all incoming / local"),
+            row("Ctrl Enter", "Accept the merge, from the merge editor"),
+            row("Esc", "Leave the merge editor"),
+        ],
+    );
+    vec![window, tabs, lists, repositories, changes, merge]
 }
 
 #[cfg(test)]

@@ -397,6 +397,7 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
             unstaged_files,
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
+            merge: None,
         }
     }
 
@@ -902,6 +903,7 @@ fn a_failed_generation_disarms_generate_and_commit(cx: &mut TestAppContext) {
             unstaged_files: Vec::new(),
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
+            merge: None,
         }));
         store
     });
@@ -1045,6 +1047,26 @@ fn a_failed_generation_disarms_generate_and_commit(cx: &mut TestAppContext) {
     assert_eq!(committed, vec!["generated".to_string()]);
 }
 
+fn right_click(cx: &mut VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} must be on screen"));
+    let at = point(bounds.center().x, bounds.center().y);
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, Modifiers::default());
+    cx.run_until_parked();
+}
+
+/// A press on the catcher (away from the card) takes the row menu down.
+fn close_row_menu(cx: &mut VisualTestContext) {
+    let bounds = cx
+        .debug_bounds("branch-menu-catcher")
+        .expect("the row menu catcher is up");
+    cx.simulate_click(bounds.origin + point(px(4.), px(4.)), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
     let b = cx
         .debug_bounds(selector)
@@ -1168,56 +1190,58 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
     click(cx, "branch-button");
     assert!(
         cx.debug_bounds("branch-menu").is_some(),
-        "the branch menu opens"
+        "the branch picker opens"
     );
 
-    // the trash is offered on deletable locals only
+    // A remote row's menu carries Delete, but disabled: the press sends
+    // nothing and the menu stays up.
+    right_click(cx, "branch-row-origin/feature/x");
+    cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        cx.debug_bounds("branch-delete-main").is_none(),
-        "never on the checked-out branch"
+        cx.debug_bounds("branch-menu-catcher").is_some(),
+        "a right-click opens the row menu"
     );
+    click(cx, "branch-menu-delete");
+    cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        cx.debug_bounds("branch-delete-origin/feature/x").is_none(),
-        "never on remote rows"
+        git_commands(&net_rx).is_empty(),
+        "a remote row is never deleted"
     );
-    assert!(cx.debug_bounds("branch-delete-feature/x").is_some());
-    assert!(cx.debug_bounds("branch-delete-feature/keep").is_some());
+    close_row_menu(cx);
 
-    // first click arms: the menu stays open and nothing runs
-    click(cx, "branch-delete-feature/x");
+    // The checked-out branch's menu cannot delete either.
+    click(cx, "branch-button");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    right_click(cx, "branch-row-main");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "branch-menu-delete");
+    cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        cx.debug_bounds("branch-menu").is_some(),
+        git_commands(&net_rx).is_empty(),
+        "the checked-out branch is never deleted"
+    );
+    close_row_menu(cx);
+
+    // A local feature branch: the first press arms and keeps the menu open,
+    // the second sends exactly one delete (never a checkout) and closes it.
+    click(cx, "branch-button");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    right_click(cx, "branch-row-feature/x");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    click(cx, "branch-menu-delete");
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("branch-menu-catcher").is_some(),
         "arming keeps the menu open"
     );
     assert!(
         git_commands(&net_rx).is_empty(),
         "the arm click must not run git"
     );
-
-    // a press elsewhere in the tab closes the menu and disarms — the reopened
-    // menu starts from a single-click arm again
-    let sheet = cx
-        .debug_bounds("changes-clean")
-        .expect("the clean working tree renders");
-    cx.simulate_click(sheet.origin + point(px(4.), px(20.)), Modifiers::default());
-    cx.run_until_parked();
+    click(cx, "branch-menu-delete");
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        cx.debug_bounds("branch-menu").is_none(),
-        "the outside press closed the menu"
-    );
-    click(cx, "branch-button");
-    assert!(cx.debug_bounds("branch-menu").is_some(), "the menu reopens");
-    click(cx, "branch-delete-feature/x");
-    assert!(
-        git_commands(&net_rx).is_empty(),
-        "reopening disarmed the trash"
-    );
-
-    // arm, then confirm: exactly one delete reaches the net, never a checkout
-    click(cx, "branch-delete-feature/x");
-    assert!(
-        cx.debug_bounds("branch-menu").is_none(),
+        cx.debug_bounds("branch-menu-catcher").is_none(),
         "confirming closes the menu"
     );
     let sent = git_commands(&net_rx);
@@ -1228,7 +1252,7 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
     assert_eq!(folder, std::path::Path::new("/probe/alpha"));
     assert!(
         matches!(action, warp_station::net::GitAction::DeleteBranch(name) if name == "feature/x"),
-        "the delete fires, not a checkout: {action:?}"
+        "the delete fires, not a checkout"
     );
     assert!(
         cx.read_entity(&store, |s, _| s.git_busy()),
@@ -1535,6 +1559,7 @@ fn a_queued_generation_offers_its_own_cancel(cx: &mut TestAppContext) {
             unstaged_files: Vec::new(),
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
+            merge: None,
         }));
         // beta's run owns the slot; alpha's request is waiting for it
         store.wand_busy = Some(WandKind::Commit);

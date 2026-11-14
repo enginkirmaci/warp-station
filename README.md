@@ -32,6 +32,21 @@ lists on screen — the repository list, Changes files, History commits, the
 PR/Issues list, Pipelines runs and the pull request's Files/Commits rails —
 and stop at the end instead of wrapping.
 
+With a stopped merge, the Changes band's **Continue**/**Abort** finish it.
+`Enter` on a conflicted file opens the merge editor: `F7`/`Shift+F7` walk the
+conflicts, `F10`/`F11` take all incoming/local, `Ctrl+Enter` accepts, and
+`Esc` returns to the file list.
+
+## Merging branches
+
+Right-click a branch in the Changes branch selector for its menu: **Merge into
+current branch** runs `git merge <branch>`, and Checkout, Copy branch name and
+Delete live beside it. A stopped merge shows a band above the Changes toolbar
+and the conflicted files in the list; the merge editor shows each block's
+**Local** and **Incoming** sides with the assembled **Result**, and Accept
+Merge writes the file and stages it. Continue then commits the merge with
+git's own `MERGE_MSG`, or Abort restores the pre-merge tree.
+
 ## warp-agent integration
 
 The AI surface (commit-message / README wands, the daily summary, the

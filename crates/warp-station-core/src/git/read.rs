@@ -236,6 +236,22 @@ pub fn change_snapshot(folder: &Path) -> Option<GitChangeSnapshot> {
             describe_status_entry(entry, &mut snapshot);
         }
 
+        // A stopped merge is a repository state, not a session flag: the band
+        // and the Conflicts list read it from the same snapshot after a
+        // restart. `MERGE_MSG` names the source branch when git had a name for
+        // it; the unmerged paths are the status entries git marks conflicted.
+        if repo.state() == git2::RepositoryState::Merge {
+            let conflicted = statuses
+                .iter()
+                .filter(|entry| entry.status().contains(Status::CONFLICTED))
+                .filter_map(|entry| entry.path().ok().map(str::to_string))
+                .collect();
+            snapshot.merge = Some(GitMergeState {
+                source: merge_source(repo).unwrap_or_default(),
+                conflicted,
+            });
+        }
+
         // Worktree diff = index vs worktree (git diff); cached = HEAD vs index
         // (git diff --cached). Untracked rows join the worktree side so their
         // gutters carry the file's line count, like the staged view's.
@@ -918,6 +934,26 @@ fn with_repo<T>(folder: &Path, action: impl FnOnce(&Repository) -> Option<T>) ->
     Some(action(&discovered))
 }
 
+/// The commit HEAD resolves to, or `None` on an unborn branch (a fresh repo
+/// with no commit yet).
+pub fn head_oid(folder: &Path) -> Option<git2::Oid> {
+    with_repo(folder, |repo| {
+        repo.head().ok().and_then(|head| head.target())
+    })
+    .flatten()
+}
+
+/// A merge is stopped in this repository: the band reads this, not a session
+/// flag, so a restart lands on the same screen. `git2` reports the merge state
+/// from `MERGE_HEAD`, whether the stop came from conflicts or `--no-commit`.
+pub fn merge_in_progress(folder: &Path) -> bool {
+    with_repo(folder, |repo| {
+        Some(repo.state() == git2::RepositoryState::Merge)
+    })
+    .flatten()
+    .unwrap_or(false)
+}
+
 fn find_commit<'r>(repo: &'r Repository, hash: &str) -> Option<git2::Commit<'r>> {
     if let Ok(oid) = git2::Oid::from_str(hash)
         && let Ok(commit) = repo.find_commit(oid)
@@ -1071,6 +1107,22 @@ fn describe_status_entry(entry: git2::StatusEntry<'_>, snapshot: &mut GitChangeS
         index_code.unwrap_or('.'),
         worktree_code.unwrap_or('.')
     )));
+}
+
+/// The branch a stopped merge is bringing in, from the first `MERGE_MSG` line
+/// (`Merge branch 'main' into feature`, or the remote form with
+/// `origin/main`). A commit-id or octopus message has no single name, so it
+/// returns `None` and the band says "Merging" without inventing one.
+fn merge_source(repo: &Repository) -> Option<String> {
+    let text = std::fs::read_to_string(repo.path().join("MERGE_MSG")).ok()?;
+    let line = text.lines().next()?.trim();
+    if line.starts_with("Merge commit") || line.starts_with("Merge branches") {
+        return None;
+    }
+    let after_quote = line.split_once('\'')?.1;
+    let (source, _) = after_quote.split_once('\'')?;
+    let source = source.trim();
+    (!source.is_empty()).then(|| source.to_string())
 }
 
 /// git hands status paths back with forward slashes on every platform.
@@ -1412,6 +1464,77 @@ mod untracked_patch_tests {
             .expect("untracked row");
         assert_eq!(counts.additions, Some(3));
         assert_eq!(counts.deletions, Some(0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The stopped merge the Changes band reads: the snapshot carries the source
+/// name from `MERGE_MSG` and the unmerged paths, with no session state.
+#[cfg(test)]
+mod stopped_merge_tests {
+    use super::*;
+    use git2::build::CheckoutBuilder;
+
+    fn commit(repo: &git2::Repository, path: &str, text: &str, message: &str) {
+        std::fs::write(repo.workdir().unwrap().join(path), text).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(path)).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .unwrap();
+    }
+
+    fn switch(repo: &git2::Repository, branch: &str) {
+        repo.set_head(&format!("refs/heads/{branch}")).unwrap();
+        repo.checkout_head(Some(CheckoutBuilder::new().force()))
+            .unwrap();
+    }
+
+    /// Two branches edit the same line; the merge is run for real through the
+    /// git CLI so `MERGE_MSG` and the index are the ones git writes.
+    fn stopped_merge(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ws-read-merge-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = git2::Repository::init(&dir).unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        commit(&repo, "shared.txt", "base\n", "base");
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feat", &head, false).unwrap();
+        drop(head);
+        switch(&repo, "feat");
+        commit(&repo, "shared.txt", "feat\n", "feat edit");
+        switch(&repo, "main");
+        commit(&repo, "shared.txt", "main\n", "main edit");
+        drop(repo);
+
+        let status = std::process::Command::new("git")
+            .args(["merge", "feat"])
+            .current_dir(&dir)
+            .status()
+            .expect("git runs");
+        assert!(!status.success(), "the fixture merge must stop");
+        dir
+    }
+
+    #[test]
+    fn a_stopped_merge_carries_its_source_and_conflicts() {
+        let dir = stopped_merge("snapshot");
+        let snapshot = change_snapshot(&dir).expect("snapshot");
+        let merge = snapshot.merge.as_ref().expect("a merge is in progress");
+        assert_eq!(merge.source, "feat", "MERGE_MSG names the branch");
+        assert_eq!(merge.conflicted, vec!["shared.txt".to_string()]);
+        assert!(
+            snapshot
+                .unstaged_files
+                .iter()
+                .any(|file| file.path == "shared.txt" && file.status_code == "U"),
+            "the row keeps the U the list paints"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

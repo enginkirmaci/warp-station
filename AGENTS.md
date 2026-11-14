@@ -131,6 +131,20 @@ Keep this order; several steps depend on the previous one:
   optional reviewer is passed through on GitHub and resolved to an Azure
   identity GUID before the POST. The pipeline toast's button opens the run in
   the app; the desktop notification has no click callback on this path.
+- **Local merge.** The branch selector's right-click menu starts a merge
+  (`GitAction::Merge`) into the current branch; the ending is a state read back
+  from the repository, not a session flag: `read::change_snapshot` fills
+  `GitChangeSnapshot::merge` from `MERGE_HEAD`/`MERGE_MSG` and the conflicted
+  status entries, so the band and the conflict list survive a restart.
+  `MergeContinue` runs `git merge --continue` with `GIT_EDITOR=true` (the
+  prepared `MERGE_MSG` stands), `MergeAbort` runs `git merge --abort`. The
+  editor's data is `git::conflict::conflict_file` (index stages plus the
+  worktree marker parse); `ResolveConflict` writes the worktree file and runs
+  `git add`, which is what clears the unmerged entry. The row menu needs
+  `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
+  table now carries the picker so the linked build uses the local kit — the app
+  repository needs a kit tag/pin bump before it builds standalone. Branch rows
+  no longer carry the delete trash; Delete is the menu's last item.
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
   Changes files, History commits, PR/Issues, Pipelines runs, the PR/Azure
   Files and Commits rails); the window delegates only while it owns the focus

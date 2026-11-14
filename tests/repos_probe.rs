@@ -190,60 +190,6 @@ fn branch_menu_groups_locals_above_remotes(cx: &mut TestAppContext) {
     );
 }
 
-/// The row trash pins to the row's right edge: hugging the label it lands
-/// mid-row, where the hover-faded button intercepts the click meant for the
-/// branch name.
-#[gpui::test]
-fn branch_delete_button_sits_at_the_row_right_edge(cx: &mut TestAppContext) {
-    use warp_station_core::model::{GitBranchKind, GitBranchRef};
-
-    cx.update(gpui_kit::init);
-    scratch_home();
-    cx.update(warp_station::theme::apply_kit_theme);
-
-    let store = fake_store(cx);
-    let store_handle = store.clone();
-    let (_window_handle, cx) =
-        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update_entity(&store, |s: &mut Store, cx| {
-        s.select_repo("/probe/alpha", cx);
-        s.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
-        s.branches = vec![
-            GitBranchRef {
-                name: "main".into(),
-                kind: GitBranchKind::Local,
-            },
-            GitBranchRef {
-                name: "feature".into(),
-                kind: GitBranchKind::Local,
-            },
-        ];
-    });
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let button = cx
-        .debug_bounds("branch-button")
-        .expect("the branch selector renders in the rail");
-    cx.simulate_click(button.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let row = cx
-        .debug_bounds("branch-row-feature")
-        .expect("the row renders");
-    let trash = cx
-        .debug_bounds("branch-delete-feature")
-        .expect("the deletable row carries the trash");
-    let inset = row.right() - trash.right();
-    assert!(
-        (6.0..=10.0).contains(&inset.as_f32()),
-        "the trash hugs the row's right edge (inset {inset:?}, row {:?})",
-        row.size
-    );
-}
-
 /// The rail action's pending-work pill pins to the row's right edge instead
 /// of hugging the label.
 #[gpui::test]
@@ -848,6 +794,7 @@ fn a_generate_and_commit_run_commits_its_repo(cx: &mut TestAppContext) {
                 error: Some("nothing to commit".into()),
                 commit_hash: None,
                 detail: None,
+                merge: None,
             },
             cx,
         );
@@ -888,6 +835,7 @@ fn a_generate_and_commit_run_commits_its_repo(cx: &mut TestAppContext) {
                 error: None,
                 commit_hash: Some("abc1234".into()),
                 detail: None,
+                merge: None,
             },
             cx,
         );
@@ -1021,6 +969,7 @@ fn the_activity_chip_lists_running_jobs_in_start_order(cx: &mut TestAppContext) 
                 error: None,
                 commit_hash: None,
                 detail: None,
+                merge: None,
             },
             cx,
         );
@@ -1039,6 +988,7 @@ fn the_activity_chip_lists_running_jobs_in_start_order(cx: &mut TestAppContext) 
                 error: None,
                 commit_hash: None,
                 detail: None,
+                merge: None,
             },
             cx,
         );

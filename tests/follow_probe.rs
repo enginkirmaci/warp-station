@@ -1124,6 +1124,7 @@ fn a_push_advances_to_the_pull_form(cx: &mut TestAppContext) {
                 error: None,
                 commit_hash: None,
                 detail: None,
+                merge: None,
             },
             cx,
         );

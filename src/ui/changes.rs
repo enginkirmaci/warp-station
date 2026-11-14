@@ -19,13 +19,14 @@ use gpui::{
 use gpui_kit::component::input::{InputState, TextareaState};
 use std::cell::RefCell;
 use std::rc::Rc;
+use warp_station_core::git::conflict::{ConflictSide, assemble};
 use warp_station_core::model::GitChangedFile;
 use warp_station_core::settings::DiffViewMode;
 use warpui_kit_core::{list_nav, motion, pane_nav};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 use warpui_kit_picker::{
     FilteredPicker, OverlayAnchor, PanelChrome, PickerBody, PickerData, PickerIcons, PickerItem,
-    PickerRow, PickerSpec, PickerTarget, Selection, TrailingDelete, TriggerScale,
+    PickerRow, PickerSpec, PickerTarget, Selection, TriggerScale,
 };
 
 /// One history row's display strings, precomputed when the history (or the
@@ -106,6 +107,8 @@ const COMMIT_RAIL_W: f32 = 240.;
 const COMMIT_RAIL_ROW_H: f32 = 34.;
 /// The git toolbar's height.
 const TOOLBAR_H: f32 = 52.;
+/// The merge band's height: the flight, the stopped merge, the ready step.
+const MERGE_BAND_H: f32 = 56.;
 /// The file and commit lists' head height: the same band the work list uses.
 const LIST_HEAD_H: f32 = 40.;
 /// The branch selector's width.
@@ -136,9 +139,16 @@ pub struct ChangesView {
     patches: std::collections::HashMap<(String, bool), String>,
     /// The branch selector: the shared FilteredPicker in branch mode.
     branch_picker: Entity<FilteredPicker>,
-    /// The branch picker's ephemeral state (armed delete, open form); shared
-    /// with the picker's closures.
+    /// The branch picker's ephemeral state (the open form and the row menu);
+    /// shared with the picker's closures.
     branch_ui: Rc<RefCell<BranchUi>>,
+    /// The branch row menu's keyboard owner; focused while the menu is up so
+    /// Escape takes it down.
+    menu_focus: FocusHandle,
+    /// The Local/Incoming/Result editor, when a conflict row is open.
+    merge_editor: Option<MergeEditor>,
+    /// The editor's keyboard owner; F7/F10/F11 and Ctrl+Enter live here.
+    editor_focus: FocusHandle,
     commit_message: Entity<TextareaState>,
     history_open: bool,
     /// Hash of the drilled-in commit (None = the list view).
@@ -190,10 +200,12 @@ impl ChangesView {
     ) -> Self {
         let new_branch_name = cx.new(|cx| InputState::new(window, cx).placeholder("branch name"));
         let branch_ui: Rc<RefCell<BranchUi>> = Rc::new(RefCell::new(BranchUi::default()));
+        let menu_focus = cx.focus_handle();
         let branch_picker = build_branch_picker(
             &store,
             branch_ui.clone(),
             new_branch_name.clone(),
+            &menu_focus,
             window,
             cx,
         );
@@ -219,6 +231,9 @@ impl ChangesView {
             patches: std::collections::HashMap::new(),
             branch_picker,
             branch_ui,
+            menu_focus,
+            merge_editor: None,
+            editor_focus: cx.focus_handle(),
             commit_message,
             history_open: false,
             drilled_commit: None,
@@ -257,7 +272,7 @@ impl ChangesView {
             // the branch popup must never show the previous repo's list,
             // filter or form
             let mut ui = self.branch_ui.borrow_mut();
-            ui.delete_armed = None;
+            ui.menu = None;
             ui.new_branch_open = false;
         }
         self.branch_picker
@@ -536,15 +551,38 @@ impl Render for ChangesView {
         let groups = &file_groups.groups;
         self.ensure_file_selected(groups, cx);
         self.ensure_commit_file_selected(cx);
+        let band = self.render_merge_band(cx);
+        // an abort (or a resolution outside the app) ends the merge while the
+        // editor is still up: the editor follows the repository, not itself
+        if self.merge_editor.is_some() && self.store.read(cx).merge_state().is_none() {
+            self.merge_editor = None;
+        }
+        if self.merge_editor.is_some() {
+            let editor = self.render_merge_editor(window, cx);
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .children(band)
+                .child(editor);
+        }
 
         if self.history_open {
             self.pane_nav.register(&self.history_focus);
             return div()
                 .size_full()
                 .flex()
-                .flex_row()
+                .flex_col()
                 .min_h_0()
-                .child(self.render_history(window, cx));
+                .children(band)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .child(self.render_history(window, cx)),
+                );
         }
 
         let toolbar = self.render_toolbar(busy, cx);
@@ -554,9 +592,13 @@ impl Render for ChangesView {
         // A clean tree is not a file table with nothing in it: it is one
         // statement, so it takes the body and the commit box steps aside
         // until there is something to commit (the design's empty state).
+        // A resolved merge leaves a clean tree with MERGE_HEAD still in place:
+        // the band owns the finish, so the empty state must not claim it.
+        let merging = self.store.read(cx).merge_state().is_some();
         let clean = groups.0.is_empty()
             && groups.1.is_empty()
-            && self.store.read(cx).changes_loaded_for.is_some();
+            && self.store.read(cx).changes_loaded_for.is_some()
+            && !merging;
         // only a staged file can be committed: an unstaged-only tree keeps the
         // file list but grows no commit box (a commit here could only fail)
         let committing = self.store.read(cx).running_job() == Some("commit");
@@ -611,7 +653,11 @@ impl Render for ChangesView {
                         ))
                         .child(file_list),
                 );
-            files = if groups.0.is_empty() && !committing {
+            files = if merging {
+                // the band's Continue is the one way to finish a merge; a
+                // second commit box here would take a message of its own
+                files.child(merge_commit_hint())
+            } else if groups.0.is_empty() && !committing {
                 files.child(stage_hint(self.store.clone(), groups.1.len()))
             } else {
                 files.child(self.render_commit_card(busy, window, cx))
@@ -630,6 +676,7 @@ impl Render for ChangesView {
             .flex()
             .flex_col()
             .min_h_0()
+            .children(band)
             .child(toolbar)
             .child(body)
             // painted last, so it hangs over the columns under the toolbar
@@ -643,10 +690,114 @@ impl Render for ChangesView {
                         .child(popup),
                 )
             }))
+            // the row menu paints last: it is the tab's topmost layer while
+            // it is up
+            .children(self.render_branch_menu(cx))
     }
 }
 
 impl ChangesView {
+    /// A conflicted file's pane: the merge editor is where it gets resolved,
+    /// so the pane says so and opens it. The normal patch read is skipped —
+    /// an unmerged path has no two-side patch to draw.
+    fn render_conflict_pane(
+        &mut self,
+        path: &str,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let open_path = path.to_string();
+        div()
+            .id("changes-diff")
+            .debug_selector(|| "changes-diff".into())
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(theme::well())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(44.))
+                    .px(px(warpui_kit_core::shell::DETAIL_PADDING))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(theme::hairline())
+                    .child(icon(
+                        "icons/icon-file-diff.svg",
+                        px(theme::icon_small()),
+                        theme::DANGER,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_muted())
+                            .child(path.to_string()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .p(px(warpui_kit_core::shell::DETAIL_PADDING))
+                    .child(icon(
+                        "icons/icon-alert.svg",
+                        px(theme::icon_large()),
+                        theme::DANGER,
+                    ))
+                    .child(
+                        div()
+                            .text_size(px(theme::font_heading()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::text())
+                            .child("This file has merge conflicts"),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(420.))
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_muted())
+                            .child(
+                                "Pick Local or Incoming for each block in the merge editor, \
+                                 then Accept Merge to stage the result.",
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("open-merge-editor")
+                            .debug_selector(|| "open-merge-editor".into())
+                            .a11y_button("Open merge editor")
+                            .cursor_pointer()
+                            .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                            .px_3()
+                            .rounded(px(6.))
+                            .bg(theme::accent())
+                            .text_color(theme::on_accent())
+                            .flex()
+                            .items_center()
+                            .text_size(px(theme::font_control()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .hover(|style| style.opacity(0.92))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_merge_editor(open_path.clone(), window, cx);
+                            }))
+                            .child("Open merge editor"),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// The selected file's diff.
     fn render_diff(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let Some(key) = self.selected_file.clone() else {
@@ -661,6 +812,14 @@ impl ChangesView {
                 .bg(theme::well())
                 .into_any_element();
         };
+        let conflicted = self
+            .store
+            .read(cx)
+            .merge_state()
+            .is_some_and(|merge| merge.conflicted.iter().any(|path| path == &key.0));
+        if conflicted {
+            return self.render_conflict_pane(&key.0, window, cx);
+        }
         let patch = self.patches.get(&key).map(String::as_str);
         self.render_diff_pane(
             "changes-diff",
@@ -832,6 +991,23 @@ impl ChangesView {
             return false;
         };
         match key {
+            list_nav::ListKey::Enter => {
+                let conflicted = self.selected_file.as_ref().and_then(|(path, _)| {
+                    let merge = self.store.read(cx).merge_state()?;
+                    merge
+                        .conflicted
+                        .iter()
+                        .any(|conflicted| conflicted == path)
+                        .then(|| path.clone())
+                });
+                match conflicted {
+                    Some(path) => {
+                        self.open_merge_editor(path, window, cx);
+                        true
+                    }
+                    None => false,
+                }
+            }
             list_nav::ListKey::Up
             | list_nav::ListKey::Down
             | list_nav::ListKey::Home
@@ -899,6 +1075,23 @@ impl ChangesView {
             return false;
         };
         match key {
+            list_nav::ListKey::Enter => {
+                let conflicted = self.selected_file.as_ref().and_then(|(path, _)| {
+                    let merge = self.store.read(cx).merge_state()?;
+                    merge
+                        .conflicted
+                        .iter()
+                        .any(|conflicted| conflicted == path)
+                        .then(|| path.clone())
+                });
+                match conflicted {
+                    Some(path) => {
+                        self.open_merge_editor(path, window, cx);
+                        true
+                    }
+                    None => false,
+                }
+            }
             list_nav::ListKey::Up
             | list_nav::ListKey::Down
             | list_nav::ListKey::Home
@@ -2567,6 +2760,1167 @@ impl ChangesView {
         }
         bar.into_any_element()
     }
+
+    /// The merge band: the flight, the stopped merge with its conflict count,
+    /// and the ready-to-commit step. It sits above the toolbar (and above the
+    /// merge editor) because the merge is the tab's state, not the list's.
+    fn render_merge_band(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let store = self.store.read(cx);
+        let running = store.running_job() == Some("merge");
+        let merge = store.merge_state().cloned();
+        if !running && merge.is_none() {
+            return None;
+        }
+        let branch = store
+            .selected_entry()
+            .and_then(|entry| entry.git_branch_name.clone())
+            .filter(|branch| !branch.is_empty() && branch != "(detached)")
+            .unwrap_or_else(|| "the current branch".to_string());
+        let source = if running {
+            store.merge_running_source().map(str::to_string)
+        } else {
+            merge
+                .as_ref()
+                .map(|merge| merge.source.clone())
+                .filter(|source| !source.is_empty())
+        };
+        let conflicts = merge.as_ref().map_or(0, |merge| merge.conflicted.len());
+        let busy = store.git_busy();
+
+        let (headline, detail) = if running {
+            (
+                match source.as_deref() {
+                    Some(source) => format!("Merging {source} into {branch}…"),
+                    None => format!("Merging into {branch}…"),
+                },
+                "The worktree is untouched until git answers.".to_string(),
+            )
+        } else if conflicts > 0 {
+            (
+                match source.as_deref() {
+                    Some(source) => format!("Merging {source} into {branch}"),
+                    None => format!("Merge in progress on {branch}"),
+                },
+                if conflicts == 1 {
+                    "1 file needs attention".to_string()
+                } else {
+                    format!("{conflicts} files need attention")
+                },
+            )
+        } else {
+            (
+                "Merge ready to commit".to_string(),
+                "Every conflict is resolved; Continue lands the merge commit.".to_string(),
+            )
+        };
+
+        let mut row = div()
+            .id("merge-band")
+            .debug_selector(|| "merge-band".into())
+            .flex_shrink_0()
+            .w_full()
+            .min_h(px(MERGE_BAND_H))
+            .px(px(warpui_kit_core::shell::DETAIL_PADDING))
+            .py(px(8.))
+            .bg(theme::surface())
+            .border_b_1()
+            .border_color(theme::hairline())
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(12.));
+
+        row = row.child(if running {
+            warpui_kit_core::motion::spinner(
+                "merge-band-spinner",
+                "icons/icon-spinner.svg",
+                px(theme::icon_small()),
+                theme::text_dim(),
+            )
+        } else if conflicts > 0 {
+            icon(
+                "icons/icon-alert.svg",
+                px(theme::icon_small()),
+                theme::DANGER,
+            )
+            .into_any_element()
+        } else {
+            icon(
+                "icons/icon-check.svg",
+                px(theme::icon_small()),
+                theme::SUCCESS_BRIGHT,
+            )
+            .into_any_element()
+        });
+        row = row.child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .text_size(px(theme::font_control()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::text())
+                        .child(headline),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_dim())
+                        .child(detail),
+                ),
+        );
+
+        if !running {
+            let continue_store = self.store.clone();
+            let conflicts_left = conflicts > 0;
+            row = row.child(crate::ui::primary_button(
+                "merge-continue",
+                "Continue",
+                !conflicts_left && !busy,
+                move |_, _, cx| {
+                    continue_store.update(cx, |store, cx| {
+                        store.run_git(GitAction::MergeContinue, cx);
+                    });
+                },
+            ));
+            let abort_store = self.store.clone();
+            row = row.child(
+                div()
+                    .id("merge-abort")
+                    .debug_selector(|| "merge-abort".into())
+                    .a11y_button("Abort the merge")
+                    .flex_shrink_0()
+                    .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                    .px_3()
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(theme::line_strong())
+                    .bg(theme::panel())
+                    .flex()
+                    .items_center()
+                    .text_size(px(theme::font_control()))
+                    .font_weight(FontWeight::MEDIUM)
+                    .when(!busy, |button| {
+                        button
+                            .cursor_pointer()
+                            .text_color(theme::text())
+                            .hover(|style| style.bg(theme::raised()))
+                            .on_click(move |_, _, cx| {
+                                abort_store.update(cx, |store, cx| {
+                                    store.run_git(GitAction::MergeAbort, cx);
+                                });
+                            })
+                    })
+                    .when(busy, |button| {
+                        button.opacity(0.45).text_color(theme::text_dim())
+                    })
+                    .child("Abort"),
+            );
+        }
+
+        Some(row.into_any_element())
+    }
+
+    /// The branch row's context menu: merge the row into the current branch,
+    /// check it out, copy its name, delete it. It opens at the pointer, closes
+    /// on any press outside, on Escape, and after an action.
+    fn render_branch_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let menu = self.branch_ui.borrow().menu.clone()?;
+        let (current, busy, merging) = {
+            let store = self.store.read(cx);
+            (
+                store
+                    .selected_entry()
+                    .and_then(|entry| entry.git_branch_name.clone())
+                    .unwrap_or_default(),
+                store.git_busy(),
+                store.merge_state().is_some(),
+            )
+        };
+        let branch = menu.branch.clone();
+        let is_current = !current.is_empty() && branch == current;
+        let this = cx.entity();
+        let close = {
+            let this = this.clone();
+            move |cx: &mut gpui::App| {
+                this.update(cx, |view, cx| view.close_branch_menu(cx));
+            }
+        };
+        let mut card = crate::ui::pull_request::menu_shell("branch-row-menu");
+        card = card.child(
+            div()
+                .px_2()
+                .py_1()
+                .truncate()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .child(branch.clone()),
+        );
+
+        // Merge into the current branch: the one verb this menu exists for.
+        let store = self.store.clone();
+        let merge_source = branch.clone();
+        let merge_close = close.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "branch-menu-merge",
+            "icons/icon-arrow-down.svg",
+            "Merge into current branch",
+            !is_current && !busy && !merging,
+            move |_, _, cx| {
+                store.update(cx, |store, cx| {
+                    store.run_git(
+                        GitAction::Merge {
+                            source: merge_source.clone(),
+                        },
+                        cx,
+                    );
+                });
+                merge_close(cx);
+            },
+        ));
+
+        let store = self.store.clone();
+        let checkout_name = branch.clone();
+        let checkout_close = close.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "branch-menu-checkout",
+            "icons/icon-circle-dot.svg",
+            "Checkout",
+            !is_current && !busy,
+            move |_, _, cx| {
+                store.update(cx, |store, cx| {
+                    store.run_git(GitAction::Checkout(checkout_name.clone()), cx);
+                });
+                checkout_close(cx);
+            },
+        ));
+
+        let copy_name = branch.clone();
+        let copy_close = close.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "branch-menu-copy",
+            "icons/icon-copy.svg",
+            "Copy branch name",
+            true,
+            move |_, _, cx| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy_name.clone()));
+                copy_close(cx);
+            },
+        ));
+
+        // Delete: a local, non-current branch, armed by the first press.
+        let delete_name = branch.clone();
+        let delete_close = close.clone();
+        let delete_armed = menu.delete_armed;
+        let delete_store = self.store.clone();
+        let delete_this = this.clone();
+        card = card.child(crate::ui::pull_request::menu_divider()).child(
+            crate::ui::pull_request::menu_item(
+                "branch-menu-delete",
+                "icons/icon-trash.svg",
+                if delete_armed {
+                    "Confirm delete"
+                } else {
+                    "Delete branch"
+                },
+                !menu.is_remote && !is_current && !busy,
+                move |_, _, cx| {
+                    if delete_armed {
+                        delete_store.update(cx, |store, cx| {
+                            store.run_git(GitAction::DeleteBranch(delete_name.clone()), cx);
+                        });
+                        delete_close(cx);
+                    } else {
+                        // first press arms: the row turns into "Confirm
+                        // delete" in place, the menu stays up
+                        delete_this.update(cx, |view, cx| {
+                            if let Some(menu) = view.branch_ui.borrow_mut().menu.as_mut() {
+                                menu.delete_armed = true;
+                            }
+                            cx.notify();
+                        });
+                    }
+                },
+            ),
+        );
+
+        let catcher = div()
+            .id("branch-menu-catcher")
+            .debug_selector(|| "branch-menu-catcher".into())
+            .absolute()
+            .inset_0()
+            .occlude()
+            .track_focus(&self.menu_focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.close_branch_menu(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.close_branch_menu(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _, cx| this.close_branch_menu(cx)),
+            )
+            .child(
+                gpui::anchored()
+                    .anchor(gpui::Anchor::TopLeft)
+                    .position(menu.at)
+                    .offset(gpui::point(px(6.), px(6.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(card),
+            );
+        Some(catcher.into_any_element())
+    }
+
+    fn close_branch_menu(&mut self, cx: &mut Context<Self>) {
+        if self.branch_ui.borrow_mut().menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    // ---- the merge editor --------------------------------------------------
+
+    /// Opens the merge editor on one conflicted path and asks the net thread
+    /// for its stages and blocks.
+    fn open_merge_editor(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.merge_editor = Some(MergeEditor {
+            path: path.clone(),
+            choices: Vec::new(),
+            current: 0,
+            whole: None,
+            manual: false,
+            manual_text: None,
+        });
+        self.store
+            .update(cx, |store, cx| store.load_merge_conflict(&path, cx));
+        window.focus(&self.editor_focus, cx);
+        cx.notify();
+    }
+
+    fn close_merge_editor(&mut self, cx: &mut Context<Self>) {
+        if self.merge_editor.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn step_conflict(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        let total = editor.choices.len();
+        if total == 0 {
+            return;
+        }
+        editor.current = (editor.current as isize + delta).clamp(0, total as isize - 1) as usize;
+        cx.notify();
+    }
+
+    /// Checks a side for the current block (or the whole file when it has no
+    /// blocks); checking the chosen side again unchecks it.
+    fn choose_side(&mut self, side: ConflictSide, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        if editor.choices.is_empty() {
+            editor.whole = if editor.whole == Some(side) {
+                None
+            } else {
+                Some(side)
+            };
+        } else {
+            let index = editor.current.min(editor.choices.len() - 1);
+            editor.choices[index] = if editor.choices[index] == Some(side) {
+                None
+            } else {
+                Some(side)
+            };
+        }
+        cx.notify();
+    }
+
+    fn take_all(&mut self, side: ConflictSide, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        if editor.choices.is_empty() {
+            editor.whole = Some(side);
+        } else {
+            editor.choices.fill(Some(side));
+        }
+        cx.notify();
+    }
+
+    /// Toggles the manual result editor, seeded with the current assembly.
+    fn toggle_manual(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .merge_editor
+            .as_ref()
+            .is_none_or(|editor| editor.manual)
+        {
+            if let Some(editor) = self.merge_editor.as_mut() {
+                editor.manual = false;
+            }
+            cx.notify();
+            return;
+        }
+        let seed = match self.merge_editor.as_ref() {
+            Some(editor) => self
+                .store
+                .read(cx)
+                .merge_conflict()
+                .filter(|file| file.path == editor.path)
+                .map(|file| assemble(&file.worktree, &file.blocks, &editor.choices))
+                .unwrap_or_default(),
+            None => return,
+        };
+        let editor = self.merge_editor.as_mut().expect("checked above");
+        let text = match editor.manual_text.clone() {
+            Some(text) => text,
+            None => {
+                let text = cx.new(|cx| TextareaState::new(window, cx).placeholder("Resolved file"));
+                editor.manual_text = Some(text.clone());
+                text
+            }
+        };
+        text.update(cx, |state, cx| {
+            state.set_value(seed, window, cx);
+            state.focus(window, cx);
+        });
+        editor.manual = true;
+        cx.notify();
+    }
+
+    /// Writes the resolution and stages it; the reload closes the row.
+    fn accept_merge(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_ref() else {
+            return;
+        };
+        let path = editor.path.clone();
+        let Some(file) = self
+            .store
+            .read(cx)
+            .merge_conflict()
+            .filter(|file| file.path == path)
+            .cloned()
+        else {
+            return;
+        };
+        let text = if editor.manual {
+            editor
+                .manual_text
+                .as_ref()
+                .map(|text| text.read(cx).value().to_string())
+        } else if file.blocks.is_empty() {
+            editor.whole.map(|side| match side {
+                ConflictSide::Local => file.local.clone(),
+                ConflictSide::Incoming => file.incoming.clone(),
+            })
+        } else if editor.choices.iter().all(Option::is_some) {
+            Some(assemble(&file.worktree, &file.blocks, &editor.choices))
+        } else {
+            None
+        };
+        let Some(text) = text else {
+            return;
+        };
+        self.store.update(cx, |store, cx| {
+            store.resolve_merge_conflict(&path, Some(text), cx);
+        });
+        self.merge_editor = None;
+        cx.notify();
+    }
+
+    fn handle_merge_editor_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if event.keystroke.key == "escape" {
+            self.close_merge_editor(cx);
+            return true;
+        }
+        if event.keystroke.modifiers.control && event.keystroke.key == "enter" {
+            self.accept_merge(cx);
+            return true;
+        }
+        match event.keystroke.key.to_lowercase().as_str() {
+            "f7" => {
+                self.step_conflict(
+                    if event.keystroke.modifiers.shift {
+                        -1
+                    } else {
+                        1
+                    },
+                    cx,
+                );
+                true
+            }
+            "f10" => {
+                self.take_all(ConflictSide::Incoming, cx);
+                true
+            }
+            "f11" => {
+                self.take_all(ConflictSide::Local, cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn render_merge_editor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let Some(path) = self.merge_editor.as_ref().map(|editor| editor.path.clone()) else {
+            return div().into_any_element();
+        };
+        let file = self
+            .store
+            .read(cx)
+            .merge_conflict()
+            .filter(|file| file.path == path)
+            .cloned();
+        let Some(file) = file else {
+            return div()
+                .id("merge-editor")
+                .debug_selector(|| "merge-editor".into())
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .h(px(TOOLBAR_H))
+                        .px(px(warpui_kit_core::shell::DETAIL_PADDING))
+                        .border_b_1()
+                        .border_color(theme::hairline())
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .id("merge-back")
+                                .debug_selector(|| "merge-back".into())
+                                .a11y_button("Back to the file list")
+                                .cursor_pointer()
+                                .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                                .px_2()
+                                .rounded(px(6.))
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_size(px(theme::font_control()))
+                                .text_color(theme::text_muted())
+                                .hover(|style| style.bg(theme::raised()).text_color(theme::text()))
+                                .on_click(cx.listener(|this, _, _, cx| this.close_merge_editor(cx)))
+                                .child(icon(
+                                    "icons/icon-arrow-left.svg",
+                                    px(theme::icon_small()),
+                                    theme::text_dim(),
+                                ))
+                                .child("Files"),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(theme::font_control()))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::text())
+                                .child(path.to_string()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(theme::font_body()))
+                        .text_color(theme::text_muted())
+                        .child("Reading the conflict…"),
+                )
+                .into_any_element();
+        };
+        {
+            let editor = self.merge_editor.as_mut().expect("the path came from it");
+            if editor.choices.len() != file.blocks.len() {
+                editor.choices.resize(file.blocks.len(), None);
+                editor.current = editor.current.min(editor.choices.len().saturating_sub(1));
+            }
+        }
+        let (choices, current, manual) = {
+            let editor = self.merge_editor.as_ref().expect("checked");
+            (editor.choices.clone(), editor.current, editor.manual)
+        };
+        let total = file.blocks.len();
+        let resolved = if manual {
+            total
+        } else if total == 0 {
+            usize::from(
+                self.merge_editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.whole.is_some()),
+            )
+        } else {
+            choices.iter().filter(|choice| choice.is_some()).count()
+        };
+        let accept = manual
+            || if total == 0 {
+                self.merge_editor
+                    .as_ref()
+                    .is_some_and(|editor| editor.whole.is_some())
+            } else {
+                choices.iter().all(Option::is_some)
+            };
+        let whole = self.merge_editor.as_ref().and_then(|editor| editor.whole);
+        let current = if total == 0 {
+            0
+        } else {
+            current.min(total - 1)
+        };
+        let block = file.blocks.get(current);
+        let local_chosen = if total == 0 {
+            whole == Some(ConflictSide::Local)
+        } else {
+            choices.get(current).copied().flatten() == Some(ConflictSide::Local)
+        };
+        let incoming_chosen = if total == 0 {
+            whole == Some(ConflictSide::Incoming)
+        } else {
+            choices.get(current).copied().flatten() == Some(ConflictSide::Incoming)
+        };
+
+        let head = self.render_merge_head(
+            MergeHead {
+                path: path.clone(),
+                resolved,
+                total,
+                accept,
+                manual,
+            },
+            cx,
+        );
+
+        // the numbered strip: a press jumps to a block
+        let mut strip = div()
+            .id("merge-strip")
+            .debug_selector(|| "merge-strip".into())
+            .flex_shrink_0()
+            .h(px(40.))
+            .px(px(warpui_kit_core::shell::DETAIL_PADDING))
+            .py_1()
+            .border_b_1()
+            .border_color(theme::hairline())
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1();
+        for index in 0..total {
+            let chosen = choices.get(index).copied().flatten();
+            let is_current = index == current;
+            let mut chip = div()
+                .id(SharedString::from(format!("merge-block-{index}")))
+                .debug_selector(move || format!("merge-block-{index}"))
+                .a11y_button(format!("Conflict {}", index + 1))
+                .cursor_pointer()
+                .h(px(24.))
+                .min_w(px(24.))
+                .px_1()
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::font_meta()))
+                .text_color(if chosen.is_some() {
+                    theme::text()
+                } else {
+                    theme::text_dim()
+                })
+                .when(is_current, |chip| {
+                    chip.border_1().border_color(theme::accent())
+                })
+                .when(!is_current, |chip| chip.bg(theme::well()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(editor) = this.merge_editor.as_mut() {
+                        editor.current = index;
+                    }
+                    cx.notify();
+                }));
+            if let Some(side) = chosen {
+                chip = chip.child(icon(
+                    if side == ConflictSide::Local {
+                        "icons/icon-check.svg"
+                    } else {
+                        "icons/icon-arrow-down.svg"
+                    },
+                    px(theme::icon_tiny()),
+                    if side == ConflictSide::Local {
+                        theme::SUCCESS_BRIGHT
+                    } else {
+                        theme::accent()
+                    },
+                ));
+            } else {
+                chip = chip.child(format!("{}", index + 1));
+            }
+            strip = strip.child(chip);
+        }
+
+        let local_text = block.map_or_else(|| file.local.clone(), |block| block.local.clone());
+        let incoming_text =
+            block.map_or_else(|| file.incoming.clone(), |block| block.incoming.clone());
+        let result_text = if manual {
+            String::new()
+        } else {
+            assemble(&file.worktree, &file.blocks, &choices)
+        };
+        let font_detail = theme::font_mono_meta();
+
+        let local_side = merge_side(
+            MergeSide {
+                id: "merge-local",
+                label: "Local",
+                chosen: local_chosen,
+                text: &local_text,
+                font_detail,
+                on_toggle: Box::new(
+                    cx.listener(|this, _, _, cx| this.choose_side(ConflictSide::Local, cx)),
+                ),
+            },
+            window,
+            cx,
+        );
+        let incoming_side = merge_side(
+            MergeSide {
+                id: "merge-incoming",
+                label: "Incoming",
+                chosen: incoming_chosen,
+                text: &incoming_text,
+                font_detail,
+                on_toggle: Box::new(
+                    cx.listener(|this, _, _, cx| this.choose_side(ConflictSide::Incoming, cx)),
+                ),
+            },
+            window,
+            cx,
+        );
+
+        let result: gpui::AnyElement = if manual {
+            let text = self
+                .merge_editor
+                .as_ref()
+                .and_then(|editor| editor.manual_text.clone());
+            match text {
+                Some(text) => div()
+                    .flex_1()
+                    .min_h_0()
+                    .p_2()
+                    .child(warpui_kit_core::field::area(
+                        "merge-result",
+                        &text,
+                        window,
+                        cx,
+                    ))
+                    .into_any_element(),
+                None => div().into_any_element(),
+            }
+        } else {
+            div()
+                .id("merge-result-scroll")
+                .debug_selector(|| "merge-result-scroll".into())
+                .flex_1()
+                .min_h_0()
+                .p_2()
+                .overflow_y_scroll()
+                .child(warpui_kit_diff::render_code(
+                    &result_text,
+                    None,
+                    theme::text(),
+                    font_detail,
+                    window,
+                    cx,
+                ))
+                .into_any_element()
+        };
+
+        div()
+            .id("merge-editor")
+            .debug_selector(|| "merge-editor".into())
+            .track_focus(&self.editor_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_merge_editor_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .size_full()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .child(head)
+            .children((total > 0).then_some(strip))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .flex_row()
+                            .child(local_side)
+                            .child(incoming_side),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .flex_col()
+                            .border_t_1()
+                            .border_color(theme::hairline())
+                            .child(Self::merge_pane_label("Result"))
+                            .child(result),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// The editor's head: Back, path, `n of m`, prev/next, take-alls, Accept,
+    /// and the manual toggle.
+    fn render_merge_head(&self, head: MergeHead, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let MergeHead {
+            path,
+            resolved,
+            total,
+            accept,
+            manual,
+        } = head;
+        let mut head = div()
+            .id("merge-head")
+            .debug_selector(|| "merge-head".into())
+            .flex_shrink_0()
+            .h(px(TOOLBAR_H))
+            .px(px(warpui_kit_core::shell::DETAIL_PADDING))
+            .border_b_1()
+            .border_color(theme::hairline())
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .id("merge-back")
+                    .debug_selector(|| "merge-back".into())
+                    .a11y_button("Back to the file list")
+                    .cursor_pointer()
+                    .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+                    .px_2()
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(theme::font_control()))
+                    .text_color(theme::text_muted())
+                    .hover(|style| style.bg(theme::raised()).text_color(theme::text()))
+                    .on_click(cx.listener(|this, _, _, cx| this.close_merge_editor(cx)))
+                    .child(icon(
+                        "icons/icon-arrow-left.svg",
+                        px(theme::icon_small()),
+                        theme::text_dim(),
+                    ))
+                    .child("Files"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(theme::font_control()))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::text())
+                    .child(path.to_string()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(if total > 0 && resolved == total {
+                        theme::SUCCESS_BRIGHT
+                    } else {
+                        theme::text_dim()
+                    })
+                    .child(if total == 0 {
+                        if resolved == 1 {
+                            "Whole-file take".to_string()
+                        } else {
+                            "No text blocks".to_string()
+                        }
+                    } else {
+                        format!("{resolved} of {total} resolved")
+                    }),
+            );
+        if total > 0 {
+            head = head
+                .child(merge_icon_verb(
+                    "merge-prev",
+                    "‹",
+                    "Previous conflict",
+                    true,
+                    cx.listener(|this, _, _, cx| this.step_conflict(-1, cx)),
+                ))
+                .child(merge_icon_verb(
+                    "merge-next",
+                    "›",
+                    "Next conflict",
+                    true,
+                    cx.listener(|this, _, _, cx| this.step_conflict(1, cx)),
+                ));
+        }
+        head = head
+            .child(merge_verb(
+                "merge-take-local",
+                "Take all Local",
+                !manual,
+                cx.listener(|this, _, _, cx| this.take_all(ConflictSide::Local, cx)),
+            ))
+            .child(merge_verb(
+                "merge-take-incoming",
+                "Take all Incoming",
+                !manual,
+                cx.listener(|this, _, _, cx| this.take_all(ConflictSide::Incoming, cx)),
+            ))
+            .child(merge_verb(
+                "merge-manual",
+                if manual {
+                    "Block choices"
+                } else {
+                    "Edit manually"
+                },
+                true,
+                cx.listener(|this, _, window, cx| this.toggle_manual(window, cx)),
+            ))
+            .child(crate::ui::primary_button(
+                "merge-accept",
+                "Accept Merge",
+                accept,
+                cx.listener(|this, _, _, cx| this.accept_merge(cx)),
+            ));
+        head.into_any_element()
+    }
+
+    fn merge_pane_label(label: &str) -> gpui::AnyElement {
+        div()
+            .flex_shrink_0()
+            .h(px(30.))
+            .px_2()
+            .flex()
+            .items_center()
+            .text_size(px(theme::font_meta()))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme::text_dim())
+            .border_b_1()
+            .border_color(theme::hairline())
+            .child(label.to_string())
+            .into_any_element()
+    }
+}
+
+/// A bordered text verb in the editor's head (take alls, manual toggle).
+fn merge_verb(
+    id: &'static str,
+    label: &'static str,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .flex_shrink_0()
+        .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+        .px_3()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::panel())
+        .flex()
+        .items_center()
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .when(enabled, |button| {
+            button
+                .cursor_pointer()
+                .text_color(theme::text())
+                .hover(|style| style.bg(theme::raised()))
+                .on_click(on_click)
+        })
+        .when(!enabled, |button| {
+            button.opacity(0.45).text_color(theme::text_dim())
+        })
+        .child(label)
+        .into_any_element()
+}
+
+/// A square glyph verb (prev/next) in the editor's head.
+fn merge_icon_verb(
+    id: &'static str,
+    glyph: &'static str,
+    label: &'static str,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label)
+        .flex_shrink_0()
+        .size(px(warpui_kit_core::shell::CONTROL_HEIGHT))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::panel())
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(theme::font_control()))
+        .when(enabled, |button| {
+            button
+                .cursor_pointer()
+                .text_color(theme::text())
+                .hover(|style| style.bg(theme::raised()))
+                .on_click(on_click)
+        })
+        .when(!enabled, |button| {
+            button.opacity(0.45).text_color(theme::text_dim())
+        })
+        .child(glyph)
+        .into_any_element()
+}
+
+/// The editor head's state: the path, progress, and whether Accept and the
+/// manual toggle are live.
+struct MergeHead {
+    path: String,
+    resolved: usize,
+    total: usize,
+    accept: bool,
+    manual: bool,
+}
+
+/// A click handler on the editor's own controls.
+type MergeClick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App)>;
+
+/// One side pane's content and state.
+struct MergeSide<'a> {
+    id: &'static str,
+    label: &'static str,
+    chosen: bool,
+    text: &'a str,
+    font_detail: f32,
+    on_toggle: MergeClick,
+}
+
+/// One side pane of the merge editor: its label, the take checkbox, and the
+/// read-only text of the current block (or the whole side).
+fn merge_side(side: MergeSide<'_>, window: &mut Window, cx: &gpui::App) -> gpui::AnyElement {
+    let MergeSide {
+        id,
+        label,
+        chosen,
+        text,
+        font_detail,
+        on_toggle,
+    } = side;
+    div()
+        .id(SharedString::from(id))
+        .debug_selector(move || id.to_string())
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .flex_col()
+        .bg(theme::well())
+        .border_r_1()
+        .border_color(theme::hairline())
+        .child(
+            div()
+                .flex_shrink_0()
+                .h(px(34.))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .border_b_1()
+                .border_color(theme::hairline())
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{id}-take")))
+                        .debug_selector(move || format!("{id}-take"))
+                        .a11y_toggle(format!("Take {label}"), chosen)
+                        .cursor_pointer()
+                        .size(px(18.))
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(if chosen {
+                            theme::accent()
+                        } else {
+                            theme::line_strong()
+                        })
+                        .when(chosen, |box_| box_.bg(theme::accent()))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(chosen, |box_| {
+                            box_.child(icon(
+                                "icons/icon-check.svg",
+                                px(theme::icon_tiny()),
+                                theme::on_accent(),
+                            ))
+                        })
+                        .on_click(on_toggle),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text_dim())
+                        .child(label),
+                ),
+        )
+        .child(
+            div()
+                .id(SharedString::from(format!("{id}-scroll")))
+                .flex_1()
+                .min_h_0()
+                .p_2()
+                .overflow_y_scroll()
+                .child(warpui_kit_diff::render_code(
+                    text,
+                    None,
+                    theme::text(),
+                    font_detail,
+                    window,
+                    cx,
+                )),
+        )
+        .into_any_element()
 }
 
 /// The git toolbar's PR verb. Create opens the writing form (GitHub) or the
@@ -2866,6 +4220,22 @@ fn stage_hint(store: Entity<Store>, unstaged: usize) -> gpui::AnyElement {
     footer.into_any_element()
 }
 
+/// The footer a stopped merge shows instead of the commit card: the band's
+/// Continue is the one way to finish, so a second message box would fork it.
+fn merge_commit_hint() -> gpui::AnyElement {
+    div()
+        .debug_selector(|| "merge-commit-hint".into())
+        .flex_shrink_0()
+        .px_3()
+        .py_2()
+        .border_t_1()
+        .border_color(theme::hairline())
+        .text_size(px(theme::font_meta()))
+        .text_color(theme::text_muted())
+        .child("Resolve the files above, then Continue in the merge band")
+        .into_any_element()
+}
+
 /// The clean working tree: what is true, plus the last commit so the tab still
 /// says where the branch stands.
 fn clean_state(store: &Entity<Store>, cx: &mut gpui::App) -> gpui::AnyElement {
@@ -2974,21 +4344,45 @@ const PICKER_ICONS: PickerIcons = PickerIcons {
     refresh: "icons/icon-refresh.svg",
 };
 
-/// The branch picker's ephemeral state: the armed delete, whether the
-/// new-branch form replaced the list, and the repo the popup was loaded for
-/// (a mismatch resets it).
+/// The branch picker's ephemeral state: whether the new-branch form replaced
+/// the list, and the row's right-click menu (the branch list's other verbs).
 #[derive(Default)]
 struct BranchUi {
-    delete_armed: Option<String>,
     new_branch_open: bool,
+    menu: Option<BranchMenu>,
 }
 
-/// The branch selector: a pick checks the branch out; locals carry the delete
-/// trash and the popup carries the new-branch form.
+/// The right-click menu on one branch row: the row's value, whether it is a
+/// remote-tracking branch, the pointer it opened at, and the delete's
+/// two-press arm.
+#[derive(Clone)]
+struct BranchMenu {
+    branch: String,
+    is_remote: bool,
+    at: gpui::Point<gpui::Pixels>,
+    delete_armed: bool,
+}
+
+/// The merge editor's view state; the conflicted file itself is read from the
+/// store when the net thread answers.
+struct MergeEditor {
+    path: String,
+    /// One choice per marker block; `None` is unresolved.
+    choices: Vec<Option<ConflictSide>>,
+    current: usize,
+    /// The whole-file choice for a conflict with no marker blocks.
+    whole: Option<ConflictSide>,
+    manual: bool,
+    manual_text: Option<Entity<TextareaState>>,
+}
+
+/// The branch selector: a pick checks the branch out, a right-click opens the
+/// row's menu, and the popup carries the new-branch form.
 fn build_branch_picker(
     store: &Entity<Store>,
     branch_ui: Rc<RefCell<BranchUi>>,
     new_branch_name: Entity<InputState>,
+    menu_focus: &FocusHandle,
     window: &mut Window,
     cx: &mut Context<ChangesView>,
 ) -> Entity<FilteredPicker> {
@@ -3063,48 +4457,47 @@ fn build_branch_picker(
             ));
         });
     }
-    // dismissal (outside click, Escape, a pick) clears the ephemeral state
+    // dismissal (outside click, Escape, a pick) clears the ephemeral state;
+    // the row menu is not part of it — it opens as the picker closes
     branch_picker.update(cx, |picker, cx| {
         picker.set_on_dismiss({
             let ui = branch_ui.clone();
             Box::new(move |_cx| {
-                let mut ui = ui.borrow_mut();
-                ui.delete_armed = None;
-                ui.new_branch_open = false;
+                ui.borrow_mut().new_branch_open = false;
             })
         });
-        picker.set_on_trailing({
+        picker.set_on_secondary({
             let ui = branch_ui.clone();
             let store = store.clone();
-            Box::new(move |name, cx| {
-                let confirmed = {
-                    let mut ui = ui.borrow_mut();
-                    if ui.delete_armed.as_deref() == Some(name) {
-                        ui.delete_armed = None;
-                        true
-                    } else {
-                        ui.delete_armed = Some(name.to_string());
-                        false
-                    }
-                };
-                if confirmed {
-                    store.update(cx, |s, cx| {
-                        s.run_git(GitAction::DeleteBranch(name.to_string()), cx)
+            let focus = menu_focus.clone();
+            Rc::new(
+                move |name: &str,
+                      at: gpui::Point<gpui::Pixels>,
+                      window: &mut Window,
+                      cx: &mut gpui::App| {
+                    let is_remote = store.read(cx).branches.iter().any(|branch| {
+                        branch.name == name
+                            && branch.kind == warp_station_core::model::GitBranchKind::Remote
                     });
-                }
-                // true = done: the shell dismisses (no re-entrant update —
-                // this closure runs inside the picker's own row listener)
-                confirmed
-            })
+                    ui.borrow_mut().menu = Some(BranchMenu {
+                        branch: name.to_string(),
+                        is_remote,
+                        at,
+                        delete_armed: false,
+                    });
+                    // the catcher answers Escape only while it owns the
+                    // keyboard; the focus request lands with this render
+                    window.focus(&focus, cx);
+                },
+            )
         });
         picker.observe_entity(store, cx);
     });
     branch_picker
 }
 
-/// One render's worth of the branch list: locals with their delete trash, the
-/// inert "Remote" group label, and — when the form is open — the form as the
-/// whole panel body.
+/// One render's worth of the branch list: locals, the inert "Remote" group
+/// label, and — when the form is open — the form as the whole panel body.
 fn branch_data(
     store: &Entity<Store>,
     branch_ui: &Rc<RefCell<BranchUi>>,
@@ -3120,7 +4513,6 @@ fn branch_data(
         .and_then(|e| e.git_branch_name.clone())
         .unwrap_or_default();
     let show_tooltips = store_read.settings().general.show_tooltips;
-    let armed = branch_ui.borrow().delete_armed.clone();
     let form_open = branch_ui.borrow().new_branch_open;
 
     if form_open {
@@ -3164,7 +4556,6 @@ fn branch_data(
                 selector: Some("branch-group-remote".into()),
             });
         }
-        let deletable = !is_remote && branch.name != current;
         rows.push(PickerRow::Item(PickerItem {
             id: format!("branch-row-{}", branch.name),
             selector: format!("branch-row-{}", branch.name),
@@ -3174,12 +4565,9 @@ fn branch_data(
             label: crate::ui::branch_label(&branch.name, window),
             selected: branch.name == current,
             muted: is_remote,
-            trailing_delete: deletable.then(|| TrailingDelete {
-                id: format!("branch-delete-{}", branch.name),
-                selector: format!("branch-delete-{}", branch.name),
-                armed: armed.as_deref() == Some(branch.name.as_str()),
-                tooltip: "Delete branch",
-            }),
+            // the row's verbs (merge, checkout, copy, delete) live in the
+            // right-click menu; the trailing slot stays free
+            trailing_delete: None,
         }));
     }
 
