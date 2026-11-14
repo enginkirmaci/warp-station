@@ -2072,6 +2072,24 @@ fn the_new_pull_request_form_opens_in_the_pane(cx: &mut TestAppContext) {
         "the description is a message box, not a line"
     );
 
+    // the branch dropdowns hang under their triggers too
+    let trigger = cx
+        .debug_bounds("new-pull-source")
+        .expect("the source trigger draws");
+    click(cx, "new-pull-source");
+    draw(cx);
+    let panel = cx
+        .debug_bounds("new-pull-branch-menu")
+        .expect("the source panel draws");
+    assert!(
+        f32::from(panel.origin.y) >= f32::from(trigger.origin.y + trigger.size.height),
+        "the source panel opens below its trigger (trigger bottom {}, panel top {})",
+        f32::from(trigger.origin.y + trigger.size.height),
+        f32::from(panel.origin.y)
+    );
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+
     click(cx, "new-pull-cancel");
     assert!(cx.debug_bounds("new-pull").is_none());
     assert!(

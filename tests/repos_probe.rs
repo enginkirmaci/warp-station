@@ -69,6 +69,41 @@ fn fake_store(cx: &mut TestAppContext) -> gpui::Entity<Store> {
     })
 }
 
+/// A list-head dropdown opens under the control it belongs to, not over the
+/// rows at the top of the pane.
+#[gpui::test]
+fn the_sort_menu_opens_below_its_button(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let button = cx
+        .debug_bounds("sort-button")
+        .expect("the sort button draws");
+    let at = button.center();
+    cx.simulate_click(at, gpui::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    let menu = cx.debug_bounds("sort-menu").expect("the sort menu draws");
+    assert!(
+        f32::from(menu.origin.y) >= f32::from(button.origin.y + button.size.height),
+        "the sort menu starts below the button (button top {}, height {}, menu top {})",
+        f32::from(button.origin.y),
+        f32::from(button.size.height),
+        f32::from(menu.origin.y)
+    );
+    assert!(
+        f32::from(menu.origin.x) <= f32::from(button.origin.x + button.size.width)
+            && f32::from(menu.origin.x + menu.size.width) >= f32::from(button.origin.x),
+        "the sort menu overlaps the button horizontally"
+    );
+}
+
 /// App alerts surface as toasts in the window's bottom-right corner, not as
 /// inline header text: a store push renders a severity card, and its close
 /// button removes exactly that card.

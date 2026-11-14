@@ -723,25 +723,32 @@ impl Render for ChangesView {
                 .child(self.render_diff(window, cx))
                 .into_any_element()
         };
+        // the branch popup hangs off the toolbar's own bottom edge: the
+        // wrapper is the positioned ancestor, so a merge band above the
+        // toolbar no longer shifts the panel away from its trigger
+        let toolbar_and_popup =
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(toolbar)
+                .children(popup.map(|popup| {
+                    gpui::deferred(
+                        div()
+                            .absolute()
+                            .top(px(TOOLBAR_H))
+                            .left(px(8.))
+                            .w(px(BRANCH_W))
+                            .child(popup),
+                    )
+                }));
         div()
             .size_full()
             .flex()
             .flex_col()
             .min_h_0()
             .children(band)
-            .child(toolbar)
+            .child(toolbar_and_popup)
             .child(body)
-            // painted last, so it hangs over the columns under the toolbar
-            .children(popup.map(|popup| {
-                gpui::deferred(
-                    div()
-                        .absolute()
-                        .top(px(TOOLBAR_H))
-                        .left(px(8.))
-                        .w(px(BRANCH_W))
-                        .child(popup),
-                )
-            }))
             // the row menus paint last: they are the tab's topmost layer
             // while they are up
             .children(self.render_branch_menu(cx))

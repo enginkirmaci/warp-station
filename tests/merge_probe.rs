@@ -199,6 +199,16 @@ fn a_stopped_merge_draws_the_band_menu_and_editor(cx: &mut TestAppContext) {
     click(cx, "branch-button");
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
+    let trigger = cx
+        .debug_bounds("branch-button")
+        .expect("the branch trigger");
+    let panel = cx.debug_bounds("branch-menu").expect("the branch panel");
+    assert!(
+        f32::from(panel.origin.y) >= f32::from(trigger.origin.y + trigger.size.height),
+        "the branch panel opens below its trigger (trigger bottom {}, panel top {})",
+        f32::from(trigger.origin.y + trigger.size.height),
+        f32::from(panel.origin.y)
+    );
     let row = cx
         .debug_bounds("branch-row-feat")
         .expect("the feat row is in the open list");
