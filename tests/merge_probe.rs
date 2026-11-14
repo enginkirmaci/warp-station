@@ -212,6 +212,10 @@ fn a_stopped_merge_draws_the_band_menu_and_editor(cx: &mut TestAppContext) {
         "a right-click opens the row menu"
     );
     assert!(
+        cx.debug_bounds("branch-menu").is_some(),
+        "the dropdown stays open under the row menu"
+    );
+    assert!(
         cx.debug_bounds("branch-menu-merge").is_some(),
         "its first verb is Merge"
     );
@@ -232,6 +236,10 @@ fn a_stopped_merge_draws_the_band_menu_and_editor(cx: &mut TestAppContext) {
             } if branch == "feat"
         )),
         "the menu's Checkout runs on the row's branch"
+    );
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "the action closes the dropdown with the menu"
     );
 
     // ---- the editor ----

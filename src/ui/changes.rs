@@ -3010,11 +3010,16 @@ impl ChangesView {
                     .snap_to_window_with_margin(px(8.))
                     .child(card),
             );
-        Some(catcher.into_any_element())
+        // deferred with the picker's popup, and after it in tree order: the
+        // row menu paints over a dropdown that stayed open under it
+        Some(gpui::deferred(catcher).with_priority(1).into_any_element())
     }
 
     fn close_branch_menu(&mut self, cx: &mut Context<Self>) {
         if self.branch_ui.borrow_mut().menu.take().is_some() {
+            // the picker stayed up under the menu; closing the menu closes
+            // the dropdown with it
+            self.branch_picker.update(cx, FilteredPicker::dismiss);
             cx.notify();
         }
     }
@@ -5284,7 +5289,8 @@ fn build_branch_picker(
         });
     }
     // dismissal (outside click, Escape, a pick) clears the ephemeral state;
-    // the row menu is not part of it — it opens as the picker closes
+    // the row menu is not part of it — it opens over the still-open picker,
+    // and closing the menu dismisses the picker
     branch_picker.update(cx, |picker, cx| {
         picker.set_on_dismiss({
             let ui = branch_ui.clone();

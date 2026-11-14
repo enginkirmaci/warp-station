@@ -1220,6 +1220,10 @@ fn branch_delete_gates_on_kind_current_and_two_clicks(cx: &mut TestAppContext) {
         "a remote row is never deleted"
     );
     close_row_menu(cx);
+    assert!(
+        cx.debug_bounds("branch-menu").is_none(),
+        "closing the row menu closes the dropdown with it"
+    );
 
     // The checked-out branch's menu cannot delete either.
     click(cx, "branch-button");
