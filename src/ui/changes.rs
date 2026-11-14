@@ -145,6 +145,8 @@ pub struct ChangesView {
     /// The branch row menu's keyboard owner; focused while the menu is up so
     /// Escape takes it down.
     menu_focus: FocusHandle,
+    /// The conflicted file row's context menu.
+    file_menu: Option<FileMenu>,
     /// The Local/Incoming/Result editor, when a conflict row is open.
     merge_editor: Option<MergeEditor>,
     /// The editor's keyboard owner; F7/F10/F11 and Ctrl+Enter live here.
@@ -232,6 +234,7 @@ impl ChangesView {
             branch_picker,
             branch_ui,
             menu_focus,
+            file_menu: None,
             merge_editor: None,
             editor_focus: cx.focus_handle(),
             commit_message,
@@ -268,6 +271,7 @@ impl ChangesView {
         self.unstaged_collapsed = false;
         self.patches.clear();
         self.branch_picker.update(cx, FilteredPicker::dismiss);
+        self.file_menu = None;
         {
             // the branch popup must never show the previous repo's list,
             // filter or form
@@ -690,9 +694,10 @@ impl Render for ChangesView {
                         .child(popup),
                 )
             }))
-            // the row menu paints last: it is the tab's topmost layer while
-            // it is up
+            // the row menus paint last: they are the tab's topmost layer
+            // while they are up
             .children(self.render_branch_menu(cx))
+            .children(self.render_file_menu(cx))
     }
 }
 
@@ -1394,6 +1399,30 @@ impl ChangesView {
                 let path = file.path.clone();
                 cx.listener(move |this, _, _, cx| this.select_file(&path, staged, cx))
             })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let path = file.path.clone();
+                    move |this, event: &gpui::MouseDownEvent, window, cx| {
+                        let conflicted = this.store.read(cx).merge_state().is_some_and(|merge| {
+                            merge
+                                .conflicted
+                                .iter()
+                                .any(|conflicted| conflicted == &path)
+                        });
+                        if !conflicted {
+                            return;
+                        }
+                        cx.stop_propagation();
+                        this.file_menu = Some(FileMenu {
+                            path: path.clone(),
+                            at: event.position,
+                        });
+                        window.focus(&this.menu_focus, cx);
+                        cx.notify();
+                    }
+                }),
+            )
             .child(
                 div()
                     .w(px(14.))
@@ -3086,6 +3115,118 @@ impl ChangesView {
         }
     }
 
+    fn close_file_menu(&mut self, cx: &mut Context<Self>) {
+        if self.file_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// The conflicted row's menu: open the editor, or resolve every block to
+    /// one side in one press. Only conflicted rows get it; the row's left
+    /// click keeps selecting.
+    fn render_file_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let menu = self.file_menu.clone()?;
+        let still_conflicted = self.store.read(cx).merge_state().is_some_and(|merge| {
+            merge
+                .conflicted
+                .iter()
+                .any(|conflicted| conflicted == &menu.path)
+        });
+        if !still_conflicted {
+            self.file_menu = None;
+            return None;
+        }
+        let path = menu.path.clone();
+        let mut card = crate::ui::pull_request::menu_shell("file-row-menu");
+        card = card.child(
+            div()
+                .px_2()
+                .py_1()
+                .truncate()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .child(path.clone()),
+        );
+        let open_path = path.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "file-menu-open",
+            "icons/icon-file-diff.svg",
+            "Open merge editor",
+            true,
+            cx.listener(move |this, _, window, cx| {
+                this.close_file_menu(cx);
+                this.open_merge_editor(open_path.clone(), window, cx);
+            }),
+        ));
+        let local_store = self.store.clone();
+        let local_path = path.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "file-menu-local",
+            "icons/icon-arrow-left.svg",
+            "Resolve with Local",
+            true,
+            cx.listener(move |this, _, _, cx| {
+                this.close_file_menu(cx);
+                local_store.update(cx, |store, cx| {
+                    store.bulk_resolve_conflict(
+                        &local_path,
+                        warp_station_core::git::conflict::ConflictSide::Local,
+                        cx,
+                    );
+                });
+            }),
+        ));
+        let incoming_store = self.store.clone();
+        let incoming_path = path.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "file-menu-incoming",
+            "icons/icon-arrow-down.svg",
+            "Resolve with Incoming",
+            true,
+            cx.listener(move |this, _, _, cx| {
+                this.close_file_menu(cx);
+                incoming_store.update(cx, |store, cx| {
+                    store.bulk_resolve_conflict(
+                        &incoming_path,
+                        warp_station_core::git::conflict::ConflictSide::Incoming,
+                        cx,
+                    );
+                });
+            }),
+        ));
+
+        let catcher = div()
+            .id("file-menu-catcher")
+            .debug_selector(|| "file-menu-catcher".into())
+            .absolute()
+            .inset_0()
+            .occlude()
+            .track_focus(&self.menu_focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.close_file_menu(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.close_file_menu(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _, cx| this.close_file_menu(cx)),
+            )
+            .child(
+                gpui::anchored()
+                    .anchor(gpui::Anchor::TopLeft)
+                    .position(menu.at)
+                    .offset(gpui::point(px(6.), px(6.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(card),
+            );
+        Some(catcher.into_any_element())
+    }
+
     // ---- the merge editor --------------------------------------------------
 
     /// Opens the merge editor on one conflicted path and asks the net thread
@@ -3098,6 +3239,12 @@ impl ChangesView {
             whole: None,
             manual: false,
             manual_text: None,
+            layout: MergeLayout::Split,
+            show_base: false,
+            local_scroll: UniformListScrollHandle::default(),
+            incoming_scroll: UniformListScrollHandle::default(),
+            base_scroll: UniformListScrollHandle::default(),
+            scrolled: false,
         });
         self.store
             .update(cx, |store, cx| store.load_merge_conflict(&path, cx));
@@ -3120,6 +3267,66 @@ impl ChangesView {
             return;
         }
         editor.current = (editor.current as isize + delta).clamp(0, total as isize - 1) as usize;
+        self.scroll_to_current(cx);
+        cx.notify();
+    }
+
+    /// Jumps to one block: the panes scroll their own file to the block's
+    /// mapped lines, so the three sides read the same conflict.
+    fn set_current(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        if index < editor.choices.len() {
+            editor.current = index;
+        }
+        self.scroll_to_current(cx);
+        cx.notify();
+    }
+
+    fn scroll_to_current(&self, cx: &gpui::App) {
+        let Some(editor) = self.merge_editor.as_ref() else {
+            return;
+        };
+        let Some(file) = self
+            .store
+            .read(cx)
+            .merge_conflict()
+            .filter(|file| file.path == editor.path)
+        else {
+            return;
+        };
+        let Some(block) = file.blocks.get(editor.current) else {
+            return;
+        };
+        editor
+            .local_scroll
+            .scroll_to_item(block.local_lines.start, ScrollStrategy::Top);
+        editor
+            .incoming_scroll
+            .scroll_to_item(block.incoming_lines.start, ScrollStrategy::Top);
+        if editor.show_base {
+            editor
+                .base_scroll
+                .scroll_to_item(block.base_lines.start, ScrollStrategy::Top);
+        }
+    }
+
+    fn toggle_layout(&mut self, cx: &mut Context<Self>) {
+        let wide = self.store.read(cx).pane_width > 1000.;
+        if let Some(editor) = self.merge_editor.as_mut() {
+            editor.layout = match editor.layout {
+                MergeLayout::Split if wide => MergeLayout::Columns,
+                _ => MergeLayout::Split,
+            };
+        }
+        cx.notify();
+    }
+
+    fn toggle_base(&mut self, cx: &mut Context<Self>) {
+        if let Some(editor) = self.merge_editor.as_mut() {
+            editor.show_base = !editor.show_base;
+        }
         cx.notify();
     }
 
@@ -3361,6 +3568,10 @@ impl ChangesView {
                 editor.choices.resize(file.blocks.len(), None);
                 editor.current = editor.current.min(editor.choices.len().saturating_sub(1));
             }
+            if !editor.scrolled {
+                editor.scrolled = true;
+                self.scroll_to_current(cx);
+            }
         }
         let (choices, current, manual) = {
             let editor = self.merge_editor.as_ref().expect("checked");
@@ -3404,6 +3615,18 @@ impl ChangesView {
             choices.get(current).copied().flatten() == Some(ConflictSide::Incoming)
         };
 
+        let layout = self
+            .merge_editor
+            .as_ref()
+            .map(|editor| editor.layout)
+            .unwrap_or(MergeLayout::Split);
+        let show_base = self
+            .merge_editor
+            .as_ref()
+            .is_some_and(|editor| editor.show_base);
+        let base_available =
+            !file.blocks.is_empty() && file.blocks.iter().all(|block| block.base.is_some());
+        let columns_available = self.store.read(cx).pane_width > 1000.;
         let head = self.render_merge_head(
             MergeHead {
                 path: path.clone(),
@@ -3411,6 +3634,10 @@ impl ChangesView {
                 total,
                 accept,
                 manual,
+                layout,
+                columns_available,
+                base_available,
+                show_base,
             },
             cx,
         );
@@ -3454,12 +3681,7 @@ impl ChangesView {
                     chip.border_1().border_color(theme::accent())
                 })
                 .when(!is_current, |chip| chip.bg(theme::well()))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(editor) = this.merge_editor.as_mut() {
-                        editor.current = index;
-                    }
-                    cx.notify();
-                }));
+                .on_click(cx.listener(move |this, _, _, cx| this.set_current(index, cx)));
             if let Some(side) = chosen {
                 chip = chip.child(icon(
                     if side == ConflictSide::Local {
@@ -3480,26 +3702,58 @@ impl ChangesView {
             strip = strip.child(chip);
         }
 
-        let local_text = block.map_or_else(|| file.local.clone(), |block| block.local.clone());
-        let incoming_text =
-            block.map_or_else(|| file.incoming.clone(), |block| block.incoming.clone());
         let result_text = if manual {
             String::new()
         } else {
             assemble(&file.worktree, &file.blocks, &choices)
         };
         let font_detail = theme::font_mono_meta();
+        let local_scroll = self
+            .merge_editor
+            .as_ref()
+            .expect("checked")
+            .local_scroll
+            .clone();
+        let incoming_scroll = self
+            .merge_editor
+            .as_ref()
+            .expect("checked")
+            .incoming_scroll
+            .clone();
+        let base_scroll = self
+            .merge_editor
+            .as_ref()
+            .expect("checked")
+            .base_scroll
+            .clone();
+        let local_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
+            file.blocks
+                .iter()
+                .map(|block| block.local_lines.clone())
+                .collect(),
+        );
+        let incoming_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
+            file.blocks
+                .iter()
+                .map(|block| block.incoming_lines.clone())
+                .collect(),
+        );
+        let current_local = block.map(|block| block.local_lines.clone());
+        let current_incoming = block.map(|block| block.incoming_lines.clone());
 
         let local_side = merge_side(
             MergeSide {
                 id: "merge-local",
                 label: "Local",
                 chosen: local_chosen,
-                text: &local_text,
+                text: &file.local,
+                ranges: local_ranges,
+                current: current_local,
+                scroll: &local_scroll,
                 font_detail,
-                on_toggle: Box::new(
+                on_toggle: Some(Box::new(
                     cx.listener(|this, _, _, cx| this.choose_side(ConflictSide::Local, cx)),
-                ),
+                )),
             },
             window,
             cx,
@@ -3509,15 +3763,44 @@ impl ChangesView {
                 id: "merge-incoming",
                 label: "Incoming",
                 chosen: incoming_chosen,
-                text: &incoming_text,
+                text: &file.incoming,
+                ranges: incoming_ranges,
+                current: current_incoming,
+                scroll: &incoming_scroll,
                 font_detail,
-                on_toggle: Box::new(
-                    cx.listener(|this, _, _, cx| this.choose_side(ConflictSide::Incoming, cx)),
-                ),
+                on_toggle: Some(Box::new(cx.listener(|this, _, _, cx| {
+                    this.choose_side(ConflictSide::Incoming, cx)
+                }))),
             },
             window,
             cx,
         );
+        let base_side = if show_base && base_available {
+            let base_text = file.base.clone().unwrap_or_default();
+            let base_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
+                file.blocks
+                    .iter()
+                    .map(|block| block.base_lines.clone())
+                    .collect(),
+            );
+            Some(merge_side(
+                MergeSide {
+                    id: "merge-base",
+                    label: "Base",
+                    chosen: false,
+                    text: &base_text,
+                    ranges: base_ranges,
+                    current: block.map(|block| block.base_lines.clone()),
+                    scroll: &base_scroll,
+                    font_detail,
+                    on_toggle: None,
+                },
+                window,
+                cx,
+            ))
+        } else {
+            None
+        };
 
         let result: gpui::AnyElement = if manual {
             let text = self
@@ -3556,6 +3839,49 @@ impl ChangesView {
                 ))
                 .into_any_element()
         };
+        let result_pane = div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(theme::well())
+            .border_t_1()
+            .border_color(theme::hairline())
+            .child(Self::merge_pane_label("Result"))
+            .child(result);
+
+        let mut sides = div()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .flex()
+            .flex_row()
+            .child(local_side);
+        if let Some(base_side) = base_side {
+            sides = sides.child(base_side);
+        }
+        sides = sides.child(incoming_side);
+
+        let body: gpui::AnyElement = if columns_available && layout == MergeLayout::Columns {
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_row()
+                .child(sides)
+                .child(result_pane)
+                .into_any_element()
+        } else {
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(div().flex_1().min_h_0().flex().child(sides))
+                .child(div().flex_1().min_h_0().flex().child(result_pane))
+                .into_any_element()
+        };
 
         div()
             .id("merge-editor")
@@ -3572,33 +3898,7 @@ impl ChangesView {
             .min_h_0()
             .child(head)
             .children((total > 0).then_some(strip))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .flex()
-                            .flex_row()
-                            .child(local_side)
-                            .child(incoming_side),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .flex()
-                            .flex_col()
-                            .border_t_1()
-                            .border_color(theme::hairline())
-                            .child(Self::merge_pane_label("Result"))
-                            .child(result),
-                    ),
-            )
+            .child(body)
             .into_any_element()
     }
 
@@ -3611,6 +3911,10 @@ impl ChangesView {
             total,
             accept,
             manual,
+            layout,
+            columns_available,
+            base_available,
+            show_base,
         } = head;
         let mut head = div()
             .id("merge-head")
@@ -3706,6 +4010,24 @@ impl ChangesView {
                 !manual,
                 cx.listener(|this, _, _, cx| this.take_all(ConflictSide::Incoming, cx)),
             ))
+            .child(merge_verb(
+                "merge-layout",
+                if layout == MergeLayout::Columns {
+                    "Split"
+                } else {
+                    "Columns"
+                },
+                columns_available,
+                cx.listener(|this, _, _, cx| this.toggle_layout(cx)),
+            ))
+            .when(base_available, |head| {
+                head.child(merge_verb(
+                    "merge-base-toggle",
+                    if show_base { "Hide base" } else { "Base" },
+                    true,
+                    cx.listener(|this, _, _, cx| this.toggle_base(cx)),
+                ))
+            })
             .child(merge_verb(
                 "merge-manual",
                 if manual {
@@ -3814,41 +4136,112 @@ fn merge_icon_verb(
         .into_any_element()
 }
 
-/// The editor head's state: the path, progress, and whether Accept and the
-/// manual toggle are live.
+/// The editor head's state: the path, progress, and which verbs are live.
 struct MergeHead {
     path: String,
     resolved: usize,
     total: usize,
     accept: bool,
     manual: bool,
+    layout: MergeLayout,
+    columns_available: bool,
+    base_available: bool,
+    show_base: bool,
 }
 
 /// A click handler on the editor's own controls.
 type MergeClick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App)>;
 
-/// One side pane's content and state.
+/// One whole-file pane's content and state.
 struct MergeSide<'a> {
     id: &'static str,
     label: &'static str,
     chosen: bool,
     text: &'a str,
+    /// Every block's lines in this stage file, for the block wash.
+    ranges: Rc<Vec<std::ops::Range<usize>>>,
+    /// The block under the cursor, washed stronger.
+    current: Option<std::ops::Range<usize>>,
+    scroll: &'a UniformListScrollHandle,
     font_detail: f32,
-    on_toggle: MergeClick,
+    /// The take checkbox; `None` for the read-only Base pane.
+    on_toggle: Option<MergeClick>,
 }
 
-/// One side pane of the merge editor: its label, the take checkbox, and the
-/// read-only text of the current block (or the whole side).
-fn merge_side(side: MergeSide<'_>, window: &mut Window, cx: &gpui::App) -> gpui::AnyElement {
+/// One whole-file pane of the merge editor: its label, the take checkbox for
+/// the current block, and the stage file with the conflict blocks washed. The
+/// list is virtualised, and the handle lets a conflict jump scroll it.
+fn merge_side(
+    side: MergeSide<'_>,
+    _window: &mut Window,
+    _cx: &mut Context<ChangesView>,
+) -> gpui::AnyElement {
     let MergeSide {
         id,
         label,
         chosen,
         text,
+        ranges,
+        current,
+        scroll,
         font_detail,
         on_toggle,
     } = side;
-    div()
+    let mut lines: Vec<SharedString> = text
+        .split('\n')
+        .map(|line| SharedString::from(line.trim_end_matches('\r')))
+        .collect();
+    if text.ends_with('\n') {
+        lines.pop();
+    }
+    let lines = Rc::new(lines);
+    let count = lines.len();
+    let digits = count.to_string().len().max(2);
+    let row_h = (font_detail * 1.5).max(16.);
+    let gutter_w = digits as f32 * 7.5 + 10.;
+    let row_font = font_detail;
+    let list = uniform_list(
+        SharedString::from(format!("{id}-file")),
+        count,
+        move |range, _window, _cx| {
+            range
+                .map(|ix| {
+                    let line = lines.get(ix).cloned().unwrap_or_default();
+                    let in_block = ranges.iter().any(|range| range.contains(&ix));
+                    let is_current = current.as_ref().is_some_and(|range| range.contains(&ix));
+                    let mut row = div()
+                        .w_full()
+                        .h(px(row_h))
+                        .flex()
+                        .items_center()
+                        .font_family(theme::code_font())
+                        .text_size(px(row_font))
+                        .text_color(theme::text());
+                    if is_current {
+                        row = row.bg(theme::tint(theme::accent()));
+                    } else if in_block {
+                        row = row.bg(theme::raised());
+                    }
+                    row.child(
+                        div()
+                            .w(px(gutter_w))
+                            .flex_shrink_0()
+                            .pr_1()
+                            .flex()
+                            .justify_end()
+                            .text_size(px(row_font * 0.9))
+                            .text_color(theme::text_dim())
+                            .child(format!("{}", ix + 1)),
+                    )
+                    .child(div().flex_1().min_w_0().pl_2().truncate().child(line))
+                })
+                .collect()
+        },
+    )
+    .track_scroll(scroll)
+    .size_full();
+
+    let mut pane = div()
         .id(SharedString::from(id))
         .debug_selector(move || id.to_string())
         .flex_1()
@@ -3858,8 +4251,9 @@ fn merge_side(side: MergeSide<'_>, window: &mut Window, cx: &gpui::App) -> gpui:
         .flex_col()
         .bg(theme::well())
         .border_r_1()
-        .border_color(theme::hairline())
-        .child(
+        .border_color(theme::hairline());
+    if let Some(on_toggle) = on_toggle {
+        pane = pane.child(
             div()
                 .flex_shrink_0()
                 .h(px(34.))
@@ -3903,23 +4297,24 @@ fn merge_side(side: MergeSide<'_>, window: &mut Window, cx: &gpui::App) -> gpui:
                         .text_color(theme::text_dim())
                         .child(label),
                 ),
-        )
-        .child(
+        );
+    } else {
+        pane = pane.child(
             div()
-                .id(SharedString::from(format!("{id}-scroll")))
-                .flex_1()
-                .min_h_0()
-                .p_2()
-                .overflow_y_scroll()
-                .child(warpui_kit_diff::render_code(
-                    text,
-                    None,
-                    theme::text(),
-                    font_detail,
-                    window,
-                    cx,
-                )),
-        )
+                .flex_shrink_0()
+                .h(px(34.))
+                .px_2()
+                .flex()
+                .items_center()
+                .border_b_1()
+                .border_color(theme::hairline())
+                .text_size(px(theme::font_meta()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::text_dim())
+                .child(label),
+        );
+    }
+    pane.child(div().flex_1().min_h_0().child(list))
         .into_any_element()
 }
 
@@ -4363,6 +4758,13 @@ struct BranchMenu {
     delete_armed: bool,
 }
 
+/// The conflicted row's context menu: which path and where it opened.
+#[derive(Clone)]
+struct FileMenu {
+    path: String,
+    at: gpui::Point<gpui::Pixels>,
+}
+
 /// The merge editor's view state; the conflicted file itself is read from the
 /// store when the net thread answers.
 struct MergeEditor {
@@ -4374,6 +4776,24 @@ struct MergeEditor {
     whole: Option<ConflictSide>,
     manual: bool,
     manual_text: Option<Entity<TextareaState>>,
+    /// Side-by-side sides over the result, or three/four columns in one row.
+    layout: MergeLayout,
+    /// The optional Base pane; only offered when every block has a diff3 base.
+    show_base: bool,
+    local_scroll: UniformListScrollHandle,
+    incoming_scroll: UniformListScrollHandle,
+    base_scroll: UniformListScrollHandle,
+    /// The first block was scrolled to once the file landed; later renders
+    /// leave the reader's scroll alone.
+    scrolled: bool,
+}
+
+/// How the editor's panes arrange: the default split (sides above the result)
+/// or one row of columns on a wide pane.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MergeLayout {
+    Split,
+    Columns,
 }
 
 /// The branch selector: a pick checks the branch out, a right-click opens the

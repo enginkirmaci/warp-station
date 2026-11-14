@@ -2574,6 +2574,23 @@ impl Store {
         cx.notify();
     }
 
+    /// Resolves every block of one file to the same side, from the conflicted
+    /// row's menu; the reload clears the row.
+    pub fn bulk_resolve_conflict(
+        &mut self,
+        path: &str,
+        side: warp_station_core::git::conflict::ConflictSide,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_git(
+            GitAction::ResolveConflictBulk {
+                path: path.to_string(),
+                side,
+            },
+            cx,
+        );
+    }
+
     /// Writes the editor's resolution and stages it; the reload that follows
     /// clears the row and flips the band.
     pub fn resolve_merge_conflict(

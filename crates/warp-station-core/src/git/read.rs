@@ -202,6 +202,22 @@ pub fn change_snapshot(folder: &Path) -> Option<GitChangeSnapshot> {
         status_options(&mut opts);
         let statuses = repo.statuses(Some(&mut opts)).ok()?;
         let mut snapshot = GitChangeSnapshot::default();
+        // A stopped merge is a repository state, not a session flag: the band
+        // and the conflict list read it from the same snapshot after a
+        // restart. It is read before the empty-status shortcut because a
+        // resolved merge whose content matches HEAD has no status rows at all
+        // and is still a merge until Continue.
+        if repo.state() == git2::RepositoryState::Merge {
+            let conflicted = statuses
+                .iter()
+                .filter(|entry| entry.status().contains(Status::CONFLICTED))
+                .filter_map(|entry| entry.path().ok().map(str::to_string))
+                .collect();
+            snapshot.merge = Some(GitMergeState {
+                source: merge_source(repo).unwrap_or_default(),
+                conflicted,
+            });
+        }
         if statuses.is_empty() {
             return Some(snapshot);
         }
@@ -234,22 +250,6 @@ pub fn change_snapshot(folder: &Path) -> Option<GitChangeSnapshot> {
                 worktree_side += 1;
             }
             describe_status_entry(entry, &mut snapshot);
-        }
-
-        // A stopped merge is a repository state, not a session flag: the band
-        // and the Conflicts list read it from the same snapshot after a
-        // restart. `MERGE_MSG` names the source branch when git had a name for
-        // it; the unmerged paths are the status entries git marks conflicted.
-        if repo.state() == git2::RepositoryState::Merge {
-            let conflicted = statuses
-                .iter()
-                .filter(|entry| entry.status().contains(Status::CONFLICTED))
-                .filter_map(|entry| entry.path().ok().map(str::to_string))
-                .collect();
-            snapshot.merge = Some(GitMergeState {
-                source: merge_source(repo).unwrap_or_default(),
-                conflicted,
-            });
         }
 
         // Worktree diff = index vs worktree (git diff); cached = HEAD vs index

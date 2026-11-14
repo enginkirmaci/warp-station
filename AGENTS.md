@@ -139,8 +139,16 @@ Keep this order; several steps depend on the previous one:
   `MergeContinue` runs `git merge --continue` with `GIT_EDITOR=true` (the
   prepared `MERGE_MSG` stands), `MergeAbort` runs `git merge --abort`. The
   editor's data is `git::conflict::conflict_file` (index stages plus the
-  worktree marker parse); `ResolveConflict` writes the worktree file and runs
-  `git add`, which is what clears the unmerged entry. The row menu needs
+  worktree marker parse; each block carries its line range in every stage
+  file, taken from the parser's projection rather than a three-way diff);
+  `ResolveConflict` writes the worktree file and runs `git add`, which is what
+  clears the unmerged entry. The conflicted row's right-click menu resolves the
+  whole file with `ResolveConflictBulk` (`conflict::resolve_all`). The editor's
+  panes are virtualised whole-file lists with the block wash; prev/next and the
+  numbered strip scroll all panes to the block (`UniformListScrollHandle`), the
+  Split/Columns toggle needs a pane wider than 1000 px, and the Base pane only
+  appears for `merge.conflictStyle=diff3` (a merge-style file has no base
+  section to map). Wheel scrolling is per pane. The row menu needs
   `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
   table now carries the picker so the linked build uses the local kit — the app
   repository needs a kit tag/pin bump before it builds standalone. Branch rows

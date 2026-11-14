@@ -369,6 +369,12 @@ pub enum GitAction {
         path: String,
         text: Option<String>,
     },
+    /// Resolves every block of one file to the same side in one step (the
+    /// conflicted row's menu).
+    ResolveConflictBulk {
+        path: String,
+        side: warp_station_core::git::conflict::ConflictSide,
+    },
 }
 
 /// A merge action's ending, carried apart from the generic git toast: a
@@ -487,7 +493,9 @@ impl GitAction {
             GitAction::Merge { .. } => "merge",
             GitAction::MergeContinue => "merge continue",
             GitAction::MergeAbort => "merge abort",
-            GitAction::ResolveConflict { .. } => "resolve conflict",
+            GitAction::ResolveConflict { .. } | GitAction::ResolveConflictBulk { .. } => {
+                "resolve conflict"
+            }
         }
     }
 
@@ -499,7 +507,8 @@ impl GitAction {
             GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => {
                 Some(name.clone())
             }
-            GitAction::ResolveConflict { path, .. } => Some(path.clone()),
+            GitAction::ResolveConflict { path, .. }
+            | GitAction::ResolveConflictBulk { path, .. } => Some(path.clone()),
             _ => None,
         }
     }
@@ -2293,6 +2302,10 @@ async fn plain_git_action(
         GitAction::ResolveConflict { path, text } => {
             let outcome =
                 warp_station_core::git::conflict::resolve(folder, path, text.as_deref()).await;
+            outcome.into_outcome()
+        }
+        GitAction::ResolveConflictBulk { path, side } => {
+            let outcome = warp_station_core::git::conflict::resolve_all(folder, path, *side).await;
             outcome.into_outcome()
         }
         GitAction::Merge { .. } | GitAction::MergeContinue | GitAction::MergeAbort => {

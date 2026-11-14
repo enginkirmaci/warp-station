@@ -41,6 +41,14 @@ pub struct GitConflictBlock {
     pub local: String,
     pub incoming: String,
     pub base: Option<String>,
+    /// The block's lines in each stage file, for the whole-file panes. The
+    /// projection is exact for a content conflict: removing the markers and
+    /// the other side leaves the stage file, so the line index before the
+    /// block is the stage line the section starts on. A merge-style conflict
+    /// has no base section, so `base_lines` is an empty range there.
+    pub local_lines: Range<usize>,
+    pub incoming_lines: Range<usize>,
+    pub base_lines: Range<usize>,
 }
 
 /// The three sides a whole-file take can choose when the worktree has no
@@ -117,6 +125,19 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
     let mut local = String::new();
     let mut base = String::new();
     let mut incoming = String::new();
+    // Lines accumulated in each stage's projection: the common lines plus the
+    // sections of that side. At a block start this is the stage line the
+    // section begins on; a content conflict's projection is the whole stage
+    // file, so the mapping is exact.
+    let mut local_line = 0usize;
+    let mut incoming_line = 0usize;
+    let mut base_line = 0usize;
+    let mut local_start = 0usize;
+    let mut incoming_start = 0usize;
+    let mut base_start = 0usize;
+    let mut local_count = 0usize;
+    let mut incoming_count = 0usize;
+    let mut base_count = 0usize;
     for line in text.split_inclusive('\n') {
         let bare = line.trim_end_matches(['\r', '\n']);
         match state {
@@ -127,6 +148,16 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
                     local.clear();
                     base.clear();
                     incoming.clear();
+                    local_start = local_line;
+                    incoming_start = incoming_line;
+                    base_start = base_line;
+                    local_count = 0;
+                    incoming_count = 0;
+                    base_count = 0;
+                } else {
+                    local_line += 1;
+                    incoming_line += 1;
+                    base_line += 1;
                 }
             }
             State::Local => {
@@ -140,6 +171,7 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
                     return None;
                 } else {
                     local.push_str(line);
+                    local_count += 1;
                 }
             }
             State::Base => {
@@ -149,6 +181,7 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
                     return None;
                 } else {
                     base.push_str(line);
+                    base_count += 1;
                 }
             }
             State::Incoming => {
@@ -158,7 +191,13 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
                         local: std::mem::take(&mut local),
                         incoming: std::mem::take(&mut incoming),
                         base: (!base.is_empty()).then(|| std::mem::take(&mut base)),
+                        local_lines: local_start..local_start + local_count,
+                        incoming_lines: incoming_start..incoming_start + incoming_count,
+                        base_lines: base_start..base_start + base_count,
                     });
+                    local_line = local_start + local_count;
+                    incoming_line = incoming_start + incoming_count;
+                    base_line = base_start + base_count;
                     state = State::Normal;
                 } else if marker_run(bare, '=') >= 7
                     || marker_run(bare, '<') >= 7
@@ -167,6 +206,7 @@ pub fn parse_conflict_blocks(text: &str) -> Option<Vec<GitConflictBlock>> {
                     return None;
                 } else {
                     incoming.push_str(line);
+                    incoming_count += 1;
                 }
             }
         }
@@ -208,6 +248,33 @@ pub fn assemble(
     }
     result.push_str(&text[cursor..]);
     result
+}
+
+/// Resolves every block of one file to the same side, in one step: the
+/// conflicted row's context menu's "Keep Local" / "Take Incoming". A file with
+/// no marker blocks takes that whole stage; a file that is not a text conflict
+/// fails with a readable line.
+pub async fn resolve_all(
+    folder: &Path,
+    path: &str,
+    side: ConflictSide,
+) -> crate::git::cli::GitOutcome {
+    let Some(file) = conflict_file(folder, path) else {
+        return crate::git::cli::GitOutcome {
+            ok: false,
+            error: Some(format!("{path} has no text conflict to resolve")),
+        };
+    };
+    let text = if file.blocks.is_empty() {
+        match side {
+            ConflictSide::Local => file.local.clone(),
+            ConflictSide::Incoming => file.incoming.clone(),
+        }
+    } else {
+        let choices = vec![Some(side); file.blocks.len()];
+        assemble(&file.worktree, &file.blocks, &choices)
+    };
+    resolve(folder, path, Some(&text)).await
 }
 
 /// Writes the resolved text and stages it: `git add` is what clears the
@@ -255,8 +322,13 @@ mod tests {
         let blocks = parse_conflict_blocks(text).expect("well-formed");
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].base.as_deref(), Some("b\n"));
+        assert_eq!(blocks[0].local_lines, 0..1);
+        assert_eq!(blocks[0].base_lines, 0..1);
         assert_eq!(blocks[1].local, "d\n");
         assert_eq!(blocks[1].incoming, "e\n");
+        // "mid" is one common line, so the second block starts on line 2
+        assert_eq!(blocks[1].local_lines, 2..3);
+        assert_eq!(blocks[1].incoming_lines, 2..3);
     }
 
     #[test]
@@ -350,6 +422,60 @@ mod tests {
             !std::fs::read_to_string(dir.join("shared.txt"))
                 .expect("resolved file")
                 .contains("<<<<<<<")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The bulk path: every block to one side, written and staged in one call.
+    #[tokio::test]
+    async fn resolve_all_takes_the_whole_file() {
+        use std::path::PathBuf;
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .envs([
+                    ("GIT_AUTHOR_NAME", "t"),
+                    ("GIT_AUTHOR_EMAIL", "t@example.com"),
+                    ("GIT_COMMITTER_NAME", "t"),
+                    ("GIT_COMMITTER_EMAIL", "t@example.com"),
+                ])
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+        let dir: PathBuf =
+            std::env::temp_dir().join(format!("ws-conflict-bulk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        git(&dir, &["init", "-b", "main"]);
+        std::fs::write(dir.join("shared.txt"), "base\n").expect("base");
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-m", "base"]);
+        git(&dir, &["checkout", "-b", "feat"]);
+        std::fs::write(dir.join("shared.txt"), "feat\n").expect("feat");
+        git(&dir, &["commit", "-am", "feat edit"]);
+        git(&dir, &["checkout", "main"]);
+        std::fs::write(dir.join("shared.txt"), "main\n").expect("main");
+        git(&dir, &["commit", "-am", "main edit"]);
+        let status = std::process::Command::new("git")
+            .args(["merge", "feat"])
+            .current_dir(&dir)
+            .status()
+            .expect("git runs");
+        assert!(!status.success(), "the fixture merge must stop");
+
+        let outcome = resolve_all(&dir, "shared.txt", ConflictSide::Local).await;
+        assert!(outcome.ok, "{:?}", outcome.error);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("shared.txt")).expect("resolved"),
+            "main\n"
+        );
+        let snapshot = crate::git::read::change_snapshot(&dir).expect("snapshot");
+        assert_eq!(
+            snapshot.merge.map(|merge| merge.conflicted.len()),
+            Some(0),
+            "the whole-file take clears the unmerged entry"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
