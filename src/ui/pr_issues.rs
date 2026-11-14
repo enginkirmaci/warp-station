@@ -100,6 +100,17 @@ impl ItemListView {
         }
     }
 
+    /// The open pull request's head menus, for an outside press: only those,
+    /// never the page or the filter behind them.
+    pub fn close_menus(&self, cx: &mut gpui::App) {
+        self.pull.update(cx, |view, cx| {
+            view.close_menus(cx);
+        });
+        self.azure_pull.update(cx, |view, cx| {
+            view.close_menus(cx);
+        });
+    }
+
     /// Escape: the workbench's form or pull request first, then the Sort menu,
     /// then the filter. Returns whether it took the key.
     pub fn dismiss(&mut self, cx: &mut Context<Self>) -> bool {

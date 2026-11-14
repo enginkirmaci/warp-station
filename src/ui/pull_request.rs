@@ -18,8 +18,10 @@ use gpui::{
     AnyElement, App, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
     SharedString, Window, div, px,
 };
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
+use std::cell::Cell;
 use std::rc::Rc;
 use warp_station_core::github::{
     CheckState, GitHubCheck, GitHubCommit, GitHubFilePatch, GitHubPull, PullAction,
@@ -86,6 +88,10 @@ pub struct PullRequestView {
     commit_scroll: DiffScrollHandles,
     /// The head's two menus.
     primary_menu: bool,
+    /// The two triggers' window bounds, written from prepaint: the menu hangs
+    /// off the button that opened it, not off the row or the pane.
+    primary_trigger: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    review_trigger: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     review_menu: bool,
     /// The "Add a comment" composer.
     comment: Entity<TextareaState>,
@@ -137,6 +143,8 @@ impl PullRequestView {
             diff_scroll: DiffScrollHandles::default(),
             commit_scroll: DiffScrollHandles::default(),
             primary_menu: false,
+            primary_trigger: Rc::new(Cell::new(None)),
+            review_trigger: Rc::new(Cell::new(None)),
             review_menu: false,
             comment,
             showing: None,
@@ -154,6 +162,11 @@ impl PullRequestView {
 
     /// Escape: the head's menus first. Back (below 900 px) is the page's.
     pub fn dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        self.close_menus(cx)
+    }
+
+    /// An outside press closes the head's menus; nothing else on the page.
+    pub fn close_menus(&mut self, cx: &mut Context<Self>) -> bool {
         if self.primary_menu || self.review_menu {
             self.primary_menu = false;
             self.review_menu = false;
@@ -416,6 +429,8 @@ impl PullRequestView {
                 closed,
                 url,
                 this,
+                &self.review_trigger,
+                &self.primary_trigger,
             ));
 
         div()
@@ -1662,7 +1677,7 @@ impl PullRequestView {
     // ---- menus ------------------------------------------------------------
 
     fn primary_menu_card(&self, pull: Option<&GitHubPull>, this: &Entity<Self>) -> AnyElement {
-        let mut menu = menu_shell("pull-primary-menu");
+        let mut menu = menu_shell("pull-primary-card");
         if let Some(pull) = pull {
             let store = self.store.clone();
             let this_click = this.clone();
@@ -1730,11 +1745,16 @@ impl PullRequestView {
                 },
             ));
         }
-        gpui::deferred(menu).into_any_element()
+        menu_layer(
+            "pull-primary-catcher",
+            menu,
+            &self.primary_trigger,
+            Self::close_menus_listener(this),
+        )
     }
 
     fn review_menu_card(&self, pull: Option<&GitHubPull>, this: &Entity<Self>) -> AnyElement {
-        let mut menu = menu_shell("pull-review-menu");
+        let mut menu = menu_shell("pull-review-card");
         if pull.is_some() {
             let store = self.store.clone();
             let this_click = this.clone();
@@ -1771,8 +1791,64 @@ impl PullRequestView {
                 },
             ));
         }
-        gpui::deferred(menu).into_any_element()
+        menu_layer(
+            "pull-review-catcher",
+            menu,
+            &self.review_trigger,
+            Self::close_menus_listener(this),
+        )
     }
+
+    /// The listener both catchers share: any press outside an item takes both
+    /// head menus down.
+    fn close_menus_listener(
+        this: &Entity<Self>,
+    ) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static {
+        let this = this.clone();
+        move |_, _, cx| {
+            this.update(cx, |view, cx| {
+                view.close_menus(cx);
+            });
+        }
+    }
+}
+
+/// A head menu over a pane-sized catcher: the card hangs off the trigger's own
+/// bounds (captured at prepaint), and a press anywhere else takes it down. The
+/// catcher is the pane's last child, so it paints over the page; its presses
+/// never reach the control underneath, which is why the trigger closes the
+/// menu instead of toggling it back open.
+pub(crate) fn menu_layer(
+    id: &'static str,
+    menu: gpui::Stateful<gpui::Div>,
+    trigger: &Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    close: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let at = trigger
+        .get()
+        .map(|bounds| {
+            gpui::point(
+                bounds.origin.x + bounds.size.width,
+                bounds.origin.y + bounds.size.height,
+            )
+        })
+        .unwrap_or_default();
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .absolute()
+        .inset_0()
+        .occlude()
+        .on_mouse_down(MouseButton::Left, close)
+        .child(
+            gpui::anchored()
+                .anchor(gpui::Anchor::TopRight)
+                .position(at)
+                .offset(gpui::point(px(0.), px(6.)))
+                .snap_to_window_with_margin(px(8.))
+                .child(menu),
+        )
+        .into_any_element()
 }
 
 // ---- free pieces -----------------------------------------------------------
@@ -1972,6 +2048,8 @@ fn head_actions(
     closed: bool,
     url: String,
     this: &Entity<PullRequestView>,
+    review_trigger: &Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    primary_trigger: &Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
 ) -> AnyElement {
     let mut row = div()
         .flex()
@@ -2001,18 +2079,24 @@ fn head_actions(
                 },
             );
             let this_menu = this.clone();
-            row = row.child(split_button(
-                "pull-approve",
-                approve,
-                false,
-                move |_, _, cx| {
-                    this_menu.update(cx, |this, cx| {
-                        this.review_menu = !this.review_menu;
-                        this.primary_menu = false;
-                        cx.notify();
-                    });
-                },
-            ));
+            let capture = review_trigger.clone();
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .on_prepaint(move |bounds, _, _| capture.set(Some(bounds)))
+                    .child(split_button(
+                        "pull-approve",
+                        approve,
+                        false,
+                        move |_, _, cx| {
+                            this_menu.update(cx, |this, cx| {
+                                this.review_menu = !this.review_menu;
+                                this.primary_menu = false;
+                                cx.notify();
+                            });
+                        },
+                    )),
+            );
         }
 
         let primary: AnyElement = if closed {
@@ -2107,18 +2191,24 @@ fn head_actions(
             row = row.child(primary);
         } else {
             let this_menu = this.clone();
-            row = row.child(split_button(
-                "pull-primary",
-                primary,
-                true,
-                move |_, _, cx| {
-                    this_menu.update(cx, |this, cx| {
-                        this.primary_menu = !this.primary_menu;
-                        this.review_menu = false;
-                        cx.notify();
-                    });
-                },
-            ));
+            let capture = primary_trigger.clone();
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .on_prepaint(move |bounds, _, _| capture.set(Some(bounds)))
+                    .child(split_button(
+                        "pull-primary",
+                        primary,
+                        true,
+                        move |_, _, cx| {
+                            this_menu.update(cx, |this, cx| {
+                                this.primary_menu = !this.primary_menu;
+                                this.review_menu = false;
+                                cx.notify();
+                            });
+                        },
+                    )),
+            );
         }
         // a merged pull request's next step is the pipeline the merge
         // started: one press lands on its branch, already followed
@@ -2229,6 +2319,10 @@ pub(crate) fn split_button(
                         .border_color(theme::line_strong())
                         .hover(|s| s.bg(theme::raised()))
                 })
+                // the window root closes popups on any press; this trigger
+                // owns its own, or the press would close the menu and the
+                // click would immediately reopen it
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(on_menu)
                 .child(icon(
                     "icons/icon-chevron-down.svg",
@@ -2819,9 +2913,6 @@ pub(crate) fn menu_shell(selector: &'static str) -> gpui::Stateful<gpui::Div> {
     div()
         .id(selector)
         .debug_selector(move || selector.into())
-        .absolute()
-        .top(px(56.))
-        .right(px(shell::DETAIL_PADDING))
         .w(px(240.))
         .p(px(4.))
         .rounded(px(8.))

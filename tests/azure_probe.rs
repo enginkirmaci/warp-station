@@ -1056,9 +1056,30 @@ fn the_azure_verbs_send_one_request_each(cx: &mut TestAppContext) {
         cx,
     );
 
-    // abandon asks through the page's card
+    // abandon asks through the page's card; it hangs under its trigger and a
+    // press elsewhere on the page takes it down
+    let trigger = cx
+        .debug_bounds("azure-primary-menu")
+        .expect("the chevron draws");
     click(cx, "azure-primary-menu");
-    assert!(cx.debug_bounds("azure-primary-menu").is_some());
+    let card = cx
+        .debug_bounds("azure-primary-card")
+        .expect("the menu drops under its trigger");
+    assert!(
+        card.origin.y >= trigger.origin.y + trigger.size.height,
+        "the card hangs under the trigger: trigger {trigger:?}, card {card:?}"
+    );
+    let tab = cx
+        .debug_bounds("azure-pull-tab-files")
+        .expect("a tab draws");
+    cx.simulate_click(tab.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    draw(cx);
+    assert!(
+        cx.debug_bounds("azure-primary-card").is_none(),
+        "an outside press closes the menu"
+    );
+    click(cx, "azure-primary-menu");
     click(cx, "azure-menu-abandon");
     assert!(cx.debug_bounds("abandon-azure-dialog").is_some());
     assert!(

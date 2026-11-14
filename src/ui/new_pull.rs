@@ -598,7 +598,15 @@ impl NewPullView {
                 !creating,
                 draft,
             ));
-        gpui::deferred(menu).into_any_element()
+        // the form's head sits at the pane's top; the menu hangs under it
+        gpui::deferred(
+            div()
+                .absolute()
+                .top(px(56.))
+                .right(px(warpui_kit_core::shell::DETAIL_PADDING))
+                .child(menu),
+        )
+        .into_any_element()
     }
 }
 

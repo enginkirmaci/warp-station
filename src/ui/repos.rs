@@ -329,6 +329,7 @@ impl ReposPage {
     /// An outside press closes whichever of the page's menus is open.
     pub fn close_popups(&mut self, cx: &mut Context<Self>) {
         self.close_repo_menu(cx);
+        self.views.close_menus(cx);
         if self.sort_menu_open || self.tag_menu_open || self.launch_menu_open {
             self.sort_menu_open = false;
             self.tag_menu_open = false;

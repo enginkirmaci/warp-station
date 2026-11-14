@@ -78,6 +78,12 @@ impl DetailViews {
         }
     }
 
+    /// The open pull request's head menus, whichever list tab is showing.
+    pub fn close_menus(&self, cx: &mut App) {
+        self.pulls.update(cx, |view, cx| view.close_menus(cx));
+        self.issues.update(cx, |view, cx| view.close_menus(cx));
+    }
+
     /// Escape, for whichever list tab is showing: its pull request, then its
     /// menu, then its filter.
     pub fn dismiss_list(&self, tab: WorkspaceTab, cx: &mut App) -> bool {

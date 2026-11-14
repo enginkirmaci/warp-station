@@ -21,8 +21,10 @@ use gpui::{
     AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
     SharedString, Window, div, px,
 };
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
+use std::cell::Cell;
 use std::rc::Rc;
 use warp_station_core::azure::{
     AzureFile, AzurePolicy, AzurePull, AzurePullAction, AzureThread, AzureUser,
@@ -75,6 +77,10 @@ pub struct AzurePullView {
     diff_scroll: DiffScrollHandles,
     review_menu: bool,
     primary_menu: bool,
+    /// The two triggers' window bounds, from prepaint: each menu hangs off the
+    /// button that opened it.
+    primary_trigger: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    review_trigger: Rc<Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     /// The reviewer picker is open under the Reviewers card.
     reviewer_menu: bool,
     /// The "Add a comment" composer.
@@ -116,6 +122,8 @@ impl AzurePullView {
             diff_scroll: DiffScrollHandles::default(),
             review_menu: false,
             primary_menu: false,
+            primary_trigger: Rc::new(Cell::new(None)),
+            review_trigger: Rc::new(Cell::new(None)),
             reviewer_menu: false,
             comment,
             showing: None,
@@ -130,6 +138,11 @@ impl AzurePullView {
 
     /// Escape: the head's menus first. The workbench closes the pull request.
     pub fn dismiss(&mut self, cx: &mut Context<Self>) -> bool {
+        self.close_menus(cx)
+    }
+
+    /// An outside press closes the head's menus; nothing else on the page.
+    pub fn close_menus(&mut self, cx: &mut Context<Self>) -> bool {
         if self.review_menu || self.primary_menu {
             self.review_menu = false;
             self.primary_menu = false;
@@ -360,18 +373,24 @@ impl AzurePullView {
                     },
                 );
                 let this_menu = this.clone();
-                actions = actions.child(split_button(
-                    "azure-approve",
-                    approve,
-                    false,
-                    move |_, _, cx| {
-                        this_menu.update(cx, |view, cx| {
-                            view.review_menu = !view.review_menu;
-                            view.primary_menu = false;
-                            cx.notify();
-                        });
-                    },
-                ));
+                let capture = self.review_trigger.clone();
+                actions = actions.child(
+                    div()
+                        .flex_shrink_0()
+                        .on_prepaint(move |bounds, _, _| capture.set(Some(bounds)))
+                        .child(split_button(
+                            "azure-approve",
+                            approve,
+                            false,
+                            move |_, _, cx| {
+                                this_menu.update(cx, |view, cx| {
+                                    view.review_menu = !view.review_menu;
+                                    view.primary_menu = false;
+                                    cx.notify();
+                                });
+                            },
+                        )),
+                );
             }
 
             let primary: AnyElement = if pull.is_abandoned() {
@@ -476,18 +495,24 @@ impl AzurePullView {
                 actions = actions.child(primary);
             } else {
                 let this_menu = this.clone();
-                actions = actions.child(split_button(
-                    "azure-primary",
-                    primary,
-                    true,
-                    move |_, _, cx| {
-                        this_menu.update(cx, |view, cx| {
-                            view.primary_menu = !view.primary_menu;
-                            view.review_menu = false;
-                            cx.notify();
-                        });
-                    },
-                ));
+                let capture = self.primary_trigger.clone();
+                actions = actions.child(
+                    div()
+                        .flex_shrink_0()
+                        .on_prepaint(move |bounds, _, _| capture.set(Some(bounds)))
+                        .child(split_button(
+                            "azure-primary",
+                            primary,
+                            true,
+                            move |_, _, cx| {
+                                this_menu.update(cx, |view, cx| {
+                                    view.primary_menu = !view.primary_menu;
+                                    view.review_menu = false;
+                                    cx.notify();
+                                });
+                            },
+                        )),
+                );
             }
             // a completed pull request steps on to the build its merge target
             // started; Azure keeps the pull request and the runs in one column,
@@ -1288,7 +1313,7 @@ impl AzurePullView {
         acting: bool,
         this: &Entity<Self>,
     ) -> AnyElement {
-        let mut menu = menu_shell("azure-primary-menu");
+        let mut menu = menu_shell("azure-primary-card");
         if let Some(pull) = pull {
             let active = pull.is_active();
             if active && pull.ready_to_complete(policies) && !pull.auto_complete {
@@ -1358,7 +1383,12 @@ impl AzurePullView {
                 ));
             }
         }
-        gpui::deferred(menu).into_any_element()
+        crate::ui::pull_request::menu_layer(
+            "azure-primary-catcher",
+            menu,
+            &self.primary_trigger,
+            Self::close_menus_listener(this),
+        )
     }
 
     fn review_menu_card(
@@ -1367,7 +1397,7 @@ impl AzurePullView {
         acting: bool,
         this: &Entity<Self>,
     ) -> AnyElement {
-        let mut menu = menu_shell("azure-review-menu");
+        let mut menu = menu_shell("azure-review-card");
         if let Some(pull) = pull {
             let reviewer = pull.my_reviewer().map(|r| r.id.clone());
             let vote = |vote: i64| {
@@ -1402,7 +1432,25 @@ impl AzurePullView {
                     vote(-10),
                 ));
         }
-        gpui::deferred(menu).into_any_element()
+        crate::ui::pull_request::menu_layer(
+            "azure-review-catcher",
+            menu,
+            &self.review_trigger,
+            Self::close_menus_listener(this),
+        )
+    }
+
+    /// The listener both catchers share: any press outside an item takes both
+    /// head menus down.
+    fn close_menus_listener(
+        this: &Entity<Self>,
+    ) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut gpui::App) + 'static {
+        let this = this.clone();
+        move |_, _, cx| {
+            this.update(cx, |view, cx| {
+                view.close_menus(cx);
+            });
+        }
     }
 }
 

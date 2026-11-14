@@ -1967,6 +1967,62 @@ fn the_pull_request_verbs_send_one_command(cx: &mut TestAppContext) {
     );
 }
 
+/// The head's menu hangs under the trigger that opened it, and a press
+/// anywhere else takes it down. It used to open over the head, stay up until
+/// Escape, and its trigger toggled it shut-then-open against the window's
+/// outside press.
+#[gpui::test]
+fn the_pull_request_menu_hangs_under_its_trigger_and_closes(cx: &mut TestAppContext) {
+    let (store, _net_rx) =
+        scratch_store(cx, "pull-menu-place", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    use_a_located_gh(&store, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_pull.as_mut().unwrap().pull = Some(ready_pull(0));
+        cx.notify();
+    });
+    draw(cx);
+
+    let trigger = cx
+        .debug_bounds("pull-primary-menu")
+        .expect("the chevron draws");
+    click(cx, "pull-primary-menu");
+    let card = cx
+        .debug_bounds("pull-primary-card")
+        .expect("the menu draws under its trigger");
+    assert!(
+        card.origin.y >= trigger.origin.y + trigger.size.height,
+        "the card drops under the trigger: trigger {trigger:?}, card {card:?}"
+    );
+    assert_eq!(
+        card.origin.x + card.size.width,
+        trigger.origin.x + trigger.size.width,
+        "the card's right edge follows the trigger's"
+    );
+
+    // a press elsewhere on the page takes it down
+    let tab = cx.debug_bounds("pull-tab-overview").expect("a tab draws");
+    cx.simulate_click(tab.center(), gpui::Modifiers::default());
+    cx.run_until_parked();
+    draw(cx);
+    assert!(
+        cx.debug_bounds("pull-primary-card").is_none(),
+        "an outside press closes the menu"
+    );
+
+    // the trigger still owns its own press: open, then close with it
+    click(cx, "pull-primary-menu");
+    assert!(cx.debug_bounds("pull-primary-card").is_some());
+    click(cx, "pull-primary-menu");
+    assert!(
+        cx.debug_bounds("pull-primary-card").is_none(),
+        "the trigger closes the menu it opened"
+    );
+}
+
 /// New pull request opens the form in the detail column — not an overlay, and
 /// not the browser — and Cancel gives the selection back.
 #[gpui::test]
