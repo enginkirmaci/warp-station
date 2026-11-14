@@ -337,6 +337,18 @@ fn history_and_drill_down_draw(cx: &mut TestAppContext) {
         row.size.width, history.size.width,
         "the history row spans the list, not its own content"
     );
+    // The day header is its own row: the commit under it keeps the full row
+    // height instead of shrinking to fit the header.
+    let body_selector: &'static str =
+        Box::leak(format!("commit-body-{head_short}").into_boxed_str());
+    let body = cx
+        .debug_bounds(body_selector)
+        .expect("the newest commit's body draws");
+    assert!(
+        body.size.height > px(50.),
+        "the commit under a day header keeps its height (got {})",
+        f32::from(body.size.height)
+    );
     if let Some(rail) = cx.debug_bounds("commit-files") {
         let file_row = cx
             .debug_bounds("commit-file-0")

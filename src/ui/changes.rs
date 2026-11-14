@@ -13,8 +13,9 @@ use crate::ui::diff_controls;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, FocusHandle, FontWeight, HighlightStyle, MouseButton, ScrollStrategy,
-    SharedString, StyledText, Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
+    Context, Entity, FocusHandle, FontWeight, HighlightStyle, ListAlignment, ListState,
+    MouseButton, ScrollStrategy, SharedString, StyledText, Subscription, UniformListScrollHandle,
+    Window, div, list, px, uniform_list,
 };
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use std::cell::RefCell;
@@ -43,6 +44,15 @@ struct HistoryRow {
     short_hash: String,
     subject: String,
     hash: String,
+}
+
+/// A History list item: a day's header row or a commit row. The list is
+/// height-measured (`gpui::list`), so a 26 px day header never squeezes the
+/// commit under it.
+#[derive(Clone)]
+enum HistoryItem {
+    Day(String),
+    Commit(usize),
 }
 
 /// The staged/unstaged split produced by `GitChangeSnapshot::change_groups`.
@@ -92,6 +102,9 @@ impl FileSection {
 /// One history row: a commit, with its day header on the row above the first
 /// of each day. Fixed so `uniform_list` can size the whole list.
 const HISTORY_ROW_HEIGHT: f32 = 58.;
+/// A day header's own row; the commit list is height-measured, so this stays
+/// out of the commit row's 58 px.
+const HISTORY_DAY_HEIGHT: f32 = 26.;
 /// The file list and commit box's width.
 const FILE_COLUMN_W: f32 = 320.;
 /// The trailing zone a row keeps for its counts and, on hover, its verbs: the
@@ -182,8 +195,11 @@ pub struct ChangesView {
     file_scroll: UniformListScrollHandle,
     /// The history commit list's keyboard focus.
     history_focus: FocusHandle,
-    /// Keeps the keyboard-selected commit row in view.
-    history_scroll: UniformListScrollHandle,
+    /// The height-measured commit list: day headers and commits as separate
+    /// items, so the header never takes room from the commit below it.
+    history_items: Vec<HistoryItem>,
+    history_list: ListState,
+    history_list_key: (u64, usize),
     /// The panes on screen this frame, shared with the page and the list
     /// views; this view registers whichever of its two lists it draws.
     pane_nav: Rc<pane_nav::PaneNav>,
@@ -256,7 +272,9 @@ impl ChangesView {
             file_focus: cx.focus_handle(),
             file_scroll: UniformListScrollHandle::default(),
             history_focus: cx.focus_handle(),
-            history_scroll: UniformListScrollHandle::default(),
+            history_items: Vec::new(),
+            history_list: ListState::new(0, ListAlignment::Top, px(400.)),
+            history_list_key: (0, 0),
             pane_nav,
         }
     }
@@ -1157,8 +1175,13 @@ impl ChangesView {
         };
         let hash = self.history_rows[next].hash.clone();
         self.drill_commit(&hash, cx);
-        self.history_scroll
-            .scroll_to_item(next, ScrollStrategy::Nearest);
+        if let Some(item) = self
+            .history_items
+            .iter()
+            .position(|item| matches!(item, HistoryItem::Commit(index) if *index == next))
+        {
+            self.history_list.scroll_to_reveal_item(item);
+        }
     }
 
     /// A list column's head: its name and row count, dim until the list owns
@@ -1648,6 +1671,13 @@ impl ChangesView {
                     }
                 })
                 .collect();
+            self.history_items.clear();
+            for (index, row) in self.history_rows.iter().enumerate() {
+                if let Some(day) = &row.day_label {
+                    self.history_items.push(HistoryItem::Day(day.clone()));
+                }
+                self.history_items.push(HistoryItem::Commit(index));
+            }
             self.history_cache_key = (generation, today);
         }
         if self.history_rows.is_empty() {
@@ -1709,196 +1739,40 @@ impl ChangesView {
                 .into_any_element();
         }
 
-        // 200 commits is a normal history, so the list is virtualized: a day
-        // header and a commit row are both one fixed line, and `uniform_list`
-        // builds only the ones in the viewport. The old loop laid out every
-        // commit — its avatar, its hash chip and its listeners — on every
-        // repaint, and the store keeps 200 of them.
-        // shared, not moved out: `render_history` reads the newest row off the
-        // same field to pick the commit it drills into, before this list is
-        // even built
+        // A day header and a commit have different heights, so the history is
+        // a height-measured list, not a uniform one: a 26 px header row sits
+        // between commit rows and never eats into the commit below it. It
+        // still builds only the items in the viewport.
+        let key = (generation, self.history_items.len());
+        if self.history_list_key != key {
+            self.history_list_key = key;
+            self.history_list =
+                ListState::new(self.history_items.len(), ListAlignment::Top, px(400.));
+        }
+        let items = Rc::new(self.history_items.clone());
         let rows = Rc::new(self.history_rows.clone());
         let unpushed = Rc::new(unpushed);
-        uniform_list(
-            SharedString::from("history-list"),
-            rows.len(),
-            cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                range
-                    .map(|ix| this.render_history_row(&rows[ix], &unpushed, cx))
-                    .collect()
-            }),
-        )
-        .track_scroll(&self.history_scroll)
-        .debug_selector(|| "history-list".into())
-        .size_full()
-        .into_any_element()
-    }
-
-    /// One row of the virtualized history: a day header above its first commit,
-    /// then the commit itself. Both are [`HISTORY_ROW_HEIGHT`] so the list can
-    /// size itself without measuring.
-    fn render_history_row(
-        &mut self,
-        row: &HistoryRow,
-        unpushed: &Option<std::collections::HashSet<String>>,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let unpushed_mark = unpushed.as_ref().is_some_and(|set| set.contains(&row.hash));
-        let selected = self.drilled_commit.as_ref() == Some(&row.hash);
-        let day_label = row.day_label.clone();
+        let selected = self.drilled_commit.clone();
+        let entity = cx.entity();
+        let store = self.store.clone();
+        let list = list(
+            self.history_list.clone(),
+            move |ix, _window, _cx| match &items[ix] {
+                HistoryItem::Day(label) => history_day_row(label),
+                HistoryItem::Commit(row_index) => {
+                    let row = &rows[*row_index];
+                    let selected = selected.as_deref() == Some(row.hash.as_str());
+                    let unpushed = matches!(&*unpushed, Some(set) if set.contains(&row.hash));
+                    history_row_element(row, unpushed, selected, entity.clone(), store.clone())
+                }
+            },
+        );
         div()
-            .id(SharedString::from(format!("commit-{}", row.short_hash)))
-            .debug_selector({
-                let short = row.short_hash.clone();
-                move || format!("commit-{short}")
-            })
-            .a11y_button(format!("{} — {}, {}", row.subject, row.author, row.rel))
-            .cursor_pointer()
-            .flex_shrink_0()
-            .w_full()
-            .h(px(HISTORY_ROW_HEIGHT))
-            .flex()
-            .flex_col()
-            .justify_center()
-            .when_some(day_label, |d, label| {
-                d.child(
-                    div()
-                        .px_4()
-                        .pt_1()
-                        .text_size(px(theme::font_sub()))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text_dim())
-                        .child(label),
-                )
-            })
-            .child(
-                div()
-                    .id(SharedString::from(format!(
-                        "commit-body-{}",
-                        row.short_hash
-                    )))
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .gap_0p5()
-                    .pl(px(13.))
-                    .pr_3()
-                    .border_l_3()
-                    .border_color(if selected {
-                        theme::accent()
-                    } else {
-                        theme::surface()
-                    })
-                    .when(selected, |d| d.bg(theme::raised()))
-                    .when(!selected, |d| d.hover(|s| s.bg(theme::panel())))
-                    .on_click({
-                        let hash = row.hash.clone();
-                        cx.listener(move |this, _, _, cx| this.drill_commit(&hash, cx))
-                    })
-                    .child(
-                        div()
-                            .text_size(px(theme::font_body()))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::text())
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(row.subject.clone()),
-                    )
-                    .child(
-                        // the design's commit meta line: the avatar sits with
-                        // author, age, the unpushed mark and the SHA, so the
-                        // subject gets the column's full width
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .rounded_full()
-                                    .bg(theme::chip())
-                                    .w(px(20.))
-                                    .h(px(20.))
-                                    .flex_shrink_0()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(theme::font_micro()))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::text_muted())
-                                    .child(row.initials.clone()),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_size(px(theme::font_meta()))
-                                    .text_color(theme::text_dim())
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_ellipsis()
-                                    .child(format!("{} · {}", row.author, row.rel)),
-                            )
-                            .when(unpushed_mark, |meta| {
-                                // the design asks for an unpushed mark,
-                                // not a word: the arrow keeps the SHA on
-                                // a 320 column
-                                meta.child(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "unpushed-{}",
-                                            row.short_hash
-                                        )))
-                                        .role(gpui::Role::Status)
-                                        .aria_label("unpushed")
-                                        .flex_shrink_0()
-                                        .text_size(px(theme::font_meta()))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::AHEAD)
-                                        .tooltip(crate::ui::tooltip_text("Not pushed yet"))
-                                        .child("\u{2191}"),
-                                )
-                            })
-                            .child(
-                                // hash chip: clicking copies the full SHA without
-                                // drilling in
-                                div()
-                                    .id(SharedString::from(format!("copy-sha-{}", row.short_hash)))
-                                    .a11y_button(format!("Copy SHA {}", row.short_hash))
-                                    .cursor_pointer()
-                                    .flex_shrink_0()
-                                    .rounded_md()
-                                    .px_1()
-                                    .text_size(px(theme::font_meta()))
-                                    .font_family(gpui::SharedString::from(theme::code_font()))
-                                    .text_color(theme::text_faint())
-                                    .hover(|s| s.text_color(theme::blue_bright()))
-                                    .on_click({
-                                        let store = self.store.clone();
-                                        let full = row.hash.clone();
-                                        let short = row.short_hash.clone();
-                                        move |_, _, cx| {
-                                            cx.stop_propagation();
-                                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                                full.clone(),
-                                            ));
-                                            store.update(cx, |s, cx| {
-                                                s.notify_success(format!(
-                                                    "Copied {short} to clipboard"
-                                                ));
-                                                cx.notify();
-                                            });
-                                        }
-                                    })
-                                    .child(row.short_hash.clone()),
-                            ),
-                    ),
-            )
+            .id("history-list")
+            .debug_selector(|| "history-list".into())
+            .size_full()
+            .min_h_0()
+            .child(list.size_full())
             .into_any_element()
     }
 
@@ -4668,6 +4542,174 @@ fn merge_side(
         );
     }
     pane.child(div().flex_1().min_h_0().child(list))
+        .into_any_element()
+}
+
+/// A day header's own measured row: its own 26 px, so the commit below keeps
+/// its full height.
+fn history_day_row(label: &str) -> gpui::AnyElement {
+    div()
+        .id(SharedString::from(format!("history-day-{label}")))
+        .debug_selector(move || format!("history-day-{label}"))
+        .w_full()
+        .h(px(HISTORY_DAY_HEIGHT))
+        .flex_shrink_0()
+        .px_4()
+        .flex()
+        .items_end()
+        .pb_0p5()
+        .text_size(px(theme::font_sub()))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::text_dim())
+        .child(label.to_string())
+        .into_any_element()
+}
+
+/// One commit row: 58 px, the subject over the author/meta line. The day
+/// header is a separate item, so this row is never squeezed.
+fn history_row_element(
+    row: &HistoryRow,
+    unpushed_mark: bool,
+    selected: bool,
+    entity: Entity<ChangesView>,
+    store: Entity<Store>,
+) -> gpui::AnyElement {
+    div()
+        .id(SharedString::from(format!("commit-{}", row.short_hash)))
+        .debug_selector({
+            let short = row.short_hash.clone();
+            move || format!("commit-{short}")
+        })
+        .a11y_button(format!("{} — {}, {}", row.subject, row.author, row.rel))
+        .cursor_pointer()
+        .flex_shrink_0()
+        .w_full()
+        .h(px(HISTORY_ROW_HEIGHT))
+        .flex()
+        .flex_col()
+        .justify_center()
+        .child(
+            div()
+                .id(SharedString::from(format!(
+                    "commit-body-{}",
+                    row.short_hash
+                )))
+                .debug_selector({
+                    let short = row.short_hash.clone();
+                    move || format!("commit-body-{short}")
+                })
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .gap_0p5()
+                .pl(px(13.))
+                .pr_3()
+                .border_l_3()
+                .border_color(if selected {
+                    theme::accent()
+                } else {
+                    theme::surface()
+                })
+                .when(selected, |d| d.bg(theme::raised()))
+                .when(!selected, |d| d.hover(|s| s.bg(theme::panel())))
+                .on_click({
+                    let hash = row.hash.clone();
+                    move |_, _, cx| {
+                        entity.update(cx, |this, cx| this.drill_commit(&hash, cx));
+                    }
+                })
+                .child(
+                    div()
+                        .text_size(px(theme::font_body()))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::text())
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(row.subject.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .rounded_full()
+                                .bg(theme::chip())
+                                .w(px(20.))
+                                .h(px(20.))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(theme::font_micro()))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::text_muted())
+                                .child(row.initials.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(theme::font_meta()))
+                                .text_color(theme::text_dim())
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(format!("{} · {}", row.author, row.rel)),
+                        )
+                        .when(unpushed_mark, |meta| {
+                            meta.child(
+                                div()
+                                    .id(SharedString::from(format!("unpushed-{}", row.short_hash)))
+                                    .role(gpui::Role::Status)
+                                    .aria_label("unpushed")
+                                    .flex_shrink_0()
+                                    .text_size(px(theme::font_meta()))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::AHEAD)
+                                    .tooltip(crate::ui::tooltip_text("Not pushed yet"))
+                                    .child("\u{2191}"),
+                            )
+                        })
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("copy-sha-{}", row.short_hash)))
+                                .a11y_button(format!("Copy SHA {}", row.short_hash))
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .rounded_md()
+                                .px_1()
+                                .text_size(px(theme::font_meta()))
+                                .font_family(gpui::SharedString::from(theme::code_font()))
+                                .text_color(theme::text_faint())
+                                .hover(|s| s.text_color(theme::blue_bright()))
+                                .on_click({
+                                    let full = row.hash.clone();
+                                    let short = row.short_hash.clone();
+                                    move |_, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                            full.clone(),
+                                        ));
+                                        store.update(cx, |s, cx| {
+                                            s.notify_success(format!(
+                                                "Copied {short} to clipboard"
+                                            ));
+                                            cx.notify();
+                                        });
+                                    }
+                                })
+                                .child(row.short_hash.clone()),
+                        ),
+                ),
+        )
         .into_any_element()
 }
 
