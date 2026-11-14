@@ -231,7 +231,10 @@ pub fn render(
     // keyed on what is shown, so a redraw never replays it
     let view = SharedString::from(format!("detail-enter-{folder}-{}", active.selector()));
 
-    pane.child(head)
+    // the branch's flow opens the pane, above the repo name, so every tab
+    // reads the same path and the name keeps the tab row's rhythm below it
+    pane.children(crate::ui::flow_strip::render(entities, cx))
+        .child(head)
         .child(motion::enter(view, body))
         // last, so they paint over the tabs they hang above
         .when(head_state.launch_menu_open, |pane| {

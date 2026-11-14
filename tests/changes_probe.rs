@@ -194,6 +194,38 @@ fn the_toolbar_offers_the_branchs_pull_request_step(cx: &mut TestAppContext) {
             "the strip draws the {step} step"
         );
     }
+
+    // the strip opens the detail pane, above the repo name, and no chip clips
+    // its two text lines
+    let flow = cx.debug_bounds("flow-strip").expect("the strip draws");
+    let pane = cx.debug_bounds("repos-detail").expect("the pane draws");
+    assert!(
+        flow.origin.y <= pane.origin.y + gpui::px(1.),
+        "the flow opens the pane: strip {flow:?}, pane {pane:?}"
+    );
+    assert!(
+        flow.origin.x == pane.origin.x && flow.size.width == pane.size.width,
+        "the band spans the pane: strip {flow:?}, pane {pane:?}"
+    );
+    for key in ["create", "merge", "pipeline", "result"] {
+        let chip_selector: &'static str = Box::leak(format!("flow-step-{key}").into_boxed_str());
+        let label_selector: &'static str = Box::leak(format!("flow-label-{key}").into_boxed_str());
+        let detail_selector: &'static str =
+            Box::leak(format!("flow-detail-{key}").into_boxed_str());
+        let chip = cx.debug_bounds(chip_selector).expect("the chip draws");
+        let Some(label) = cx.debug_bounds(label_selector) else {
+            continue; // the compact strip carries the label alone
+        };
+        let detail = cx.debug_bounds(detail_selector).expect("the detail draws");
+        assert!(
+            label.origin.y >= chip.origin.y,
+            "{key}: the label starts inside the chip: chip {chip:?}, label {label:?}"
+        );
+        assert!(
+            detail.origin.y + detail.size.height <= chip.origin.y + chip.size.height,
+            "{key}: the detail ends inside the chip: chip {chip:?}, detail {detail:?}"
+        );
+    }
 }
 
 #[gpui_kit::gpui::test]

@@ -9,7 +9,7 @@ use crate::store::{FlowStepState, FlowStepView, Store};
 use crate::theme;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
-use gpui::{AnyElement, Entity, FontWeight, SharedString, div, px};
+use gpui::{AnyElement, Entity, FontWeight, SharedString, div, px, relative};
 use warpui_kit_core::shell;
 
 /// The strip is four labelled chips; the detail line only fits on a wide pane.
@@ -21,18 +21,23 @@ const COMPACT_BELOW: f32 = 900.;
 pub fn render(store: &Entity<Store>, cx: &gpui::App) -> Option<AnyElement> {
     let view = store.read(cx).flow_view()?;
     let compact = store.read(cx).pane_width < COMPACT_BELOW;
+    // the strip is the detail pane's first band, above the repo name: it owns
+    // its padding and its recessed fill, and its height comes from the chips,
+    // which no longer clip their two text lines
     let mut row = div()
         .id("flow-strip")
         .debug_selector(|| "flow-strip".into())
         .flex_shrink_0()
-        .h(px(if compact { 46. } else { 56. }))
+        .w_full()
         .px(px(shell::DETAIL_PADDING))
+        .py(px(if compact { 6. } else { 8. }))
+        .bg(theme::well())
+        .border_b_1()
+        .border_color(theme::hairline())
         .flex()
         .flex_row()
         .items_center()
-        .gap_1p5()
-        .border_b_1()
-        .border_color(theme::hairline())
+        .gap(px(8.))
         .child(
             div()
                 .flex_shrink_0()
@@ -46,7 +51,7 @@ pub fn render(store: &Entity<Store>, cx: &gpui::App) -> Option<AnyElement> {
             row = row.child(
                 div()
                     .flex_shrink_0()
-                    .w(px(14.))
+                    .w(px(16.))
                     .h(px(1.))
                     .bg(theme::hairline()),
             );
@@ -94,12 +99,12 @@ fn step_chip(
         })
         .a11y_button(format!("{}: {}", step.label, step.detail))
         .flex_shrink_0()
-        .h(px(if compact { 32. } else { 40. }))
-        .px_2()
+        .h(px(if compact { 34. } else { 46. }))
+        .px(px(12.))
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
+        .gap(px(10.))
         .rounded(px(6.))
         .border_1()
         .border_color(if current {
@@ -129,7 +134,7 @@ fn step_chip(
         .child(
             div()
                 .flex_shrink_0()
-                .size(px(18.))
+                .size(px(if compact { 18. } else { 20. }))
                 .rounded_full()
                 .flex()
                 .items_center()
@@ -145,12 +150,17 @@ fn step_chip(
         chip = chip.child(
             div()
                 .min_w_0()
-                .max_w(px(170.))
+                .max_w(px(190.))
                 .flex()
                 .flex_col()
-                .gap_0p5()
+                .gap(px(3.))
                 .child(
                     div()
+                        .debug_selector({
+                            let key = step.key;
+                            move || format!("flow-label-{key}")
+                        })
+                        .line_height(relative(1.25))
                         .text_size(px(theme::font_control()))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(if current {
@@ -162,6 +172,11 @@ fn step_chip(
                 )
                 .child(
                     div()
+                        .debug_selector({
+                            let key = step.key;
+                            move || format!("flow-detail-{key}")
+                        })
+                        .line_height(relative(1.25))
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()

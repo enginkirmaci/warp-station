@@ -548,7 +548,6 @@ impl Render for ChangesView {
         }
 
         let toolbar = self.render_toolbar(busy, cx);
-        let flow = crate::ui::flow_strip::render(&self.store, cx);
         let popup = self
             .branch_picker
             .update(cx, |picker, cx| picker.overlay_popup(window, cx));
@@ -632,7 +631,6 @@ impl Render for ChangesView {
             .flex_col()
             .min_h_0()
             .child(toolbar)
-            .children(flow)
             .child(body)
             // painted last, so it hangs over the columns under the toolbar
             .children(popup.map(|popup| {
