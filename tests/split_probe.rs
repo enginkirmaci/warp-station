@@ -2293,6 +2293,86 @@ fn the_form_refuses_what_gh_would_refuse(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("new-pull-error").is_some());
 }
 
+/// The reviewer field completes from GitHub's assignable logins, and the
+/// picked login rides the create request.
+#[gpui::test]
+fn the_reviewer_field_completes_from_the_people_list(cx: &mut TestAppContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "new-pull-reviewer",
+        vec![entry("alpha", "/probe/alpha")],
+    );
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    use_a_located_gh(&store, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    click(cx, "list-new");
+    // the form asked for the list; hand the answer over the way the net
+    // thread does
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::GithubAssigneesLoaded {
+                folder: "/probe/alpha".into(),
+                assignees: vec!["mert".into(), "zeynep".into()],
+            },
+            cx,
+        );
+    });
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        if let Some(form) = s.new_pull.as_mut() {
+            form.head = "feat/x".into();
+            form.base = "main".into();
+        }
+        cx.notify();
+    });
+    draw(cx);
+
+    click(cx, "new-pull-reviewer");
+    cx.simulate_input("me");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("new-pull-reviewer-suggestion-0").is_some(),
+        "the filtered list is up"
+    );
+    assert!(
+        cx.debug_bounds("new-pull-reviewer-suggestion-1").is_none(),
+        "only the matching login is offered"
+    );
+    // Escape closes the list; clearing the field brings every login back
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("new-pull-reviewer-suggestions").is_none(),
+        "Escape closes the list"
+    );
+    cx.simulate_keystrokes("ctrl-a backspace");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("new-pull-reviewer-suggestion-1").is_some(),
+        "an empty query lists every login"
+    );
+    // Down moves the highlight and Enter takes it
+    cx.simulate_keystrokes("down enter");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("new-pull-reviewer-suggestions").is_none(),
+        "Enter takes the highlighted row"
+    );
+
+    click(cx, "new-pull-title");
+    cx.simulate_keystrokes("p i c k  space r e v i e w e r");
+    draw(cx);
+    click(cx, "new-pull-create");
+    let sent = sent_creates(&net_rx);
+    assert_eq!(sent.len(), 1, "one create");
+    assert_eq!(
+        sent[0].reviewer.as_deref(),
+        Some("zeynep"),
+        "the keyboard-picked login rides the create"
+    );
+}
+
 /// Create sends one request and the new pull request takes the pane, with the
 /// list back on Open.
 #[gpui::test]

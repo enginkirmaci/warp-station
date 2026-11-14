@@ -440,6 +440,57 @@ async fn run_gh_checked(gh_exe: &str, folder: &Path, args: &[&str]) -> Result<St
 
 /// One repo's full GitHub probe. A missing gh binary returns an unavailable
 /// snapshot (the pass gates on resolution before spawning anyway).
+/// The people GitHub may assign an item to, one login per line from
+/// `gh api .../assignees`; blank lines and duplicates are dropped.
+pub fn parse_assignees(output: &str) -> Vec<String> {
+    let mut logins: Vec<String> = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    logins.sort_by_key(|login| login.to_lowercase());
+    logins.dedup();
+    logins
+}
+
+/// The reviewer field's GitHub completion list: the repository's assignable
+/// logins. The repository is whatever `gh` resolves in `folder`, so no remote
+/// parsing is repeated here. A failure is an empty list — the field stays
+/// free text.
+pub async fn assignees(folder: &Path, gh_exe: &str) -> Option<Vec<String>> {
+    let slug = run_gh(
+        gh_exe,
+        folder,
+        &[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "--jq",
+            ".nameWithOwner",
+        ],
+    )
+    .await?;
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return None;
+    }
+    let output = run_gh(
+        gh_exe,
+        folder,
+        &[
+            "api",
+            &format!("repos/{slug}/assignees?per_page=100"),
+            "--paginate",
+            "--jq",
+            ".[].login",
+        ],
+    )
+    .await?;
+    Some(parse_assignees(&output))
+}
+
 pub async fn refresh(folder: &Path, gh_exe: &str) -> GitHubSnapshot {
     let Some(repo_json) = run_gh(gh_exe, folder, &["repo", "view", "--json", "url"]).await else {
         return GitHubSnapshot::default();
@@ -1562,6 +1613,15 @@ mod tests {
             ]
         );
         assert_eq!(request.problem(), None);
+    }
+
+    #[test]
+    fn assignees_strip_and_dedupe() {
+        assert_eq!(
+            parse_assignees("zeynep\nmert\n\nmert\n zeynep \n"),
+            ["mert", "zeynep"]
+        );
+        assert!(parse_assignees("").is_empty());
     }
 
     #[test]

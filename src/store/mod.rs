@@ -189,6 +189,10 @@ pub struct Store {
     pub azure_users: std::collections::HashMap<String, Vec<warp_station_core::azure::AzureUser>>,
     pub azure_users_loading: std::collections::HashSet<String>,
     pub azure_users_failed: std::collections::HashSet<String>,
+    /// GitHub's assignable logins per folder, for the reviewer field's
+    /// completion; an empty entry is a failed read.
+    pub github_assignees: std::collections::HashMap<String, Vec<String>>,
+    pub github_assignees_loading: std::collections::HashSet<String>,
     pub github_details: Option<warp_station_core::github::GitHubRepoDetails>,
     /// Closed rows by (folder, pull_requests, source), loaded when a tab
     /// first asks and kept as the shared row vocabulary so the union reads
@@ -512,6 +516,8 @@ impl Store {
             azure_users: std::collections::HashMap::new(),
             azure_users_loading: std::collections::HashSet::new(),
             azure_users_failed: std::collections::HashSet::new(),
+            github_assignees: std::collections::HashMap::new(),
+            github_assignees_loading: std::collections::HashSet::new(),
             github_details: None,
             closed: std::collections::HashMap::new(),
             open_pull: None,
@@ -1519,6 +1525,11 @@ impl Store {
                     }
                     Err(err) => self.notify_error(err),
                 }
+                cx.notify();
+            }
+            UiEvent::GithubAssigneesLoaded { folder, assignees } => {
+                self.github_assignees_loading.remove(&folder);
+                self.github_assignees.insert(folder, assignees);
                 cx.notify();
             }
             UiEvent::AzureUsersLoaded { folder, users } => {
@@ -5018,6 +5029,83 @@ impl Store {
         let _ = cx;
     }
 
+    /// The New pull request form's reviewer completion: GitHub asks for the
+    /// repository's assignable logins once per folder, Azure reuses its people
+    /// cache (the create path matches those names).
+    pub fn load_new_pull_reviewers(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.new_pull.as_ref().map(|form| form.source) else {
+            return;
+        };
+        match source {
+            warp_station_core::activity::ActivitySource::Azure => self.load_azure_users(cx),
+            warp_station_core::activity::ActivitySource::GitHub => {
+                let Some(folder) = self.selected_repo.clone() else {
+                    return;
+                };
+                if self.github_assignees.contains_key(&folder)
+                    || self.github_assignees_loading.contains(&folder)
+                {
+                    return;
+                }
+                let Some(gh_exe) = self.gh_exe() else {
+                    return;
+                };
+                self.github_assignees_loading.insert(folder.clone());
+                let _ = self.net.send_blocking(NetCommand::GithubAssignees {
+                    folder: std::path::PathBuf::from(&folder),
+                    gh_exe,
+                });
+                cx.notify();
+            }
+        }
+    }
+
+    /// The reviewer suggestions for the open form's platform, from the
+    /// folder's cache; empty until the read lands (or when it failed).
+    pub fn new_pull_reviewers(&self) -> Vec<ReviewerCandidate> {
+        let (Some(form), Some(folder)) = (self.new_pull.as_ref(), self.selected_repo.as_ref())
+        else {
+            return Vec::new();
+        };
+        match form.source {
+            warp_station_core::activity::ActivitySource::GitHub => self
+                .github_assignees
+                .get(folder)
+                .map(|logins| {
+                    logins
+                        .iter()
+                        .map(|login| ReviewerCandidate {
+                            value: login.clone(),
+                            label: login.clone(),
+                            hint: "GitHub".to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            warp_station_core::activity::ActivitySource::Azure => self
+                .azure_users
+                .get(folder)
+                .map(|users| {
+                    users
+                        .iter()
+                        .map(|user| ReviewerCandidate {
+                            // the create path resolves a unique name before a
+                            // display name, so two people with one display
+                            // name do not collide
+                            value: if user.unique_name.is_empty() {
+                                user.display_name.clone()
+                            } else {
+                                user.unique_name.clone()
+                            },
+                            label: user.display_name.clone(),
+                            hint: user.unique_name.clone(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
     /// The organization's people, for the reviewer picker, once per folder.
     pub fn load_azure_users(&mut self, cx: &mut Context<Self>) {
         let Some(folder) = self.selected_repo.clone() else {
@@ -6778,6 +6866,15 @@ pub struct OpenIssue {
     pub item: warp_station_core::github::GitHubItem,
     pub issue: Option<warp_station_core::github::GitHubIssue>,
     pub failed: bool,
+}
+
+/// One reviewer the new-pull form can suggest: what goes in the field, the
+/// label, and the dim second line (a login's provider, an Azure unique name).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewerCandidate {
+    pub value: String,
+    pub label: String,
+    pub hint: String,
 }
 
 /// The New pull request form: the two branches it would compare and open

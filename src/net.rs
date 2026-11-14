@@ -241,6 +241,12 @@ pub enum NetCommand {
         pat: String,
         custom_base: String,
     },
+    /// The repository's assignable GitHub logins, for the reviewer field's
+    /// completion list.
+    GithubAssignees {
+        folder: PathBuf,
+        gh_exe: String,
+    },
     /// One AI wand run: the prompt is built here, the turn runs in
     /// warp-agent over its door (launching it when merely closed).
     Wand {
@@ -760,6 +766,12 @@ pub enum UiEvent {
     AzureUsersLoaded {
         folder: String,
         users: Option<Vec<warp_station_core::azure::AzureUser>>,
+    },
+    /// The reviewer field's completion list; an empty list is a failed or
+    /// empty read, which leaves the field free text.
+    GithubAssigneesLoaded {
+        folder: String,
+        assignees: Vec<String>,
     },
     WandLog {
         wand_id: String,
@@ -1328,6 +1340,18 @@ fn spawn_read_intake(
                             number,
                             action,
                             result,
+                        });
+                    });
+                }
+                NetCommand::GithubAssignees { folder, gh_exe } => {
+                    let evt_tx = evt_tx.clone();
+                    tokio::spawn(async move {
+                        let assignees = warp_station_core::github::assignees(&folder, &gh_exe)
+                            .await
+                            .unwrap_or_default();
+                        let _ = evt_tx.send_blocking(UiEvent::GithubAssigneesLoaded {
+                            folder: folder.to_string_lossy().to_string(),
+                            assignees,
                         });
                     });
                 }
@@ -1974,6 +1998,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             | NetCommand::AzurePullFileDiff { .. }
             | NetCommand::AzurePullAction { .. }
             | NetCommand::AzureUsers { .. }
+            | NetCommand::GithubAssignees { .. }
             | NetCommand::LoadChanges { .. } => {}
             NetCommand::LoadHistory { folder } => {
                 let (commits, unpushed) = tokio::task::spawn_blocking({

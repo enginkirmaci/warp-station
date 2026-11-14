@@ -8,15 +8,15 @@
 //! Commits are previews of what the source branch would bring, read from the
 //! repository itself — no network, no push needed to see the shape.
 
-use crate::store::Store;
+use crate::store::{ReviewerCandidate, Store};
 use crate::theme;
 use crate::ui::pull_request::{
     Shape, plural, primary_button_in, short_sha, source_tag, split_button,
 };
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Entity, FontWeight, SharedString, Window, div, px};
-use gpui_kit::component::input::{InputState, TextareaState};
+use gpui::{AnyElement, Context, Entity, FontWeight, MouseButton, SharedString, Window, div, px};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use warp_station_core::activity::ActivitySource;
 use warp_station_core::model::ComparePreview;
 use warpui_kit_core::{field, motion, shell};
@@ -83,6 +83,9 @@ pub struct NewPullView {
     primary_menu: bool,
     /// The form is the whole detail pane: the workbench's list is not beside it.
     pub stacked: bool,
+    /// The reviewer field's completion list is up, and the row the keys pick.
+    reviewer_open: bool,
+    reviewer_index: usize,
     /// The form generation the fields were seeded for; a reopened form gets
     /// the prefill's subject/body, a later answer only fills empty fields.
     form_seq: Option<u64>,
@@ -105,6 +108,24 @@ impl NewPullView {
             cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe the change…"));
         let reviewer =
             cx.new(|cx| InputState::new(window, cx).placeholder("Reviewer login, name or email"));
+        cx.subscribe(&reviewer, |this, _, event: &InputEvent, cx| match event {
+            InputEvent::Change => {
+                this.reviewer_open = true;
+                this.reviewer_index = 0;
+                cx.notify();
+            }
+            InputEvent::Focus => {
+                this.reviewer_open = true;
+                this.reviewer_index = 0;
+                cx.notify();
+            }
+            InputEvent::Blur => {
+                this.reviewer_open = false;
+                cx.notify();
+            }
+            InputEvent::PressEnter { .. } => {}
+        })
+        .detach();
         let source_picker = build_branch_picker(&store, BranchSide::Source, window, cx);
         let base_picker = build_branch_picker(&store, BranchSide::Base, window, cx);
         Self {
@@ -117,6 +138,8 @@ impl NewPullView {
             base_picker,
             primary_menu: false,
             stacked: false,
+            reviewer_open: false,
+            reviewer_index: 0,
             form_seq: None,
             title_seeded: false,
             body_seeded: false,
@@ -173,6 +196,10 @@ impl Render for NewPullView {
         if let Some(form) = form.as_ref() {
             if self.form_seq != Some(form.seq) {
                 self.form_seq = Some(form.seq);
+                self.reviewer_open = false;
+                self.reviewer_index = 0;
+                self.store
+                    .update(cx, |store, cx| store.load_new_pull_reviewers(cx));
                 self.title_seeded = false;
                 self.body_seeded = false;
                 self.title
@@ -433,7 +460,7 @@ impl NewPullView {
     // ---- Overview ---------------------------------------------------------
 
     fn overview(
-        &self,
+        &mut self,
         error: &Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -469,7 +496,7 @@ impl NewPullView {
             ))
             .child(labeled_field(
                 "Reviewer (optional)",
-                field::text("new-pull-reviewer", &self.reviewer, window, cx),
+                self.reviewer_field(window, cx),
             ));
         div()
             .id("new-pull-overview")
@@ -480,6 +507,149 @@ impl NewPullView {
             .px(px(shell::DETAIL_PADDING))
             .py(px(18.))
             .child(fields)
+            .into_any_element()
+    }
+
+    /// The reviewer field and, while it has the keys and a candidate exists,
+    /// the completion list under it: Up/Down move, Enter takes, Esc closes; a
+    /// press takes the row under the pointer.
+    fn reviewer_field(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let matches = self.reviewer_matches(cx);
+        let open = self.reviewer_open && !matches.is_empty();
+        let selected = self.reviewer_index.min(matches.len().saturating_sub(1));
+        let mut column = div()
+            .id("new-pull-reviewer-wrap")
+            .flex()
+            .flex_col()
+            .child(field::text("new-pull-reviewer", &self.reviewer, window, cx));
+        if open {
+            let mut card = div()
+                .id("new-pull-reviewer-suggestions")
+                .debug_selector(|| "new-pull-reviewer-suggestions".into())
+                .mt_1()
+                .overflow_hidden()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::line_strong())
+                .bg(theme::well())
+                .flex()
+                .flex_col()
+                .py_1();
+            for (index, candidate) in matches.iter().enumerate() {
+                card = card.child(self.reviewer_suggestion_row(index, candidate, selected, cx));
+            }
+            column = column.child(card);
+        }
+        column.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+            if !this.reviewer_open {
+                return;
+            }
+            let matches = this.reviewer_matches(cx);
+            if matches.is_empty() {
+                return;
+            }
+            let last = matches.len() - 1;
+            match event.keystroke.key.to_lowercase().as_str() {
+                "down" => {
+                    this.reviewer_index = (this.reviewer_index + 1).min(last);
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+                "up" => {
+                    this.reviewer_index = this.reviewer_index.min(last).saturating_sub(1);
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+                "enter" => {
+                    let value = matches[this.reviewer_index.min(last)].value.clone();
+                    this.pick_reviewer(value, window, cx);
+                    cx.stop_propagation();
+                }
+                "escape" => {
+                    this.reviewer_open = false;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+                _ => {}
+            }
+        }))
+    }
+
+    fn reviewer_matches(&self, cx: &gpui::App) -> Vec<ReviewerCandidate> {
+        let query = self.reviewer.read(cx).value().trim().to_lowercase();
+        self.store
+            .read(cx)
+            .new_pull_reviewers()
+            .into_iter()
+            .filter(|candidate| {
+                query.is_empty()
+                    || candidate.label.to_lowercase().contains(&query)
+                    || candidate.value.to_lowercase().contains(&query)
+                    || candidate.hint.to_lowercase().contains(&query)
+            })
+            .take(8)
+            .collect()
+    }
+
+    fn pick_reviewer(&mut self, value: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.reviewer.update(cx, |state, cx| {
+            state.set_value(value, window, cx);
+            state.focus(window, cx);
+        });
+        self.reviewer_open = false;
+        self.reviewer_index = 0;
+        cx.notify();
+    }
+
+    fn reviewer_suggestion_row(
+        &self,
+        index: usize,
+        candidate: &ReviewerCandidate,
+        selected: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let value = candidate.value.clone();
+        let label = candidate.label.clone();
+        let hint = candidate.hint.clone();
+        div()
+            .id(SharedString::from(format!("new-pull-reviewer-row-{index}")))
+            .debug_selector(move || format!("new-pull-reviewer-suggestion-{index}"))
+            .a11y_button(format!("Use reviewer {label}"))
+            .cursor_pointer()
+            .h(px(34.))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap_2()
+            .when(index == selected, |row| row.bg(theme::raised()))
+            .hover(|row| row.bg(theme::raised()))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    this.pick_reviewer(value.clone(), window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(theme::font_body()))
+                    .text_color(theme::text())
+                    .child(label),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text_faint())
+                    .child(hint),
+            )
             .into_any_element()
     }
 

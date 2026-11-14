@@ -129,8 +129,15 @@ Keep this order; several steps depend on the previous one:
   pull request form is now platform-neutral: GitHub goes through
   `gh pr create`, Azure through the REST POST (`azure::create_pull`), and the
   optional reviewer is passed through on GitHub and resolved to an Azure
-  identity GUID before the POST. The pipeline toast's button opens the run in
-  the app; the desktop notification has no click callback on this path.
+  identity GUID before the POST. The form's reviewer field completes from the
+  platform's people: `Store::new_pull_reviewers` returns GitHub's assignable
+  logins (`github::assignees`, cached per folder, one `gh api .../assignees`
+  read) or Azure's cached `azure_users` (the value is the unique name the
+  create path resolves, the label the display name). Up/Down move the
+  highlight, Enter takes it, a press takes the row, and Esc closes the list;
+  the list is in flow under the field, not an overlay. The pipeline toast's
+  button opens the run in the app; the desktop notification has no click
+  callback on this path.
 - **Local merge.** The branch selector's right-click menu starts a merge
   (`GitAction::Merge`) into the current branch; the ending is a state read back
   from the repository, not a session flag: `read::change_snapshot` fills
