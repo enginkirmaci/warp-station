@@ -289,8 +289,9 @@ impl ReposPage {
     }
 
     /// Whether the list pane draws. A repo tab hides it unless asked back; a
-    /// wide tab hides it on a narrow window.
-    fn list_visible(&self, window: &Window, cx: &App) -> bool {
+    /// wide tab hides it on a narrow window. The title bar's toggle reads it
+    /// to pick its glyph and its verb.
+    pub fn list_visible(&self, window: &Window, cx: &App) -> bool {
         let store = self.store.read(cx);
         let wide_tab = matches!(
             store.active_detail_tab(),

@@ -1416,6 +1416,9 @@ impl MainWindow {
     fn render_titlebar(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let settings = self.store.read(cx).settings();
         let show_tooltips = settings.general.show_tooltips;
+        // the toggle's glyph and verb follow the pane: an open list offers
+        // "hide" (chevron left), a hidden one "show" (chevron right)
+        let list_open = self.repos_page.read(cx).list_visible(window, cx);
         // the wand's Cancel rides the title bar: a run keeps going when the
         // repo it was kicked for leaves the screen, so its stop control must
         // be reachable from every repo and every section
@@ -1531,8 +1534,12 @@ impl MainWindow {
             .when(self.section == Section::Repos, |row| {
                 row.child(title_icon(
                     "list-toggle",
-                    "Toggle list",
-                    "icons/icon-panel-left.svg",
+                    if list_open { "Hide list" } else { "Show list" },
+                    if list_open {
+                        "icons/icon-panel-left-close.svg"
+                    } else {
+                        "icons/icon-panel-left-open.svg"
+                    },
                     show_tooltips,
                     cx.listener(|this, _, _, cx| {
                         this.repos_page.update(cx, |page, cx| page.toggle_list(cx));
