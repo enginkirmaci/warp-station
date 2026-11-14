@@ -6,8 +6,9 @@
 //!
 //! Both cards use the redesign's modal chrome: an 8px card on the ramp's card
 //! step with a ruled 44px header and 50px footer, ghost/primary buttons at the
-//! toolbar's 26px metric, and 30px fields. They are layers over whichever
-//! layout is underneath — the split screen stays behind Add repo and Clone.
+//! family's control height, and the shared 36px fields. They are layers over
+//! whichever layout is underneath — the split screen stays behind Add repo and
+//! Clone.
 
 use crate::store::Store;
 use crate::theme;
@@ -189,9 +190,9 @@ fn dialog_field(
     warpui_kit_core::field::mono(id, input, window, cx)
 }
 
-/// A ghost action at the pane-head metric (26px, 4px corners, the
-/// `#0f1318`/`#2a313b` pair) so a dialog button and a toolbar button read as
-/// the same control.
+/// A ghost action at the family's control height and radius (34 / 6), so a
+/// dialog button reads as the same control as a head action and the kit's own
+/// buttons; a 26px action beside a 36px field was the ragged row.
 fn ghost_button(
     label: &str,
     enabled: bool,
@@ -202,8 +203,8 @@ fn ghost_button(
         .id(SharedString::from(id.clone()))
         .debug_selector(move || id.clone())
         .a11y_button(label.to_string())
-        .rounded(px(4.))
-        .h(px(26.))
+        .rounded(px(6.))
+        .h(warpui_kit_core::shell::control_height())
         .px(px(9.))
         .flex()
         .items_center()
@@ -237,8 +238,8 @@ fn ghost_busy(label: &'static str) -> gpui::AnyElement {
         .debug_selector(move || id.clone())
         .role(gpui::Role::Status)
         .aria_label(label)
-        .rounded(px(4.))
-        .h(px(26.))
+        .rounded(px(6.))
+        .h(warpui_kit_core::shell::control_height())
         .px(px(9.))
         .flex()
         .items_center()
@@ -259,7 +260,7 @@ fn ghost_busy(label: &'static str) -> gpui::AnyElement {
         .into_any_element()
 }
 
-/// The one filled action: the mockup's blue at 26px, darkening to
+/// The one filled action: the accent at the control height, darkening to
 /// `ACCENT_HOVER` on hover like every primary.
 fn primary_button(
     label: &str,
@@ -271,8 +272,8 @@ fn primary_button(
         .id(SharedString::from(id.clone()))
         .debug_selector(move || id.clone())
         .a11y_button(label.to_string())
-        .rounded(px(4.))
-        .h(px(26.))
+        .rounded(px(6.))
+        .h(warpui_kit_core::shell::control_height())
         .px(px(12.))
         .flex()
         .items_center()
@@ -522,8 +523,10 @@ impl AddRepoDialog {
         // ---- folder row + scan controls -----------------------------------
         let can_scan = !self.scanning && !self.root.read(cx).value().trim().is_empty();
         let depth_stepper = div()
+            .id("depth-stepper")
+            .debug_selector(|| "depth-stepper".into())
             .flex_shrink_0()
-            .h(px(26.))
+            .h(warpui_kit_core::shell::control_height())
             .flex()
             .flex_row()
             .items_center()
@@ -1091,8 +1094,8 @@ fn danger_button(
         .debug_selector(move || id.clone())
         .a11y_button(label.to_string())
         .cursor_pointer()
-        .rounded(px(4.))
-        .h(px(26.))
+        .rounded(px(6.))
+        .h(warpui_kit_core::shell::control_height())
         .px(px(12.))
         .flex()
         .items_center()

@@ -2038,6 +2038,28 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
         "the header close button renders"
     );
 
+    // every action in the card is the family's control height, and the field
+    // is the field height: a 26px action beside the 36px field left the row
+    // ragged (the Browse button floated mid-field)
+    let control = warpui_kit_core::shell::control_height();
+    for selector in ["btn-Browse…", "btn-Scan", "depth-stepper"] {
+        let bound = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} draws"));
+        assert_eq!(
+            bound.size.height, control,
+            "{selector} is one control height"
+        );
+    }
+    let field = cx
+        .debug_bounds("add-root-input")
+        .expect("the folder field draws");
+    assert_eq!(
+        field.size.height,
+        warpui_kit_core::shell::field_height(),
+        "the folder field keeps the shared field height"
+    );
+
     // the net settle path: the worker drops results on the store, the page
     // drains them while drawing
     cx.update_entity(&store, |s: &mut Store, cx| {
