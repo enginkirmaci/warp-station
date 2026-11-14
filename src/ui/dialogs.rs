@@ -301,6 +301,12 @@ pub struct AddRepoDialog {
     /// true once a scan has settled — distinguishes "never scanned" from
     /// "scanned and found nothing"
     pub scanned: bool,
+    /// The portal picker is open; Browse stays disabled until it answers, so
+    /// a second dialog never stacks on the first.
+    pub picking: bool,
+    /// A folder was picked while a scan was still running: the pick wins, and
+    /// the scan it asks for starts when the running one settles.
+    pub pending_scan: bool,
     /// (repo, checked, already-tracked)
     pub found: Vec<(warp_station_core::scan::ScannedRepo, bool, bool)>,
 }
@@ -322,6 +328,8 @@ impl AddRepoDialog {
             depth,
             scanning: false,
             scanned: false,
+            picking: false,
+            pending_scan: false,
             found: Vec::new(),
         }
     }
@@ -357,7 +365,9 @@ impl AddRepoDialog {
             "Scan a folder to find git repositories."
         };
 
-        let mut rows = div().flex().flex_col().gap(px(1.)).py(px(4.));
+        // flat rows on hairline rules, the way every list in the app is drawn;
+        // the checkbox carries the state, not a rounded fill per row
+        let mut rows = div().flex().flex_col();
         if selectable > 0 {
             rows = rows.child(
                 div()
@@ -368,7 +378,7 @@ impl AddRepoDialog {
                     .flex_row()
                     .items_center()
                     .gap(px(8.))
-                    .h(px(28.))
+                    .h(px(ROW_H))
                     .px(px(8.))
                     .border_b_1()
                     .border_color(theme::row_line())
@@ -388,49 +398,47 @@ impl AddRepoDialog {
                         }
                         cx.notify();
                     }))
-                    .child(
-                        div()
-                            .rounded(px(2.))
-                            .size(px(12.))
-                            .border_1()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .border_color(theme::ghost_border())
-                            .when(all_checked, |d| {
-                                d.bg(theme::accent())
-                                    .border_color(theme::accent())
-                                    .child(icon("icons/icon-check.svg", px(8.), theme::on_accent()))
-                            }),
-                    )
+                    .child(checkbox(all_checked))
                     .child(format!("Select all available ({selectable})")),
             );
         }
         for (index, (repo, checked, tracked)) in self.found.iter().enumerate() {
-            let label: SharedString = if *tracked {
-                format!("{}   (already tracked)", repo.name).into()
+            let active = *checked && !*tracked;
+            let label = if *tracked {
+                format!("{} (already tracked)", repo.name)
             } else {
-                repo.name.clone().into()
+                repo.name.to_string()
+            };
+            let name_color = if *tracked {
+                theme::text_faint()
+            } else if active {
+                theme::text()
+            } else {
+                theme::text_dim()
             };
             rows = rows.child(
                 div()
                     .id(("found-repo", index as u64))
                     .debug_selector(move || format!("found-repo-{index}"))
-                    .a11y_toggle(label.to_string(), *checked && !*tracked)
-                    .cursor_pointer()
-                    .rounded(px(4.))
-                    .h(px(26.))
-                    .px(px(8.))
+                    .a11y_toggle(label, active)
                     .flex()
+                    .flex_row()
                     .items_center()
                     .gap(px(8.))
-                    .text_size(px(theme::font_sub()))
-                    .text_color(theme::text_dim())
-                    .when(*checked && !*tracked, |d| {
-                        d.bg(theme::tint(theme::accent())).text_color(theme::text())
+                    .h(px(ROW_H))
+                    .px(px(8.))
+                    .when(index > 0, |row| {
+                        row.border_t_1().border_color(theme::row_line())
                     })
-                    .when(*tracked, |d| d.opacity(0.45))
-                    .hover(|s| s.bg(theme::hover_bg()))
+                    .text_size(px(theme::font_control()))
+                    .text_color(name_color)
+                    .map(|row| {
+                        if *tracked {
+                            row
+                        } else {
+                            row.cursor_pointer().hover(|s| s.bg(theme::hover_bg()))
+                        }
+                    })
                     .on_click(cx.listener(move |this: &mut ReposPage, _, _, cx| {
                         if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog
                             && !dialog.found[index].2
@@ -439,23 +447,29 @@ impl AddRepoDialog {
                         }
                         cx.notify();
                     }))
+                    .child(if *tracked {
+                        checkbox(false).opacity(0.4)
+                    } else {
+                        checkbox(active)
+                    })
                     .child(
-                        // checkbox square
                         div()
-                            .rounded(px(2.))
-                            .size(px(12.))
-                            .border_1()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .border_color(theme::ghost_border())
-                            .when(*checked && !*tracked, |d| {
-                                d.bg(theme::accent())
-                                    .border_color(theme::accent())
-                                    .child(icon("icons/icon-check.svg", px(8.), theme::on_accent()))
-                            }),
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(repo.name.clone()),
                     )
-                    .child(label),
+                    .when(*tracked, |row| {
+                        row.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_size(px(theme::font_micro()))
+                                .text_color(theme::text_muted())
+                                .child("tracked"),
+                        )
+                    }),
             );
         }
 
@@ -489,13 +503,14 @@ impl AddRepoDialog {
                         .overflow_y_scroll()
                         .flex()
                         .flex_col()
-                        .px(px(4.))
                         .child(rows)
                         .when(selectable == 0, |column| {
                             column.child(
                                 div()
                                     .px(px(8.))
                                     .py(px(6.))
+                                    .border_t_1()
+                                    .border_color(theme::row_line())
                                     .text_size(px(theme::font_sub()))
                                     .text_color(theme::text_faint())
                                     .child("All found repositories are already in your list."),
@@ -507,76 +522,49 @@ impl AddRepoDialog {
         // ---- folder row + scan controls -----------------------------------
         let can_scan = !self.scanning && !self.root.read(cx).value().trim().is_empty();
         let depth_stepper = div()
-            .h(px(24.))
+            .flex_shrink_0()
+            .h(px(26.))
             .flex()
             .flex_row()
             .items_center()
-            .rounded(px(4.))
+            .rounded(px(6.))
             .border_1()
-            .border_color(theme::ghost_border())
-            .bg(theme::ghost_bg())
+            .border_color(theme::hairline())
+            .bg(theme::well())
+            .child(step_button(
+                "depth-down",
+                "Decrease scan depth",
+                "icons/icon-minus.svg",
+                self.depth > 1,
+                cx.listener(|this: &mut ReposPage, _, _, cx| {
+                    if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
+                        dialog.depth = (dialog.depth - 1).max(1);
+                        cx.notify();
+                    }
+                }),
+            ))
             .child(
                 div()
                     .w(px(22.))
                     .flex()
                     .justify_center()
                     .text_size(px(theme::font_row_meta()))
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::text())
                     .child(format!("{}", self.depth)),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .border_l_1()
-                    .border_color(theme::ghost_border())
-                    .child(
-                        div()
-                            .id("depth-up")
-                            .a11y_button("Increase scan depth")
-                            .cursor_pointer()
-                            .w(px(16.))
-                            .h(px(12.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .hover(|s| s.bg(theme::hover_bg()))
-                            .on_click(cx.listener(|this: &mut ReposPage, _, _, cx| {
-                                if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
-                                    dialog.depth = (dialog.depth + 1).min(8);
-                                    cx.notify();
-                                }
-                            }))
-                            .child(icon(
-                                "icons/icon-arrow-up.svg",
-                                px(theme::font_micro()),
-                                theme::text_muted(),
-                            )),
-                    )
-                    .child(
-                        div()
-                            .id("depth-down")
-                            .a11y_button("Decrease scan depth")
-                            .cursor_pointer()
-                            .w(px(16.))
-                            .h(px(12.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .hover(|s| s.bg(theme::hover_bg()))
-                            .on_click(cx.listener(|this: &mut ReposPage, _, _, cx| {
-                                if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
-                                    dialog.depth = (dialog.depth - 1).max(1);
-                                    cx.notify();
-                                }
-                            }))
-                            .child(icon(
-                                "icons/icon-arrow-down.svg",
-                                px(theme::font_micro()),
-                                theme::text_muted(),
-                            )),
-                    ),
-            );
+            .child(step_button(
+                "depth-up",
+                "Increase scan depth",
+                "icons/icon-plus.svg",
+                self.depth < 8,
+                cx.listener(|this: &mut ReposPage, _, _, cx| {
+                    if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog {
+                        dialog.depth = (dialog.depth + 1).min(8);
+                        cx.notify();
+                    }
+                }),
+            ));
 
         let body = dialog_card(
             "Add Repositories",
@@ -604,20 +592,36 @@ impl AddRepoDialog {
                                 .child(
                                     dialog_field("add-root-input", &self.root, window, cx).flex_1(),
                                 )
-                                .child(ghost_button(
-                                    "Browse…",
-                                    !self.scanning,
-                                    cx.listener(|this: &mut ReposPage, _, _, cx| {
-                                        this.store.update(cx, |s, _| {
-                                            let _ = s.net.send_blocking(
-                                                crate::net::NetCommand::BrowseFolder,
-                                            );
-                                        });
-                                    }),
-                                )),
+                                .child(if self.picking {
+                                    // the portal's chooser owns the screen; the
+                                    // button says what the app is waiting on
+                                    ghost_busy("Browsing…")
+                                } else {
+                                    ghost_button(
+                                        "Browse…",
+                                        !self.scanning,
+                                        cx.listener(|this: &mut ReposPage, _, _, cx| {
+                                            // one picker at a time: a second
+                                            // portal dialog would land on the
+                                            // first one
+                                            if let Some(Dialog::AddRepo(dialog)) = &mut this.dialog
+                                            {
+                                                dialog.picking = true;
+                                            }
+                                            this.store.update(cx, |s, _| {
+                                                let _ = s.net.send_blocking(
+                                                    crate::net::NetCommand::BrowseFolder,
+                                                );
+                                            });
+                                            cx.notify();
+                                        }),
+                                    )
+                                }),
                         ),
                 )
                 .child(
+                    // the field's placeholder and the well's empty state carry
+                    // the instruction; this row is only the two controls
                     div()
                         .flex()
                         .flex_row()
@@ -634,19 +638,9 @@ impl AddRepoDialog {
                                 }),
                             )
                         })
+                        .child(div().flex_1())
                         .child(field_label("Depth"))
-                        .child(depth_stepper)
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_size(px(theme::font_row_meta()))
-                                .text_color(theme::text_faint())
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child("Pick or type a folder, then scan for git repositories"),
-                        ),
+                        .child(depth_stepper),
                 )
                 .child(results_card),
         )
@@ -672,6 +666,66 @@ impl AddRepoDialog {
         );
         overlay_shell("add-repo-overlay", cx, body)
     }
+}
+
+/// A checklist row's height: the app's menu-row metric, so the results list
+/// and a dropdown read as the same density.
+const ROW_H: f32 = 32.;
+
+/// The dialog's checkbox: a 14 box on the 4 radius, filled with the accent and
+/// an `on-accent` check when it is on.
+fn checkbox(checked: bool) -> gpui::Div {
+    div()
+        .flex_shrink_0()
+        .size(px(14.))
+        .rounded(px(4.))
+        .border_1()
+        .flex()
+        .items_center()
+        .justify_center()
+        .border_color(if checked {
+            theme::accent()
+        } else {
+            theme::ghost_border()
+        })
+        .when(checked, |box_| {
+            box_.bg(theme::accent()).child(icon(
+                "icons/icon-check.svg",
+                px(10.),
+                theme::on_accent(),
+            ))
+        })
+}
+
+/// One end of the depth stepper: a 24 square inside the well, the glyph at the
+/// icon step, quiet until hover.
+fn step_button(
+    id: &'static str,
+    label: &'static str,
+    icon_path: &'static str,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .a11y_button(label.to_string())
+        .flex_shrink_0()
+        .w(px(24.))
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .map(|d| {
+            if enabled {
+                d.cursor_pointer().hover(|s| s.bg(theme::hover_bg()))
+            } else {
+                d.opacity(0.35)
+            }
+        })
+        .when(enabled, |d| d.on_click(on_click))
+        .child(icon(icon_path, px(theme::icon_tiny()), theme::text_muted()))
+        .into_any_element()
 }
 
 pub struct CloneDialog {

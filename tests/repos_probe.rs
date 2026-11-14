@@ -2085,6 +2085,153 @@ fn add_dialog_gated_add_and_rescan(cx: &mut TestAppContext) {
     );
 }
 
+/// Browse → pick is the whole answer: the picked folder fills the field and
+/// the scan starts without a second press (no "pick it, then scan it" step).
+#[gpui::test]
+fn add_dialog_scans_the_picked_folder(cx: &mut TestAppContext) {
+    use warp_station::net::NetCommand;
+
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let store_handle = store.clone();
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "add-repo-button");
+
+    // the portal's answer lands on the store; the page drains it while drawing
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.folder_pick_result = Some(Some("/probe/picked".into()));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+
+    assert!(
+        cx.debug_bounds("btn-Scanning…").is_some(),
+        "the pick starts the scan on its own"
+    );
+    let mut roots = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::DeepScan { root, .. } = command {
+            roots.push(root);
+        }
+    }
+    assert_eq!(
+        roots,
+        vec!["/probe/picked".to_string()],
+        "the scan asks for the folder the picker returned"
+    );
+
+    // the settle brings the rows back and the button out of its busy state
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.deep_scan_result = Some(vec![scanned("picked-repo", "/probe/picked/repo")]);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+    assert!(
+        cx.debug_bounds("found-repo-0").is_some(),
+        "the picked folder's results render"
+    );
+    assert!(
+        cx.debug_bounds("btn-Scan").is_some(),
+        "the scan control returns after the settle"
+    );
+
+    // a cancelled picker answers with no folder: nothing is scanned, and the
+    // button stops waiting (the dialog stays as it was)
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.folder_pick_result = Some(None);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+    assert!(
+        net_rx.try_recv().is_err(),
+        "a cancelled picker does not scan anything"
+    );
+    assert!(
+        cx.debug_bounds("btn-Browse…").is_some(),
+        "Browse is a button again after a cancelled picker"
+    );
+}
+
+/// A folder picked while a scan is still running is the newer question: it
+/// waits for that scan to settle, then rescans against the picked folder — a
+/// stale result set never stands in for the folder the user just chose.
+#[gpui::test]
+fn add_dialog_rescans_a_pick_that_lands_mid_scan(cx: &mut TestAppContext) {
+    use warp_station::net::NetCommand;
+
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let store_handle = store.clone();
+    let (_window_handle, cx) =
+        cx.add_window_view(|window, cx| MainWindow::new(store_handle.clone(), window, cx));
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "add-repo-button");
+
+    // a typed path starts a scan of its own
+    dialog_click(cx, "add-root-input");
+    cx.simulate_input("/probe/typed");
+    cx.run_until_parked();
+    dialog_draw(cx);
+    dialog_click(cx, "btn-Scan");
+    let mut roots = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::DeepScan { root, .. } = command {
+            roots.push(root);
+        }
+    }
+    assert_eq!(
+        roots,
+        vec!["/probe/typed".to_string()],
+        "the typed path scans"
+    );
+
+    // the pick lands before that scan settles: no second scan yet
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.folder_pick_result = Some(Some("/probe/picked".into()));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+    assert!(
+        net_rx.try_recv().is_err(),
+        "the running scan is not cut off mid-flight"
+    );
+
+    // its settle releases the queued scan of the picked folder
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.deep_scan_result = Some(vec![scanned("typed-repo", "/probe/typed/repo")]);
+        cx.notify();
+    });
+    cx.run_until_parked();
+    dialog_draw(cx);
+    let mut rescanned = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::DeepScan { root, .. } = command {
+            rescanned.push(root);
+        }
+    }
+    assert_eq!(
+        rescanned,
+        vec!["/probe/picked".to_string()],
+        "the picked folder wins once the earlier scan settles"
+    );
+}
+
 /// The Add dialog's commit must persist the new folders as scan roots: the
 /// listing scan rebuilds the list from the roots and drops everything else,
 /// so an add that only lands in the repo cache is erased by the next rescan

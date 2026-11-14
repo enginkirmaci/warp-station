@@ -567,6 +567,7 @@ impl Render for ReposPage {
         let drained_deep_scan = self
             .store
             .update(cx, |store, _| store.deep_scan_result.take());
+        let mut rescan = false;
         if let Some(found) = drained_deep_scan
             && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
         {
@@ -584,15 +585,40 @@ impl Render for ReposPage {
                     (repo, !tracked, tracked)
                 })
                 .collect();
+            // a folder picked mid-scan is the newer question: answer it now
+            rescan = std::mem::take(&mut dialog.pending_scan);
+        }
+        if rescan {
+            self.kick_deep_scan(cx);
         }
         if let Some(path) = self
             .store
             .update(cx, |store, _| store.folder_pick_result.take())
-            && let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
         {
-            dialog
-                .root
-                .update(cx, |field, cx| field.set_value(&path, window, cx));
+            let mut picked = false;
+            if let Some(Dialog::AddRepo(dialog)) = &mut self.dialog {
+                // an answer of any kind frees Browse: a cancelled picker must
+                // not leave the button waiting forever
+                dialog.picking = false;
+                if let Some(path) = path {
+                    dialog
+                        .root
+                        .update(cx, |field, cx| field.set_value(&path, window, cx));
+                    picked = true;
+                }
+            }
+            if picked {
+                // a picked folder is the whole answer: scan it without asking
+                // for a second press. A scan already running keeps its word;
+                // the new folder's scan starts when that one settles.
+                if let Some(Dialog::AddRepo(dialog)) = &mut self.dialog
+                    && dialog.scanning
+                {
+                    dialog.pending_scan = true;
+                } else {
+                    self.kick_deep_scan(cx);
+                }
+            }
         }
         let drained_clone = self.store.update(cx, |store, _| store.clone_result.take());
         if let Some((parent_dir, name, result)) = drained_clone {

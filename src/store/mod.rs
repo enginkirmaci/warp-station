@@ -135,8 +135,10 @@ pub struct Store {
     pub deep_scan_result: Option<Vec<warp_station_core::scan::ScannedRepo>>,
     pub clone_result: Option<(String, String, warp_station_core::model::GitSyncResult)>,
     /// The Browse… folder picker's answer, drained into the Add-Repositories
-    /// dialog's path field.
-    pub folder_pick_result: Option<String>,
+    /// dialog's path field. The outer option says a picker answered, the inner
+    /// one carries the folder — `Some(None)` is a cancelled picker, which the
+    /// dialog still needs to hear (its Browse button waits on it).
+    pub folder_pick_result: Option<Option<String>>,
 
     // ---- the selected repo's workspace ----
     changes: Option<warp_station_core::model::GitChangeSnapshot>,
@@ -921,7 +923,7 @@ impl Store {
                 cx.notify();
             }
             UiEvent::FolderPicked { path } => {
-                self.folder_pick_result = path;
+                self.folder_pick_result = Some(path);
                 cx.notify();
             }
             UiEvent::ChangesLoaded {
