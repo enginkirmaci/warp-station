@@ -574,14 +574,22 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
         let toggle = cx
             .debug_bounds(toggle_selector)
             .expect("the stage toggle draws");
+        let toggle_right = toggle.origin.x + toggle.size.width;
         if let Some(counts) = cx.debug_bounds(counts_selector) {
-            let counts_right = counts.origin.x + counts.size.width;
+            // the counts' box is the trailing zone: the verbs must fit inside
+            // it, or the path (whose text stops at the zone) would sit under
+            // an icon — the zone is the counts' own width, not a paid gutter
+            let zone_left = counts.origin.x;
+            let zone_right = counts.origin.x + counts.size.width;
             assert!(
-                discard.origin.x >= counts_right,
-                "{path}: the discard starts after the counts (counts end {counts_right:?}, discard {discard:?})"
+                discard.origin.x >= zone_left,
+                "{path}: the discard starts inside the counts' zone (zone left {zone_left:?}, discard {discard:?})"
+            );
+            assert!(
+                toggle_right <= zone_right,
+                "{path}: the verbs end inside the counts' zone (zone right {zone_right:?}, toggle {toggle:?})"
             );
         }
-        let toggle_right = toggle.origin.x + toggle.size.width;
         assert!(
             toggle_right <= row.origin.x + row.size.width,
             "{path}: the hover verbs stay inside the row"
