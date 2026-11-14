@@ -1536,9 +1536,9 @@ impl MainWindow {
                     "list-toggle",
                     if list_open { "Hide list" } else { "Show list" },
                     if list_open {
-                        "icons/icon-panel-left-close.svg"
+                        "icons/icon-panel-left-on.svg"
                     } else {
-                        "icons/icon-panel-left-open.svg"
+                        "icons/icon-panel-left-off.svg"
                     },
                     show_tooltips,
                     cx.listener(|this, _, _, cx| {
