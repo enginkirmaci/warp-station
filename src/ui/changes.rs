@@ -91,6 +91,10 @@ impl FileSection {
 const HISTORY_ROW_HEIGHT: f32 = 58.;
 /// The file list and commit box's width.
 const FILE_COLUMN_W: f32 = 320.;
+/// The trailing gutter a row reserves for its hover verbs: the 24 discard,
+/// the 2 gap and the 20 stage toggle. The counts end before it.
+const ROW_ACTIONS_W: f32 = 46.;
+
 /// The file list's row height. Section headers match it, so `uniform_list`
 /// can size the whole tree from one measured item.
 const FILE_ROW_H: f32 = 34.;
@@ -1231,13 +1235,21 @@ impl ChangesView {
             .when(file.additions.is_some() && !armed, |row| {
                 row.child(
                     div()
+                        .id(SharedString::from(format!(
+                            "counts-{}-{}",
+                            if staged { "s" } else { "u" },
+                            file.path
+                        )))
+                        .debug_selector({
+                            let path = file.path.clone();
+                            move || format!("counts-{}-{path}", if staged { "s" } else { "u" })
+                        })
                         .flex_shrink_0()
                         .flex()
                         .flex_row()
                         .gap_1p5()
                         .font_family(theme::code_font())
                         .text_size(px(theme::font_micro()))
-                        .group_hover("file-row", |s| s.invisible())
                         .when_some(file.additions, |row, added| {
                             row.child(
                                 div()
@@ -1250,15 +1262,17 @@ impl ChangesView {
                         }),
                 )
             })
-            // hover-revealed stage toggle + discard, over the counts
+            // the hover verbs own a reserved gutter at the row's end; the
+            // counts stay before it, so an icon never sits on the numbers or
+            // the path (`invisible` keeps the gutter's width, so nothing jumps)
             .child(
                 div()
-                    .absolute()
-                    .top(px(5.))
-                    .right(px(8.))
+                    .flex_shrink_0()
+                    .min_w(px(ROW_ACTIONS_W))
                     .flex()
                     .flex_row()
                     .items_center()
+                    .justify_end()
                     .gap_0p5()
                     .when(!armed, |d| {
                         d.invisible().group_hover("file-row", |s| s.visible())

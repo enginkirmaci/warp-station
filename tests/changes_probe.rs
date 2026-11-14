@@ -554,6 +554,40 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
         );
     }
 
+    // the hover verbs live in their own gutter at the row's end: an icon must
+    // never land on the counts (they used to sit under the absolute cluster)
+    for (row_selector, staged, path) in [
+        ("u-unstaged.txt", false, "unstaged.txt"),
+        ("s-staged.txt", true, "staged.txt"),
+    ] {
+        hover(cx, row_selector);
+        let counts_selector: &'static str =
+            Box::leak(format!("counts-{}-{path}", if staged { "s" } else { "u" }).into_boxed_str());
+        let discard_selector: &'static str =
+            Box::leak(format!("discard-{staged}-{path}").into_boxed_str());
+        let toggle_selector: &'static str =
+            Box::leak(format!("toggle-{staged}-{path}").into_boxed_str());
+        let row = cx.debug_bounds(row_selector).expect("the row draws");
+        let discard = cx
+            .debug_bounds(discard_selector)
+            .expect("the discard draws");
+        let toggle = cx
+            .debug_bounds(toggle_selector)
+            .expect("the stage toggle draws");
+        if let Some(counts) = cx.debug_bounds(counts_selector) {
+            let counts_right = counts.origin.x + counts.size.width;
+            assert!(
+                discard.origin.x >= counts_right,
+                "{path}: the discard starts after the counts (counts end {counts_right:?}, discard {discard:?})"
+            );
+        }
+        let toggle_right = toggle.origin.x + toggle.size.width;
+        assert!(
+            toggle_right <= row.origin.x + row.size.width,
+            "{path}: the hover verbs stay inside the row"
+        );
+    }
+
     // a draft longer than the well scrolls inside it; it must not grow the
     // box past its row and paint under the Commit button
     cx.update_entity(&store, |s: &mut Store, _| {
