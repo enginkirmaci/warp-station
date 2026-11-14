@@ -88,9 +88,13 @@ Keep this order; several steps depend on the previous one:
 - **Automatic refresh.** `repos.auto_refresh_on_focus` (default on) rescans
   the list when the app regains focus; `repos.auto_refresh_minutes` (null/0 =
   off) rescans every N minutes. Both run only while a Warp Station window is
-  focused, only a local scan (never `git fetch` or the GitHub/Azure eager
-  set), and the once-a-second beat drives them through
-  `Store::record_focus` / `Store::check_auto_refresh`.
+  focused and the once-a-second beat drives them through `Store::record_focus`
+  / `Store::check_auto_refresh`. Each pass is the local scan plus
+  `refresh_active_tab`: the selected repository's changes (Changes and the
+  Overview read them), its history when History is up, and one repository's
+  GitHub/Azure activity pass (plus the open pull/run detail) when a platform
+  tab is active. The full-list eager activity set stays off this path, and no
+  `git fetch` runs. A hidden repository tab reloads when it is selected.
 - **Pipelines follow.** While the Pipelines tab is on screen and its run can
   still change, `Store::check_run_follow` (the once-a-second beat) re-reads the
   open run's detail — every 13 s on GitHub, 20 s on Azure — and asks the run

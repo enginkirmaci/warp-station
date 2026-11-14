@@ -1271,6 +1271,138 @@ fn auto_refresh_runs_only_while_focused(cx: &mut TestAppContext) {
     let _ = std::fs::remove_file(&scratch);
 }
 
+/// The automatic pass also reloads what the selected tab shows: changes for
+/// every tab, history on History, and one repository's activity pass on a
+/// platform tab.
+#[gpui::test]
+fn auto_refresh_reloads_the_active_tab(cx: &mut TestAppContext) {
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    use warp_station::net::NetCommand;
+    use warp_station::store::WorkspaceTab;
+
+    cx.update(gpui_kit::init);
+    scratch_home();
+
+    let scratch =
+        std::env::temp_dir().join(format!("warp-station-auto-tab-{}.json", std::process::id()));
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(warp_station_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
+        );
+        store.scanning = false;
+        store.replace_repos(vec![entry("alpha", "/probe/alpha", &[])]);
+        store.selected_repo = Some("/probe/alpha".into());
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store
+    });
+    while net_rx.try_recv().is_ok() {}
+
+    let regain = |cx: &mut gpui::TestAppContext| {
+        cx.update_entity(&store, |s: &mut Store, cx| s.record_focus(false, cx));
+        cx.update_entity(&store, |s: &mut Store, cx| s.record_focus(true, cx));
+    };
+    let drain = |net_rx: &async_channel::Receiver<NetCommand>| {
+        let mut commands = Vec::new();
+        while let Ok(command) = net_rx.try_recv() {
+            commands.push(command);
+        }
+        commands
+    };
+
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| {
+            settings.repos.auto_refresh_on_focus = true;
+            settings.repos.auto_refresh_minutes = Some(1);
+        });
+    });
+
+    // Changes: the scan plus the selected repo's changes
+    regain(cx);
+    let commands = drain(&net_rx);
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, NetCommand::Scan { .. })),
+        "the list half still scans"
+    );
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::LoadChanges { folder } if folder == Path::new("/probe/alpha")
+        )),
+        "the active Changes tab reloads"
+    );
+
+    // History: its own read joins the changes
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_detail_tab(WorkspaceTab::History, cx);
+        s.set_history(vec![warp_station_core::model::GitCommitInfo {
+            hash: "0123456789".into(),
+            subject: "probe".into(),
+            author: Some("probe".into()),
+            date: chrono::Local::now(),
+        }]);
+    });
+    regain(cx);
+    let commands = drain(&net_rx);
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::LoadHistory { folder } if folder == Path::new("/probe/alpha")
+        )),
+        "the active History tab reloads"
+    );
+
+    // A platform tab asks for its own repository only
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.update_settings(|settings| {
+            settings.repos.enable_github = true;
+            settings.repos.github_executable = std::env::current_exe()
+                .expect("the test binary")
+                .to_string_lossy()
+                .to_string();
+        });
+        s.open_detail_tab(WorkspaceTab::PullRequests, cx);
+    });
+    regain(cx);
+    let commands = drain(&net_rx);
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::GitHubPass { folders, .. }
+                if folders.as_slice() == [PathBuf::from("/probe/alpha")]
+        )),
+        "the active platform tab asks for its repository"
+    );
+
+    // The periodic clock takes the same path as the focus regain.
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.open_detail_tab(WorkspaceTab::Changes, cx);
+    });
+    let due = store
+        .read_with(cx, |s, _| s.auto_refresh_due())
+        .expect("the clock is armed while focused");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.check_auto_refresh(due + Duration::from_secs(1), cx);
+    });
+    let commands = drain(&net_rx);
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::LoadChanges { folder } if folder == Path::new("/probe/alpha")
+        )),
+        "the periodic tick reloads the active tab too"
+    );
+    let _ = std::fs::remove_file(&scratch);
+}
+
 /// A scan that settles after a status probe and a GitHub snapshot landed must
 /// keep their counts: the merge runs against the live list, not against the
 /// snapshot the scan was queued with (the launch queues its activity pass

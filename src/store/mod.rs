@@ -2935,17 +2935,62 @@ impl Store {
         });
     }
 
-    /// One automatic pass: the local scan only. The GitHub/Azure counts stay
-    /// on their own slower cadence, so focus changes and short intervals never
-    /// spend platform rate limits.
+    /// One automatic pass: the local scan, plus the selected tab's own
+    /// content — the scan alone left Changes, History and the platform tabs
+    /// stale until a switch or a manual Refresh. The full-list eager activity
+    /// set stays off this path; a platform tab asks for its own repository
+    /// only, at the configured interval.
     fn start_auto_refresh(&mut self, cx: &mut Context<Self>) {
         self.arm_auto_refresh();
+        self.refresh_active_tab(cx);
         if self.scanning {
-            // an in-flight scan already answers this pass
+            // an in-flight scan already answers the list half
             return;
         }
         let settings = self.settings();
         self.kick_scan(&settings);
+        cx.notify();
+    }
+
+    /// Reloads what the selected repository's active tab shows: its changes
+    /// always (Changes and the Overview both read them), its history when
+    /// History is up, and one repository's activity pass when a platform tab
+    /// is. The open pull/run detail follows the same rule as the panel's
+    /// Refresh.
+    fn refresh_active_tab(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let path = std::path::PathBuf::from(&folder);
+        let _ = self.net.send_blocking(NetCommand::LoadChanges {
+            folder: path.clone(),
+        });
+        match self.detail_tab {
+            WorkspaceTab::History => {
+                if !self.history.is_empty() {
+                    self.start_history_pass();
+                    let _ = self
+                        .net
+                        .send_blocking(NetCommand::LoadHistory { folder: path });
+                }
+            }
+            WorkspaceTab::PullRequests | WorkspaceTab::Issues => {
+                self.kick_github_pass(std::slice::from_ref(&path));
+                self.kick_azure_pass(std::slice::from_ref(&path));
+                if self.open_pull.is_some() {
+                    self.reload_open_pull();
+                }
+            }
+            WorkspaceTab::Pipelines => {
+                self.kick_github_pass(std::slice::from_ref(&path));
+                self.kick_azure_pass(std::slice::from_ref(&path));
+                if self.open_run.is_some() {
+                    self.load_run_detail(cx);
+                    self.arm_run_follow();
+                }
+            }
+            WorkspaceTab::Overview | WorkspaceTab::Changes => {}
+        }
         cx.notify();
     }
 
