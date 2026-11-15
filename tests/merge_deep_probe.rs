@@ -1513,6 +1513,32 @@ fn abort_restores_the_tree_and_the_menu_stays_disabled_while_stopped(cx: &mut Te
 // 12. Keyboard: F7 between blocks, F10/F11 take-alls, Ctrl+Enter accept, Esc
 // ---------------------------------------------------------------------------
 
+/// The two checkboxes are independent: checking both sides composes the two
+/// sections in click order, and Accept writes them together.
+#[gpui_kit::gpui::test]
+fn both_side_checkboxes_compose_the_block(cx: &mut TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = divergent_repo("both-checks");
+    stop_with_merge(&repo, "feat");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-deep-both-checks");
+    let (_window, cx) = open_window!(cx, &store);
+    click(cx, "open-merge-editor");
+    drain(&net_rx);
+    load_conflict(cx, &store, &repo, "shared.txt");
+    click(cx, "merge-take-0-local");
+    click(cx, "merge-take-0-incoming");
+    draw(cx);
+    click(cx, "merge-accept");
+    assert_eq!(
+        resolve_commands(&drain(&net_rx)),
+        vec![("shared.txt".to_string(), Some("main\nfeat\n".to_string()))],
+        "both checked sides compose local then incoming"
+    );
+}
+
 #[gpui_kit::gpui::test]
 fn the_editor_keys_step_and_take_the_sides(cx: &mut TestAppContext) {
     scratch_home();

@@ -3339,21 +3339,45 @@ impl ChangesView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let pick = match side {
-            ConflictSide::Local => ConflictPick::Local,
-            ConflictSide::Incoming => ConflictPick::Incoming,
-        };
         let Some(editor) = self.merge_editor.as_mut() else {
             return;
         };
         if index >= editor.choices.len() {
             return;
         }
-        let already = editor.choices.get(index).copied().flatten();
-        let next = if already == Some(pick) {
-            None
-        } else {
-            Some(pick)
+        // the two checkboxes are independent: checking the other side adds it
+        // (the clicked side lands after the one already checked), and
+        // unchecking one leaves the other
+        let current = editor.choices.get(index).copied().flatten();
+        let mut local = matches!(
+            current,
+            Some(
+                ConflictPick::Local
+                    | ConflictPick::LocalThenIncoming
+                    | ConflictPick::IncomingThenLocal
+            )
+        );
+        let mut incoming = matches!(
+            current,
+            Some(
+                ConflictPick::Incoming
+                    | ConflictPick::LocalThenIncoming
+                    | ConflictPick::IncomingThenLocal
+            )
+        );
+        match side {
+            ConflictSide::Local => local = !local,
+            ConflictSide::Incoming => incoming = !incoming,
+        }
+        let next = match (local, incoming) {
+            (true, true) => Some(if side == ConflictSide::Local {
+                ConflictPick::IncomingThenLocal
+            } else {
+                ConflictPick::LocalThenIncoming
+            }),
+            (true, false) => Some(ConflictPick::Local),
+            (false, true) => Some(ConflictPick::Incoming),
+            (false, false) => None,
         };
         editor.current = index;
         self.take_block(index, next, window, cx);
@@ -5077,6 +5101,8 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
     // deleted side's box sits in its gap)
     let mut row_blocks = vec![None; rows.len()];
     let mut seen = vec![false; file.blocks.len()];
+    let mut row_of_local = vec![usize::MAX; file.blocks.len()];
+    let mut row_of_incoming = vec![usize::MAX; file.blocks.len()];
     for (row_index, row) in rows.iter().enumerate() {
         let block = row
             .local
@@ -5095,6 +5121,43 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
             seen[block] = true;
             row_blocks[row_index] = Some(block);
         }
+        if let Some(block) = row
+            .local
+            .and_then(|line| local_of_line.get(line).copied().flatten())
+            && row.local == Some(file.blocks[block].local_lines.start)
+        {
+            row_of_local[block] = row_of_local[block].min(row_index);
+        }
+        if let Some(block) = row
+            .incoming
+            .and_then(|line| incoming_of_line.get(line).copied().flatten())
+            && row.incoming == Some(file.blocks[block].incoming_lines.start)
+        {
+            row_of_incoming[block] = row_of_incoming[block].min(row_index);
+        }
+    }
+    // each side's checkbox sits at that side's first conflicting line; a
+    // deleted side has none, so its box goes on the block's first row (in the
+    // gap)
+    let mut row_local = vec![None; rows.len()];
+    let mut row_incoming = vec![None; rows.len()];
+    for (block, first) in row_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(row, block)| block.map(|block| (block, row)))
+    {
+        let local_row = row_of_local[block];
+        let incoming_row = row_of_incoming[block];
+        row_local[if local_row == usize::MAX {
+            first
+        } else {
+            local_row
+        }] = Some(block);
+        row_incoming[if incoming_row == usize::MAX {
+            first
+        } else {
+            incoming_row
+        }] = Some(block);
     }
     let rows = Rc::new(rows.to_vec());
     let max_lines = local_lines
@@ -5162,9 +5225,8 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                     (None, None)
                 };
 
-                let row_block = row_blocks[index];
-                let take_for = |side: ConflictSide| {
-                    row_block.map(|block| DiffTake {
+                let take_for = |block: Option<usize>, side: ConflictSide| {
+                    block.map(|block| DiffTake {
                         checked: matches!(
                             (choices.get(block).copied().flatten(), side),
                             (Some(ConflictPick::Local), ConflictSide::Local)
@@ -5201,7 +5263,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: true,
                         debug: cell_selector("local", row.local),
-                        take: take_for(ConflictSide::Local),
+                        take: take_for(row_local[index], ConflictSide::Local),
                     },
                     window,
                 ));
@@ -5237,7 +5299,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: false,
                         debug: cell_selector("incoming", row.incoming),
-                        take: take_for(ConflictSide::Incoming),
+                        take: take_for(row_incoming[index], ConflictSide::Incoming),
                     },
                     window,
                 ));
