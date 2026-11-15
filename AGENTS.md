@@ -158,19 +158,23 @@ Keep this order; several steps depend on the previous one:
   `ResolveConflict` writes the worktree file and runs `git add`, which is what
   clears the unmerged entry. The conflicted row's right-click menu resolves the
   whole file with `ResolveConflictBulk` (`conflict::resolve_all`). The editor's
-  panes are virtualised whole-file lists with the block wash; prev/next and the
-  numbered strip scroll all panes to the block (`UniformListScrollHandle`), the
-  Split/Columns toggle needs a pane wider than 1000 px, and the Base pane only
-  appears for `merge.conflictStyle=diff3` (a merge-style file has no base
-  section to map). Wheel scrolling is per pane. The Result is a live
-  `TextareaState`: every user edit is reduced to its smallest changed span
+  whole-file view is one base-aligned diff list (`git::merge_diff::align`):
+  every base line is a row, each side's matching or replacement line sits on
+  it, a side's insertions get their own rows and a deleted side is a hatched
+  gap; changed cells carry a faint tint and the current block's replaced words
+  a stronger one. Prev/next and the numbered strip scroll the one list to the
+  block (`UniformListScrollHandle`), the Split/Columns toggle needs a pane
+  wider than 1000 px, and the Base column only appears for
+  `merge.conflictStyle=diff3` (a merge-style file has no base section to map).
+  The Result is a live `TextareaState`: every user edit is reduced to its
+  smallest changed span
   (`minimal_edit`) and each block's `result_ranges` entry is remapped through
   it (`map_range`); a touched block loses its pick and counts as manual. Takes
   rewrite the block's range in `result` and shift the later ranges; Accept
   refuses while a conflict marker line remains. `ConflictPick` (the core type)
   carries Local, Incoming and the two both-side orders; `ConflictSide` stays
-  the whole-file vocabulary. `block_word_highlights` marks the changed middle
-  of the current block's corresponding lines. The row menu needs
+  the whole-file vocabulary. The diff marks the changed middle of a replaced
+  row's two lines. The row menu needs
   `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
   table now carries the picker so the linked build uses the local kit — the app
   repository needs a kit tag/pin bump before it builds standalone. Branch rows

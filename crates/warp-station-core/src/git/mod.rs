@@ -4,4 +4,5 @@
 
 pub mod cli;
 pub mod conflict;
+pub mod merge_diff;
 pub mod read;

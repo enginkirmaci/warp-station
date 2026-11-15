@@ -1723,6 +1723,40 @@ fn the_owners_stopped_merge_draws_the_band_rows_and_branch_menu(cx: &mut TestApp
     assert!(cx.debug_bounds("merge-editor").is_none());
 }
 
+/// The aligned diff's rows: base `a,b,c`, local `a,b,LONG`, incoming
+/// `b,c,Z`. The sides must sit on the base's rows, and a side that lacks the
+/// line must be a gap on that row, not shifted text.
+#[gpui_kit::gpui::test]
+fn the_diff_aligns_the_sides_on_the_base(cx: &mut TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = hoisted_prefix_repo("aligned-diff");
+    stop_with_merge(&repo, "feat");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-deep-aligned-diff");
+    let (_window, cx) = open_window!(cx, &store);
+    click(cx, "open-merge-editor");
+    drain(&net_rx);
+    load_conflict(cx, &store, &repo, "f.txt");
+
+    // row 0: the base's `a` on the local side, the incoming side's gap
+    assert!(
+        cx.debug_bounds("merge-diff-local-0-1").is_some(),
+        "the local line a sits on the base's first row"
+    );
+    assert!(
+        cx.debug_bounds("merge-diff-incoming-0-gap").is_some(),
+        "the incoming side has no a, so its cell is a gap"
+    );
+    // row 2: the replacement pairs CONFLICT_LONG with C
+    assert!(cx.debug_bounds("merge-diff-local-2-3").is_some());
+    assert!(cx.debug_bounds("merge-diff-incoming-2-2").is_some());
+    // row 3: the incoming side's trailing Z has its own row, opposite a gap
+    assert!(cx.debug_bounds("merge-diff-local-3-gap").is_some());
+    assert!(cx.debug_bounds("merge-diff-incoming-3-3").is_some());
+}
+
 /// Loading the owner's `.gitignore` conflict used to panic while prepainting
 /// the whole-file Local pane. The worktree's block is preceded by 8 lines that
 /// belong to the incoming stage only, so the parser's `local_lines` (8) was not
@@ -1752,5 +1786,17 @@ fn the_owners_gitignore_conflict_opens_the_editor_without_panicking(cx: &mut Tes
     assert!(
         cx.debug_bounds("merge-incoming").is_some(),
         "the whole-file Incoming pane draws"
+    );
+    assert!(
+        cx.debug_bounds("merge-diff-file").is_some(),
+        "the base-aligned diff list draws"
+    );
+    let result = cx
+        .debug_bounds("merge-result")
+        .expect("the Result editor draws");
+    assert!(
+        f32::from(result.size.height) > 200.,
+        "the Result area fills its pane (got {})",
+        f32::from(result.size.height)
     );
 }

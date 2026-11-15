@@ -21,8 +21,9 @@ use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use warp_station_core::git::conflict::{
-    ConflictPick, ConflictSide, GitConflictBlock, GitConflictFile, assemble_picks_tracked,
+    ConflictPick, ConflictSide, GitConflictFile, assemble_picks_tracked,
 };
+use warp_station_core::git::merge_diff;
 use warp_station_core::model::GitChangedFile;
 use warp_station_core::settings::DiffViewMode;
 use warpui_kit_core::{list_nav, motion, pane_nav};
@@ -3157,9 +3158,8 @@ impl ChangesView {
             whole: None,
             layout: MergeLayout::Split,
             show_base: false,
-            local_scroll: UniformListScrollHandle::default(),
-            incoming_scroll: UniformListScrollHandle::default(),
-            base_scroll: UniformListScrollHandle::default(),
+            diff: Vec::new(),
+            diff_scroll: UniformListScrollHandle::default(),
             scrolled: false,
             result: String::new(),
             result_ranges: Vec::new(),
@@ -3221,25 +3221,20 @@ impl ChangesView {
         let Some(block) = file.blocks.get(editor.current) else {
             return;
         };
-        // a section can end at the file's last line (or be empty at EOF); a
-        // stale range should never scroll past the pane's items
-        let items = |text: &str| text.split_inclusive('\n').count();
-        let local = items(&file.local);
-        let incoming = items(&file.incoming);
-        let base = file.base.as_deref().map_or(0, items);
-        editor.local_scroll.scroll_to_item(
-            block.local_lines.start.min(local.saturating_sub(1)),
-            ScrollStrategy::Top,
-        );
-        editor.incoming_scroll.scroll_to_item(
-            block.incoming_lines.start.min(incoming.saturating_sub(1)),
-            ScrollStrategy::Top,
-        );
-        if editor.show_base {
-            editor.base_scroll.scroll_to_item(
-                block.base_lines.start.min(base.saturating_sub(1)),
-                ScrollStrategy::Top,
-            );
+        // the block's first row in the aligned list: its own side's first
+        // line, or the base's where one side deleted the section
+        let row = editor.diff.iter().position(|row| {
+            row.local
+                .is_some_and(|line| block.local_lines.contains(&line))
+                || row
+                    .incoming
+                    .is_some_and(|line| block.incoming_lines.contains(&line))
+                || row
+                    .base
+                    .is_some_and(|line| block.base_lines.contains(&line))
+        });
+        if let Some(row) = row {
+            editor.diff_scroll.scroll_to_item(row, ScrollStrategy::Top);
         }
     }
 
@@ -3621,6 +3616,11 @@ impl ChangesView {
                 false
             } else {
                 editor.ready = true;
+                editor.diff = merge_diff::align(
+                    &file.local,
+                    file.base.as_deref().unwrap_or_default(),
+                    &file.incoming,
+                );
                 editor.result = file.worktree.clone();
                 editor.result_ranges = file
                     .blocks
@@ -3689,7 +3689,6 @@ impl ChangesView {
         } else {
             current.min(total - 1)
         };
-        let block = file.blocks.get(current);
         let local_chosen = if total == 0 {
             whole == Some(ConflictSide::Local)
         } else {
@@ -3700,8 +3699,6 @@ impl ChangesView {
         } else {
             choices.get(current).copied().flatten() == Some(ConflictPick::Incoming)
         };
-        let (local_highlights, incoming_highlights) =
-            block.map(block_word_highlights).unwrap_or_default();
         let layout = self
             .merge_editor
             .as_ref()
@@ -3799,107 +3796,32 @@ impl ChangesView {
         }
 
         let font_detail = theme::font_mono_meta();
-        let local_highlights = Rc::new(local_highlights);
-        let incoming_highlights = Rc::new(incoming_highlights);
-        let local_scroll = self
+        let rows = self.merge_editor.as_ref().expect("checked").diff.clone();
+        let diff_scroll = self
             .merge_editor
             .as_ref()
             .expect("checked")
-            .local_scroll
+            .diff_scroll
             .clone();
-        let incoming_scroll = self
-            .merge_editor
-            .as_ref()
-            .expect("checked")
-            .incoming_scroll
-            .clone();
-        let base_scroll = self
-            .merge_editor
-            .as_ref()
-            .expect("checked")
-            .base_scroll
-            .clone();
-        let local_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
-            file.blocks
-                .iter()
-                .map(|block| block.local_lines.clone())
-                .collect(),
-        );
-        let incoming_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
-            file.blocks
-                .iter()
-                .map(|block| block.incoming_lines.clone())
-                .collect(),
-        );
-        let current_local = block.map(|block| block.local_lines.clone());
-        let current_incoming = block.map(|block| block.incoming_lines.clone());
-
-        let local_side = merge_side(
-            MergeSide {
-                id: "merge-local",
-                label: "Local",
-                chosen: local_chosen,
-                text: &file.local,
-                ranges: local_ranges,
-                current: current_local,
-                highlight: local_highlights,
-                highlight_color: theme::DANGER,
-                scroll: &local_scroll,
+        let sides = merge_diff_view(
+            MergeDiffView {
+                file: &file,
+                rows: &rows,
+                current,
+                show_base: show_base && base_available,
+                local_chosen,
+                incoming_chosen,
                 font_detail,
-                on_toggle: Some(Box::new(cx.listener(|this, _, window, cx| {
+                scroll: &diff_scroll,
+                on_local: Box::new(cx.listener(|this, _, window, cx| {
                     this.choose_side(ConflictSide::Local, window, cx)
-                }))),
-            },
-            window,
-            cx,
-        );
-        let incoming_side = merge_side(
-            MergeSide {
-                id: "merge-incoming",
-                label: "Incoming",
-                chosen: incoming_chosen,
-                text: &file.incoming,
-                ranges: incoming_ranges,
-                current: current_incoming,
-                highlight: incoming_highlights,
-                highlight_color: theme::SUCCESS_BRIGHT,
-                scroll: &incoming_scroll,
-                font_detail,
-                on_toggle: Some(Box::new(cx.listener(|this, _, window, cx| {
+                })),
+                on_incoming: Box::new(cx.listener(|this, _, window, cx| {
                     this.choose_side(ConflictSide::Incoming, window, cx)
-                }))),
+                })),
             },
             window,
-            cx,
         );
-        let base_side = if show_base && base_available {
-            let base_text = file.base.clone().unwrap_or_default();
-            let base_ranges: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
-                file.blocks
-                    .iter()
-                    .map(|block| block.base_lines.clone())
-                    .collect(),
-            );
-            Some(merge_side(
-                MergeSide {
-                    id: "merge-base",
-                    label: "Base",
-                    chosen: false,
-                    text: &base_text,
-                    ranges: base_ranges,
-                    current: block.map(|block| block.base_lines.clone()),
-                    highlight: Rc::new(Vec::new()),
-                    highlight_color: theme::text_dim(),
-                    scroll: &base_scroll,
-                    font_detail,
-                    on_toggle: None,
-                },
-                window,
-                cx,
-            ))
-        } else {
-            None
-        };
 
         let result_input = self
             .merge_editor
@@ -3935,18 +3857,6 @@ impl ChangesView {
             .border_color(theme::hairline())
             .child(Self::merge_pane_label("Result"))
             .child(result);
-
-        let mut sides = div()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .flex()
-            .flex_row()
-            .child(local_side);
-        if let Some(base_side) = base_side {
-            sides = sides.child(base_side);
-        }
-        sides = sides.child(incoming_side);
 
         let body: gpui::AnyElement = if columns_available && layout == MergeLayout::Columns {
             div()
@@ -4317,46 +4227,6 @@ fn changed_span(a: &str, b: &str) -> Option<(std::ops::Range<usize>, std::ops::R
     }
 }
 
-/// Changed words per line: (absolute line index, spans in that line).
-type WordHighlights = Vec<(usize, Vec<std::ops::Range<usize>>)>;
-
-/// The current block's changed words per line, as absolute stage line indexes:
-/// (Local lines, Incoming lines). Lines the other side does not have, and the
-/// middle of a line that differs, are marked.
-fn block_word_highlights(block: &GitConflictBlock) -> (WordHighlights, WordHighlights) {
-    let mut local_lines: Vec<&str> = block
-        .local
-        .split('\n')
-        .map(|line| line.trim_end_matches('\r'))
-        .collect();
-    let mut incoming_lines: Vec<&str> = block
-        .incoming
-        .split('\n')
-        .map(|line| line.trim_end_matches('\r'))
-        .collect();
-    if block.local.ends_with('\n') {
-        local_lines.pop();
-    }
-    if block.incoming.ends_with('\n') {
-        incoming_lines.pop();
-    }
-    let mut local = Vec::new();
-    let mut incoming = Vec::new();
-    for index in 0..local_lines.len().max(incoming_lines.len()) {
-        let a = local_lines.get(index).copied().unwrap_or("");
-        let b = incoming_lines.get(index).copied().unwrap_or("");
-        if let Some((a_range, b_range)) = changed_span(a, b) {
-            if !a_range.is_empty() {
-                local.push((block.local_lines.start + index, vec![a_range]));
-            }
-            if !b_range.is_empty() {
-                incoming.push((block.incoming_lines.start + index, vec![b_range]));
-            }
-        }
-    }
-    (local, incoming)
-}
-
 /// The editor head's state: the path, progress, and which verbs are live.
 struct MergeHead {
     path: String,
@@ -4372,143 +4242,387 @@ struct MergeHead {
 /// A click handler on the editor's own controls.
 type MergeClick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App)>;
 
-/// One whole-file pane's content and state.
-struct MergeSide<'a> {
+/// The aligned diff: one row list over the base, two or three columns, with
+/// each side's take for the current block in its head.
+struct MergeDiffView<'a> {
+    file: &'a GitConflictFile,
+    rows: &'a [merge_diff::MergeRow],
+    current: usize,
+    show_base: bool,
+    local_chosen: bool,
+    incoming_chosen: bool,
+    font_detail: f32,
+    scroll: &'a UniformListScrollHandle,
+    on_local: MergeClick,
+    on_incoming: MergeClick,
+}
+
+/// One cell of a diff row: a side's line, or the hatched gap where that side
+/// deleted the base line.
+struct DiffCell<'a> {
+    line: Option<usize>,
+    lines: &'a [SharedString],
+    gap: bool,
+    changed: bool,
+    /// The changed middle of a line the current block replaced on both sides.
+    word: Option<std::ops::Range<usize>>,
+    word_color: gpui::Rgba,
+    change_color: gpui::Rgba,
+    gutter_w: f32,
+    font: f32,
+    first: bool,
+    /// The cell's probe selector: which row and side it is, and whether it is
+    /// the side's line or the gap where that side deleted it.
+    debug: SharedString,
+}
+
+fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
+    let DiffCell {
+        line,
+        lines,
+        gap,
+        changed,
+        word,
+        word_color,
+        change_color,
+        gutter_w,
+        font,
+        first,
+        debug,
+    } = cell;
+    let mut cell = div()
+        .id(debug.clone())
+        .debug_selector(move || debug.to_string())
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .items_center()
+        .overflow_hidden()
+        .when(!first, |cell| {
+            cell.border_l_1().border_color(theme::hairline())
+        });
+    if gap {
+        return cell.bg(theme::tint(theme::text_dim())).into_any_element();
+    }
+    if changed {
+        cell = cell
+            .bg(theme::tint(change_color))
+            // the change bar a diff's gutter carries; the tint alone reads as
+            // selection in this list
+            .child(div().w(px(3.)).h_full().flex_shrink_0().bg(change_color));
+    }
+    let Some(index) = line else {
+        return cell.into_any_element();
+    };
+    let text = lines.get(index).cloned().unwrap_or_default();
+    let word = word.filter(|span| {
+        span.start <= span.end
+            && span.end <= text.len()
+            && text.is_char_boundary(span.start)
+            && text.is_char_boundary(span.end)
+    });
+    let mut style = window.text_style();
+    style.color = theme::text().into();
+    let text_element: gpui::AnyElement = match word {
+        Some(span) => StyledText::new(text.to_string())
+            .with_default_highlights(
+                &style,
+                vec![(
+                    span,
+                    HighlightStyle {
+                        background_color: Some(theme::tint(word_color)),
+                        ..Default::default()
+                    },
+                )],
+            )
+            .into_any_element(),
+        None => div().min_w_0().truncate().child(text).into_any_element(),
+    };
+    cell.child(
+        div()
+            .w(px(gutter_w))
+            .flex_shrink_0()
+            .pr_1()
+            .flex()
+            .justify_end()
+            .text_size(px(font * 0.9))
+            .text_color(theme::text_dim())
+            .child(format!("{}", index + 1)),
+    )
+    .child(div().flex_1().min_w_0().pl_2().child(text_element))
+    .into_any_element()
+}
+
+/// One column head: the current block's take on that side, or the read-only
+/// Base label. The id doubles as the probe's selector, as the panes' heads did.
+fn diff_column_head(
     id: &'static str,
     label: &'static str,
     chosen: bool,
-    text: &'a str,
-    /// Every block's lines in this stage file, for the block wash.
-    ranges: Rc<Vec<std::ops::Range<usize>>>,
-    /// The block under the cursor, washed stronger.
-    current: Option<std::ops::Range<usize>>,
-    /// Changed words per absolute line in the current block.
-    highlight: Rc<WordHighlights>,
-    highlight_color: gpui::Rgba,
-    scroll: &'a UniformListScrollHandle,
-    font_detail: f32,
-    /// The take checkbox; `None` for the read-only Base pane.
     on_toggle: Option<MergeClick>,
+    first: bool,
+) -> gpui::AnyElement {
+    let mut head = div()
+        .id(SharedString::from(id))
+        .debug_selector(move || id.to_string())
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .when(!first, |head| {
+            head.border_l_1().border_color(theme::hairline())
+        })
+        .text_size(px(theme::font_meta()))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::text_dim());
+    if let Some(on_toggle) = on_toggle {
+        head = head
+            .child(
+                div()
+                    .id(SharedString::from(format!("{id}-take")))
+                    .debug_selector(move || format!("{id}-take"))
+                    .a11y_toggle(format!("Take {label}"), chosen)
+                    .cursor_pointer()
+                    .size(px(18.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(if chosen {
+                        theme::accent()
+                    } else {
+                        theme::line_strong()
+                    })
+                    .when(chosen, |box_| box_.bg(theme::accent()))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(chosen, |box_| {
+                        box_.child(icon(
+                            "icons/icon-check.svg",
+                            px(theme::icon_tiny()),
+                            theme::on_accent(),
+                        ))
+                    })
+                    .on_click(on_toggle),
+            )
+            .child(label);
+    } else {
+        head = head.child(label);
+    }
+    head.into_any_element()
 }
 
-/// One whole-file pane of the merge editor: its label, the take checkbox for
-/// the current block, and the stage file with the conflict blocks washed. The
-/// list is virtualised, and the handle lets a conflict jump scroll it.
-fn merge_side(
-    side: MergeSide<'_>,
-    _window: &mut Window,
-    _cx: &mut Context<ChangesView>,
-) -> gpui::AnyElement {
-    let MergeSide {
-        id,
-        label,
-        chosen,
-        text,
-        ranges,
+/// The editor's whole-file diff: one virtualised list of base-aligned rows,
+/// the current block's word changes, and the two sides' takes. The rows come
+/// from [`merge_diff::align`]; a cell with no line is a gap, so deleted lines
+/// read as holes instead of shifting the other side's lines.
+fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyElement {
+    let MergeDiffView {
+        file,
+        rows,
         current,
-        highlight,
-        highlight_color,
-        scroll,
+        show_base,
+        local_chosen,
+        incoming_chosen,
         font_detail,
-        on_toggle,
-    } = side;
-    let mut lines: Vec<SharedString> = text
-        .split('\n')
-        .map(|line| SharedString::from(line.trim_end_matches('\r')))
-        .collect();
-    if text.ends_with('\n') {
-        lines.pop();
-    }
-    let lines = Rc::new(lines);
-    let count = lines.len();
-    let digits = count.to_string().len().max(2);
+        scroll,
+        on_local,
+        on_incoming,
+    } = view;
+    let local_lines: Rc<Vec<SharedString>> = Rc::new(
+        merge_diff::display_lines(&file.local)
+            .into_iter()
+            .map(SharedString::from)
+            .collect(),
+    );
+    let incoming_lines: Rc<Vec<SharedString>> = Rc::new(
+        merge_diff::display_lines(&file.incoming)
+            .into_iter()
+            .map(SharedString::from)
+            .collect(),
+    );
+    let base_lines: Rc<Vec<SharedString>> = Rc::new(
+        file.base
+            .as_deref()
+            .map(merge_diff::display_lines)
+            .unwrap_or_default()
+            .into_iter()
+            .map(SharedString::from)
+            .collect(),
+    );
+    let local_blocks: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
+        file.blocks
+            .iter()
+            .map(|block| block.local_lines.clone())
+            .collect(),
+    );
+    let incoming_blocks: Rc<Vec<std::ops::Range<usize>>> = Rc::new(
+        file.blocks
+            .iter()
+            .map(|block| block.incoming_lines.clone())
+            .collect(),
+    );
+    let current_block = file.blocks.get(current);
+    let current_local = current_block.map(|block| block.local_lines.clone());
+    let current_incoming = current_block.map(|block| block.incoming_lines.clone());
+    let rows = Rc::new(rows.to_vec());
+    let max_lines = local_lines
+        .len()
+        .max(incoming_lines.len())
+        .max(base_lines.len());
+    let gutter_w = max_lines.to_string().len().max(2) as f32 * 7.5 + 10.;
     let row_h = (font_detail * 1.5).max(16.);
-    let gutter_w = digits as f32 * 7.5 + 10.;
     let row_font = font_detail;
-    let list = uniform_list(
-        SharedString::from(format!("{id}-file")),
-        count,
-        move |range, window, _cx| {
-            range
-                .map(|ix| {
-                    let line = lines.get(ix).cloned().unwrap_or_default();
-                    let in_block = ranges.iter().any(|range| range.contains(&ix));
-                    let is_current = current.as_ref().is_some_and(|range| range.contains(&ix));
-                    let mut row = div()
-                        .w_full()
-                        .h(px(row_h))
-                        .flex()
-                        .items_center()
-                        .font_family(theme::code_font())
-                        .text_size(px(row_font))
-                        .text_color(theme::text());
-                    if is_current {
-                        row = row.bg(theme::tint(theme::accent()));
-                    } else if in_block {
-                        row = row.bg(theme::raised());
+
+    let list = uniform_list("merge-diff-file", rows.len(), move |range, window, _cx| {
+        range
+            .map(|index| {
+                let row = rows[index];
+                let local_current = current_local
+                    .as_ref()
+                    .is_some_and(|block| row.local.is_some_and(|line| block.contains(&line)))
+                    && row.local.is_some();
+                let incoming_current = current_incoming
+                    .as_ref()
+                    .is_some_and(|block| row.incoming.is_some_and(|line| block.contains(&line)))
+                    && row.incoming.is_some();
+                let local_in_block = local_blocks
+                    .iter()
+                    .any(|block| row.local.is_some_and(|line| block.contains(&line)));
+                let incoming_in_block = incoming_blocks
+                    .iter()
+                    .any(|block| row.incoming.is_some_and(|line| block.contains(&line)));
+                let mut line = div()
+                    .w_full()
+                    .h(px(row_h))
+                    .flex()
+                    .flex_row()
+                    .font_family(theme::code_font())
+                    .text_size(px(row_font))
+                    .text_color(theme::text());
+                if local_current || incoming_current {
+                    line = line.bg(theme::tint(theme::accent()));
+                } else if local_in_block || incoming_in_block {
+                    line = line.bg(theme::raised());
+                }
+
+                let local_text = row.local.map(|line| &local_lines[line]);
+                let base_text = row.base.map(|line| &base_lines[line]);
+                let incoming_text = row.incoming.map(|line| &incoming_lines[line]);
+                let local_changed = match (local_text, base_text) {
+                    (Some(local), Some(base)) => local != base,
+                    (Some(_), None) => true,
+                    (None, _) => false,
+                };
+                let incoming_changed = match (incoming_text, base_text) {
+                    (Some(incoming), Some(base)) => incoming != base,
+                    (Some(_), None) => true,
+                    (None, _) => false,
+                };
+                let (local_word, incoming_word) = if local_current && incoming_current {
+                    match (local_text, incoming_text) {
+                        (Some(local), Some(incoming)) => match changed_span(local, incoming) {
+                            Some((local, incoming)) => (Some(local), Some(incoming)),
+                            None => (None, None),
+                        },
+                        _ => (None, None),
                     }
-                    let runs: Vec<(std::ops::Range<usize>, HighlightStyle)> = highlight
-                        .iter()
-                        .find(|(line_ix, _)| *line_ix == ix)
-                        .map(|(_, spans)| {
-                            spans
-                                .iter()
-                                // the mapping points at the stage line the
-                                // section starts on; a run that does not fit
-                                // this line would trip gpui's text-run assert
-                                // (a debug build's panic, a release one's
-                                // "invalid text run"), so a defensive filter
-                                // drops it instead
-                                .filter(|span| {
-                                    span.start <= span.end
-                                        && span.end <= line.len()
-                                        && line.is_char_boundary(span.start)
-                                        && line.is_char_boundary(span.end)
-                                })
-                                .cloned()
-                                .map(|span| {
-                                    (
-                                        span,
-                                        HighlightStyle {
-                                            background_color: Some(theme::tint(highlight_color)),
-                                            ..Default::default()
-                                        },
-                                    )
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let mut style = window.text_style();
-                    style.color = theme::text().into();
-                    let text_element: gpui::AnyElement = if runs.is_empty() {
-                        div().min_w_0().truncate().child(line).into_any_element()
-                    } else {
-                        StyledText::new(line.to_string())
-                            .with_default_highlights(&style, runs)
-                            .into_any_element()
-                    };
-                    row.child(
-                        div()
-                            .w(px(gutter_w))
-                            .flex_shrink_0()
-                            .pr_1()
-                            .flex()
-                            .justify_end()
-                            .text_size(px(row_font * 0.9))
-                            .text_color(theme::text_dim())
-                            .child(format!("{}", ix + 1)),
-                    )
-                    .child(div().flex_1().min_w_0().pl_2().child(text_element))
-                })
-                .collect()
-        },
-    )
+                } else {
+                    (None, None)
+                };
+
+                let cell_selector = |side: &str, line: Option<usize>| {
+                    SharedString::from(format!(
+                        "merge-diff-{side}-{index}-{}",
+                        line.map_or_else(|| "gap".to_string(), |line| (line + 1).to_string())
+                    ))
+                };
+                line = line.child(diff_cell(
+                    DiffCell {
+                        line: row.local,
+                        lines: &local_lines,
+                        gap: row.local.is_none(),
+                        changed: local_changed,
+                        word: local_word,
+                        word_color: theme::DANGER,
+                        change_color: theme::DANGER,
+                        gutter_w,
+                        font: row_font,
+                        first: true,
+                        debug: cell_selector("local", row.local),
+                    },
+                    window,
+                ));
+                if show_base {
+                    line = line.child(diff_cell(
+                        DiffCell {
+                            line: row.base,
+                            lines: &base_lines,
+                            gap: row.base.is_none(),
+                            changed: false,
+                            word: None,
+                            word_color: theme::text_dim(),
+                            change_color: theme::text_dim(),
+                            gutter_w,
+                            font: row_font,
+                            first: false,
+                            debug: cell_selector("base", row.base),
+                        },
+                        window,
+                    ));
+                }
+                line = line.child(diff_cell(
+                    DiffCell {
+                        line: row.incoming,
+                        lines: &incoming_lines,
+                        gap: row.incoming.is_none(),
+                        changed: incoming_changed,
+                        word: incoming_word,
+                        word_color: theme::SUCCESS_BRIGHT,
+                        change_color: theme::SUCCESS_BRIGHT,
+                        gutter_w,
+                        font: row_font,
+                        first: false,
+                        debug: cell_selector("incoming", row.incoming),
+                    },
+                    window,
+                ));
+                line
+            })
+            .collect()
+    })
     .track_scroll(scroll)
     .size_full();
 
-    let mut pane = div()
-        .id(SharedString::from(id))
-        .debug_selector(move || id.to_string())
+    let mut head = div()
+        .flex_shrink_0()
+        .h(px(34.))
+        .flex()
+        .flex_row()
+        .border_b_1()
+        .border_color(theme::hairline());
+    head = head.child(diff_column_head(
+        "merge-local",
+        "Local",
+        local_chosen,
+        Some(on_local),
+        true,
+    ));
+    if show_base {
+        head = head.child(diff_column_head("merge-base", "Base", false, None, false));
+    }
+    head = head.child(diff_column_head(
+        "merge-incoming",
+        "Incoming",
+        incoming_chosen,
+        Some(on_incoming),
+        false,
+    ));
+
+    div()
         .flex_1()
         .min_w_0()
         .h_full()
@@ -4516,70 +4630,9 @@ fn merge_side(
         .flex_col()
         .bg(theme::well())
         .border_r_1()
-        .border_color(theme::hairline());
-    if let Some(on_toggle) = on_toggle {
-        pane = pane.child(
-            div()
-                .flex_shrink_0()
-                .h(px(34.))
-                .px_2()
-                .flex()
-                .items_center()
-                .gap_2()
-                .border_b_1()
-                .border_color(theme::hairline())
-                .child(
-                    div()
-                        .id(SharedString::from(format!("{id}-take")))
-                        .debug_selector(move || format!("{id}-take"))
-                        .a11y_toggle(format!("Take {label}"), chosen)
-                        .cursor_pointer()
-                        .size(px(18.))
-                        .rounded(px(4.))
-                        .border_1()
-                        .border_color(if chosen {
-                            theme::accent()
-                        } else {
-                            theme::line_strong()
-                        })
-                        .when(chosen, |box_| box_.bg(theme::accent()))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .when(chosen, |box_| {
-                            box_.child(icon(
-                                "icons/icon-check.svg",
-                                px(theme::icon_tiny()),
-                                theme::on_accent(),
-                            ))
-                        })
-                        .on_click(on_toggle),
-                )
-                .child(
-                    div()
-                        .text_size(px(theme::font_meta()))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text_dim())
-                        .child(label),
-                ),
-        );
-    } else {
-        pane = pane.child(
-            div()
-                .flex_shrink_0()
-                .h(px(34.))
-                .px_2()
-                .flex()
-                .items_center()
-                .border_b_1()
-                .border_color(theme::hairline())
-                .text_size(px(theme::font_meta()))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::text_dim())
-                .child(label),
-        );
-    }
-    pane.child(div().flex_1().min_h_0().child(list))
+        .border_color(theme::hairline())
+        .child(head)
+        .child(div().flex_1().min_h_0().child(list))
         .into_any_element()
 }
 
@@ -5211,11 +5264,11 @@ struct MergeEditor {
     whole: Option<ConflictSide>,
     /// Side-by-side sides over the result, or three/four columns in one row.
     layout: MergeLayout,
-    /// The optional Base pane; only offered when every block has a diff3 base.
+    /// The optional Base column; only offered when every block has a base.
     show_base: bool,
-    local_scroll: UniformListScrollHandle,
-    incoming_scroll: UniformListScrollHandle,
-    base_scroll: UniformListScrollHandle,
+    /// The base-aligned rows the one diff list draws.
+    diff: Vec<merge_diff::MergeRow>,
+    diff_scroll: UniformListScrollHandle,
     /// The first block was scrolled to once the file landed; later renders
     /// leave the reader's scroll alone.
     scrolled: bool,
