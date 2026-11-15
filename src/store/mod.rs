@@ -1920,11 +1920,14 @@ impl Store {
                     .unwrap_or_else(|| folder.clone());
                 if let Some(err) = error {
                     tracing::warn!("git {label} failed in {folder}: {err}");
-                    self.notify_error(format!(
-                        "{} failed for {}: {err}",
-                        capitalized_label(label),
-                        name
-                    ));
+                    match blocked_by_local_changes(&capitalized_label(label), &name, &err) {
+                        Some(message) => self.notify_error(message),
+                        None => self.notify_error(format!(
+                            "{} failed for {}: {err}",
+                            capitalized_label(label),
+                            name
+                        )),
+                    }
                     // nothing was committed: keep the generated message for
                     // its repo instead of losing it
                     if let Some(message) = wand_message {
@@ -2549,10 +2552,13 @@ impl Store {
             }
             MergeRun::Continued => self.notify_success("Merge committed"),
             MergeRun::Aborted => self.notify_info("Merge aborted"),
-            MergeRun::Failed { action, error } => self.notify_error(format!(
-                "{action} failed for {name}: {}",
-                error.unwrap_or_else(|| "git rejected it".into())
-            )),
+            MergeRun::Failed { action, error } => {
+                let error = error.unwrap_or_else(|| "git rejected it".into());
+                match blocked_by_local_changes(action, &name, &error) {
+                    Some(message) => self.notify_error(message),
+                    None => self.notify_error(format!("{action} failed for {name}: {error}")),
+                }
+            }
         }
     }
 
@@ -6808,6 +6814,54 @@ fn global_search_hits(
 }
 
 /// Capitalizes a git action label for toast texts ("stage all" → "Stage all").
+/// The paths git lists after "would be overwritten by ...", up to three.
+fn overwritten_files(error: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut in_list = false;
+    for line in error.lines() {
+        let trimmed = line.trim();
+        if trimmed.to_lowercase().contains("would be overwritten") {
+            in_list = true;
+            continue;
+        }
+        if in_list {
+            if trimmed.is_empty() || !(line.starts_with(' ') || line.starts_with('\t')) {
+                break;
+            }
+            if files.len() == 3 {
+                files.push("…".to_string());
+                break;
+            }
+            files.push(trimmed.to_string());
+        }
+    }
+    files
+}
+
+/// Git's refusal to start a merge or checkout because it would overwrite
+/// work: the UI names the cause and the three ways out instead of echoing
+/// the raw stderr, which reads like a conflict that never happened.
+fn blocked_by_local_changes(action: &str, name: &str, error: &str) -> Option<String> {
+    let lower = error.to_lowercase();
+    if !lower.contains("would be overwritten") {
+        return None;
+    }
+    let files = overwritten_files(error);
+    let listed = if files.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", files.join(", "))
+    };
+    let what = if lower.contains("untracked working tree files") {
+        "untracked files"
+    } else {
+        "uncommitted changes"
+    };
+    Some(format!(
+        "{action} blocked for {name}: {what} would be overwritten{listed}. Commit or discard them in Changes first, or stash them from a terminal."
+    ))
+}
+
 fn capitalized_label(label: &str) -> String {
     let mut chars = label.chars();
     match chars.next() {
@@ -7701,5 +7755,24 @@ mod tests {
         });
         assert!(!store.settings().notifications.enabled);
         let _ = std::fs::remove_file(&scratch);
+    }
+
+    #[test]
+    fn a_blocked_merge_names_the_files_and_the_ways_out() {
+        let stderr = "error: Your local changes to the following files would be overwritten by merge:\n\t.gitignore\n\tREADME.md\nPlease commit your changes or stash them before you merge.\nAborting";
+        let message = blocked_by_local_changes("Merge", "KwmSwitcher", stderr)
+            .expect("the overwrite refusal is recognised");
+        assert!(message.contains(".gitignore, README.md"), "{message}");
+        assert!(message.contains("uncommitted changes"), "{message}");
+        assert!(message.contains("Commit or discard"), "{message}");
+        assert!(message.contains("stash"), "{message}");
+
+        let untracked = "error: The following untracked working tree files would be overwritten by merge:\n\tnotes.txt\nPlease move or remove them before you merge.\nAborting";
+        let message = blocked_by_local_changes("Checkout", "App", untracked).expect("recognised");
+        assert!(message.contains("untracked files"), "{message}");
+
+        assert!(
+            blocked_by_local_changes("Merge", "App", "error: could not read from remote").is_none()
+        );
     }
 }

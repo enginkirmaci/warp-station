@@ -3219,16 +3219,25 @@ impl ChangesView {
         let Some(block) = file.blocks.get(editor.current) else {
             return;
         };
-        editor
-            .local_scroll
-            .scroll_to_item(block.local_lines.start, ScrollStrategy::Top);
-        editor
-            .incoming_scroll
-            .scroll_to_item(block.incoming_lines.start, ScrollStrategy::Top);
+        // a section can end at the file's last line (or be empty at EOF); a
+        // stale range should never scroll past the pane's items
+        let items = |text: &str| text.split_inclusive('\n').count();
+        let local = items(&file.local);
+        let incoming = items(&file.incoming);
+        let base = file.base.as_deref().map_or(0, items);
+        editor.local_scroll.scroll_to_item(
+            block.local_lines.start.min(local.saturating_sub(1)),
+            ScrollStrategy::Top,
+        );
+        editor.incoming_scroll.scroll_to_item(
+            block.incoming_lines.start.min(incoming.saturating_sub(1)),
+            ScrollStrategy::Top,
+        );
         if editor.show_base {
-            editor
-                .base_scroll
-                .scroll_to_item(block.base_lines.start, ScrollStrategy::Top);
+            editor.base_scroll.scroll_to_item(
+                block.base_lines.start.min(base.saturating_sub(1)),
+                ScrollStrategy::Top,
+            );
         }
     }
 
@@ -4439,6 +4448,18 @@ fn merge_side(
                         .map(|(_, spans)| {
                             spans
                                 .iter()
+                                // the mapping points at the stage line the
+                                // section starts on; a run that does not fit
+                                // this line would trip gpui's text-run assert
+                                // (a debug build's panic, a release one's
+                                // "invalid text run"), so a defensive filter
+                                // drops it instead
+                                .filter(|span| {
+                                    span.start <= span.end
+                                        && span.end <= line.len()
+                                        && line.is_char_boundary(span.start)
+                                        && line.is_char_boundary(span.end)
+                                })
                                 .cloned()
                                 .map(|span| {
                                     (

@@ -104,8 +104,9 @@ async fn run_git_with_env(
 /// fatal/error/conflict/rejection line, falling back to the last non-empty one
 /// (transfer chatter like "From origin" would otherwise fill the message).
 pub fn summarize_sync_error(stderr: &str) -> Option<String> {
+    let lines: Vec<&str> = stderr.split('\n').collect();
     let mut fallback = None;
-    for raw in stderr.split('\n') {
+    for (index, raw) in lines.iter().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
             continue;
@@ -115,6 +116,21 @@ pub fn summarize_sync_error(stderr: &str) -> Option<String> {
             || line.starts_with("CONFLICT")
             || line.starts_with("! [")
         {
+            // git lists the paths it would overwrite on the indented lines
+            // after the header; the blocked-merge toast names them, so keep
+            // those lines (and stop at the sentence after the list)
+            if line.contains("would be overwritten") {
+                let mut message = line.to_string();
+                for next in &lines[index + 1..] {
+                    let trimmed = next.trim();
+                    if trimmed.is_empty() || !(next.starts_with(' ') || next.starts_with('\t')) {
+                        break;
+                    }
+                    message.push('\n');
+                    message.push_str(next);
+                }
+                return Some(message);
+            }
             return Some(line.to_string());
         }
         fallback = Some(line.to_string());
@@ -542,6 +558,25 @@ mod tests {
             vec!["fetch", "--prune", "--no-tags", "origin"]
         );
         assert_eq!(fetch_args(None), vec!["fetch", "--prune"]);
+    }
+
+    #[test]
+    fn a_would_be_overwritten_error_keeps_the_file_list() {
+        let stderr = "error: Your local changes to the following files would be overwritten by merge:\n\t.gitignore\n\tREADME.md\nPlease commit your changes or stash them before you merge.\nAborting\n";
+        let summary = summarize_sync_error(stderr).expect("the error line");
+        assert!(
+            summary.starts_with("error: Your local changes"),
+            "{summary}"
+        );
+        assert!(summary.contains("\t.gitignore"), "{summary}");
+        assert!(summary.contains("\tREADME.md"), "{summary}");
+        assert!(!summary.contains("Aborting"), "{summary}");
+
+        // an ordinary failure still summarizes to its actionable line
+        assert_eq!(
+            summarize_sync_error("From origin\nfatal: unable to access\n"),
+            Some("fatal: unable to access".to_string())
+        );
     }
 }
 

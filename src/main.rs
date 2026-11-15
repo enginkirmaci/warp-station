@@ -58,6 +58,7 @@ fn main() {
     warp_station_core::paths::migrate_suite_layout();
 
     let _log_guard = logging::initialize();
+    logging::install_panic_hook();
 
     application()
         .with_assets(assets::EmbedAssets::new())

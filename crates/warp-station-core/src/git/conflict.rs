@@ -42,10 +42,11 @@ pub struct GitConflictBlock {
     pub incoming: String,
     pub base: Option<String>,
     /// The block's lines in each stage file, for the whole-file panes. The
-    /// projection is exact for a content conflict: removing the markers and
-    /// the other side leaves the stage file, so the line index before the
-    /// block is the stage line the section starts on. A merge-style conflict
-    /// has no base section, so `base_lines` is an empty range there.
+    /// parser fills a best-effort worktree projection; `conflict_file` then
+    /// runs [`map_stage_lines`], which locates the section in its own stage
+    /// (git can hoist resolved lines one stage lacks, so the projection can be
+    /// off). A merge-style conflict has no base section, so `base_lines` is an
+    /// empty range there.
     pub local_lines: Range<usize>,
     pub incoming_lines: Range<usize>,
     pub base_lines: Range<usize>,
@@ -95,7 +96,11 @@ pub fn conflict_file(folder: &Path, path: &str) -> Option<GitConflictFile> {
     let incoming = side_text(&stages.their)?;
     let base = side_text(&stages.ancestor);
     let worktree = std::fs::read_to_string(folder.join(path)).unwrap_or_default();
-    let blocks = parse_conflict_blocks(&worktree).unwrap_or_default();
+    let mut blocks = parse_conflict_blocks(&worktree).unwrap_or_default();
+    // the parser's projection is a best effort: git can hoist lines it
+    // resolved before the markers, so a stage that lacks them starts later.
+    // The sections themselves are exact slices, so locate them per stage.
+    map_stage_lines(&mut blocks, &local, &incoming, base.as_deref());
     Some(GitConflictFile {
         path: path.to_string(),
         local,
@@ -241,6 +246,68 @@ impl ConflictPick {
             Self::Incoming => block.incoming.clone(),
             Self::LocalThenIncoming => format!("{}{}", block.local, block.incoming),
             Self::IncomingThenLocal => format!("{}{}", block.incoming, block.local),
+        }
+    }
+}
+
+/// One stage file's lines, newlines kept: the sections are slices of these.
+fn stage_lines(text: &str) -> Vec<&str> {
+    text.split_inclusive('\n').collect()
+}
+
+/// Locates `section` in `lines` at or after `from`, falling back to the whole
+/// stage. Returns the half-open line range.
+fn locate_section(lines: &[&str], section: &str, from: usize) -> (usize, usize) {
+    let wanted = stage_lines(section);
+    if wanted.is_empty() {
+        let at = from.min(lines.len());
+        return (at, at);
+    }
+    let last = lines.len().saturating_sub(wanted.len());
+    let found = (from.min(last)..=last)
+        .find(|&index| lines[index..index + wanted.len()] == wanted[..])
+        .or_else(|| (0..=last).find(|&index| lines[index..index + wanted.len()] == wanted[..]))
+        .unwrap_or(from.min(last));
+    (found, found + wanted.len())
+}
+
+/// Recomputes every block's line range per stage by locating that side's
+/// section in the stage text, in block order. The parser's projection counts
+/// the worktree lines before a block and assumes each stage shares them; git
+/// can resolve lines one stage does not have (it drops an ancestor line the
+/// incoming side deleted), so the projection can point at the wrong stage
+/// line — or past its end. The section text is an exact slice of its stage,
+/// so searching is exact where the projection is a guess.
+pub fn map_stage_lines(
+    blocks: &mut [GitConflictBlock],
+    local: &str,
+    incoming: &str,
+    base: Option<&str>,
+) {
+    let local_lines = stage_lines(local);
+    let incoming_lines = stage_lines(incoming);
+    let base_lines = base.map(stage_lines);
+    let mut local_from = 0;
+    let mut incoming_from = 0;
+    let mut base_from = 0;
+    for block in blocks.iter_mut() {
+        let (start, end) = locate_section(&local_lines, &block.local, local_from);
+        block.local_lines = start..end;
+        local_from = end;
+        let (start, end) = locate_section(&incoming_lines, &block.incoming, incoming_from);
+        block.incoming_lines = start..end;
+        incoming_from = end;
+        match (&base_lines, &block.base) {
+            (Some(lines), Some(section)) => {
+                let (start, end) = locate_section(lines, section, base_from);
+                block.base_lines = start..end;
+                base_from = end;
+            }
+            (Some(lines), None) => {
+                let at = base_from.min(lines.len());
+                block.base_lines = at..at;
+            }
+            (None, _) => block.base_lines = 0..0,
         }
     }
 }
@@ -408,6 +475,40 @@ mod tests {
         assert_eq!(incoming, "a\ni\nz\n");
         let unresolved = assemble(text, &blocks, &[None]);
         assert_eq!(unresolved, text);
+    }
+
+    #[test]
+    fn a_hoisted_prefix_maps_each_stage_section_exactly() {
+        // base A,B,C; feat deletes A and appends Z; main changes C. Git drops
+        // A before the markers, so the parser's projection (1..2) points at
+        // B, while the local section lives on line 2.
+        let worktree = "B\n<<<<<<< HEAD\nCONFLICT_LONG\n=======\nC\nZ\n>>>>>>> feat\n";
+        let mut blocks = parse_conflict_blocks(worktree).expect("well-formed");
+        let local = "A\nB\nCONFLICT_LONG\n";
+        let incoming = "B\nC\nZ\n";
+        map_stage_lines(&mut blocks, local, incoming, None);
+        let local_lines: Vec<&str> = local.split_inclusive('\n').collect();
+        let incoming_lines: Vec<&str> = incoming.split_inclusive('\n').collect();
+        assert_eq!(blocks[0].local_lines, 2..3);
+        assert_eq!(
+            local_lines[blocks[0].local_lines.clone()].concat(),
+            "CONFLICT_LONG\n"
+        );
+        assert_eq!(blocks[0].incoming_lines, 1..3);
+        assert_eq!(
+            incoming_lines[blocks[0].incoming_lines.clone()].concat(),
+            "C\nZ\n"
+        );
+    }
+
+    #[test]
+    fn a_diff3_base_section_maps_onto_the_ancestor() {
+        let worktree = "A\nB\n<<<<<<< HEAD\nL\n||||||| base\nC\n=======\nI\n>>>>>>> feat\n";
+        let mut blocks = parse_conflict_blocks(worktree).expect("well-formed");
+        map_stage_lines(&mut blocks, "A\nB\nL\n", "A\nB\nI\n", Some("A\nB\nC\n"));
+        assert_eq!(blocks[0].local_lines, 2..3);
+        assert_eq!(blocks[0].incoming_lines, 2..3);
+        assert_eq!(blocks[0].base_lines, 2..3);
     }
 
     #[test]

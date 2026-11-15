@@ -48,7 +48,9 @@ Keep this order; several steps depend on the previous one:
 3. `warp_station_core::paths::migrate_legacy_data()`,
    `migrate_legacy_ai_data()` and `migrate_suite_layout()` — before logging,
    so the fresh `~/.warp/logs` never collides with an absorbed one.
-4. `logging::initialize()`; keep the guard in `main`.
+4. `logging::initialize()`; keep the guard in `main`. `logging::install_panic_hook()`
+   follows, so a panic logs its thread, location and backtrace: a desktop
+   launch has no stderr to show it.
 5. `application().run(...)`: net thread and `Store`, then
    `warpui_kit_core::bootstrap::init`, then the Windows auto-start blocks,
    the event pump, the once-per-second beat and the window.
@@ -150,8 +152,9 @@ Keep this order; several steps depend on the previous one:
   `MergeContinue` runs `git merge --continue` with `GIT_EDITOR=true` (the
   prepared `MERGE_MSG` stands), `MergeAbort` runs `git merge --abort`. The
   editor's data is `git::conflict::conflict_file` (index stages plus the
-  worktree marker parse; each block carries its line range in every stage
-  file, taken from the parser's projection rather than a three-way diff);
+  worktree marker parse; the parser projects each block's line range, then
+  `map_stage_lines` relocates every section in its own stage because git can
+  hoist resolved lines one stage does not have);
   `ResolveConflict` writes the worktree file and runs `git add`, which is what
   clears the unmerged entry. The conflicted row's right-click menu resolves the
   whole file with `ResolveConflictBulk` (`conflict::resolve_all`). The editor's
