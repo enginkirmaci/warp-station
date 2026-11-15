@@ -173,7 +173,9 @@ Keep this order; several steps depend on the previous one:
   fallback card instead: Take Local / Take Incoming through
   `cli::resolve_side` (the side's stage is checked out and staged, or `git rm`
   records the deletion) or keep the working tree and stage it; `conflict_sides`
-  says which stages exist. The Result is a live `TextareaState`: every user
+  says which stages exist. The Result is a live `EditorState` (the code
+  editor, not the textarea: only the editor mode exposes `RangeDecoration`s,
+  which paint the conflict fills behind the text as it is edited): every user
   edit is reduced to its smallest changed span
   (`minimal_edit`) and each block's `result_ranges` entry is remapped through
   it (`map_range`); a touched block loses its pick and counts as manual. Takes
@@ -181,10 +183,10 @@ Keep this order; several steps depend on the previous one:
   refuses while a conflict marker line remains. `ConflictPick` (the core type)
   carries Local, Incoming and the two both-side orders; `ConflictSide` stays
   the whole-file vocabulary. The diff marks the changed middle of a replaced
-  row's two lines. The Result header's Preview toggle swaps the textarea for a
-  coloured read-only composition (Local red, Incoming green, both the accent,
-  marker lines dim), and Ctrl+Enter from inside the textarea accepts away the
-  silent newline the shared Input binding inserts. The row menu needs
+  row's two lines. The editable Result's fills come from range decorations
+  (Local red, Incoming green, both split at the side boundary, an unresolved
+  block dim); the Preview toggle swaps it for a stronger read-only composition
+  (marker lines dim), and Ctrl+Enter from inside the editor accepts. The row menu needs
   `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
   table now carries the picker so the linked build uses the local kit — the app
   repository needs a kit tag/pin bump before it builds standalone. Branch rows

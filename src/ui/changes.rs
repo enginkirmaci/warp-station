@@ -11,17 +11,21 @@ use crate::store::{PullShortcut, Store};
 use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::{A11y, icon};
+use gpui::Focusable as _;
 use gpui::prelude::*;
 use gpui::{
     Context, Entity, FocusHandle, FontWeight, HighlightStyle, ListAlignment, ListState,
     MouseButton, ScrollStrategy, SharedString, StyledText, Subscription, UniformListScrollHandle,
     Window, div, list, px, uniform_list,
 };
-use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::input::{
+    Editor, EditorState, InputEvent, InputState, RangeDecoration, RangeDecorationCollection,
+    RangeDecorationStyle, TextareaState,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 use warp_station_core::git::conflict::{
-    ConflictPick, ConflictSide, GitConflictFile, assemble_picks_tracked,
+    ConflictPick, ConflictSide, GitConflictBlock, GitConflictFile, assemble_picks_tracked,
 };
 use warp_station_core::git::merge_diff;
 use warp_station_core::model::GitChangedFile;
@@ -3168,6 +3172,7 @@ impl ChangesView {
             manual_blocks: Vec::new(),
             last_change_before: String::new(),
             preview: false,
+            result_decorations: None,
             ready: false,
         });
         self.store
@@ -3279,6 +3284,28 @@ impl ChangesView {
         };
         let text = editor.result.clone();
         input.update(cx, |state, cx| state.set_value(&text, window, cx));
+        self.refresh_result_decorations(cx);
+    }
+
+    /// Recomputes the editable Result's fills after a take, a reset or a typed
+    /// edit: the same colours the preview shows, behind the live text.
+    fn refresh_result_decorations(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.merge_editor.as_ref() else {
+            return;
+        };
+        let Some(collection) = editor.result_decorations.clone() else {
+            return;
+        };
+        let Some(file) = self.editor_file(cx) else {
+            return;
+        };
+        let decorations = result_range_decorations(
+            &editor.result,
+            &editor.result_ranges,
+            &editor.choices,
+            &file.blocks,
+        );
+        collection.set(decorations, cx);
     }
 
     /// Checks a side for the current block (or the whole file when it has no
@@ -3471,6 +3498,7 @@ impl ChangesView {
             }
         }
         editor.result = value;
+        self.refresh_result_decorations(cx);
         cx.notify();
     }
 
@@ -3792,8 +3820,19 @@ impl ChangesView {
                     .collect();
                 if editor.result_input.is_none() {
                     let input = cx.new(|cx| {
-                        TextareaState::new(window, cx).default_value(editor.result.clone())
+                        EditorState::new(window, cx)
+                            .default_value(editor.result.clone())
+                            .language("plaintext")
                     });
+                    let decorations = result_range_decorations(
+                        &editor.result,
+                        &editor.result_ranges,
+                        &editor.choices,
+                        &file.blocks,
+                    );
+                    editor.result_decorations = Some(input.update(cx, |state, cx| {
+                        state.create_range_decorations_collection(decorations, cx)
+                    }));
                     let subscription =
                         cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
                             match event {
@@ -4050,13 +4089,29 @@ impl ChangesView {
                     .min_h_0()
                     .p_2()
                     .child(
-                        // a pane-sized editor, not a form field: the area's own
-                        // h_auto comes back as a one-row strip here, so pin it to
-                        // the well and let the editor scroll inside (the commit
-                        // box's pattern)
-                        warpui_kit_core::field::mono_area("merge-result", &input, window, cx)
-                            .h_full()
-                            .min_h(px(0.)),
+                        // the code editor rather than a textarea: its range
+                        // decorations paint the conflict fills behind the text,
+                        // and its own surface fills the pinned well
+                        div()
+                            .id("merge-result")
+                            .debug_selector(|| "merge-result".into())
+                            .size_full()
+                            // a click on the well below the text still puts the
+                            // keyboard in the editor
+                            .on_mouse_down(MouseButton::Left, {
+                                let input = input.clone();
+                                move |_, window, cx| {
+                                    let handle = input.read(cx).focus_handle(cx).clone();
+                                    window.focus(&handle, cx);
+                                }
+                            })
+                            .child(
+                                Editor::new(&input)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .h(gpui::relative(1.0))
+                                    .aria_label("Merge result"),
+                            ),
                     )
                     .into_any_element(),
                 None => div().into_any_element(),
@@ -4520,6 +4575,62 @@ fn is_marker_line(line: &str) -> bool {
         || line.starts_with("|||||||")
         || line.starts_with("=======")
         || line.starts_with(">>>>>>>")
+}
+
+/// The editable Result's fills: one per chosen side (two for a both-side
+/// pick) and a dim fill for an unresolved block. The editor's range
+/// decorations paint behind the text and follow edits, so the Result stays
+/// editable while the conflict colours show.
+fn result_range_decorations(
+    result: &str,
+    ranges: &[std::ops::Range<usize>],
+    choices: &[Option<ConflictPick>],
+    blocks: &[GitConflictBlock],
+) -> Vec<RangeDecoration> {
+    let mut decorations = Vec::new();
+    let fill = |range: std::ops::Range<usize>, color: gpui::Rgba| {
+        RangeDecoration::new(range)
+            .with_style(RangeDecorationStyle::Fill)
+            .with_color(theme::tint(color))
+    };
+    for (index, block) in blocks.iter().enumerate() {
+        let Some(range) = ranges.get(index) else {
+            continue;
+        };
+        if range.start >= range.end || range.end > result.len() {
+            continue;
+        }
+        match choices.get(index).copied().flatten() {
+            Some(ConflictPick::Local) => {
+                decorations.push(fill(range.clone(), theme::DANGER));
+            }
+            Some(ConflictPick::Incoming) => {
+                decorations.push(fill(range.clone(), theme::SUCCESS_BRIGHT));
+            }
+            Some(ConflictPick::LocalThenIncoming) => {
+                let split = range.start + block.local.len();
+                if split <= range.end {
+                    decorations.push(fill(range.start..split, theme::DANGER));
+                    decorations.push(fill(split..range.end, theme::SUCCESS_BRIGHT));
+                } else {
+                    decorations.push(fill(range.clone(), theme::accent()));
+                }
+            }
+            Some(ConflictPick::IncomingThenLocal) => {
+                let split = range.start + block.incoming.len();
+                if split <= range.end {
+                    decorations.push(fill(range.start..split, theme::SUCCESS_BRIGHT));
+                    decorations.push(fill(split..range.end, theme::DANGER));
+                } else {
+                    decorations.push(fill(range.clone(), theme::accent()));
+                }
+            }
+            None => {
+                decorations.push(fill(range.clone(), theme::text_dim()));
+            }
+        }
+    }
+    decorations
 }
 
 /// The Result in its diff colours: the editable textarea is one click away.
@@ -5817,8 +5928,10 @@ struct MergeEditor {
     result: String,
     /// Each block's byte range in `result`, parallel to the blocks.
     result_ranges: Vec<std::ops::Range<usize>>,
-    /// The editable area behind `result`; `None` until the file lands.
-    result_input: Option<Entity<TextareaState>>,
+    /// The editable area behind `result`; `None` until the file lands. This is
+    /// the code-editor state, not a textarea: only the editor mode exposes the
+    /// range decorations that paint the conflict fills.
+    result_input: Option<Entity<EditorState>>,
     /// Kept so the area's change handler lives as long as the editor.
     result_subscription: Option<Subscription>,
     /// Blocks the user edited directly; a take clears the flag.
@@ -5829,6 +5942,9 @@ struct MergeEditor {
     /// The Result shows the coloured read-only composition instead of the
     /// editable textarea.
     preview: bool,
+    /// The editable Result's fills: one per chosen side, through range
+    /// decorations rather than copying the text into a read-only view.
+    result_decorations: Option<RangeDecorationCollection>,
     /// The file's worktree text and ranges were seeded.
     ready: bool,
 }
@@ -6226,6 +6342,30 @@ mod merge_edit_tests {
         assert!(holds_conflict_markers("a\n<<<<<<< HEAD\nb\n"));
         assert!(holds_conflict_markers(">>>>>>> feat\n"));
         assert!(!holds_conflict_markers("resolved\n"));
+    }
+
+    #[test]
+    fn result_fills_split_a_both_side_pick() {
+        use warp_station_core::git::conflict::parse_conflict_blocks;
+
+        let blocks = parse_conflict_blocks("<<<<<<< HEAD\nmain\n=======\nfeat\n>>>>>>> feat\n")
+            .expect("well formed");
+        let result = "main\nfeat\n";
+        let range = 0..result.len();
+        let ranges = std::slice::from_ref(&range);
+        let local = result_range_decorations(result, ranges, &[Some(ConflictPick::Local)], &blocks);
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].range(), &(0..result.len()));
+        assert_eq!(local[0].style(), RangeDecorationStyle::Fill);
+        let both = result_range_decorations(
+            result,
+            ranges,
+            &[Some(ConflictPick::LocalThenIncoming)],
+            &blocks,
+        );
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[0].range(), &(0..5));
+        assert_eq!(both[1].range(), &(5..10));
     }
 
     #[test]
