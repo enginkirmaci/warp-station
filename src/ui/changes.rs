@@ -110,7 +110,9 @@ const FILE_COLUMN_W: f32 = 320.;
 /// The trailing zone a row keeps for its counts and, on hover, its verbs: the
 /// 24 discard, the 2 gap and the 20 stage toggle. The text always stops before
 /// it, so neither the numbers nor the path run under an icon.
-const ROW_ACTIONS_W: f32 = 46.;
+/// The hover verbs' zone: the 24 px discard, the 2 px gap and the 24 px
+/// stage toggle.
+const ROW_ACTIONS_W: f32 = 50.;
 
 /// The file list's row height. Section headers match it, so `uniform_list`
 /// can size the whole tree from one measured item.
@@ -5140,7 +5142,9 @@ fn row_action_button(
         })
         .cursor_pointer()
         .rounded_md()
-        .size(px(20.))
+        // the same 24 px as the discard verb beside it: a 20 px toggle read
+        // as a smaller control in the row's hover gutter
+        .size(px(24.))
         .flex()
         .items_center()
         .justify_center()

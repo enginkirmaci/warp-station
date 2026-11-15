@@ -619,6 +619,13 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
         let toggle = cx
             .debug_bounds(toggle_selector)
             .expect("the stage toggle draws");
+        assert_eq!(
+            f32::from(discard.size.height),
+            f32::from(toggle.size.height),
+            "{path}: the discard and stage verbs share one height (discard {}, toggle {})",
+            f32::from(discard.size.height),
+            f32::from(toggle.size.height)
+        );
         let toggle_right = toggle.origin.x + toggle.size.width;
         if let Some(counts) = cx.debug_bounds(counts_selector) {
             // the counts' box is the trailing zone: the verbs must fit inside
