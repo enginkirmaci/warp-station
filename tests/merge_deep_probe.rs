@@ -185,6 +185,20 @@ fn two_block_repo(name: &str) -> Scratch {
     repo
 }
 
+/// One side deletes the file, the other edits it: no text surface exists.
+fn delete_modify_repo(name: &str) -> Scratch {
+    let repo = Scratch::new(name);
+    repo.write("gone.txt", "base\n");
+    repo.commit_all("base");
+    repo.git(&["checkout", "-q", "-b", "feat"]);
+    repo.git(&["rm", "-q", "gone.txt"]);
+    repo.commit_all("delete");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("gone.txt", "changed\n");
+    repo.commit_all("modify");
+    repo
+}
+
 /// Two separate conflicted files.
 fn two_file_repo(name: &str) -> Scratch {
     let repo = Scratch::new(name);
@@ -343,6 +357,19 @@ fn resolve_commands(commands: &[NetCommand]) -> Vec<(String, Option<String>)> {
                 action: GitAction::ResolveConflict { path, text },
                 ..
             } => Some((path.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn side_commands(commands: &[NetCommand]) -> Vec<(String, ConflictSide)> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            NetCommand::Git {
+                action: GitAction::ResolveConflictSide { path, side },
+                ..
+            } => Some((path.clone(), *side)),
             _ => None,
         })
         .collect()
@@ -1079,13 +1106,11 @@ fn crlf_and_unicode_files_edit_without_a_panic(cx: &mut TestAppContext) {
     );
 }
 
-/// Known bug: while the Result owns the keyboard, `ctrl-enter` is bound by
-/// the shared `Input` context to `Enter { secondary: true }` (gpui-base
-/// `input/base/state.rs:203`), so the merge editor's handler never sees it.
-/// Clicking Accept still works. This pin turns red when the shortcut is fixed.
+/// Ctrl+Enter from inside the Result textarea accepts: the shared `Input`
+/// binding turns it into a silent newline plus `Enter { secondary: true }`,
+/// and the editor's subscription takes that event.
 #[gpui_kit::gpui::test]
-#[should_panic(expected = "Ctrl+Enter works")]
-fn ctrl_enter_is_swallowed_by_the_result_textarea(cx: &mut TestAppContext) {
+fn ctrl_enter_accepts_from_the_result_textarea(cx: &mut TestAppContext) {
     scratch_home();
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
@@ -1721,6 +1746,104 @@ fn the_owners_stopped_merge_draws_the_band_rows_and_branch_menu(cx: &mut TestApp
     draw(cx);
     click(cx, "merge-back");
     assert!(cx.debug_bounds("merge-editor").is_none());
+}
+
+/// A delete/modify conflict has no text surface; the fallback offers the two
+/// sides and the working tree, and a side click goes to the net.
+#[gpui_kit::gpui::test]
+fn a_deleted_side_offers_the_side_buttons(cx: &mut TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = delete_modify_repo("fallback");
+    stop_with_merge(&repo, "feat");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-deep-fallback");
+    let (_window, cx) = open_window!(cx, &store);
+    click(cx, "open-merge-editor");
+    drain(&net_rx);
+    load_conflict(cx, &store, &repo, "gone.txt");
+    assert!(
+        cx.debug_bounds("merge-side-local").is_some(),
+        "the fallback card draws"
+    );
+    assert!(cx.debug_bounds("merge-side-incoming").is_some());
+    assert!(cx.debug_bounds("merge-side-add").is_some());
+    click(cx, "merge-side-incoming");
+    assert_eq!(
+        side_commands(&drain(&net_rx)),
+        vec![("gone.txt".to_string(), ConflictSide::Incoming)],
+        "Take Incoming resolves through the stage"
+    );
+    draw(cx);
+    assert!(
+        cx.debug_bounds("merge-editor").is_none(),
+        "the editor closes on the side take"
+    );
+}
+
+/// The Result's coloured preview: a toggle shows the block's side colours
+/// (read-only) and the toggle returns to the editable textarea.
+#[gpui_kit::gpui::test]
+fn the_result_preview_toggles_between_colours_and_the_editor(cx: &mut TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = divergent_repo("preview");
+    stop_with_merge(&repo, "feat");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-deep-preview");
+    let (_window, cx) = open_window!(cx, &store);
+    click(cx, "open-merge-editor");
+    drain(&net_rx);
+    load_conflict(cx, &store, &repo, "shared.txt");
+    click(cx, "merge-local-take");
+    assert!(cx.debug_bounds("merge-result-scroll").is_some());
+    click(cx, "merge-preview-toggle");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("merge-result-preview-pane").is_some(),
+        "the coloured Result draws"
+    );
+    assert!(
+        cx.debug_bounds("merge-result-scroll").is_none(),
+        "the textarea gives way to the preview"
+    );
+    click(cx, "merge-preview-toggle");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("merge-result-scroll").is_some(),
+        "the toggle returns to the editable Result"
+    );
+}
+
+/// The row checkboxes take a side for their own block: block 0 Local and
+/// block 1 Incoming mix in one result, without touching the block cursor.
+#[gpui_kit::gpui::test]
+fn the_row_checkboxes_take_a_side_for_their_own_block(cx: &mut TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let repo = two_block_repo("row-takes");
+    stop_with_merge(&repo, "feat");
+    let (store, net_rx) = probe_store(cx, &repo, "merge-deep-row-takes");
+    let (_window, cx) = open_window!(cx, &store);
+    click(cx, "open-merge-editor");
+    drain(&net_rx);
+    load_conflict(cx, &store, &repo, "multi.txt");
+    click(cx, "merge-take-0-local");
+    click(cx, "merge-take-1-incoming");
+    draw(cx);
+    click(cx, "merge-accept");
+    assert_eq!(
+        resolve_commands(&drain(&net_rx)),
+        vec![(
+            "multi.txt".to_string(),
+            Some("one\nmain1\ntwo\nthree\nfour\nfive\nfeat2\nend\n".to_string())
+        )],
+        "each row checkbox took its own block's side"
+    );
 }
 
 /// The aligned diff's rows: base `a,b,c`, local `a,b,LONG`, incoming

@@ -3166,6 +3166,8 @@ impl ChangesView {
             result_input: None,
             result_subscription: None,
             manual_blocks: Vec::new(),
+            last_change_before: String::new(),
+            preview: false,
             ready: false,
         });
         self.store
@@ -3282,10 +3284,6 @@ impl ChangesView {
     /// Checks a side for the current block (or the whole file when it has no
     /// blocks); checking the chosen side again puts the markers back.
     fn choose_side(&mut self, side: ConflictSide, window: &mut Window, cx: &mut Context<Self>) {
-        let pick = match side {
-            ConflictSide::Local => ConflictPick::Local,
-            ConflictSide::Incoming => ConflictPick::Incoming,
-        };
         let Some(editor) = self.merge_editor.as_ref() else {
             return;
         };
@@ -3302,12 +3300,35 @@ impl ChangesView {
             return;
         }
         let index = editor.current.min(editor.choices.len() - 1);
+        self.choose_block(index, side, window, cx);
+    }
+
+    /// Checks one side of one block, wherever the block was clicked: the diff
+    /// rows and the column heads share this.
+    fn choose_block(
+        &mut self,
+        index: usize,
+        side: ConflictSide,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pick = match side {
+            ConflictSide::Local => ConflictPick::Local,
+            ConflictSide::Incoming => ConflictPick::Incoming,
+        };
+        let Some(editor) = self.merge_editor.as_mut() else {
+            return;
+        };
+        if index >= editor.choices.len() {
+            return;
+        }
         let already = editor.choices.get(index).copied().flatten();
         let next = if already == Some(pick) {
             None
         } else {
             Some(pick)
         };
+        editor.current = index;
         self.take_block(index, next, window, cx);
     }
 
@@ -3435,6 +3456,7 @@ impl ChangesView {
         if value == editor.result {
             return;
         }
+        editor.last_change_before = editor.result.clone();
         let (start, old_end, new_end) = minimal_edit(&editor.result, &value);
         for (index, range) in editor.result_ranges.iter_mut().enumerate() {
             let overlaps = !(range.end <= start || range.start >= old_end);
@@ -3454,7 +3476,26 @@ impl ChangesView {
 
     /// Writes the Result as it stands and stages it; the reload closes the
     /// row. A result still holding markers is refused.
-    fn accept_merge(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// The merge editor's fallback for a file with no text surface: take one
+    /// side through the index stages.
+    fn resolve_merge_side_ui(&mut self, path: &str, side: ConflictSide, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| {
+            store.resolve_merge_side(path, side, cx);
+        });
+        self.merge_editor = None;
+        cx.notify();
+    }
+
+    /// Keep the working tree's bytes and stage them (the row's own Add verb).
+    fn stage_merge_worktree(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| {
+            store.run_git(GitAction::Stage(path.to_string()), cx);
+        });
+        self.merge_editor = None;
+        cx.notify();
+    }
+
+    fn accept_merge(&mut self, cx: &mut Context<Self>) {
         let Some(editor) = self.merge_editor.as_ref() else {
             return;
         };
@@ -3499,7 +3540,7 @@ impl ChangesView {
             return true;
         }
         if event.keystroke.modifiers.control && event.keystroke.key == "enter" {
-            self.accept_merge(_window, cx);
+            self.accept_merge(cx);
             return true;
         }
         match event.keystroke.key.to_lowercase().as_str() {
@@ -3540,6 +3581,7 @@ impl ChangesView {
             .merge_conflict()
             .filter(|file| file.path == path)
             .cloned();
+        let conflict_loaded = self.store.read(cx).merge_conflict_loaded(&path);
         let Some(file) = file else {
             return div()
                 .id("merge-editor")
@@ -3593,7 +3635,127 @@ impl ChangesView {
                                 .child(path.to_string()),
                         ),
                 )
-                .child(
+                .child(if conflict_loaded {
+                    let path_local = path.clone();
+                    let path_incoming = path.clone();
+                    let path_add = path.clone();
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .w(px(440.))
+                                .p_4()
+                                .rounded(px(8.))
+                                .border_1()
+                                .border_color(theme::hairline())
+                                .bg(theme::panel())
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_body()))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(theme::text())
+                                        .child("No text to merge"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_meta()))
+                                        .text_color(theme::text_muted())
+                                        .child(
+                                            "This file is binary, or one side deleted it.                                              Take a side, or keep the working tree and stage it.",
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .id("merge-side-local")
+                                                .debug_selector(|| "merge-side-local".into())
+                                                .a11y_button("Take Local")
+                                                .cursor_pointer()
+                                                .h(px(28.))
+                                                .px_2()
+                                                .rounded(px(6.))
+                                                .border_1()
+                                                .border_color(theme::line_strong())
+                                                .flex()
+                                                .items_center()
+                                                .text_size(px(theme::font_control()))
+                                                .text_color(theme::text())
+                                                .hover(|style| style.bg(theme::raised()))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.resolve_merge_side_ui(
+                                                        &path_local,
+                                                        ConflictSide::Local,
+                                                        cx,
+                                                    );
+                                                }))
+                                                .child("Take Local"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("merge-side-incoming")
+                                                .debug_selector(|| "merge-side-incoming".into())
+                                                .a11y_button("Take Incoming")
+                                                .cursor_pointer()
+                                                .h(px(28.))
+                                                .px_2()
+                                                .rounded(px(6.))
+                                                .border_1()
+                                                .border_color(theme::line_strong())
+                                                .flex()
+                                                .items_center()
+                                                .text_size(px(theme::font_control()))
+                                                .text_color(theme::text())
+                                                .hover(|style| style.bg(theme::raised()))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.resolve_merge_side_ui(
+                                                        &path_incoming,
+                                                        ConflictSide::Incoming,
+                                                        cx,
+                                                    );
+                                                }))
+                                                .child("Take Incoming"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("merge-side-add")
+                                                .debug_selector(|| "merge-side-add".into())
+                                                .a11y_button("Keep the working tree")
+                                                .cursor_pointer()
+                                                .h(px(28.))
+                                                .px_2()
+                                                .rounded(px(6.))
+                                                .border_1()
+                                                .border_color(theme::line_strong())
+                                                .flex()
+                                                .items_center()
+                                                .text_size(px(theme::font_control()))
+                                                .text_color(theme::text_muted())
+                                                .hover(|style| style.bg(theme::raised()))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.stage_merge_worktree(&path_add, cx);
+                                                }))
+                                                .child("Keep working tree"),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(theme::font_micro()))
+                                        .text_color(theme::text_dim())
+                                        .child("Keep working tree stages the file as it is."),
+                                ),
+                        )
+                        .into_any_element()
+                } else {
                     div()
                         .flex_1()
                         .flex()
@@ -3601,8 +3763,9 @@ impl ChangesView {
                         .justify_center()
                         .text_size(px(theme::font_body()))
                         .text_color(theme::text_muted())
-                        .child("Reading the conflict…"),
-                )
+                        .child("Reading the conflict…")
+                        .into_any_element()
+                })
                 .into_any_element();
         };
         let seed = {
@@ -3633,9 +3796,32 @@ impl ChangesView {
                     });
                     let subscription =
                         cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
-                            if matches!(event, InputEvent::Change) {
-                                let value = input.read(cx).value().to_string();
-                                this.on_result_edited(value, cx);
+                            match event {
+                                InputEvent::Change => {
+                                    let value = input.read(cx).value().to_string();
+                                    this.on_result_edited(value, cx);
+                                }
+                                // the shared Input binding turns ctrl-enter into
+                                // a silent newline plus this event; the silent
+                                // insert never reaches `result`, so accepting
+                                // here writes the text the user saw before it
+                                InputEvent::PressEnter {
+                                    secondary: true, ..
+                                } => {
+                                    // the input inserted the ctrl-enter newline
+                                    // before this event; accepting the text
+                                    // with it would add a blank line
+                                    if let Some(editor) = this.merge_editor.as_mut()
+                                        && is_single_newline_insert(
+                                            &editor.last_change_before,
+                                            &editor.result,
+                                        )
+                                    {
+                                        editor.result = editor.last_change_before.clone();
+                                    }
+                                    this.accept_merge(cx);
+                                }
+                                _ => {}
                             }
                         });
                     editor.result_input = Some(input);
@@ -3803,6 +3989,12 @@ impl ChangesView {
             .expect("checked")
             .diff_scroll
             .clone();
+        let take_view = cx.entity();
+        let on_take: Rc<BlockTake> = Rc::new(move |index, side, window, cx: &mut gpui::App| {
+            take_view.update(cx, |this, cx| {
+                this.choose_block(index, side, window, cx);
+            });
+        });
         let sides = merge_diff_view(
             MergeDiffView {
                 file: &file,
@@ -3819,32 +4011,48 @@ impl ChangesView {
                 on_incoming: Box::new(cx.listener(|this, _, window, cx| {
                     this.choose_side(ConflictSide::Incoming, window, cx)
                 })),
+                choices: &choices,
+                on_take,
             },
             window,
         );
 
-        let result_input = self
+        let (result_input, preview) = self
             .merge_editor
             .as_ref()
-            .and_then(|editor| editor.result_input.clone());
-        let result: gpui::AnyElement = match result_input {
-            Some(input) => div()
-                .id("merge-result-scroll")
-                .debug_selector(|| "merge-result-scroll".into())
-                .flex_1()
-                .min_h_0()
-                .p_2()
-                .child(
-                    // a pane-sized editor, not a form field: the area's own
-                    // h_auto comes back as a one-row strip here, so pin it to
-                    // the well and let the editor scroll inside (the commit
-                    // box's pattern)
-                    warpui_kit_core::field::mono_area("merge-result", &input, window, cx)
-                        .h_full()
-                        .min_h(px(0.)),
-                )
-                .into_any_element(),
-            None => div().into_any_element(),
+            .map(|editor| (editor.result_input.clone(), editor.preview))
+            .unwrap_or_default();
+        let preview_result: gpui::AnyElement = match self.merge_editor.as_ref() {
+            Some(editor) if preview => merge_result_preview(
+                &editor.result,
+                &editor.result_ranges,
+                &editor.choices,
+                &editor.manual_blocks,
+            ),
+            _ => div().into_any_element(),
+        };
+        let result: gpui::AnyElement = if preview && result_input.is_some() {
+            preview_result
+        } else {
+            match result_input {
+                Some(input) => div()
+                    .id("merge-result-scroll")
+                    .debug_selector(|| "merge-result-scroll".into())
+                    .flex_1()
+                    .min_h_0()
+                    .p_2()
+                    .child(
+                        // a pane-sized editor, not a form field: the area's own
+                        // h_auto comes back as a one-row strip here, so pin it to
+                        // the well and let the editor scroll inside (the commit
+                        // box's pattern)
+                        warpui_kit_core::field::mono_area("merge-result", &input, window, cx)
+                            .h_full()
+                            .min_h(px(0.)),
+                    )
+                    .into_any_element(),
+                None => div().into_any_element(),
+            }
         };
         let result_pane = div()
             .flex_1()
@@ -3855,7 +4063,50 @@ impl ChangesView {
             .bg(theme::well())
             .border_t_1()
             .border_color(theme::hairline())
-            .child(Self::merge_pane_label("Result"))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(30.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(theme::hairline())
+                    .child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::text_dim())
+                            .child("Result"),
+                    )
+                    .child(
+                        div()
+                            .id("merge-preview-toggle")
+                            .debug_selector(|| "merge-preview-toggle".into())
+                            .a11y_button(if preview {
+                                "Edit the result"
+                            } else {
+                                "Preview the result"
+                            })
+                            .cursor_pointer()
+                            .h(px(22.))
+                            .px_2()
+                            .rounded(px(4.))
+                            .flex()
+                            .items_center()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_muted())
+                            .hover(|style| style.bg(theme::raised()).text_color(theme::text()))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(editor) = this.merge_editor.as_mut() {
+                                    editor.preview = !editor.preview;
+                                }
+                                cx.notify();
+                            }))
+                            .child(if preview { "Edit" } else { "Preview" }),
+                    ),
+            )
             .child(result);
 
         let body: gpui::AnyElement = if columns_available && layout == MergeLayout::Columns {
@@ -4048,25 +4299,9 @@ impl ChangesView {
                 "merge-accept",
                 "Accept Merge",
                 accept,
-                cx.listener(|this, _, window, cx| this.accept_merge(window, cx)),
+                cx.listener(|this, _, _, cx| this.accept_merge(cx)),
             ));
         head.into_any_element()
-    }
-
-    fn merge_pane_label(label: &str) -> gpui::AnyElement {
-        div()
-            .flex_shrink_0()
-            .h(px(30.))
-            .px_2()
-            .flex()
-            .items_center()
-            .text_size(px(theme::font_meta()))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme::text_dim())
-            .border_b_1()
-            .border_color(theme::hairline())
-            .child(label.to_string())
-            .into_any_element()
     }
 }
 
@@ -4227,6 +4462,19 @@ fn changed_span(a: &str, b: &str) -> Option<(std::ops::Range<usize>, std::ops::R
     }
 }
 
+/// Whether `after` is `before` with exactly one `\n` inserted: the shape a
+/// ctrl-enter leaves in a textarea before its PressEnter event.
+fn is_single_newline_insert(before: &str, after: &str) -> bool {
+    if after.len() != before.len() + 1 {
+        return false;
+    }
+    let mut prefix = 0;
+    while prefix < before.len() && before.as_bytes()[prefix] == after.as_bytes()[prefix] {
+        prefix += 1;
+    }
+    after.as_bytes().get(prefix) == Some(&b'\n') && before[prefix..] == after[prefix + 1..]
+}
+
 /// The editor head's state: the path, progress, and which verbs are live.
 struct MergeHead {
     path: String,
@@ -4242,6 +4490,152 @@ struct MergeHead {
 /// A click handler on the editor's own controls.
 type MergeClick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App)>;
 
+/// A block take from a diff row: the row knows which block it starts, the
+/// click knows which side.
+type BlockTake = dyn Fn(usize, ConflictSide, &mut Window, &mut gpui::App);
+
+/// Which side's text a Result line came from, for the coloured preview.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultLineKind {
+    Plain,
+    Local,
+    Incoming,
+    Both,
+    Unresolved,
+    Manual,
+    Marker,
+}
+
+fn is_marker_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("<<<<<<<")
+        || line.starts_with("|||||||")
+        || line.starts_with("=======")
+        || line.starts_with(">>>>>>>")
+}
+
+/// The Result in its diff colours: the editable textarea is one click away.
+/// Each line takes its block's colour (Local red, Incoming green, both the
+/// accent), the marker lines stay dim, and an unresolved or hand-edited block
+/// reads as such.
+fn merge_result_preview(
+    result: &str,
+    ranges: &[std::ops::Range<usize>],
+    choices: &[Option<ConflictPick>],
+    manual: &[bool],
+) -> gpui::AnyElement {
+    let lines = merge_diff::display_lines(result);
+    let mut kinds = vec![ResultLineKind::Plain; lines.len()];
+    let mut starts = vec![0usize];
+    for (index, byte) in result.bytes().enumerate() {
+        if byte == b'\n' && index + 1 < result.len() {
+            starts.push(index + 1);
+        }
+    }
+    let line_of = |offset: usize| {
+        starts
+            .partition_point(|start| *start <= offset)
+            .saturating_sub(1)
+    };
+    for (index, range) in ranges.iter().enumerate() {
+        if range.start >= range.end || range.end > result.len() {
+            continue;
+        }
+        let first = line_of(range.start);
+        let last = line_of(range.end.saturating_sub(1)).min(lines.len().saturating_sub(1));
+        let kind = match choices.get(index).copied().flatten() {
+            Some(ConflictPick::Local) => ResultLineKind::Local,
+            Some(ConflictPick::Incoming) => ResultLineKind::Incoming,
+            Some(ConflictPick::LocalThenIncoming | ConflictPick::IncomingThenLocal) => {
+                ResultLineKind::Both
+            }
+            None if manual.get(index).copied().unwrap_or(false) => ResultLineKind::Manual,
+            None => ResultLineKind::Unresolved,
+        };
+        for (line, slot) in kinds
+            .iter_mut()
+            .enumerate()
+            .skip(first)
+            .take(last - first + 1)
+        {
+            let text = lines.get(line).copied().unwrap_or("");
+            *slot = if is_marker_line(text) {
+                ResultLineKind::Marker
+            } else {
+                kind
+            };
+        }
+    }
+    let lines: Rc<Vec<SharedString>> = Rc::new(
+        lines
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<SharedString>>(),
+    );
+    let kinds = Rc::new(kinds);
+    let row_h = (theme::font_mono_meta() * 1.5).max(16.);
+    let list = uniform_list(
+        "merge-result-preview",
+        lines.len(),
+        move |range, _window, _cx| {
+            range
+                .map(|index| {
+                    let kind = kinds[index];
+                    let line = lines[index].clone();
+                    let mut row = div()
+                        .w_full()
+                        .h(px(row_h))
+                        .flex()
+                        .items_center()
+                        .font_family(theme::code_font())
+                        .text_size(px(theme::font_mono_meta()))
+                        .text_color(theme::text());
+                    if let Some(color) = match kind {
+                        ResultLineKind::Local => Some(theme::DANGER),
+                        ResultLineKind::Incoming => Some(theme::SUCCESS_BRIGHT),
+                        ResultLineKind::Both => Some(theme::accent()),
+                        _ => None,
+                    } {
+                        row = row.child(div().w(px(3.)).h_full().flex_shrink_0().bg(color));
+                    }
+                    if let Some(bg) = match kind {
+                        ResultLineKind::Local => Some(theme::tint(theme::DANGER)),
+                        ResultLineKind::Incoming => Some(theme::tint(theme::SUCCESS_BRIGHT)),
+                        ResultLineKind::Both => Some(theme::tint(theme::accent())),
+                        ResultLineKind::Unresolved => Some(theme::tint(theme::WARN)),
+                        ResultLineKind::Manual | ResultLineKind::Marker => {
+                            Some(theme::tint(theme::text_dim()))
+                        }
+                        ResultLineKind::Plain => None,
+                    } {
+                        row = row.bg(bg);
+                    }
+                    row.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .px_2()
+                            .truncate()
+                            .when(kind == ResultLineKind::Marker, |text| {
+                                text.text_color(theme::text_dim())
+                            })
+                            .child(line),
+                    )
+                    .into_any_element()
+                })
+                .collect()
+        },
+    )
+    .size_full();
+    div()
+        .id("merge-result-preview-pane")
+        .debug_selector(|| "merge-result-preview-pane".into())
+        .flex_1()
+        .min_h_0()
+        .child(list)
+        .into_any_element()
+}
+
 /// The aligned diff: one row list over the base, two or three columns, with
 /// each side's take for the current block in its head.
 struct MergeDiffView<'a> {
@@ -4255,6 +4649,18 @@ struct MergeDiffView<'a> {
     scroll: &'a UniformListScrollHandle,
     on_local: MergeClick,
     on_incoming: MergeClick,
+    /// One pick per block, for the row checkboxes.
+    choices: &'a [Option<ConflictPick>],
+    on_take: Rc<BlockTake>,
+}
+
+/// A row's own take checkbox: shown where a conflict block starts on that
+/// side, so a side can be taken without leaving the row.
+struct DiffTake {
+    checked: bool,
+    block: usize,
+    side: ConflictSide,
+    on_take: Rc<BlockTake>,
 }
 
 /// One cell of a diff row: a side's line, or the hatched gap where that side
@@ -4274,6 +4680,8 @@ struct DiffCell<'a> {
     /// The cell's probe selector: which row and side it is, and whether it is
     /// the side's line or the gap where that side deleted it.
     debug: SharedString,
+    /// The block take at this row, when a block starts here.
+    take: Option<DiffTake>,
 }
 
 fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
@@ -4289,6 +4697,7 @@ fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
         font,
         first,
         debug,
+        take,
     } = cell;
     let mut cell = div()
         .id(debug.clone())
@@ -4315,6 +4724,62 @@ fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
     let Some(index) = line else {
         return cell.into_any_element();
     };
+    if let Some(take) = take {
+        let DiffTake {
+            checked,
+            block,
+            side,
+            on_take,
+        } = take;
+        let selector = format!(
+            "merge-take-{block}-{}",
+            if side == ConflictSide::Local {
+                "local"
+            } else {
+                "incoming"
+            }
+        );
+        cell = cell.child(
+            div()
+                .id(SharedString::from(selector.clone()))
+                .debug_selector(move || selector.clone())
+                .a11y_toggle(
+                    format!(
+                        "Take {} for block {}",
+                        if side == ConflictSide::Local {
+                            "Local"
+                        } else {
+                            "Incoming"
+                        },
+                        block + 1
+                    ),
+                    checked,
+                )
+                .cursor_pointer()
+                .ml_1()
+                .size(px(14.))
+                .flex_shrink_0()
+                .rounded(px(3.))
+                .border_1()
+                .border_color(if checked {
+                    theme::accent()
+                } else {
+                    theme::line_strong()
+                })
+                .when(checked, |box_| box_.bg(theme::accent()))
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(checked, |box_| {
+                    box_.child(icon(
+                        "icons/icon-check.svg",
+                        px(theme::icon_tiny() - 2.),
+                        theme::on_accent(),
+                    ))
+                })
+                .on_click(move |_, window, cx| on_take(block, side, window, cx)),
+        );
+    }
     let text = lines.get(index).cloned().unwrap_or_default();
     let word = word.filter(|span| {
         span.start <= span.end
@@ -4431,7 +4896,10 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
         scroll,
         on_local,
         on_incoming,
+        choices,
+        on_take,
     } = view;
+    let choices = Rc::new(choices.to_vec());
     let local_lines: Rc<Vec<SharedString>> = Rc::new(
         merge_diff::display_lines(&file.local)
             .into_iter()
@@ -4468,6 +4936,22 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
     let current_block = file.blocks.get(current);
     let current_local = current_block.map(|block| block.local_lines.clone());
     let current_incoming = current_block.map(|block| block.incoming_lines.clone());
+    let local_starts: Rc<Vec<(usize, usize)>> = Rc::new(
+        file.blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| !block.local_lines.is_empty())
+            .map(|(index, block)| (block.local_lines.start, index))
+            .collect(),
+    );
+    let incoming_starts: Rc<Vec<(usize, usize)>> = Rc::new(
+        file.blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| !block.incoming_lines.is_empty())
+            .map(|(index, block)| (block.incoming_lines.start, index))
+            .collect(),
+    );
     let rows = Rc::new(rows.to_vec());
     let max_lines = local_lines
         .len()
@@ -4534,6 +5018,29 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                     (None, None)
                 };
 
+                let take_at =
+                    |starts: &[(usize, usize)], line: Option<usize>, side: ConflictSide| {
+                        let line = line?;
+                        let (_, block) = starts.iter().find(|(start, _)| *start == line)?;
+                        let checked = matches!(
+                            (choices.get(*block).copied().flatten(), side),
+                            (Some(ConflictPick::Local), ConflictSide::Local)
+                                | (Some(ConflictPick::Incoming), ConflictSide::Incoming)
+                                | (
+                                    Some(
+                                        ConflictPick::LocalThenIncoming
+                                            | ConflictPick::IncomingThenLocal
+                                    ),
+                                    _
+                                )
+                        );
+                        Some(DiffTake {
+                            checked,
+                            block: *block,
+                            side,
+                            on_take: on_take.clone(),
+                        })
+                    };
                 let cell_selector = |side: &str, line: Option<usize>| {
                     SharedString::from(format!(
                         "merge-diff-{side}-{index}-{}",
@@ -4553,6 +5060,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: true,
                         debug: cell_selector("local", row.local),
+                        take: take_at(&local_starts, row.local, ConflictSide::Local),
                     },
                     window,
                 ));
@@ -4570,6 +5078,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                             font: row_font,
                             first: false,
                             debug: cell_selector("base", row.base),
+                            take: None,
                         },
                         window,
                     ));
@@ -4587,6 +5096,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: false,
                         debug: cell_selector("incoming", row.incoming),
+                        take: take_at(&incoming_starts, row.incoming, ConflictSide::Incoming),
                     },
                     window,
                 ));
@@ -5283,6 +5793,12 @@ struct MergeEditor {
     result_subscription: Option<Subscription>,
     /// Blocks the user edited directly; a take clears the flag.
     manual_blocks: Vec<bool>,
+    /// The Result value before the last input change; a ctrl-enter's inserted
+    /// newline is recognised against it and removed before Accept.
+    last_change_before: String,
+    /// The Result shows the coloured read-only composition instead of the
+    /// editable textarea.
+    preview: bool,
     /// The file's worktree text and ranges were seeded.
     ready: bool,
 }
