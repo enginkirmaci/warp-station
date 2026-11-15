@@ -162,8 +162,10 @@ Keep this order; several steps depend on the previous one:
   every base line is a row, each side's matching or replacement line sits on
   it, a side's insertions get their own rows and a deleted side is a hatched
   gap; changed cells carry a faint tint and a change bar, the current block's
-  replaced words a stronger one, and a row where a block starts on a side
-  carries that side's take checkbox (the column heads take the current block). Prev/next and the numbered strip scroll the one list to the
+  replaced words a stronger one, and the row where a block starts carries both
+  sides' take checkboxes (a deleted side's box sits in its gap; the column
+  heads only carry a take when the file has no blocks and the whole file is
+  the conflict). Prev/next and the numbered strip scroll the one list to the
   block (`UniformListScrollHandle`), the Split/Columns toggle needs a pane
   wider than 1000 px, and the Base column only appears for
   `merge.conflictStyle=diff3` (a merge-style file has no base section to map).

@@ -852,7 +852,7 @@ fn taking_local_accepts_then_continue_lands_the_merge_commit(cx: &mut TestAppCon
     assert_eq!(load_requests(&drain(&net_rx)), ["shared.txt"]);
     load_conflict(cx, &store, &repo, "shared.txt");
 
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     click(cx, "merge-accept");
     let commands = drain(&net_rx);
     assert_eq!(
@@ -921,7 +921,7 @@ fn taking_incoming_emits_the_incoming_side(cx: &mut TestAppContext) {
     click(cx, "open-merge-editor");
     drain(&net_rx);
     load_conflict(cx, &store, &repo, "shared.txt");
-    click(cx, "merge-incoming-take");
+    click(cx, "merge-take-0-incoming");
     click(cx, "merge-accept");
     assert_eq!(
         resolve_commands(&drain(&net_rx)),
@@ -1039,7 +1039,7 @@ fn the_result_can_be_edited_and_reset_restores_the_markers(cx: &mut TestAppConte
     assert!(resolve_commands(&drain(&net_rx)).is_empty());
 
     // Take Local, then append a line of our own: Accept sends the edited text.
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     click(cx, "merge-result");
     cx.simulate_keystrokes("ctrl-end");
     cx.simulate_input("edited");
@@ -1080,7 +1080,7 @@ fn crlf_and_unicode_files_edit_without_a_panic(cx: &mut TestAppContext) {
     click(cx, "file-menu-open");
     assert_eq!(load_requests(&drain(&net_rx)), ["crlf.txt"]);
     load_conflict(cx, &store, &repo, "crlf.txt");
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     click(cx, "merge-accept");
     assert_eq!(
         resolve_commands(&drain(&net_rx)),
@@ -1094,7 +1094,7 @@ fn crlf_and_unicode_files_edit_without_a_panic(cx: &mut TestAppContext) {
     click(cx, "file-menu-open");
     assert_eq!(load_requests(&drain(&net_rx)), ["unicode.txt"]);
     load_conflict(cx, &store, &repo, "unicode.txt");
-    click(cx, "merge-incoming-take");
+    click(cx, "merge-take-0-incoming");
     click(cx, "merge-accept");
     assert_eq!(
         resolve_commands(&drain(&net_rx)),
@@ -1121,7 +1121,7 @@ fn ctrl_enter_accepts_from_the_result_textarea(cx: &mut TestAppContext) {
     click(cx, "open-merge-editor");
     drain(&net_rx);
     load_conflict(cx, &store, &repo, "shared.txt");
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     click(cx, "merge-result");
     cx.simulate_keystrokes("ctrl-enter");
     draw(cx);
@@ -1311,7 +1311,7 @@ fn a_dirty_tree_merge_refusal_draws_no_band_and_toasts(cx: &mut TestAppContext) 
 // ---------------------------------------------------------------------------
 
 #[gpui_kit::gpui::test]
-fn a_delete_modify_conflict_opens_an_empty_editor(cx: &mut TestAppContext) {
+fn a_delete_modify_conflict_offers_the_side_fallback(cx: &mut TestAppContext) {
     scratch_home();
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
@@ -1334,19 +1334,26 @@ fn a_delete_modify_conflict_opens_an_empty_editor(cx: &mut TestAppContext) {
 
     click(cx, "open-merge-editor");
     assert_eq!(load_requests(&drain(&net_rx)), ["gone.txt"]);
-    // `conflict_file` returns None: the net thread would send `file: None`.
+    // `conflict_file` returns None: the net thread sends `file: None`, and
+    // the editor shows the fallback instead of an empty text surface.
     load_conflict(cx, &store, &repo, "gone.txt");
     assert!(
         cx.debug_bounds("merge-editor").is_some(),
-        "the editor stays up on its loading surface"
+        "the fallback stays inside the editor"
+    );
+    assert!(
+        cx.debug_bounds("merge-side-local").is_some()
+            && cx.debug_bounds("merge-side-incoming").is_some()
+            && cx.debug_bounds("merge-side-add").is_some(),
+        "both sides and the working tree are offered"
     );
     assert!(
         cx.debug_bounds("merge-local").is_none(),
-        "there is no Local pane for a missing stage"
+        "there is no diff column for a missing stage"
     );
     assert!(
         cx.debug_bounds("merge-accept").is_none(),
-        "Accept is not offered"
+        "Accept is not offered on the fallback"
     );
     // A second draw must not panic on the empty state.
     draw(cx);
@@ -1419,7 +1426,7 @@ fn a_delete_modify_conflict_opens_an_empty_editor(cx: &mut TestAppContext) {
 // ---------------------------------------------------------------------------
 
 #[gpui_kit::gpui::test]
-fn a_binary_conflict_has_no_editor_and_no_way_out_through_the_ui(cx: &mut TestAppContext) {
+fn a_binary_conflict_offers_the_side_fallback(cx: &mut TestAppContext) {
     scratch_home();
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
@@ -1446,15 +1453,16 @@ fn a_binary_conflict_has_no_editor_and_no_way_out_through_the_ui(cx: &mut TestAp
     assert!(cx.debug_bounds("merge-editor").is_some());
     assert!(cx.debug_bounds("merge-local").is_none());
     assert!(cx.debug_bounds("merge-accept").is_none());
-
-    click(cx, "merge-back");
-    right_click(cx, "u-bin.dat");
-    click(cx, "file-menu-incoming");
-    let bulk = settle_bulk(cx, &store, &repo, "bin.dat", ConflictSide::Incoming);
-    assert!(!bulk.ok);
     assert!(
-        cx.debug_bounds("u-bin.dat").is_some(),
-        "still conflicted: the UI cannot discard or take a binary side"
+        cx.debug_bounds("merge-side-local").is_some()
+            && cx.debug_bounds("merge-side-incoming").is_some(),
+        "the binary fallback offers both sides"
+    );
+    click(cx, "merge-side-incoming");
+    assert_eq!(
+        side_commands(&drain(&net_rx)),
+        vec![("bin.dat".to_string(), ConflictSide::Incoming)],
+        "the binary side goes to the net"
     );
 }
 
@@ -1523,10 +1531,10 @@ fn the_editor_keys_step_and_take_the_sides(cx: &mut TestAppContext) {
 
     // Block 0: incoming. F7 steps to block 1; there: local. Accept then has
     // one side from each block.
-    click(cx, "merge-incoming-take");
+    click(cx, "merge-take-0-incoming");
     cx.simulate_keystrokes("f7");
     draw(cx);
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-1-local");
     click(cx, "merge-accept");
     let commands = drain(&net_rx);
     assert_eq!(
@@ -1797,7 +1805,7 @@ fn the_result_preview_toggles_between_colours_and_the_editor(cx: &mut TestAppCon
     click(cx, "open-merge-editor");
     drain(&net_rx);
     load_conflict(cx, &store, &repo, "shared.txt");
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     assert!(cx.debug_bounds("merge-result-scroll").is_some());
     click(cx, "merge-preview-toggle");
     draw(cx);

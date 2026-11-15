@@ -288,18 +288,18 @@ fn a_stopped_merge_draws_the_band_menu_and_editor(cx: &mut TestAppContext) {
         "the conflict strip numbers the block"
     );
     assert!(
-        cx.debug_bounds("merge-local-take").is_some()
-            && cx.debug_bounds("merge-incoming-take").is_some(),
+        cx.debug_bounds("merge-take-0-local").is_some()
+            && cx.debug_bounds("merge-take-0-incoming").is_some(),
         "both sides carry a take checkbox"
     );
     assert!(
         cx.debug_bounds("merge-accept").is_some(),
         "Accept Merge is in the head"
     );
-    click(cx, "merge-local-take");
+    click(cx, "merge-take-0-local");
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
-    click(cx, "merge-incoming-take");
+    click(cx, "merge-take-0-incoming");
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     assert!(

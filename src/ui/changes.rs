@@ -4005,12 +4005,20 @@ impl ChangesView {
                 incoming_chosen,
                 font_detail,
                 scroll: &diff_scroll,
-                on_local: Box::new(cx.listener(|this, _, window, cx| {
-                    this.choose_side(ConflictSide::Local, window, cx)
-                })),
-                on_incoming: Box::new(cx.listener(|this, _, window, cx| {
-                    this.choose_side(ConflictSide::Incoming, window, cx)
-                })),
+                on_local: if total == 0 {
+                    Some(Box::new(cx.listener(|this, _, window, cx| {
+                        this.choose_side(ConflictSide::Local, window, cx)
+                    })))
+                } else {
+                    None
+                },
+                on_incoming: if total == 0 {
+                    Some(Box::new(cx.listener(|this, _, window, cx| {
+                        this.choose_side(ConflictSide::Incoming, window, cx)
+                    })))
+                } else {
+                    None
+                },
                 choices: &choices,
                 on_take,
             },
@@ -4647,8 +4655,8 @@ struct MergeDiffView<'a> {
     incoming_chosen: bool,
     font_detail: f32,
     scroll: &'a UniformListScrollHandle,
-    on_local: MergeClick,
-    on_incoming: MergeClick,
+    on_local: Option<MergeClick>,
+    on_incoming: Option<MergeClick>,
     /// One pick per block, for the row checkboxes.
     choices: &'a [Option<ConflictPick>],
     on_take: Rc<BlockTake>,
@@ -4712,18 +4720,8 @@ fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
             cell.border_l_1().border_color(theme::hairline())
         });
     if gap {
-        return cell.bg(theme::tint(theme::text_dim())).into_any_element();
+        cell = cell.bg(theme::tint(theme::text_dim()));
     }
-    if changed {
-        cell = cell
-            .bg(theme::tint(change_color))
-            // the change bar a diff's gutter carries; the tint alone reads as
-            // selection in this list
-            .child(div().w(px(3.)).h_full().flex_shrink_0().bg(change_color));
-    }
-    let Some(index) = line else {
-        return cell.into_any_element();
-    };
     if let Some(take) = take {
         let DiffTake {
             checked,
@@ -4780,6 +4778,19 @@ fn diff_cell(cell: DiffCell<'_>, window: &mut Window) -> gpui::AnyElement {
                 .on_click(move |_, window, cx| on_take(block, side, window, cx)),
         );
     }
+    if gap {
+        return cell.into_any_element();
+    }
+    if changed {
+        cell = cell
+            .bg(theme::tint(change_color))
+            // the change bar a diff's gutter carries; the tint alone reads as
+            // selection in this list
+            .child(div().w(px(3.)).h_full().flex_shrink_0().bg(change_color));
+    }
+    let Some(index) = line else {
+        return cell.into_any_element();
+    };
     let text = lines.get(index).cloned().unwrap_or_default();
     let word = word.filter(|span| {
         span.start <= span.end
@@ -4936,22 +4947,44 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
     let current_block = file.blocks.get(current);
     let current_local = current_block.map(|block| block.local_lines.clone());
     let current_incoming = current_block.map(|block| block.incoming_lines.clone());
-    let local_starts: Rc<Vec<(usize, usize)>> = Rc::new(
-        file.blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| !block.local_lines.is_empty())
-            .map(|(index, block)| (block.local_lines.start, index))
-            .collect(),
-    );
-    let incoming_starts: Rc<Vec<(usize, usize)>> = Rc::new(
-        file.blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| !block.incoming_lines.is_empty())
-            .map(|(index, block)| (block.incoming_lines.start, index))
-            .collect(),
-    );
+    let block_line_map = |ranges: &[std::ops::Range<usize>], count: usize| {
+        let mut map = vec![None; count];
+        for (index, range) in ranges.iter().enumerate() {
+            map[range.start..range.end.min(count)].fill(Some(index));
+        }
+        map
+    };
+    let local_of_line = block_line_map(&local_blocks, local_lines.len());
+    let incoming_of_line = block_line_map(&incoming_blocks, incoming_lines.len());
+    let base_ranges: Vec<std::ops::Range<usize>> = file
+        .blocks
+        .iter()
+        .map(|block| block.base_lines.clone())
+        .collect();
+    let base_of_line = block_line_map(&base_ranges, base_lines.len());
+    // one checkbox per block, on the block's first row and on both sides (a
+    // deleted side's box sits in its gap)
+    let mut row_blocks = vec![None; rows.len()];
+    let mut seen = vec![false; file.blocks.len()];
+    for (row_index, row) in rows.iter().enumerate() {
+        let block = row
+            .local
+            .and_then(|line| local_of_line.get(line).copied().flatten())
+            .or_else(|| {
+                row.incoming
+                    .and_then(|line| incoming_of_line.get(line).copied().flatten())
+            })
+            .or_else(|| {
+                row.base
+                    .and_then(|line| base_of_line.get(line).copied().flatten())
+            });
+        if let Some(block) = block
+            && !seen[block]
+        {
+            seen[block] = true;
+            row_blocks[row_index] = Some(block);
+        }
+    }
     let rows = Rc::new(rows.to_vec());
     let max_lines = local_lines
         .len()
@@ -5018,12 +5051,11 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                     (None, None)
                 };
 
-                let take_at =
-                    |starts: &[(usize, usize)], line: Option<usize>, side: ConflictSide| {
-                        let line = line?;
-                        let (_, block) = starts.iter().find(|(start, _)| *start == line)?;
-                        let checked = matches!(
-                            (choices.get(*block).copied().flatten(), side),
+                let row_block = row_blocks[index];
+                let take_for = |side: ConflictSide| {
+                    row_block.map(|block| DiffTake {
+                        checked: matches!(
+                            (choices.get(block).copied().flatten(), side),
                             (Some(ConflictPick::Local), ConflictSide::Local)
                                 | (Some(ConflictPick::Incoming), ConflictSide::Incoming)
                                 | (
@@ -5033,14 +5065,12 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                                     ),
                                     _
                                 )
-                        );
-                        Some(DiffTake {
-                            checked,
-                            block: *block,
-                            side,
-                            on_take: on_take.clone(),
-                        })
-                    };
+                        ),
+                        block,
+                        side,
+                        on_take: on_take.clone(),
+                    })
+                };
                 let cell_selector = |side: &str, line: Option<usize>| {
                     SharedString::from(format!(
                         "merge-diff-{side}-{index}-{}",
@@ -5060,7 +5090,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: true,
                         debug: cell_selector("local", row.local),
-                        take: take_at(&local_starts, row.local, ConflictSide::Local),
+                        take: take_for(ConflictSide::Local),
                     },
                     window,
                 ));
@@ -5096,7 +5126,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
                         font: row_font,
                         first: false,
                         debug: cell_selector("incoming", row.incoming),
-                        take: take_at(&incoming_starts, row.incoming, ConflictSide::Incoming),
+                        take: take_for(ConflictSide::Incoming),
                     },
                     window,
                 ));
@@ -5118,7 +5148,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
         "merge-local",
         "Local",
         local_chosen,
-        Some(on_local),
+        on_local,
         true,
     ));
     if show_base {
@@ -5128,7 +5158,7 @@ fn merge_diff_view(view: MergeDiffView<'_>, _window: &mut Window) -> gpui::AnyEl
         "merge-incoming",
         "Incoming",
         incoming_chosen,
-        Some(on_incoming),
+        on_incoming,
         false,
     ));
 
