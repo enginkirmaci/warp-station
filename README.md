@@ -18,6 +18,13 @@ cache is disposable. The notes store is user content in `~/notes`. An old
 startup, a legacy `~/.devtools` root is absorbed into `~/.warp` on first
 launch, and the root files move into `~/.warp/station` once.
 
+The rail's **Pomodoro** page is the live view of the sibling
+[warp-pomodoro](../warp-pomodoro) timer: the countdown, phase, cycle dots and
+the day's focus counts, with Start/Pause and Reset driving the app over its
+loopback door and "Open Pomodoro" for everything else. Its durations,
+long-break cycle, history and notifications live in that app; Station only
+names the executable and can hide the section in Settings › Integrations.
+
 ## Keyboard
 
 `?` (or `Ctrl+/`, or the keyboard icon in the title bar) opens the shortcut

@@ -94,7 +94,7 @@ const SECTIONS: [(Section, &str, &str, &str); 9] = [
         Section::Integrations,
         "settings-integrations",
         "Integrations",
-        "Notes, GitHub and Azure DevOps",
+        "Notes, Pomodoro, GitHub and Azure DevOps",
     ),
 ];
 
@@ -167,6 +167,9 @@ pub struct SettingsPage {
     // Notes (warp-notes)
     warp_notes_enabled: bool,
     warp_notes_executable: Entity<InputState>,
+    // Pomodoro (warp-pomodoro)
+    pomodoro_enabled: bool,
+    pomodoro_executable: Entity<InputState>,
     // The template being edited inline (registry id); None = the rows list.
     editing_template: Option<&'static str>,
     /// True once the open editor's TemplateLoaded landed and seeded the buffer.
@@ -413,6 +416,8 @@ impl SettingsPage {
             variant_picker,
             warp_notes_enabled: settings.warp_notes.enable_warp_notes,
             warp_notes_executable: field(window, cx, &settings.warp_notes.executable),
+            pomodoro_enabled: settings.pomodoro.enable_pomodoro,
+            pomodoro_executable: field(window, cx, &settings.pomodoro.executable),
             editing_template: None,
             template_editor_seeded: false,
             template_editor,
@@ -450,6 +455,7 @@ impl SettingsPage {
             &page.model,
             &page.variant,
             &page.warp_notes_executable,
+            &page.pomodoro_executable,
             &page.github_executable,
             &page.azure_pat,
             &page.azure_url,
@@ -573,6 +579,8 @@ impl SettingsPage {
         let variant = Self::value(&self.variant, cx);
         let warp_notes_enabled = self.warp_notes_enabled;
         let warp_notes_exe = Self::value(&self.warp_notes_executable, cx);
+        let pomodoro_enabled = self.pomodoro_enabled;
+        let pomodoro_exe = Self::value(&self.pomodoro_executable, cx);
         let branch_prefix = Self::value(&self.branch_name_prefix, cx);
         let group_by_root = self.group_by_root;
         let group_depth = self.group_depth;
@@ -631,6 +639,8 @@ impl SettingsPage {
                 s.warp_agent.variant = (!variant.trim().is_empty()).then_some(variant);
                 s.warp_notes.enable_warp_notes = warp_notes_enabled;
                 s.warp_notes.executable = warp_notes_exe;
+                s.pomodoro.enable_pomodoro = pomodoro_enabled;
+                s.pomodoro.executable = pomodoro_exe;
                 s.opencode.model = model;
                 s.repos.enable_github = flags.7;
                 s.repos.github_executable = github_exe;
@@ -1450,6 +1460,25 @@ impl SettingsPage {
                 rows.push(field_row(
                     "warp-notes executable",
                     &self.warp_notes_executable,
+                    rows.is_empty(),
+                    window,
+                    cx,
+                ));
+                rows.push(kit_settings::switch_row(
+                    "set-pomodoro",
+                    "Enable Pomodoro",
+                    "settings-row-Enable Pomodoro".to_string(),
+                    self.pomodoro_enabled,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.pomodoro_enabled = !this.pomodoro_enabled;
+                        this.save(cx);
+                        cx.notify();
+                    }),
+                ));
+                rows.push(field_row(
+                    "warp-pomodoro executable",
+                    &self.pomodoro_executable,
                     rows.is_empty(),
                     window,
                     cx,

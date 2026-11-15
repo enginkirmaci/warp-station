@@ -20,6 +20,7 @@ pub mod notes;
 pub mod nuget;
 pub mod opencode;
 pub mod paths;
+pub mod pomodoro;
 pub mod process;
 pub mod rate;
 pub mod refresh;

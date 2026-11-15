@@ -1,7 +1,7 @@
 //! The main window: the title bar over the rail, and the rail's section beside
 //! it. Every section is the shell's list and detail pair: Repos, the written
-//! Summaries, Tools and Settings. Notes and warp-agent are their own apps, so
-//! the title bar launches them.
+//! Summaries, the Pomodoro timer, Tools and Settings. Notes and warp-agent are
+//! their own apps, so the title bar launches them.
 
 use crate::store::Store;
 use crate::theme;
@@ -10,6 +10,7 @@ use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_passwor
 use crate::ui::formatters::FormattersDrawer;
 use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
+use crate::ui::pomodoro::PomodoroPage;
 use crate::ui::summary::SummaryPage;
 use crate::ui::windows_tools::{KeepAwakePage, SnapItPage};
 use gpui::prelude::*;
@@ -26,6 +27,7 @@ use warpui_kit_core::{motion, shell};
 enum Section {
     Repos,
     Summary,
+    Pomodoro,
     Tools,
     About,
     Settings,
@@ -63,6 +65,7 @@ pub struct MainWindow {
     repos_page: Entity<crate::ui::repos::ReposPage>,
     settings_page: Entity<crate::ui::settings::SettingsPage>,
     summary_page: Entity<SummaryPage>,
+    pomodoro_page: Entity<PomodoroPage>,
     global_search: Entity<InputState>,
     /// The tools' pages, built the first time each opens.
     formatters: Option<Entity<FormattersDrawer>>,
@@ -104,6 +107,7 @@ impl MainWindow {
         let settings_page =
             cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let summary_page = cx.new(|cx| SummaryPage::new(store.clone(), cx));
+        let pomodoro_page = cx.new(|cx| PomodoroPage::new(store.clone(), cx));
         let global_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search repos, notes, code…"));
         let search_store = store.clone();
@@ -151,6 +155,7 @@ impl MainWindow {
                 _ if tool.is_some() => Section::Tools,
                 Ok("settings") => Section::Settings,
                 Ok("summary") => Section::Summary,
+                Ok("pomodoro") => Section::Pomodoro,
                 Ok("tools") => Section::Tools,
                 Ok("about") => Section::About,
                 _ => Section::Repos,
@@ -165,6 +170,7 @@ impl MainWindow {
             repos_page,
             settings_page,
             summary_page,
+            pomodoro_page,
             global_search,
             formatters: None,
             nuget_drawer: None,
@@ -1763,6 +1769,10 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         shell::rail_item(id, icon_path, label, self.section == section)
+            // a rail label is one line: "Pomodoro" must not wrap under its
+            // icon in the 60px inner width (the overflow lands in the rail's
+            // own padding, not on the border)
+            .whitespace_nowrap()
             .debug_selector(move || id.into())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.section = section;
@@ -1778,7 +1788,10 @@ impl MainWindow {
             .iter()
             .filter(|repo| !repo.is_archived() && crate::store::projection::needs_attention(repo))
             .count();
-        shell::rail()
+        // the Pomodoro rail item follows its own switch; a saved off hides the
+        // section without touching anything else
+        let pomodoro_enabled = self.store.read(cx).settings().pomodoro.enable_pomodoro;
+        let mut rail = shell::rail()
             .debug_selector(|| "app-rail".into())
             .child(
                 self.rail_item(
@@ -1816,37 +1829,58 @@ impl MainWindow {
                 "icons/icon-agent-sparkle.svg",
                 "Summary",
                 cx,
-            ))
-            .child(self.rail_item(
-                Section::Tools,
-                "rail-tools",
-                "icons/icon-tools.svg",
-                "Tools",
+            ));
+        if pomodoro_enabled {
+            rail = rail.child(self.rail_item(
+                Section::Pomodoro,
+                "rail-pomodoro",
+                "icons/icon-timer.svg",
+                "Pomodoro",
                 cx,
-            ))
-            .child(div().flex_1())
-            .child(self.rail_item(
-                Section::About,
-                "rail-about",
-                "icons/icon-about.svg",
-                "About",
-                cx,
-            ))
-            .child(self.rail_item(
-                Section::Settings,
-                "rail-settings",
-                "icons/icon-cog.svg",
-                "Settings",
-                cx,
-            ))
-            .into_any_element()
+            ));
+        }
+        rail.child(self.rail_item(
+            Section::Tools,
+            "rail-tools",
+            "icons/icon-tools.svg",
+            "Tools",
+            cx,
+        ))
+        .child(div().flex_1())
+        .child(self.rail_item(
+            Section::About,
+            "rail-about",
+            "icons/icon-about.svg",
+            "About",
+            cx,
+        ))
+        .child(self.rail_item(
+            Section::Settings,
+            "rail-settings",
+            "icons/icon-cog.svg",
+            "Settings",
+            cx,
+        ))
+        .into_any_element()
     }
 
     fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        // a saved-off Pomodoro section falls back to Repos, like a tool whose
+        // switch turned off; the page parks its poll whenever it leaves screen
+        if self.section == Section::Pomodoro
+            && !self.store.read(cx).settings().pomodoro.enable_pomodoro
+        {
+            self.section = Section::Repos;
+        }
+        let pomodoro_active = self.section == Section::Pomodoro;
+        self.pomodoro_page
+            .update(cx, |page, cx| page.set_active(pomodoro_active, cx));
+
         let body = div().flex().flex_1().min_w_0().min_h_0();
         match self.section {
             Section::Repos => body.child(self.repos_page.clone()).into_any_element(),
             Section::Summary => body.child(self.summary_page.clone()).into_any_element(),
+            Section::Pomodoro => body.child(self.pomodoro_page.clone()).into_any_element(),
             Section::Tools => body.child(self.render_tools(window, cx)).into_any_element(),
             Section::About => body.child(self.render_about(cx)).into_any_element(),
             Section::Settings => body.child(self.settings_page.clone()).into_any_element(),

@@ -15,6 +15,7 @@ pub mod markdown;
 pub mod new_pull;
 pub mod nuget;
 pub mod overview;
+pub mod pomodoro;
 pub mod pr_issues;
 pub mod pull_request;
 pub mod readme;

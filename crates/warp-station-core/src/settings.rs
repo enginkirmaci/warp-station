@@ -31,6 +31,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub warp_notes: WarpNotesSettings,
     #[serde(default)]
+    pub pomodoro: PomodoroSettings,
+    #[serde(default)]
     pub general: GeneralSettings,
     #[serde(default)]
     pub changes: ChangesSettings,
@@ -401,6 +403,27 @@ impl Default for WarpNotesSettings {
         Self {
             enable_warp_notes: true,
             executable: "warp-notes".into(),
+        }
+    }
+}
+
+/// The Pomodoro timer's section: Warp Station shows its live state and drives
+/// start/pause/reset through the app's door, so this only toggles the rail
+/// section and names the app binary. Durations, the long-break cycle,
+/// auto-start and notifications are warp-pomodoro's own settings, never
+/// mirrored here.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+pub struct PomodoroSettings {
+    pub enable_pomodoro: bool,
+    pub executable: String,
+}
+
+impl Default for PomodoroSettings {
+    fn default() -> Self {
+        Self {
+            enable_pomodoro: true,
+            executable: "warp-pomodoro".into(),
         }
     }
 }
@@ -951,6 +974,24 @@ mod tests {
         let off = imported(r#"{"WarpAgent": {"EnableWarpAgent": false, "Executable": "wa"}}"#);
         assert!(!off.warp_agent.enable_warp_agent);
         assert_eq!(off.warp_agent.executable, "wa");
+    }
+
+    #[test]
+    fn pomodoro_defaults_on_with_executable() {
+        let s: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(s.pomodoro.enable_pomodoro);
+        assert_eq!(s.pomodoro.executable, "warp-pomodoro");
+
+        let off = imported(r#"{"Pomodoro": {"EnablePomodoro": false, "Executable": "wp"}}"#);
+        assert!(!off.pomodoro.enable_pomodoro);
+        assert_eq!(off.pomodoro.executable, "wp");
+
+        let json = serde_json::to_string_pretty(&off).unwrap();
+        assert!(json.contains("\"enable_pomodoro\": false"), "{json}");
+        assert!(json.contains("\"executable\": \"wp\""), "{json}");
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert!(!back.pomodoro.enable_pomodoro);
+        assert_eq!(back.pomodoro.executable, "wp");
     }
 
     #[test]

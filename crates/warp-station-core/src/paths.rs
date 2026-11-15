@@ -54,6 +54,12 @@ impl AppPaths {
     pub fn flow_cache_file() -> PathBuf {
         Self::app_dir().join("cache").join("flow.json")
     }
+    /// The Pomodoro timer's own folder, `~/.warp/pomodoro`: warp-pomodoro owns
+    /// its settings, history and live snapshot there, and publishes the door
+    /// endpoint beside them while it runs (the Pomodoro section reads it).
+    pub fn pomodoro_dir() -> PathBuf {
+        suite::app_dir("pomodoro")
+    }
 }
 
 /// One-time layout compatibility: the prompt templates and the catalog cache

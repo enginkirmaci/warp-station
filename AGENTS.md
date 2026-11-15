@@ -68,6 +68,16 @@ Keep this order; several steps depend on the previous one:
   global-search note hits ask for `--root` (the whole store, never the
   selected repo), while a repo's launcher pins `--repo <name>`; a hit also
   passes `--note`. A missing binary shows a toast and nothing else breaks.
+- **Pomodoro.** The rail's Pomodoro section is the live view of the sibling
+  warp-pomodoro app: it reads `~/.warp/pomodoro/state.json` and, while the app
+  runs, its token-authenticated door (`ipc.port` + `ipc.token`) with `status`,
+  `start`, `pause`, `reset`, `skip` and `focus`. The page polls `status` once a
+  second only while its section is on screen and falls back to the snapshot
+  file when the door is down; a closed app reads as "Not running" with no
+  error toast, and Start launches `warp-pomodoro --start`. The durations,
+  long-break cycle, history and notifications live in the app's own settings —
+  Station keeps only `pomodoro.enable_pomodoro` and `pomodoro.executable`.
+  `WARP_STATION_POMODORO_DIR` redirects the folder for probes.
 - **SnapIt.** Reads the same `~/.warp/snapit` files as warp-snapit. On Windows
   the auto-start setting launches the configured executable with
   `--parent <pid>`. An empty setting resolves to the packaged
