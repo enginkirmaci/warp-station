@@ -1090,3 +1090,94 @@ fn the_owners_stopped_gitignore_merge_reads_resolves_and_commits() {
             .is_none()
     );
 }
+
+/// A delete/modify conflict: the text editor has no stages to show, and the
+/// side buttons still resolve it — the kept side's content or the deletion.
+#[test]
+fn resolve_side_handles_a_delete_modify_conflict() {
+    let repo = Scratch::new("resolve-delete");
+    repo.write("f.txt", "base\n");
+    repo.commit_all("base");
+    repo.git(&["checkout", "-q", "-b", "feat"]);
+    repo.git(&["rm", "-q", "f.txt"]);
+    repo.commit_all("delete");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("f.txt", "changed\n");
+    repo.commit_all("modify");
+    stop_merge(&repo, "feat");
+    assert_eq!(
+        conflict::conflict_sides(repo.path(), "f.txt"),
+        Some((true, false)),
+        "only the local stage exists"
+    );
+    assert!(
+        conflict::conflict_file(repo.path(), "f.txt").is_none(),
+        "no text surface for the one-sided conflict"
+    );
+
+    let outcome = block_on(cli::resolve_side(
+        repo.path(),
+        "f.txt",
+        ConflictSide::Incoming,
+    ));
+    assert!(outcome.ok, "{:?}", outcome.error);
+    assert!(
+        !repo.path().join("f.txt").exists(),
+        "the deletion was taken"
+    );
+    assert!(
+        repo.git(&["ls-files", "-u"]).is_empty(),
+        "the unmerged entry is gone"
+    );
+
+    // and the kept side writes its own stage back
+    let repo = Scratch::new("resolve-keep");
+    repo.write("f.txt", "base\n");
+    repo.commit_all("base");
+    repo.git(&["checkout", "-q", "-b", "feat"]);
+    repo.git(&["rm", "-q", "f.txt"]);
+    repo.commit_all("delete");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("f.txt", "changed\n");
+    repo.commit_all("modify");
+    stop_merge(&repo, "feat");
+    let outcome = block_on(cli::resolve_side(repo.path(), "f.txt", ConflictSide::Local));
+    assert!(outcome.ok, "{:?}", outcome.error);
+    assert_eq!(repo.read("f.txt"), "changed\n");
+    assert!(repo.git(&["ls-files", "-u"]).is_empty());
+}
+
+/// A binary conflict: no text stages, but the side buttons write the blob's
+/// bytes into the worktree and stage them.
+#[test]
+fn resolve_side_handles_a_binary_conflict() {
+    let repo = Scratch::new("resolve-binary");
+    repo.write_bytes("blob.bin", &[0, 159, 146, 150, b'0']);
+    repo.commit_all("base");
+    repo.git(&["checkout", "-q", "-b", "feat"]);
+    repo.write_bytes("blob.bin", &[0, 159, 146, 150, b'1']);
+    repo.commit_all("feat bytes");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write_bytes("blob.bin", &[0, 159, 146, 150, b'2']);
+    repo.commit_all("main bytes");
+    stop_merge(&repo, "feat");
+    assert_eq!(
+        conflict::conflict_sides(repo.path(), "blob.bin"),
+        Some((true, true))
+    );
+    assert!(
+        conflict::conflict_file(repo.path(), "blob.bin").is_none(),
+        "binary stages have no text"
+    );
+    let outcome = block_on(cli::resolve_side(
+        repo.path(),
+        "blob.bin",
+        ConflictSide::Incoming,
+    ));
+    assert!(outcome.ok, "{:?}", outcome.error);
+    assert_eq!(
+        std::fs::read(repo.path().join("blob.bin")).expect("blob"),
+        vec![0, 159, 146, 150, b'1']
+    );
+    assert!(repo.git(&["ls-files", "-u"]).is_empty());
+}

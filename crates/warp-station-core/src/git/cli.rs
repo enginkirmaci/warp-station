@@ -356,6 +356,48 @@ pub async fn merge(folder: &Path, source: &str) -> MergeOutcome {
     }
 }
 
+/// Resolves one side of a conflict without a text surface: the side's stage
+/// is checked out into the worktree and staged, or, when that side deleted
+/// the file, the unmerged entry is removed. This is the binary and
+/// delete/modify path the merge editor cannot show as text.
+pub async fn resolve_side(
+    folder: &Path,
+    path: &str,
+    side: crate::git::conflict::ConflictSide,
+) -> GitOutcome {
+    use crate::git::conflict::ConflictSide;
+    let Some((has_local, has_incoming)) = crate::git::conflict::conflict_sides(folder, path) else {
+        return GitOutcome {
+            ok: false,
+            error: Some(format!("{path} has no merge conflict")),
+        };
+    };
+    let present = match side {
+        ConflictSide::Local => has_local,
+        ConflictSide::Incoming => has_incoming,
+    };
+    if !present {
+        return simple(
+            folder,
+            &["rm".into(), "-f".into(), "--".into(), path.into()],
+        )
+        .await;
+    }
+    let flag = match side {
+        ConflictSide::Local => "--ours",
+        ConflictSide::Incoming => "--theirs",
+    };
+    let checkout = simple(
+        folder,
+        &["checkout".into(), flag.into(), "--".into(), path.into()],
+    )
+    .await;
+    if !checkout.ok {
+        return checkout;
+    }
+    simple(folder, &["add".into(), "--".into(), path.into()]).await
+}
+
 /// Commits a stopped merge. `--continue` runs the commit on the prepared
 /// `MERGE_MSG`, and `GIT_EDITOR=true` accepts that message without a terminal.
 pub async fn merge_continue(folder: &Path) -> GitOutcome {

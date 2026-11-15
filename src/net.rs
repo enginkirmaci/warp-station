@@ -375,6 +375,12 @@ pub enum GitAction {
         path: String,
         text: Option<String>,
     },
+    /// Resolves one side of a conflict the editor cannot show as text
+    /// (binary, delete/modify): that side's stage becomes the worktree.
+    ResolveConflictSide {
+        path: String,
+        side: warp_station_core::git::conflict::ConflictSide,
+    },
     /// Resolves every block of one file to the same side in one step (the
     /// conflicted row's menu).
     ResolveConflictBulk {
@@ -499,9 +505,9 @@ impl GitAction {
             GitAction::Merge { .. } => "merge",
             GitAction::MergeContinue => "merge continue",
             GitAction::MergeAbort => "merge abort",
-            GitAction::ResolveConflict { .. } | GitAction::ResolveConflictBulk { .. } => {
-                "resolve conflict"
-            }
+            GitAction::ResolveConflict { .. }
+            | GitAction::ResolveConflictBulk { .. }
+            | GitAction::ResolveConflictSide { .. } => "resolve conflict",
         }
     }
 
@@ -514,7 +520,8 @@ impl GitAction {
                 Some(name.clone())
             }
             GitAction::ResolveConflict { path, .. }
-            | GitAction::ResolveConflictBulk { path, .. } => Some(path.clone()),
+            | GitAction::ResolveConflictBulk { path, .. }
+            | GitAction::ResolveConflictSide { path, .. } => Some(path.clone()),
             _ => None,
         }
     }
@@ -2331,6 +2338,10 @@ async fn plain_git_action(
         }
         GitAction::ResolveConflictBulk { path, side } => {
             let outcome = warp_station_core::git::conflict::resolve_all(folder, path, *side).await;
+            outcome.into_outcome()
+        }
+        GitAction::ResolveConflictSide { path, side } => {
+            let outcome = cli::resolve_side(folder, path, *side).await;
             outcome.into_outcome()
         }
         GitAction::Merge { .. } | GitAction::MergeContinue | GitAction::MergeAbort => {

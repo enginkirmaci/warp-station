@@ -111,6 +111,32 @@ pub fn conflict_file(folder: &Path, path: &str) -> Option<GitConflictFile> {
     })
 }
 
+/// Which sides the index has for a conflicted path: (Local/stage 2,
+/// Incoming/stage 3). A delete/modify conflict has only one, and a binary
+/// conflict has both; the merge editor's fallback uses this to label its
+/// buttons and pick the side's resolution.
+pub fn conflict_sides(folder: &Path, path: &str) -> Option<(bool, bool)> {
+    let repo = Repository::discover(folder).ok()?;
+    let index = repo.index().ok()?;
+    for entry in index.conflicts().ok()? {
+        let entry = entry.ok()?;
+        let entry_path = entry
+            .our
+            .as_ref()
+            .or(entry.their.as_ref())
+            .or(entry.ancestor.as_ref())
+            .and_then(|index_entry| {
+                std::str::from_utf8(&index_entry.path)
+                    .ok()
+                    .map(str::to_string)
+            })?;
+        if entry_path == path {
+            return Some((entry.our.is_some(), entry.their.is_some()));
+        }
+    }
+    None
+}
+
 /// Parses git's conflict markers into blocks. `None` for a malformed file (a
 /// missing end marker), which the editor treats as "no blocks" rather than
 /// inventing boundaries. Handles the `merge` style and the `diff3`/`zdiff3`

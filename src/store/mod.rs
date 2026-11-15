@@ -150,6 +150,11 @@ pub struct Store {
     pub changes_loaded_for: Option<String>,
     /// The conflicted file the merge editor is showing, fetched on demand.
     merge_conflict: Option<warp_station_core::git::conflict::GitConflictFile>,
+    /// The path the merge editor asked for, and whether the answer landed. A
+    /// landed `None` means the file has no text surface (binary or a deleted
+    /// side), which the editor resolves with a side button.
+    merge_conflict_path: Option<String>,
+    merge_conflict_loaded: bool,
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
@@ -497,6 +502,8 @@ impl Store {
             changes_generation: 0,
             changes_loaded_for: None,
             merge_conflict: None,
+            merge_conflict_path: None,
+            merge_conflict_loaded: false,
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
@@ -1876,8 +1883,11 @@ impl Store {
                 cx.notify();
             }
             UiEvent::MergeConflictLoaded { folder, path, file } => {
-                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                if self.selected_repo.as_deref() == Some(folder.as_str())
+                    && self.merge_conflict_path.as_deref() == Some(path.as_str())
+                {
                     self.merge_conflict = file.filter(|file| file.path == path);
+                    self.merge_conflict_loaded = true;
                     cx.notify();
                 }
             }
@@ -2584,11 +2594,36 @@ impl Store {
             return;
         };
         self.merge_conflict = None;
+        self.merge_conflict_path = Some(path.to_string());
+        self.merge_conflict_loaded = false;
         let _ = self.net.send_blocking(NetCommand::LoadMergeConflict {
             folder: std::path::PathBuf::from(folder),
             path: path.to_string(),
         });
         cx.notify();
+    }
+
+    /// Whether the merge editor's request for `path` has landed (with data or
+    /// with the "no text surface" answer).
+    pub fn merge_conflict_loaded(&self, path: &str) -> bool {
+        self.merge_conflict_loaded && self.merge_conflict_path.as_deref() == Some(path)
+    }
+
+    /// Resolves one side of a binary or delete/modify conflict: that side's
+    /// stage is written to the worktree and staged, or the file is removed.
+    pub fn resolve_merge_side(
+        &mut self,
+        path: &str,
+        side: warp_station_core::git::conflict::ConflictSide,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_git(
+            GitAction::ResolveConflictSide {
+                path: path.to_string(),
+                side,
+            },
+            cx,
+        );
     }
 
     /// Resolves every block of one file to the same side, from the conflicted
