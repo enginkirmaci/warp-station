@@ -3912,12 +3912,15 @@ impl ChangesView {
                 .flex_1()
                 .min_h_0()
                 .p_2()
-                .child(warpui_kit_core::field::mono_area(
-                    "merge-result",
-                    &input,
-                    window,
-                    cx,
-                ))
+                .child(
+                    // a pane-sized editor, not a form field: the area's own
+                    // h_auto comes back as a one-row strip here, so pin it to
+                    // the well and let the editor scroll inside (the commit
+                    // box's pattern)
+                    warpui_kit_core::field::mono_area("merge-result", &input, window, cx)
+                        .h_full()
+                        .min_h(px(0.)),
+                )
                 .into_any_element(),
             None => div().into_any_element(),
         };
