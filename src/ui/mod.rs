@@ -7,6 +7,7 @@ pub mod clipboard_password;
 pub mod detail;
 pub mod dialogs;
 pub mod diff_controls;
+pub mod file_tree;
 pub mod flow_strip;
 pub mod formatters;
 pub mod issue_detail;

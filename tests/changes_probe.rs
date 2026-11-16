@@ -1084,6 +1084,206 @@ fn close_row_menu(cx: &mut VisualTestContext) {
     cx.update(|window, cx| drop(window.draw(cx)));
 }
 
+/// The Changes list groups a nested change under folder rows: a folder row
+/// folds its files away, and folding never re-asks for the diff.
+#[gpui_kit::gpui::test]
+fn nested_changes_fold_into_folder_rows(cx: &mut TestAppContext) {
+    use warp_station_core::model::{GitChangeSnapshot, GitChangedFile};
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    fn file(path: &str) -> GitChangedFile {
+        GitChangedFile {
+            path: path.into(),
+            status_code: "M".into(),
+            additions: Some(1),
+            deletions: None,
+        }
+    }
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-nested_changes_fold_into_folder_rows"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 3,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        let files = vec![file("src/ui/a.rs"), file("src/ui/b.rs"), file("top.txt")];
+        store.set_changes(Some(GitChangeSnapshot {
+            status_files: files.clone(),
+            staged_files: Vec::new(),
+            unstaged_files: files,
+            worktree_counts: Default::default(),
+            cached_counts: Default::default(),
+        }));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the nested pair sits under one folder row; the root file has none
+    let folder = cx
+        .debug_bounds("u-folder-src/ui")
+        .expect("the folder row draws");
+    let nested = cx
+        .debug_bounds("u-src/ui/a.rs")
+        .expect("the nested file draws");
+    assert!(
+        folder.origin.y < nested.origin.y,
+        "the folder sits above its files: folder {folder:?}, file {nested:?}"
+    );
+    assert!(cx.debug_bounds("u-src/ui/b.rs").is_some());
+    assert!(
+        cx.debug_bounds("u-top.txt").is_some(),
+        "a root file has no folder"
+    );
+
+    // selecting a file loads its diff; folding the folder must not reload it
+    click(cx, "u-src/ui/a.rs");
+    while net_rx.try_recv().is_ok() {}
+    click(cx, "u-folder-src/ui");
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_none(),
+        "the fold hides the folder's files"
+    );
+    assert!(
+        cx.debug_bounds("u-folder-src/ui").is_some(),
+        "the folded folder keeps its row"
+    );
+    assert!(
+        net_rx.try_recv().is_err(),
+        "folding asked for no diff: the selection stayed"
+    );
+
+    // unfolding brings the files back
+    click(cx, "u-folder-src/ui");
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_some(),
+        "the unfold brings the file back"
+    );
+}
+
+/// Staging the selected file moves it into the staged tree, and the diff
+/// follows the path instead of jumping to the other section's first file.
+#[gpui_kit::gpui::test]
+fn the_diff_follows_a_file_across_the_sections(cx: &mut TestAppContext) {
+    use warp_station_core::model::{GitChangeSnapshot, GitChangedFile};
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    fn file(path: &str) -> GitChangedFile {
+        GitChangedFile {
+            path: path.into(),
+            status_code: "M".into(),
+            additions: Some(1),
+            deletions: None,
+        }
+    }
+    fn snapshot(staged: &[&str], unstaged: &[&str]) -> GitChangeSnapshot {
+        let staged_files: Vec<GitChangedFile> = staged.iter().map(|path| file(path)).collect();
+        let unstaged_files: Vec<GitChangedFile> = unstaged.iter().map(|path| file(path)).collect();
+        GitChangeSnapshot {
+            status_files: staged_files
+                .iter()
+                .chain(unstaged_files.iter())
+                .cloned()
+                .collect(),
+            staged_files,
+            unstaged_files,
+            worktree_counts: Default::default(),
+            cached_counts: Default::default(),
+        }
+    }
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-the_diff_follows_a_file_across_the_sections"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 2,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        store.set_changes(Some(snapshot(&[], &["src/a.rs", "src/b.rs"])));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // pick the second file, then stage it: the diff must follow the path
+    click(cx, "u-src/b.rs");
+    while net_rx.try_recv().is_ok() {}
+    cx.update_entity(&store, |store, _| {
+        store.set_changes(Some(snapshot(&["src/b.rs"], &["src/a.rs"])));
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let mut asked = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        if let warp_station::net::NetCommand::GetChangePatch { path, staged, .. } = command {
+            asked.push((path, staged));
+        }
+    }
+    assert_eq!(
+        asked,
+        vec![("src/b.rs".to_string(), true)],
+        "the diff followed the file into the staged tree"
+    );
+}
+
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
     let b = cx
         .debug_bounds(selector)

@@ -10,6 +10,7 @@ use crate::net::{GitAction, NetCommand};
 use crate::store::{PullShortcut, Store};
 use crate::theme;
 use crate::ui::diff_controls;
+use crate::ui::file_tree;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{
@@ -60,6 +61,9 @@ type GroupedFiles = (Vec<GitChangedFile>, Vec<GitChangedFile>);
 struct FileGroups {
     groups: GroupedFiles,
     unstaged_paths: Rc<Vec<String>>,
+    /// The section trees, built with the groups so a render never walks paths.
+    staged_tree: file_tree::Tree,
+    unstaged_tree: file_tree::Tree,
 }
 
 /// Which of the file list's two sections a header folds.
@@ -69,14 +73,45 @@ enum FileSection {
     Unstaged,
 }
 
-/// One fixed-height item of the virtualized file list: a section header or a
-/// row on one of the two sides.
-#[derive(Clone, Copy)]
+/// One fixed-height item of the virtualized file list: a section header, a
+/// folder, or a row on one of the two sides.
+#[derive(Clone)]
 enum ChangeListItem {
     StagedHeader,
-    StagedFile(usize),
+    StagedFolder(FolderItem),
+    StagedFile { index: usize, depth: usize },
     UnstagedHeader,
-    UnstagedFile(usize),
+    UnstagedFolder(FolderItem),
+    UnstagedFile { index: usize, depth: usize },
+}
+
+/// A folder row's display data, precomputed with the tree so a render clones
+/// two refcounted strings and two numbers per visible folder.
+#[derive(Clone)]
+struct FolderItem {
+    /// The deepest folder of the row's chain: the fold key.
+    path: Rc<str>,
+    /// The compacted label (`src/ui`).
+    label: Rc<str>,
+    /// Changed files at or below the folder.
+    count: usize,
+    depth: usize,
+}
+
+/// Which row the list's cursor is on. The cursor is not the selection: a
+/// folder row can own it while the diff keeps the last file.
+#[derive(Clone, Eq, PartialEq)]
+struct RowKey {
+    path: String,
+    staged: bool,
+    folder: bool,
+}
+
+/// One row the cursor can land on, with its index in the built item list.
+struct CursorRow {
+    item_ix: usize,
+    key: RowKey,
+    depth: usize,
 }
 
 impl FileSection {
@@ -174,6 +209,16 @@ pub struct ChangesView {
     /// Staged/unstaged groups, rebuilt only when the store's change snapshot
     /// generation moves (any store notify otherwise re-cloned everything).
     groups_cache: Option<(u64, Rc<FileGroups>)>,
+    /// Folded folder paths, shared by both sections; a repo change clears it.
+    folded: std::collections::HashSet<String>,
+    /// The row the list's cursor sits on, separate from the diff selection.
+    file_cursor: Option<RowKey>,
+    /// Bumped when the visible rows change (a fold, a section toggle), so the
+    /// built item list knows to rebuild.
+    list_revision: u64,
+    /// The built item list for (snapshot generation, list revision): a render
+    /// walks this, never the paths.
+    items_cache: Option<(u64, u64, Rc<Vec<ChangeListItem>>)>,
     /// Precomputed history row labels, keyed by history generation + today.
     history_rows: Vec<HistoryRow>,
     history_cache_key: (u64, chrono::NaiveDate),
@@ -251,6 +296,10 @@ impl ChangesView {
             commit_file: 0,
             loaded_for: None,
             groups_cache: None,
+            folded: std::collections::HashSet::new(),
+            file_cursor: None,
+            list_revision: 0,
+            items_cache: None,
             history_rows: Vec::new(),
             history_cache_key: (0, chrono::NaiveDate::MIN),
             file_focus: cx.focus_handle(),
@@ -295,6 +344,10 @@ impl ChangesView {
         self.detail_patches.clear();
         self.detail_requests.clear();
         self.commit_file = 0;
+        self.folded.clear();
+        self.file_cursor = None;
+        self.list_revision = self.list_revision.wrapping_add(1);
+        self.items_cache = None;
     }
 
     /// Closes the branch picker from an outside click or Escape. Returns
@@ -309,6 +362,8 @@ impl ChangesView {
             FileSection::Staged => self.staged_collapsed = !self.staged_collapsed,
             FileSection::Unstaged => self.unstaged_collapsed = !self.unstaged_collapsed,
         }
+        // a folded section has no rows: the built item list must move with it
+        self.list_revision = self.list_revision.wrapping_add(1);
         cx.notify();
     }
 
@@ -426,23 +481,107 @@ impl ChangesView {
     fn select_file(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
         let key = (path.to_string(), staged);
         self.selected_file = Some(key.clone());
+        self.file_cursor = Some(RowKey {
+            path: path.to_string(),
+            staged,
+            folder: false,
+        });
         if let Some(folder) = self.store.read(cx).selected_repo.clone() {
-            self.file_by_repo.insert(folder, key.clone());
+            self.file_by_repo.insert(folder, key);
         }
-        if !self.patches.contains_key(&key)
-            && let Some(folder) = self.store.read(cx).selected_repo.clone()
-        {
-            let _ = self
-                .store
-                .read(cx)
-                .net
-                .send_blocking(NetCommand::GetChangePatch {
-                    folder: std::path::PathBuf::from(folder),
-                    path: path.to_string(),
-                    staged,
-                });
-        }
+        self.request_change_patch(path, staged, cx);
         cx.notify();
+    }
+
+    /// Asks for one file's patch, once per file: a snapshot change re-asks
+    /// after the patch cache is cleared, a re-selection asks nothing.
+    fn request_change_patch(&mut self, path: &str, staged: bool, cx: &mut Context<Self>) {
+        let key = (path.to_string(), staged);
+        if self.patches.contains_key(&key) {
+            return;
+        }
+        let Some(folder) = self.store.read(cx).selected_repo.clone() else {
+            return;
+        };
+        let _ = self
+            .store
+            .read(cx)
+            .net
+            .send_blocking(NetCommand::GetChangePatch {
+                folder: std::path::PathBuf::from(folder),
+                path: path.to_string(),
+                staged,
+            });
+    }
+
+    /// Keeps the cursor on its row across a snapshot: a staged file moves to
+    /// the staged tree, a folder that emptied falls away, and a row that left
+    /// both lists leaves the cursor unset.
+    fn reconcile_cursor(&mut self) {
+        let Some(files) = self.groups_cache.as_ref().map(|(_, files)| files.clone()) else {
+            return;
+        };
+        let Some(key) = self.file_cursor.clone() else {
+            return;
+        };
+        let (here, there, here_tree, there_tree) = if key.staged {
+            (
+                &files.groups.0,
+                &files.groups.1,
+                &files.staged_tree,
+                &files.unstaged_tree,
+            )
+        } else {
+            (
+                &files.groups.1,
+                &files.groups.0,
+                &files.unstaged_tree,
+                &files.staged_tree,
+            )
+        };
+        let present = if key.folder {
+            here_tree.contains_folder(&key.path)
+        } else {
+            here.iter().any(|file| file.path == key.path)
+        };
+        if present {
+            return;
+        }
+        let moved = if key.folder {
+            there_tree.contains_folder(&key.path)
+        } else {
+            there.iter().any(|file| file.path == key.path)
+        };
+        self.file_cursor = moved.then_some(RowKey {
+            staged: !key.staged,
+            ..key
+        });
+    }
+
+    /// Follows the selected file into the other section when a snapshot moved
+    /// it, so staging (or unstaging) a file keeps the diff on that path instead
+    /// of jumping to the section's first file.
+    fn follow_selected_file(&mut self, files: &FileGroups, cx: &mut Context<Self>) {
+        let Some((path, staged)) = self.selected_file.clone() else {
+            return;
+        };
+        let exists = |side: bool| {
+            let side = if side {
+                &files.groups.0
+            } else {
+                &files.groups.1
+            };
+            side.iter().any(|file| file.path == path)
+        };
+        if exists(staged) || !exists(!staged) {
+            return;
+        }
+        let moved = (path, !staged);
+        self.selected_file = Some(moved.clone());
+        // the repository remembers the row it was left on
+        if let Some(folder) = self.store.read(cx).selected_repo.clone() {
+            self.file_by_repo.insert(folder, moved);
+        }
     }
 
     /// Keeps a live row selected: the first file stands in until the user picks
@@ -552,20 +691,32 @@ impl Render for ChangesView {
                     .map(|file| file.path.clone())
                     .collect::<Vec<_>>(),
             );
+            let staged_tree =
+                file_tree::Tree::build(groups.0.iter().map(|file| file.path.as_str()));
+            let unstaged_tree =
+                file_tree::Tree::build(groups.1.iter().map(|file| file.path.as_str()));
             self.groups_cache = Some((
                 generation,
                 Rc::new(FileGroups {
                     groups,
                     unstaged_paths,
+                    staged_tree,
+                    unstaged_tree,
                 }),
             ));
+            let snapshot = self.groups_cache.as_ref().map(|(_, files)| files.clone());
+            if let Some(files) = &snapshot {
+                self.follow_selected_file(files, cx);
+            }
+            self.items_cache = None;
+            self.reconcile_cursor();
             // a new snapshot can add or drop files under an armed discard-all,
             // so the arming never outlives the tree it was given for
             self.discard_all_armed = false;
             // a new snapshot means the fetched patches may be stale
             self.patches.clear();
             if let Some((path, staged)) = self.selected_file.clone() {
-                self.select_file(&path, staged, cx);
+                self.request_change_patch(&path, staged, cx);
             }
         }
         let file_groups = self.groups_cache.as_ref().expect("groups cached").1.clone();
@@ -843,87 +994,305 @@ impl ChangesView {
     /// The renderer and the keyboard cursor both read this one order, so a
     /// collapsed section or a new snapshot moves them together.
     fn file_items(&self, files: &FileGroups) -> Vec<ChangeListItem> {
-        let (staged, unstaged) = (&files.groups.0, &files.groups.1);
-        let mut items: Vec<ChangeListItem> = Vec::with_capacity(staged.len() + unstaged.len() + 2);
-        if !staged.is_empty() {
-            items.push(ChangeListItem::StagedHeader);
-            if !self.staged_collapsed {
-                items.extend((0..staged.len()).map(ChangeListItem::StagedFile));
-            }
-        }
-        if !unstaged.is_empty() {
-            items.push(ChangeListItem::UnstagedHeader);
-            if !self.unstaged_collapsed {
-                items.extend((0..unstaged.len()).map(ChangeListItem::UnstagedFile));
-            }
-        }
+        let mut items: Vec<ChangeListItem> =
+            Vec::with_capacity(files.groups.0.len() + files.groups.1.len() + 4);
+        self.section_items(true, &files.staged_tree, files.groups.0.len(), &mut items);
+        self.section_items(
+            false,
+            &files.unstaged_tree,
+            files.groups.1.len(),
+            &mut items,
+        );
         items
     }
 
+    /// One section's header and visible tree rows.
+    fn section_items(
+        &self,
+        staged: bool,
+        tree: &file_tree::Tree,
+        count: usize,
+        items: &mut Vec<ChangeListItem>,
+    ) {
+        if count == 0 {
+            return;
+        }
+        items.push(if staged {
+            ChangeListItem::StagedHeader
+        } else {
+            ChangeListItem::UnstagedHeader
+        });
+        let collapsed = if staged {
+            self.staged_collapsed
+        } else {
+            self.unstaged_collapsed
+        };
+        if collapsed {
+            return;
+        }
+        for row in tree.rows(&self.folded) {
+            items.push(match row {
+                file_tree::Row::Folder {
+                    path,
+                    label,
+                    count,
+                    depth,
+                    ..
+                } => {
+                    let folder = FolderItem {
+                        path: path.into(),
+                        label: label.into(),
+                        count,
+                        depth,
+                    };
+                    if staged {
+                        ChangeListItem::StagedFolder(folder)
+                    } else {
+                        ChangeListItem::UnstagedFolder(folder)
+                    }
+                }
+                file_tree::Row::File { index, depth, .. } => {
+                    if staged {
+                        ChangeListItem::StagedFile { index, depth }
+                    } else {
+                        ChangeListItem::UnstagedFile { index, depth }
+                    }
+                }
+            });
+        }
+    }
+
+    /// The built item list, rebuilt only when the snapshot or the fold set
+    /// moves: a ten-thousand-file tree is never re-walked per frame.
+    fn list_items(&mut self, files: &FileGroups, generation: u64) -> Rc<Vec<ChangeListItem>> {
+        if let Some((cached_generation, cached_revision, items)) = &self.items_cache
+            && *cached_generation == generation
+            && *cached_revision == self.list_revision
+        {
+            return items.clone();
+        }
+        let items = Rc::new(self.file_items(files));
+        self.items_cache = Some((generation, self.list_revision, items.clone()));
+        items
+    }
+
+    /// Every row the cursor can land on, in item order.
+    fn cursor_rows(&mut self, cx: &mut Context<Self>) -> Vec<CursorRow> {
+        let Some(files) = self.groups_cache.as_ref().map(|(_, files)| files.clone()) else {
+            return Vec::new();
+        };
+        let generation = self.store.read(cx).changes_generation();
+        let items = self.list_items(&files, generation);
+        let mut rows = Vec::with_capacity(items.len());
+        for (item_ix, item) in items.iter().enumerate() {
+            match item {
+                ChangeListItem::StagedHeader | ChangeListItem::UnstagedHeader => {}
+                ChangeListItem::StagedFolder(folder) => {
+                    rows.push(CursorRow {
+                        item_ix,
+                        depth: folder.depth,
+                        key: RowKey {
+                            path: folder.path.to_string(),
+                            staged: true,
+                            folder: true,
+                        },
+                    });
+                }
+                ChangeListItem::UnstagedFolder(folder) => {
+                    rows.push(CursorRow {
+                        item_ix,
+                        depth: folder.depth,
+                        key: RowKey {
+                            path: folder.path.to_string(),
+                            staged: false,
+                            folder: true,
+                        },
+                    });
+                }
+                ChangeListItem::StagedFile { index, depth } => rows.push(CursorRow {
+                    item_ix,
+                    depth: *depth,
+                    key: RowKey {
+                        path: files.groups.0[*index].path.clone(),
+                        staged: true,
+                        folder: false,
+                    },
+                }),
+                ChangeListItem::UnstagedFile { index, depth } => rows.push(CursorRow {
+                    item_ix,
+                    depth: *depth,
+                    key: RowKey {
+                        path: files.groups.1[*index].path.clone(),
+                        staged: false,
+                        folder: false,
+                    },
+                }),
+            }
+        }
+        rows
+    }
+
+    fn cursor_row_index(&self, rows: &[CursorRow]) -> Option<usize> {
+        let cursor = self.file_cursor.as_ref()?;
+        rows.iter().position(|row| &row.key == cursor)
+    }
+
+    /// `Left` on a folder row: fold it, or step to its parent when it is
+    /// already folded. A file row leaves `Left` to the pane move.
+    fn collapse_or_parent(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.cursor_rows(cx);
+        let Some(ix) = self.cursor_row_index(&rows) else {
+            return false;
+        };
+        let depth = rows[ix].depth;
+        let row = &rows[ix];
+        if !row.key.folder {
+            return false;
+        }
+        if !self.folded.contains(&row.key.path) {
+            self.folded.insert(row.key.path.clone());
+            self.list_revision = self.list_revision.wrapping_add(1);
+            cx.notify();
+            return true;
+        }
+        if let Some(parent) = rows[..ix]
+            .iter()
+            .rev()
+            .find(|candidate| candidate.depth < depth)
+        {
+            self.file_cursor = Some(parent.key.clone());
+            self.file_scroll
+                .scroll_to_item(parent.item_ix, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+        true
+    }
+
+    /// `Right` on a folder row: unfold it, or step to its first child when it
+    /// is already open. A file row leaves `Right` to the pane move.
+    fn expand_or_child(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.cursor_rows(cx);
+        let Some(ix) = self.cursor_row_index(&rows) else {
+            return false;
+        };
+        let depth = rows[ix].depth;
+        let row = &rows[ix];
+        if !row.key.folder {
+            return false;
+        }
+        if self.folded.remove(&row.key.path) {
+            self.list_revision = self.list_revision.wrapping_add(1);
+            cx.notify();
+            return true;
+        }
+        if let Some(child) = rows.get(ix + 1).filter(|candidate| candidate.depth > depth) {
+            self.file_cursor = Some(child.key.clone());
+            self.file_scroll
+                .scroll_to_item(child.item_ix, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+        true
+    }
+
+    /// `Enter` on a folder row folds or unfolds it; on a file row it stays
+    /// unhandled, as before.
+    fn toggle_cursor_folder(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.cursor_rows(cx);
+        let Some(ix) = self.cursor_row_index(&rows) else {
+            return false;
+        };
+        if !rows[ix].key.folder {
+            return false;
+        }
+        let path = rows[ix].key.path.clone();
+        self.toggle_folder(&path, cx);
+        true
+    }
+
+    /// Folds or unfolds one folder, keeping the built item list in step.
+    fn toggle_folder(&mut self, path: &str, cx: &mut Context<Self>) {
+        if !self.folded.remove(path) {
+            self.folded.insert(path.to_string());
+        }
+        self.list_revision = self.list_revision.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// A folder row's press: put the cursor on the row and fold it, never
+    /// touching the diff.
+    fn click_folder(&mut self, folder: &FolderItem, staged: bool, cx: &mut Context<Self>) {
+        self.file_cursor = Some(RowKey {
+            path: folder.path.to_string(),
+            staged,
+            folder: true,
+        });
+        self.toggle_folder(&folder.path, cx);
+    }
+
+    /// Steps the cursor through the visible rows: headers are skipped, and a
+    /// folder row takes the cursor without touching the diff.
+    fn move_file_selection(&mut self, key: list_nav::ListKey, cx: &mut Context<Self>) {
+        let rows = self.cursor_rows(cx);
+        if rows.is_empty() {
+            return;
+        }
+        let current = self.cursor_row_index(&rows);
+        let Some(next) = list_nav::step(current, rows.len(), key, list_nav::DEFAULT_PAGE) else {
+            return;
+        };
+        let (item_ix, key_row) = (rows[next].item_ix, rows[next].key.clone());
+        self.file_cursor = Some(key_row.clone());
+        if key_row.folder {
+            cx.notify();
+        } else {
+            self.select_file(&key_row.path, key_row.staged, cx);
+        }
+        self.file_scroll
+            .scroll_to_item(item_ix, ScrollStrategy::Nearest);
+    }
+
     /// The file list's keys, dispatched by the focused list only.
+    /// The file list's keys, dispatched by the focused list only. A folder row
+    /// owns `Left`/`Right`/`Enter`; a file row leaves `Left`/`Right` to the
+    /// pane move, so the workbench's lists still walk with the arrows.
     fn handle_file_key(
         &mut self,
         event: &gpui::KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if let Some(dir) = pane_nav::direction(event) {
-            return self.pane_nav.move_from(&self.file_focus, dir, window, cx);
-        }
         if event.keystroke.modifiers.modified() || self.history_open {
             return false;
         }
-        let Some(key) = list_nav::list_key(event) else {
-            return false;
-        };
-        match key {
-            list_nav::ListKey::Enter => false,
-            list_nav::ListKey::Up
-            | list_nav::ListKey::Down
-            | list_nav::ListKey::Home
-            | list_nav::ListKey::End
-            | list_nav::ListKey::PageUp
-            | list_nav::ListKey::PageDown => {
-                self.move_file_selection(key, cx);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Steps the selected file through the visible rows: headers are skipped
-    /// and a collapsed section has no rows to land on.
-    fn move_file_selection(&mut self, key: list_nav::ListKey, cx: &mut Context<Self>) {
-        let files = {
-            let Some((_, files)) = &self.groups_cache else {
-                return;
-            };
-            files.clone()
-        };
-        let (staged, unstaged) = (&files.groups.0, &files.groups.1);
-        let mut rows: Vec<(String, bool, usize)> = Vec::new();
-        for (ix, item) in self.file_items(&files).into_iter().enumerate() {
-            match item {
-                ChangeListItem::StagedFile(index) => {
-                    rows.push((staged[index].path.clone(), true, ix));
+        if let Some(key) = list_nav::list_key(event) {
+            match key {
+                list_nav::ListKey::Left => {
+                    if self.collapse_or_parent(cx) {
+                        return true;
+                    }
                 }
-                ChangeListItem::UnstagedFile(index) => {
-                    rows.push((unstaged[index].path.clone(), false, ix));
+                list_nav::ListKey::Right => {
+                    if self.expand_or_child(cx) {
+                        return true;
+                    }
                 }
-                ChangeListItem::StagedHeader | ChangeListItem::UnstagedHeader => {}
+                list_nav::ListKey::Enter => return self.toggle_cursor_folder(cx),
+                list_nav::ListKey::Up
+                | list_nav::ListKey::Down
+                | list_nav::ListKey::Home
+                | list_nav::ListKey::End
+                | list_nav::ListKey::PageUp
+                | list_nav::ListKey::PageDown => {
+                    self.move_file_selection(key, cx);
+                    return true;
+                }
+                _ => {}
             }
         }
-        let current = self.selected_file.as_ref().and_then(|(path, is_staged)| {
-            rows.iter()
-                .position(|(row_path, row_staged, _)| row_path == path && row_staged == is_staged)
-        });
-        let Some(next) = list_nav::step(current, rows.len(), key, list_nav::DEFAULT_PAGE) else {
-            return;
-        };
-        let (path, is_staged, item_ix) = rows[next].clone();
-        self.select_file(&path, is_staged, cx);
-        self.file_scroll
-            .scroll_to_item(item_ix, ScrollStrategy::Nearest);
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.file_focus, dir, window, cx);
+        }
+        false
     }
 
     /// The history list's keys, dispatched by the focused list only.
@@ -1084,7 +1453,8 @@ impl ChangesView {
         // tree costs the same per repaint as a 30-file one. The old loop laid
         // out every row — its status letter, its dir/name split, its two
         // hover actions and their listeners — on every frame.
-        let items = Rc::new(self.file_items(files));
+        let generation = self.store.read(cx).changes_generation();
+        let items = self.list_items(files, generation);
         let files = files.clone();
         let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
         uniform_list(
@@ -1094,7 +1464,7 @@ impl ChangesView {
                 let entity = cx.entity();
                 let (staged, unstaged) = (&files.groups.0, &files.groups.1);
                 range
-                    .map(|ix| match items[ix] {
+                    .map(|ix| match items[ix].clone() {
                         ChangeListItem::StagedHeader => section_header(
                             FileSection::Staged,
                             staged.len(),
@@ -1110,8 +1480,11 @@ impl ChangesView {
                             )],
                         )
                         .into_any_element(),
-                        ChangeListItem::StagedFile(index) => {
-                            this.render_row(&staged[index], true, cx)
+                        ChangeListItem::StagedFolder(folder) => {
+                            this.render_folder_row(&folder, true, cx)
+                        }
+                        ChangeListItem::StagedFile { index, depth } => {
+                            this.render_row(&staged[index], true, depth, cx)
                         }
                         ChangeListItem::UnstagedHeader => section_header(
                             FileSection::Unstaged,
@@ -1137,8 +1510,11 @@ impl ChangesView {
                             ],
                         )
                         .into_any_element(),
-                        ChangeListItem::UnstagedFile(index) => {
-                            this.render_row(&unstaged[index], false, cx)
+                        ChangeListItem::UnstagedFolder(folder) => {
+                            this.render_folder_row(&folder, false, cx)
+                        }
+                        ChangeListItem::UnstagedFile { index, depth } => {
+                            this.render_row(&unstaged[index], false, depth, cx)
                         }
                     })
                     .collect()
@@ -1152,10 +1528,87 @@ impl ChangesView {
         .into_any_element()
     }
 
+    /// A folder row: chevron, compact name, file count. A press folds it and
+    /// puts the cursor on it; the diff keeps its file.
+    fn render_folder_row(
+        &mut self,
+        folder: &FolderItem,
+        staged: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let folded = self.folded.contains(folder.path.as_ref());
+        let cursor = self.file_cursor.as_ref()
+            == Some(&RowKey {
+                path: folder.path.to_string(),
+                staged,
+                folder: true,
+            });
+        let row_id: SharedString =
+            format!("{}-folder-{}", if staged { "s" } else { "u" }, folder.path).into();
+        let row_selector = row_id.clone();
+        let label: SharedString = format!(
+            "{} ({} {})",
+            folder.label,
+            folder.count,
+            if folder.count == 1 { "file" } else { "files" }
+        )
+        .into();
+        let click_folder = folder.clone();
+        div()
+            .id(row_id)
+            .debug_selector(move || row_selector.to_string())
+            .a11y_tree_item(label, Some(!folded))
+            .cursor_pointer()
+            .w_full()
+            .h(px(FILE_ROW_H))
+            .pl(px(13. + folder.depth as f32 * 14.))
+            .pr_2()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .border_l_3()
+            .border_color(theme::surface())
+            .when(cursor, |d| d.bg(theme::raised()))
+            .hover(|s| s.bg(theme::panel()))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.click_folder(&click_folder, staged, cx);
+            }))
+            .child(icon(
+                if folded {
+                    "icons/icon-chevron-right.svg"
+                } else {
+                    "icons/icon-chevron-down.svg"
+                },
+                px(theme::icon_tiny()),
+                theme::text_faint(),
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(theme::font_row_meta()))
+                    .text_color(theme::text())
+                    .child(folder.label.to_string()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::text_muted())
+                    .child(folder.count.to_string()),
+            )
+            .into_any_element()
+    }
+
     fn render_row(
         &mut self,
         file: &GitChangedFile,
         staged: bool,
+        depth: usize,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let key = (file.path.clone(), staged);
@@ -1165,10 +1618,13 @@ impl ChangesView {
         let row_id: SharedString =
             format!("{}-{}", if staged { "s" } else { "u" }, file.path).into();
         let row_selector = row_id.clone();
-        let (dir, name) = match file.path.rsplit_once('/') {
-            Some((dir, name)) => (dir.to_string(), name.to_string()),
-            None => (String::new(), file.path.clone()),
-        };
+        // the folder rows carry the directory now, so the row shows the name
+        let name = file
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(file.path.as_str())
+            .to_string();
         let discard = {
             let store = self.store.clone();
             let this = cx.entity();
@@ -1236,7 +1692,7 @@ impl ChangesView {
             // of the pane
             .w_full()
             .h(px(FILE_ROW_H))
-            .pl(px(13.))
+            .pl(px(13. + depth as f32 * 14.))
             .pr_2()
             .flex()
             .flex_row()
@@ -1274,14 +1730,13 @@ impl ChangesView {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_size(px(theme::font_row_meta()))
-                    .child(div().flex_shrink_0().text_color(theme::text()).child(name))
                     .child(
                         div()
                             .min_w_0()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .text_color(theme::text_muted())
-                            .child(dir),
+                            .text_color(theme::text())
+                            .child(name),
                     ),
             )
             .when(file.additions.is_some() && !armed, |row| {

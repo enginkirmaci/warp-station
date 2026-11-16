@@ -676,3 +676,72 @@ fn pane_keys_do_not_wrap_or_cross_into_nothing(cx: &mut TestAppContext) {
         "→ at the right end never wraps back to the repo list"
     );
 }
+
+/// A folder row keeps `Left`/`Right` for folding and `Enter` for the toggle;
+/// the cursor walks over it like any other row, and a folded folder takes its
+/// files out of the walk.
+#[gpui::test]
+fn tree_keys_fold_the_changes_file_list(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("tree_keys_fold_the_changes_file_list"),
+        );
+        store.group_by_root = false;
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        store.set_changes(Some(changes(&["src/ui/a.rs", "src/ui/b.rs", "top.txt"])));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    draw(cx);
+
+    // the list's cursor starts on the first file; up reaches the folder above
+    click(cx, "u-src/ui/a.rs");
+    cx.simulate_keystrokes("up");
+    draw(cx);
+
+    // a folder row keeps Left/Right for folding
+    cx.simulate_keystrokes("left");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_none(),
+        "left folds the folder"
+    );
+    cx.simulate_keystrokes("right");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_some(),
+        "right unfolds the folder"
+    );
+
+    // Enter toggles the same row and the folder keeps its own row
+    cx.simulate_keystrokes("enter");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_none(),
+        "enter folds the folder"
+    );
+    assert!(
+        cx.debug_bounds("u-folder-src/ui").is_some(),
+        "a folded folder keeps its row"
+    );
+
+    // ↓ steps past the folded folder to the next visible row
+    cx.simulate_keystrokes("down");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("u-top.txt").is_some(),
+        "the root file is still a row"
+    );
+}
