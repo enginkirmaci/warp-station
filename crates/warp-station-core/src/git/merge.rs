@@ -26,6 +26,13 @@ pub enum MergeOperation {
     Revert,
 }
 
+/// The side a whole-file conflict takes. `Ours` is stage 2, `Theirs` stage 3.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeSide {
+    Ours,
+    Theirs,
+}
+
 impl MergeOperation {
     /// The operation a repository state names, or `None` when nothing is
     /// stopped (`Clean`) or the state is not a merge-shaped one (`Bisect`).

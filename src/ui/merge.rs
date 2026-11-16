@@ -7,7 +7,7 @@
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::neutral_button;
+use crate::ui::{neutral_button, primary_button};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, FontWeight, Render, SharedString, Window, div, px, uniform_list,
@@ -16,8 +16,8 @@ use gpui_kit::component::input::{Editor, EditorState, RangeDecoration, RangeDeco
 use std::path::Path;
 use std::rc::Rc;
 use warp_station_core::git::merge::{
-    BufferConflict, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, WholeFileReason,
-    buffer_conflicts, unresolved_count,
+    BufferConflict, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, MergeSide,
+    WholeFileReason, buffer_conflicts, unresolved_count,
 };
 use warpui_kit_core::{motion, shell};
 
@@ -77,6 +77,12 @@ struct ResultPane {
     /// The Result editor's conflict tints; the collection tracks edits, but
     /// the page re-sets it after every re-parse.
     decorations: Option<RangeDecorationCollection>,
+    /// The worktree file's stamp when the buffer last synced with it.
+    stamp: Option<std::time::SystemTime>,
+    /// When the page last looked for an outside edit.
+    checked_at: std::time::Instant,
+    /// The file changed on disk while the buffer had unsaved edits.
+    external: bool,
 }
 
 impl MergePage {
@@ -188,7 +194,51 @@ impl MergePage {
             unresolved: unresolved_count(&text),
             error: None,
             decorations: Some(decorations),
+            stamp: file_stamp(&Path::new(folder).join(path)),
+            checked_at: std::time::Instant::now(),
+            external: false,
         });
+    }
+
+    /// Follows the worktree: a changed file reloads itself while the buffer is
+    /// clean, and asks the user to Reload while it has unsaved edits. Checked
+    /// at most once a second, since render is the only clock the page has.
+    fn check_external(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_mut() else {
+            return;
+        };
+        if pane.checked_at.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        pane.checked_at = std::time::Instant::now();
+        let path = Path::new(&pane.folder).join(&pane.path);
+        let Some(stamp) = file_stamp(&path) else {
+            return;
+        };
+        if Some(stamp) == pane.stamp {
+            return;
+        }
+        if pane.dirty {
+            pane.external = true;
+            cx.notify();
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let editor = pane.editor.clone();
+        editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+        pane.text = text.clone();
+        pane.disk_text = text.clone();
+        pane.dirty = false;
+        pane.external = false;
+        pane.stamp = Some(stamp);
+        pane.blocks = buffer_conflicts(&text);
+        pane.unresolved = unresolved_count(&text);
+        if let Some(decorations) = pane.decorations.as_ref() {
+            decorations.set(result_decorations(&text), cx);
+        }
+        cx.notify();
     }
 
     /// Re-parses the buffer after an edit; this is what the count and the
@@ -243,9 +293,9 @@ impl MergePage {
         cx.notify();
     }
 
-    fn save(&mut self, cx: &mut Context<Self>) {
+    fn save(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(pane) = self.result.as_mut() else {
-            return;
+            return false;
         };
         let path = Path::new(&pane.folder).join(&pane.path);
         match std::fs::write(&path, pane.text.as_bytes()) {
@@ -253,11 +303,18 @@ impl MergePage {
                 pane.disk_text = pane.text.clone();
                 pane.dirty = false;
                 pane.error = None;
+                pane.stamp = file_stamp(&path);
+                pane.external = false;
                 self.switch_blocked = false;
+                cx.notify();
+                true
             }
-            Err(error) => pane.error = Some(format!("Could not save: {error}")),
+            Err(error) => {
+                pane.error = Some(format!("Could not save: {error}"));
+                cx.notify();
+                false
+            }
         }
-        cx.notify();
     }
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -273,6 +330,8 @@ impl MergePage {
                 pane.disk_text = text.clone();
                 pane.dirty = false;
                 pane.error = None;
+                pane.stamp = file_stamp(&path);
+                pane.external = false;
                 pane.blocks = buffer_conflicts(&text);
                 pane.unresolved = unresolved_count(&text);
                 if let Some(decorations) = pane.decorations.as_ref() {
@@ -335,7 +394,15 @@ impl Render for MergePage {
             return div().size_full().into_any_element();
         };
         if self.session.is_none() {
-            return loading(&target).into_any_element();
+            let store = self.store.read(cx);
+            let still_loading =
+                store.merge_loading || store.merge_loaded_for.as_deref() != Some(target.as_str());
+            return if still_loading {
+                loading(&target)
+            } else {
+                resolved(&target)
+            }
+            .into_any_element();
         }
         self.sync_shown();
         let Some(session) = self.session.as_ref() else {
@@ -563,6 +630,7 @@ impl MergePage {
                 .map(|shown| shown.result.clone())
                 .unwrap_or_default();
             self.ensure_result(target, &path, fallback, window, cx);
+            self.check_external(window, cx);
             let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, cx);
             let result = self.result_section(labels, cx);
             return div()
@@ -577,6 +645,31 @@ impl MergePage {
                 .into_any_element();
         }
         if let Some((path, reason)) = whole {
+            let entity = cx.entity();
+            let ours_entity = entity.clone();
+            let theirs_entity = entity.clone();
+            let ours_folder = target.to_string();
+            let theirs_folder = target.to_string();
+            let ours_path = path.clone();
+            let theirs_path = path.clone();
+            let ours = move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                let folder = ours_folder.clone();
+                let path = ours_path.clone();
+                ours_entity.update(cx, |this, cx| {
+                    this.store.update(cx, |store, cx| {
+                        store.take_merge_side(folder, path, MergeSide::Ours, cx)
+                    });
+                });
+            };
+            let theirs = move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                let folder = theirs_folder.clone();
+                let path = theirs_path.clone();
+                theirs_entity.update(cx, |this, cx| {
+                    this.store.update(cx, |store, cx| {
+                        store.take_merge_side(folder, path, MergeSide::Theirs, cx)
+                    });
+                });
+            };
             return div()
                 .flex_1()
                 .flex()
@@ -599,9 +692,21 @@ impl MergePage {
                 )
                 .child(
                     div()
-                        .text_size(px(theme::font_micro()))
-                        .text_color(theme::text_muted())
-                        .child("Take ours / take theirs lands with the staging phase."),
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .child(neutral_button(
+                            "merge-whole-ours",
+                            format!("Take {}", labels.0),
+                            true,
+                            ours,
+                        ))
+                        .child(neutral_button(
+                            "merge-whole-theirs",
+                            format!("Take {}", labels.1),
+                            true,
+                            theirs,
+                        )),
                 )
                 .into_any_element();
         }
@@ -714,6 +819,14 @@ impl MergePage {
                     .child(error.clone()),
             );
         }
+        if pane.external {
+            bar = bar.child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::WARN)
+                    .child("Changed on disk — Reload to take it"),
+            );
+        }
         bar = bar.child(div().flex_1()).child(neutral_button(
             "merge-order",
             format!("Both: {} first", labels.0),
@@ -735,7 +848,30 @@ impl MergePage {
             "merge-save",
             "Save",
             dirty,
-            move |_, _, cx| save_entity.update(cx, |this, cx| this.save(cx)),
+            move |_, _, cx| {
+                save_entity.update(cx, |this, cx| {
+                    this.save(cx);
+                });
+            },
+        ));
+        let stage_entity = entity.clone();
+        let stage_folder = pane.folder.clone();
+        let stage_path = pane.path.clone();
+        let can_stage = unresolved == 0 && pane.error.is_none();
+        bar = bar.child(primary_button(
+            "merge-stage",
+            "Stage",
+            can_stage,
+            move |_, _, cx| {
+                let folder = stage_folder.clone();
+                let path = stage_path.clone();
+                stage_entity.update(cx, |this, cx| {
+                    if this.save(cx) {
+                        this.store
+                            .update(cx, |store, cx| store.stage_merge_file(folder, path, cx));
+                    }
+                });
+            },
         ));
 
         let strip = self.conflict_strip(labels, cx);
@@ -1017,6 +1153,55 @@ fn loading(target: &str) -> AnyElement {
         .into_any_element()
 }
 
+/// The stop between the last staged file and the rail item leaving: the index
+/// is clean, the probe has not answered yet.
+fn resolved(target: &str) -> AnyElement {
+    div()
+        .id("merge-page")
+        .debug_selector(|| "merge-page".into())
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_4()
+                .h(px(46.))
+                .border_b_1()
+                .border_color(theme::hairline())
+                .child(
+                    div()
+                        .text_size(px(theme::font_body()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text())
+                        .child("Merge"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_muted())
+                        .child(repo_name(target)),
+                ),
+        )
+        .child(
+            div()
+                .debug_selector(|| "merge-resolved".into())
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_muted())
+                        .child("Every conflict is resolved."),
+                ),
+        )
+        .into_any_element()
+}
+
 fn empty_detail(text: &str) -> AnyElement {
     div()
         .flex_1()
@@ -1041,4 +1226,12 @@ fn file_name(path: &str) -> String {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| path.to_string())
+}
+
+/// A file's last write time: the page's signal that another editor touched
+/// the worktree under it.
+fn file_stamp(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
 }

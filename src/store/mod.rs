@@ -4,12 +4,14 @@
 
 pub mod projection;
 
-use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus};
+use crate::net::{
+    GitAction, MergeActionKind, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus,
+};
 use crate::notices::{self, NoticeAction, Notices};
 use gpui::{App, Context};
 use std::sync::Arc;
 use warp_station_core::flow::{FlowGate, FlowPull, FlowPullState, FlowRecord, FlowRun};
-use warp_station_core::git::merge::{MergeOperation, MergeSession};
+use warp_station_core::git::merge::{MergeOperation, MergeSession, MergeSide};
 use warp_station_core::repo_store::{self, RepoEntry};
 use warp_station_core::settings::{AppSettings, DiffViewMode, RepoSortMode, SettingsService};
 
@@ -158,6 +160,9 @@ pub struct Store {
     /// Bumped whenever the loaded session changes, so the page clones it once
     /// per load instead of per frame.
     pub merge_generation: u64,
+    /// A session load is in flight; the page draws its loading state rather
+    /// than the resolved one until the answer lands.
+    pub merge_loading: bool,
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
@@ -506,6 +511,7 @@ impl Store {
             merge: None,
             merge_loaded_for: None,
             merge_generation: 0,
+            merge_loading: false,
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
@@ -921,26 +927,34 @@ impl Store {
                 cx.notify();
             }
             UiEvent::StatusSettled { probes } => {
-                // the probes carry the stopped-operation flag: rebuild the
-                // Merge rail item's source, and drop a loaded session whose
-                // operation ended (or vanished) meanwhile
-                self.merge_ops = probes
-                    .iter()
-                    .filter_map(|probe| {
-                        probe
-                            .merge
-                            .map(|operation| (probe.folder_path.clone(), operation))
-                    })
-                    .collect();
+                let by_folder = self.repo_index_by_folder();
+                // the probes carry the stopped-operation flag; a pass may be
+                // one repository (a merge action re-probes its own), so each
+                // answer replaces only its folder and no other flag is lost
+                for probe in &probes {
+                    match probe.merge {
+                        Some(operation) => {
+                            self.merge_ops.insert(probe.folder_path.clone(), operation);
+                        }
+                        None => {
+                            self.merge_ops.remove(&probe.folder_path);
+                        }
+                    }
+                }
+                // a repository that left the list (archived, removed) must not
+                // keep a rail item alive
+                self.merge_ops
+                    .retain(|folder, _| by_folder.contains_key(folder));
+                // drop a loaded session whose operation ended (or vanished)
                 if let Some(folder) = self.merge_loaded_for.clone()
                     && !self.merge_ops.contains_key(&folder)
                 {
                     self.merge = None;
                     self.merge_loaded_for = None;
                     self.merge_folder = None;
+                    self.merge_loading = false;
                     self.merge_generation = self.merge_generation.wrapping_add(1);
                 }
-                let by_folder = self.repo_index_by_folder();
                 let mut applied = false;
                 for probe in &probes {
                     // a user git action owns the truth until its own probe
@@ -1003,9 +1017,13 @@ impl Store {
             UiEvent::MergeLoaded { folder, session } => {
                 if self.merge_loaded_for.as_deref() == Some(folder.as_str()) {
                     self.merge = session;
+                    self.merge_loading = false;
                     self.merge_generation = self.merge_generation.wrapping_add(1);
                 }
                 cx.notify();
+            }
+            UiEvent::MergeActionDone { folder, error, .. } => {
+                self.merge_action_done(folder, error, cx);
             }
             UiEvent::ChangePatchLoaded {
                 folder,
@@ -6156,6 +6174,7 @@ impl Store {
         }
         self.merge_loaded_for = Some(folder.clone());
         self.merge = None;
+        self.merge_loading = true;
         let _ = self.net.send_blocking(NetCommand::LoadMerge {
             folder: folder.into(),
         });
@@ -6168,6 +6187,60 @@ impl Store {
         self.merge_loaded_for = None;
         self.merge = None;
         self.ensure_merge_loaded(cx);
+    }
+
+    /// Stages one resolved merge file. The page saves the buffer first, so the
+    /// index sees the text on screen; the reload that follows drops the file
+    /// from the session and, when it was the last one, the rail item.
+    pub fn stage_merge_file(&mut self, folder: String, path: String, cx: &mut Context<Self>) {
+        let _ = self.net.send_blocking(NetCommand::MergeAction {
+            folder: folder.into(),
+            path,
+            action: MergeActionKind::Stage,
+        });
+        cx.notify();
+    }
+
+    /// Takes a whole-file conflict's side and stages it.
+    pub fn take_merge_side(
+        &mut self,
+        folder: String,
+        path: String,
+        side: MergeSide,
+        cx: &mut Context<Self>,
+    ) {
+        let action = match side {
+            MergeSide::Ours => MergeActionKind::TakeOurs,
+            MergeSide::Theirs => MergeActionKind::TakeTheirs,
+        };
+        let _ = self.net.send_blocking(NetCommand::MergeAction {
+            folder: folder.into(),
+            path,
+            action,
+        });
+        cx.notify();
+    }
+
+    /// One merge mutation landed: reload that repository's session and its
+    /// rail flag, or toast the failure over the page.
+    fn merge_action_done(&mut self, folder: String, error: Option<String>, cx: &mut Context<Self>) {
+        match error {
+            Some(error) => self.notify_error(format!("Merge action failed: {error}")),
+            None => {
+                // claim the load slot before asking, so the answer applies
+                self.merge = None;
+                self.merge_loaded_for = Some(folder.clone());
+                self.merge_loading = true;
+                self.merge_generation = self.merge_generation.wrapping_add(1);
+                let _ = self.net.send_blocking(NetCommand::LoadMerge {
+                    folder: folder.clone().into(),
+                });
+                let _ = self.net.send_blocking(NetCommand::ProbeAll {
+                    folders: vec![folder.into()],
+                });
+            }
+        }
+        cx.notify();
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {

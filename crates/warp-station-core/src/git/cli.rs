@@ -5,6 +5,7 @@
 //! never take this path). Args pass as a list; std applies the
 //! CommandLineToArgvW-compatible quoting, so no manual quoting helper exists.
 
+use crate::git::merge::MergeSide;
 use crate::git::read;
 use crate::model::GitSyncResult;
 use crate::process::{self, ProcessRunOptions};
@@ -348,6 +349,50 @@ pub async fn stage(folder: &Path, path: &str) -> GitOutcome {
             error: Some(err.to_string()),
         },
     }
+}
+
+/// Takes one side of a whole-file conflict and stages the result:
+/// `checkout --ours` / `--theirs` updates the index and the worktree, while a
+/// side that deleted the path is taken with `git rm`.
+pub async fn take_side(folder: &Path, path: &str, side: MergeSide) -> GitOutcome {
+    if !side_present(folder, path, side) {
+        return simple(
+            folder,
+            &["rm".into(), "-f".into(), "--".into(), path.into()],
+        )
+        .await;
+    }
+    let flag = match side {
+        MergeSide::Ours => "--ours",
+        MergeSide::Theirs => "--theirs",
+    };
+    // `checkout --ours` writes the worktree but leaves the index conflicted,
+    // so the stage is what resolves the path
+    let checked = simple(
+        folder,
+        &["checkout".into(), flag.into(), "--".into(), path.into()],
+    )
+    .await;
+    if !checked.ok {
+        return checked;
+    }
+    simple(folder, &["add".into(), "--".into(), path.into()]).await
+}
+
+/// Whether the index holds that side's stage for the path; a missing stage is
+/// a side that deleted the file.
+fn side_present(folder: &Path, path: &str, side: MergeSide) -> bool {
+    let Ok(repo) = git2::Repository::discover(folder) else {
+        return true;
+    };
+    let Ok(index) = repo.index() else {
+        return true;
+    };
+    let stage = match side {
+        MergeSide::Ours => 2,
+        MergeSide::Theirs => 3,
+    };
+    index.get_path(Path::new(path), stage).is_some()
 }
 
 pub async fn stage_all(folder: &Path) -> GitOutcome {

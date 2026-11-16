@@ -7,10 +7,19 @@
 
 use async_channel::{Receiver, Sender};
 use std::path::{Path, PathBuf};
+use warp_station_core::git::merge::MergeSide;
 use warp_station_core::repo_store::{self, StatusProbe};
 use warp_station_core::scan;
 use warp_station_core::settings::ReposSettings;
 use warp_station_core::warp::ModelChoice;
+
+/// The mutations the Merge page asks the net thread for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeActionKind {
+    Stage,
+    TakeOurs,
+    TakeTheirs,
+}
 
 pub enum NetCommand {
     /// The listing scan: direct children of each scan root. It reports what
@@ -47,6 +56,13 @@ pub enum NetCommand {
     /// unmerged paths and each text conflict's three sides.
     LoadMerge {
         folder: PathBuf,
+    },
+    /// One Merge page mutation: stage a resolved file, or take a side of a
+    /// whole-file conflict. The index is the answer, so the caller reloads.
+    MergeAction {
+        folder: PathBuf,
+        path: String,
+        action: MergeActionKind,
     },
     /// One mutation; the net thread reloads the repo's changes and probes its
     /// status after it settles, success or failure.
@@ -544,6 +560,11 @@ pub enum UiEvent {
     MergeLoaded {
         folder: String,
         session: Option<warp_station_core::git::merge::MergeSession>,
+    },
+    MergeActionDone {
+        folder: String,
+        path: String,
+        error: Option<String>,
     },
     GitDone {
         folder: String,
@@ -1994,6 +2015,30 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 let _ = evt_tx.send_blocking(UiEvent::MergeLoaded {
                     folder: folder.to_string_lossy().to_string(),
                     session,
+                });
+            }
+            NetCommand::MergeAction {
+                folder,
+                path,
+                action,
+            } => {
+                let outcome = match action {
+                    MergeActionKind::Stage => {
+                        warp_station_core::git::cli::stage(&folder, &path).await
+                    }
+                    MergeActionKind::TakeOurs => {
+                        warp_station_core::git::cli::take_side(&folder, &path, MergeSide::Ours)
+                            .await
+                    }
+                    MergeActionKind::TakeTheirs => {
+                        warp_station_core::git::cli::take_side(&folder, &path, MergeSide::Theirs)
+                            .await
+                    }
+                };
+                let _ = evt_tx.send_blocking(UiEvent::MergeActionDone {
+                    folder: folder.to_string_lossy().to_string(),
+                    path,
+                    error: outcome.error,
                 });
             }
             NetCommand::LoadHistory { folder } => {

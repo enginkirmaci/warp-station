@@ -99,7 +99,10 @@ pub fn probe(folder: &Path) -> Option<Probe> {
             has_remote,
             branch_on_remote,
             github_web_url,
-            merge: MergeOperation::of_state(repo.state()),
+            // the rail follows the unmerged index, not just the operation:
+            // once every path is resolved the page has nothing left to show
+            merge: MergeOperation::of_state(repo.state())
+                .filter(|_| repo.index().is_ok_and(|index| index.has_conflicts())),
         })
     })
     .flatten()

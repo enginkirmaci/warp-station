@@ -4,7 +4,10 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use warp_station_core::git::merge::{self, LineSpan, MergeFile, MergeOperation, WholeFileReason};
+use warp_station_core::git::cli;
+use warp_station_core::git::merge::{
+    self, LineSpan, MergeFile, MergeOperation, MergeSide, WholeFileReason,
+};
 
 fn git_available() -> bool {
     Command::new("git").arg("--version").output().is_ok()
@@ -66,6 +69,41 @@ fn merge_conflict(tag: &str, style: Option<&str>, attrs: Option<&str>) -> PathBu
     if let Some(style) = style {
         git_ok(&dir, &["config", "merge.conflictStyle", style]);
     }
+    let out = git(&dir, &["merge", "-q", "feature"]);
+    assert!(!out.status.success(), "the merge must stop on a conflict");
+    dir
+}
+
+/// A repository stopped on a binary conflict in `b.bin`.
+fn binary_conflict(tag: &str) -> PathBuf {
+    let dir = scratch(tag);
+    write_bytes(&dir, "b.bin", &[0, 1, 2, 3]);
+    git_ok(&dir, &["add", "-A"]);
+    git_ok(&dir, &["commit", "-qm", "base"]);
+    git_ok(&dir, &["checkout", "-q", "-b", "feature"]);
+    write_bytes(&dir, "b.bin", &[0, 9, 2, 3]);
+    git_ok(&dir, &["commit", "-qam", "feature"]);
+    git_ok(&dir, &["checkout", "-q", "main"]);
+    write_bytes(&dir, "b.bin", &[0, 7, 2, 3]);
+    git_ok(&dir, &["commit", "-qam", "main"]);
+    let out = git(&dir, &["merge", "-q", "feature"]);
+    assert!(!out.status.success(), "the merge must stop on a conflict");
+    dir
+}
+
+/// A repository stopped on a delete/modify conflict in `a.txt` (theirs
+/// deleted it).
+fn delete_modify_conflict(tag: &str) -> PathBuf {
+    let dir = scratch(tag);
+    write(&dir, "a.txt", "base\n");
+    git_ok(&dir, &["add", "-A"]);
+    git_ok(&dir, &["commit", "-qm", "base"]);
+    git_ok(&dir, &["checkout", "-q", "-b", "feature"]);
+    git_ok(&dir, &["rm", "-q", "a.txt"]);
+    git_ok(&dir, &["commit", "-qm", "delete"]);
+    git_ok(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "a.txt", "main\n");
+    git_ok(&dir, &["commit", "-qam", "main"]);
     let out = git(&dir, &["merge", "-q", "feature"]);
     assert!(!out.status.success(), "the merge must stop on a conflict");
     dir
@@ -199,18 +237,7 @@ fn a_delete_modify_conflict_is_whole_file() {
     if !git_available() {
         return;
     }
-    let dir = scratch("delete-modify");
-    write(&dir, "a.txt", "base\n");
-    git_ok(&dir, &["add", "-A"]);
-    git_ok(&dir, &["commit", "-qm", "base"]);
-    git_ok(&dir, &["checkout", "-q", "-b", "feature"]);
-    git_ok(&dir, &["rm", "-q", "a.txt"]);
-    git_ok(&dir, &["commit", "-qm", "delete"]);
-    git_ok(&dir, &["checkout", "-q", "main"]);
-    write(&dir, "a.txt", "main\n");
-    git_ok(&dir, &["commit", "-qam", "main"]);
-    let out = git(&dir, &["merge", "-q", "feature"]);
-    assert!(!out.status.success(), "the merge must stop on a conflict");
+    let dir = delete_modify_conflict("delete-modify");
 
     let session = merge::session(&dir).expect("a stopped merge");
     let MergeFile::WholeFile(file) = &session.files[0] else {
@@ -228,24 +255,62 @@ fn a_binary_conflict_is_whole_file() {
     if !git_available() {
         return;
     }
-    let dir = scratch("binary");
-    write_bytes(&dir, "b.bin", &[0, 1, 2, 3]);
-    git_ok(&dir, &["add", "-A"]);
-    git_ok(&dir, &["commit", "-qm", "base"]);
-    git_ok(&dir, &["checkout", "-q", "-b", "feature"]);
-    write_bytes(&dir, "b.bin", &[0, 9, 2, 3]);
-    git_ok(&dir, &["commit", "-qam", "feature"]);
-    git_ok(&dir, &["checkout", "-q", "main"]);
-    write_bytes(&dir, "b.bin", &[0, 7, 2, 3]);
-    git_ok(&dir, &["commit", "-qam", "main"]);
-    let out = git(&dir, &["merge", "-q", "feature"]);
-    assert!(!out.status.success(), "the merge must stop on a conflict");
+    let dir = binary_conflict("binary");
 
     let session = merge::session(&dir).expect("a stopped merge");
     let MergeFile::WholeFile(file) = &session.files[0] else {
         panic!("a binary conflict has no text sides");
     };
     assert_eq!(file.reason, WholeFileReason::Binary);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_resolved_merge_leaves_the_rail() {
+    if !git_available() {
+        return;
+    }
+    let dir = merge_conflict("rail", None, None);
+    let probe = warp_station_core::git::read::probe(&dir).expect("a probe");
+    assert_eq!(probe.merge, Some(MergeOperation::Merge));
+
+    write(&dir, "a.txt", "resolved\n");
+    git_ok(&dir, &["add", "a.txt"]);
+    let probe = warp_station_core::git::read::probe(&dir).expect("a probe");
+    assert_eq!(
+        probe.merge, None,
+        "no unmerged paths remain, so the rail leaves"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn taking_a_side_resolves_a_binary_conflict() {
+    if !git_available() {
+        return;
+    }
+    let dir = binary_conflict("binary-take");
+    let outcome = cli::take_side(&dir, "b.bin", MergeSide::Theirs).await;
+    assert!(outcome.ok, "take theirs failed: {:?}", outcome.error);
+    let bytes = std::fs::read(dir.join("b.bin")).expect("the taken file reads");
+    assert_eq!(bytes, vec![0, 9, 2, 3], "theirs is [0, 9, 2, 3]");
+    assert!(merge::session(&dir).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn taking_the_deleted_side_removes_the_path() {
+    if !git_available() {
+        return;
+    }
+    let dir = delete_modify_conflict("delete-take");
+    let outcome = cli::take_side(&dir, "a.txt", MergeSide::Theirs).await;
+    assert!(outcome.ok, "take theirs failed: {:?}", outcome.error);
+    assert!(
+        !dir.join("a.txt").exists(),
+        "theirs deleted the file, so the path is gone"
+    );
+    assert!(merge::session(&dir).is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

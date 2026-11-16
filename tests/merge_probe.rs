@@ -5,12 +5,15 @@
 use gpui::TestAppContext;
 use gpui::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
+use warp_station::net::UiEvent;
 use warp_station::store::Store;
 use warp_station::ui::merge::MergePage;
 use warp_station::ui::window::MainWindow;
 use warp_station_core::git::merge::{
     ConflictBlock, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, TextMerge,
+    WholeFileConflict, WholeFileReason,
 };
+use warp_station_core::repo_store::{RepoEntry, StatusProbe};
 
 /// Points HOME at a scratch folder once, so no probe reads or writes the
 /// developer's real `~/.warp`.
@@ -227,4 +230,142 @@ fn taking_a_side_rewrites_the_buffer_and_saves(cx: &mut TestAppContext) {
     );
     assert_eq!(saved, "main\n");
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[gpui_kit::gpui::test]
+fn a_whole_file_conflict_offers_both_sides(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let folder = "/tmp/merge-probe-whole".to_string();
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("whole")));
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        store
+            .merge_ops
+            .insert(folder.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder.clone());
+        store.merge = Some(MergeSession {
+            operation: MergeOperation::Merge,
+            files: vec![MergeFile::WholeFile(WholeFileConflict {
+                path: "logo.png".into(),
+                reason: WholeFileReason::Binary,
+                ours_present: true,
+                theirs_present: true,
+            })],
+        });
+        store.merge_loaded_for = Some(folder);
+        store.merge_generation = 1;
+        cx.notify();
+    });
+
+    let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("merge-whole-ours").is_some(),
+        "the ours take draws"
+    );
+    assert!(
+        cx.debug_bounds("merge-whole-theirs").is_some(),
+        "the theirs take draws"
+    );
+    assert!(
+        cx.debug_bounds("merge-panes").is_none(),
+        "a binary conflict has no text panes"
+    );
+}
+
+#[gpui_kit::gpui::test]
+fn a_clean_index_shows_the_resolved_state(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let folder = "/tmp/merge-probe-resolved".to_string();
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("resolved")));
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        store
+            .merge_ops
+            .insert(folder.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder.clone());
+        store.merge = None;
+        store.merge_loaded_for = Some(folder);
+        store.merge_loading = false;
+        store.merge_generation = 2;
+        cx.notify();
+    });
+
+    let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("merge-resolved").is_some(),
+        "a clean index says so"
+    );
+}
+
+fn entry(name: &str, path: &str) -> RepoEntry {
+    RepoEntry {
+        name: name.into(),
+        folder_path: path.into(),
+        solution_path: None,
+        tags: Vec::new(),
+        git_branch_name: None,
+        git_modified_count: 0,
+        git_to_push_count: 0,
+        git_to_pull_count: 0,
+        git_last_commit_at: None,
+        git_last_fetch_at: None,
+        git_has_remote: false,
+        git_branch_published: false,
+        git_status_loaded: false,
+        github_pr_count: 0,
+        github_issue_count: 0,
+        azure_pull_count: 0,
+        github_web_url: None,
+        azure_work_item_count: 0,
+    }
+}
+
+/// A merge action re-probes one repository; that partial pass must not drop
+/// the other repositories' stopped-operation flags.
+#[gpui_kit::gpui::test]
+fn a_single_repo_probe_keeps_the_other_flags(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("partial")));
+    cx.update_entity(&store, |store: &mut Store, _| {
+        store.replace_repos(vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+        ]);
+        store
+            .merge_ops
+            .insert("/probe/alpha".to_string(), MergeOperation::Merge);
+        store
+            .merge_ops
+            .insert("/probe/beta".to_string(), MergeOperation::Rebase);
+    });
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        store.on_net_event(
+            UiEvent::StatusSettled {
+                probes: vec![StatusProbe {
+                    folder_path: "/probe/alpha".into(),
+                    merge: Some(MergeOperation::Merge),
+                    ..Default::default()
+                }],
+            },
+            cx,
+        );
+    });
+    let ops = cx.update_entity(&store, |store: &mut Store, _| store.merge_ops.clone());
+    assert_eq!(
+        ops.get("/probe/beta"),
+        Some(&MergeOperation::Rebase),
+        "beta's flag survives alpha's partial probe"
+    );
 }
