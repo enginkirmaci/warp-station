@@ -43,6 +43,11 @@ pub enum NetCommand {
     LoadChanges {
         folder: PathBuf,
     },
+    /// The Merge page's per-repository load: the stopped operation, its
+    /// unmerged paths and each text conflict's three sides.
+    LoadMerge {
+        folder: PathBuf,
+    },
     /// One mutation; the net thread reloads the repo's changes and probes its
     /// status after it settles, success or failure.
     Git {
@@ -535,6 +540,10 @@ pub enum UiEvent {
         branches: Vec<warp_station_core::model::GitBranchRef>,
         recent: Vec<warp_station_core::model::GitCommitInfo>,
         unpushed: Option<std::collections::HashSet<String>>,
+    },
+    MergeLoaded {
+        folder: String,
+        session: Option<warp_station_core::git::merge::MergeSession>,
     },
     GitDone {
         folder: String,
@@ -1974,6 +1983,19 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             | NetCommand::AzureUsers { .. }
             | NetCommand::GithubAssignees { .. }
             | NetCommand::LoadChanges { .. } => {}
+            NetCommand::LoadMerge { folder } => {
+                let path = folder.clone();
+                let session = tokio::task::spawn_blocking(move || {
+                    warp_station_core::git::merge::session(&path)
+                })
+                .await
+                .ok()
+                .flatten();
+                let _ = evt_tx.send_blocking(UiEvent::MergeLoaded {
+                    folder: folder.to_string_lossy().to_string(),
+                    session,
+                });
+            }
             NetCommand::LoadHistory { folder } => {
                 let (commits, unpushed) = tokio::task::spawn_blocking({
                     let folder = folder.clone();
@@ -2306,6 +2328,7 @@ fn probe_one_with_seed(
             has_remote: p.has_remote,
             branch_on_remote: p.branch_on_remote,
             github_web_url: p.github_web_url,
+            merge: p.merge,
         })
         .unwrap_or_else(|| StatusProbe {
             folder_path: folder.to_string_lossy().to_string(),

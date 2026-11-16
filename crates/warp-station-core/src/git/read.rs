@@ -3,6 +3,7 @@
 //! operation, no shared state, no index locks, so reads never interfere with
 //! the user's own git operations. Every failure maps to None/empty results.
 
+use crate::git::merge::MergeOperation;
 use crate::model::*;
 use chrono::{DateTime, Local, TimeZone as _};
 use git2::{Repository, Status, StatusOptions};
@@ -29,8 +30,8 @@ const PATCH_TRUNCATION_SUFFIX: &str = "\n… (patch truncated)";
 /// One repo's status probe: branch, change count, ahead/behind vs the upstream
 /// as of the last fetch, the last commit's committer time, whether any remote
 /// is configured, whether the current branch has a remote-tracking
-/// counterpart (the publish affordance's gate), and the GitHub page its
-/// `origin` remote names.
+/// counterpart (the publish affordance's gate), the GitHub page its `origin`
+/// remote names, and the stopped operation when one is in progress.
 #[derive(Clone, Debug, Default)]
 pub struct Probe {
     pub branch_name: Option<String>,
@@ -41,6 +42,9 @@ pub struct Probe {
     pub has_remote: bool,
     pub branch_on_remote: bool,
     pub github_web_url: Option<String>,
+    /// The merge-shaped operation the repository is stopped in, if any: the
+    /// Merge rail item and page read this without loading a full session.
+    pub merge: Option<MergeOperation>,
 }
 
 pub fn probe(folder: &Path) -> Option<Probe> {
@@ -95,6 +99,7 @@ pub fn probe(folder: &Path) -> Option<Probe> {
             has_remote,
             branch_on_remote,
             github_web_url,
+            merge: MergeOperation::of_state(repo.state()),
         })
     })
     .flatten()

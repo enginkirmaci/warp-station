@@ -9,6 +9,7 @@ use crate::notices::{self, NoticeAction, Notices};
 use gpui::{App, Context};
 use std::sync::Arc;
 use warp_station_core::flow::{FlowGate, FlowPull, FlowPullState, FlowRecord, FlowRun};
+use warp_station_core::git::merge::{MergeOperation, MergeSession};
 use warp_station_core::repo_store::{self, RepoEntry};
 use warp_station_core::settings::{AppSettings, DiffViewMode, RepoSortMode, SettingsService};
 
@@ -146,6 +147,17 @@ pub struct Store {
     /// against it instead of re-cloning the snapshot each frame.
     changes_generation: u64,
     pub changes_loaded_for: Option<String>,
+    /// Folders with a stopped merge-shaped operation, rebuilt by every status
+    /// pass; the Merge rail item exists only while one is listed.
+    pub merge_ops: std::collections::HashMap<String, MergeOperation>,
+    /// The Merge page's repository choice; `None` follows the selected repo.
+    pub merge_folder: Option<String>,
+    /// The loaded session for `merge_loaded_for`.
+    pub merge: Option<MergeSession>,
+    pub merge_loaded_for: Option<String>,
+    /// Bumped whenever the loaded session changes, so the page clones it once
+    /// per load instead of per frame.
+    pub merge_generation: u64,
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
@@ -489,6 +501,11 @@ impl Store {
             changes: None,
             changes_generation: 0,
             changes_loaded_for: None,
+            merge_ops: std::collections::HashMap::new(),
+            merge_folder: None,
+            merge: None,
+            merge_loaded_for: None,
+            merge_generation: 0,
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
@@ -904,6 +921,25 @@ impl Store {
                 cx.notify();
             }
             UiEvent::StatusSettled { probes } => {
+                // the probes carry the stopped-operation flag: rebuild the
+                // Merge rail item's source, and drop a loaded session whose
+                // operation ended (or vanished) meanwhile
+                self.merge_ops = probes
+                    .iter()
+                    .filter_map(|probe| {
+                        probe
+                            .merge
+                            .map(|operation| (probe.folder_path.clone(), operation))
+                    })
+                    .collect();
+                if let Some(folder) = self.merge_loaded_for.clone()
+                    && !self.merge_ops.contains_key(&folder)
+                {
+                    self.merge = None;
+                    self.merge_loaded_for = None;
+                    self.merge_folder = None;
+                    self.merge_generation = self.merge_generation.wrapping_add(1);
+                }
                 let by_folder = self.repo_index_by_folder();
                 let mut applied = false;
                 for probe in &probes {
@@ -961,6 +997,13 @@ impl Store {
                         self.recent_commits = recent;
                     }
                     self.unpushed = unpushed;
+                }
+                cx.notify();
+            }
+            UiEvent::MergeLoaded { folder, session } => {
+                if self.merge_loaded_for.as_deref() == Some(folder.as_str()) {
+                    self.merge = session;
+                    self.merge_generation = self.merge_generation.wrapping_add(1);
                 }
                 cx.notify();
             }
@@ -6068,6 +6111,63 @@ impl Store {
             .enumerate()
             .map(|(ix, repo)| (repo.folder_path.to_string_lossy().to_string(), ix))
             .collect()
+    }
+
+    /// The repositories with a stopped operation, sorted by path, with the
+    /// operation each probe reported.
+    pub fn merge_repos(&self) -> Vec<(String, MergeOperation)> {
+        let mut repos: Vec<(String, MergeOperation)> = self
+            .merge_ops
+            .iter()
+            .map(|(folder, operation)| (folder.clone(), *operation))
+            .collect();
+        repos.sort_by(|left, right| left.0.cmp(&right.0));
+        repos
+    }
+
+    /// The repository the Merge page shows: the picked one while it still has
+    /// a stopped operation, else the selected repo, else the first stopped one.
+    pub fn merge_target(&self) -> Option<String> {
+        if let Some(folder) = &self.merge_folder
+            && self.merge_ops.contains_key(folder)
+        {
+            return Some(folder.clone());
+        }
+        if let Some(folder) = &self.selected_repo
+            && self.merge_ops.contains_key(folder)
+        {
+            return Some(folder.clone());
+        }
+        let mut folders: Vec<&String> = self.merge_ops.keys().collect();
+        folders.sort();
+        folders.first().map(|folder| (*folder).clone())
+    }
+
+    /// Loads the session for the current target once. The Merge page calls
+    /// this from its render, so it stays idempotent.
+    pub fn ensure_merge_loaded(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.merge_target() else {
+            self.merge = None;
+            self.merge_loaded_for = None;
+            return;
+        };
+        if self.merge_loaded_for.as_deref() == Some(folder.as_str()) {
+            return;
+        }
+        self.merge_loaded_for = Some(folder.clone());
+        self.merge = None;
+        let _ = self.net.send_blocking(NetCommand::LoadMerge {
+            folder: folder.into(),
+        });
+        cx.notify();
+    }
+
+    /// Switches the Merge page to another stopped repository and loads it.
+    pub fn select_merge_folder(&mut self, folder: String, cx: &mut Context<Self>) {
+        self.merge_folder = Some(folder);
+        self.merge_loaded_for = None;
+        self.merge = None;
+        self.ensure_merge_loaded(cx);
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {

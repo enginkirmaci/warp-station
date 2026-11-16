@@ -2,6 +2,7 @@
 //! plus the tag-merge rules that carry user tags across rescans. User tags
 //! live in `settings.json`; the cache only carries what a scan can regenerate.
 
+use crate::git::merge::MergeOperation;
 use crate::paths::AppPaths;
 use crate::scan::{self, ScannedRepo};
 use serde::{Deserialize, Serialize};
@@ -294,6 +295,9 @@ pub struct StatusProbe {
     pub has_remote: bool,
     pub branch_on_remote: bool,
     pub github_web_url: Option<String>,
+    /// A stopped merge-shaped operation, carried so the app can show the Merge
+    /// section without loading every repository's conflicts.
+    pub merge: Option<MergeOperation>,
 }
 
 /// Applies a probe onto an entry; the fetch timestamp is newer-wins (a

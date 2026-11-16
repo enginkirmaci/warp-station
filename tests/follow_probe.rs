@@ -1148,6 +1148,7 @@ fn a_push_advances_to_the_pull_form(cx: &mut TestAppContext) {
                     has_remote: true,
                     branch_on_remote: true,
                     github_web_url: Some("https://github.com/o/alpha".into()),
+                    merge: None,
                 }],
             },
             cx,

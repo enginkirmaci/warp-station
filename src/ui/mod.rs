@@ -13,6 +13,7 @@ pub mod formatters;
 pub mod issue_detail;
 pub mod launchers;
 pub mod markdown;
+pub mod merge;
 pub mod new_pull;
 pub mod nuget;
 pub mod overview;
