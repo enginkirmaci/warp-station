@@ -735,6 +735,17 @@ impl Store {
         self.update_settings(|s| s.changes.diff_wrap = wrap);
     }
 
+    /// Whether every file list draws its tree; off is the flat list.
+    pub fn tree_view(&self) -> bool {
+        self.settings().files.tree_view
+    }
+
+    /// Persist the file-list view; every file list repaints itself on its next
+    /// draw, because they all read this one switch.
+    pub fn set_tree_view(&mut self, tree: bool) {
+        self.update_settings(|s| s.files.tree_view = tree);
+    }
+
     // ---- derived-cache change tokens + guarded snapshots ----
 
     pub fn changes(&self) -> Option<&warp_station_core::model::GitChangeSnapshot> {

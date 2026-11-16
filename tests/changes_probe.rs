@@ -1338,6 +1338,98 @@ fn folder_rows_carry_the_sections_verbs(cx: &mut TestAppContext) {
     );
 }
 
+/// The head's switch flips the list between the tree and today's flat list,
+/// and the choice is persisted for every file list to read.
+#[gpui_kit::gpui::test]
+fn the_tree_toggle_restores_the_flat_list(cx: &mut TestAppContext) {
+    use warp_station_core::model::{GitChangeSnapshot, GitChangedFile};
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    fn file(path: &str) -> GitChangedFile {
+        GitChangedFile {
+            path: path.into(),
+            status_code: "M".into(),
+            additions: Some(1),
+            deletions: None,
+        }
+    }
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-the_tree_toggle_restores_the_flat_list"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 2,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        let files = vec![file("src/ui/a.rs"), file("src/ui/b.rs")];
+        store.set_changes(Some(GitChangeSnapshot {
+            status_files: files.clone(),
+            staged_files: Vec::new(),
+            unstaged_files: files,
+            worktree_counts: Default::default(),
+            cached_counts: Default::default(),
+        }));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the tree is the default, and the head carries its switch
+    assert!(
+        cx.debug_bounds("u-folder-src/ui").is_some(),
+        "the tree is the default"
+    );
+    assert!(cx.debug_bounds("files-tree-toggle").is_some());
+
+    click(cx, "files-tree-toggle");
+    assert!(
+        cx.debug_bounds("u-folder-src/ui").is_none(),
+        "the flat list has no folder rows"
+    );
+    assert!(
+        cx.debug_bounds("u-src/ui/a.rs").is_some(),
+        "the file rows stay in the flat list"
+    );
+    assert!(
+        cx.read_entity(&store, |store, _| !store.settings().files.tree_view),
+        "the switch is persisted"
+    );
+
+    click(cx, "files-tree-toggle");
+    assert!(
+        cx.debug_bounds("u-folder-src/ui").is_some(),
+        "the tree comes back"
+    );
+}
+
 /// Staging the selected file moves it into the staged tree, and the diff
 /// follows the path instead of jumping to the other section's first file.
 #[gpui_kit::gpui::test]

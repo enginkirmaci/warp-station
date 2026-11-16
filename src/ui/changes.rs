@@ -170,6 +170,8 @@ pub struct ChangesView {
     diff_view: DiffViewMode,
     /// Whether long diff rows wrap; persisted with the layout.
     diff_wrap: bool,
+    /// Whether the file list draws its tree; persisted app-wide.
+    tree_view: bool,
     /// The diff's horizontal scroll handles, kept so the pinned bars work.
     diff_scroll: DiffScrollHandles,
     file_by_repo: std::collections::HashMap<String, (String, bool)>,
@@ -272,11 +274,13 @@ impl ChangesView {
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         let diff_view = store.read(cx).diff_view();
         let diff_wrap = store.read(cx).diff_wrap();
+        let tree_view = store.read(cx).tree_view();
         Self {
             store,
             selected_file: None,
             diff_view,
             diff_wrap,
+            tree_view,
             diff_scroll: DiffScrollHandles::default(),
             file_by_repo: std::collections::HashMap::new(),
             discard_armed: None,
@@ -623,6 +627,13 @@ impl ChangesView {
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_repo_reset(window, cx);
+        // the switch is app-wide: a change from the head must reach the rows on
+        // this same draw
+        let tree_view = self.store.read(cx).tree_view();
+        if tree_view != self.tree_view {
+            self.tree_view = tree_view;
+            self.list_revision = self.list_revision.wrapping_add(1);
+        }
         // the History tab and the Changes tab are this one view
         let want_history =
             self.store.read(cx).active_detail_tab() == crate::store::WorkspaceTab::History;
@@ -757,6 +768,7 @@ impl Render for ChangesView {
             // focus; its head says so with the label's ink and its rule.
             let file_focused = self.file_focus.is_focused(window);
             let file_count = groups.0.len() + groups.1.len();
+            let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
             let mut files = div()
                 .w(px(warpui_kit_core::shell::scaled(FILE_COLUMN_W)))
                 .flex_shrink_0()
@@ -796,6 +808,7 @@ impl Render for ChangesView {
                             file_focused,
                             "files-head-focused",
                             "files-head-idle",
+                            Some(self.render_tree_toggle(show_tooltips, cx)),
                         ))
                         .child(file_list),
                 );
@@ -991,10 +1004,58 @@ impl ChangesView {
             .into_any_element()
     }
 
+    /// The head's tree/flat switch: one app-wide setting, so every file list
+    /// follows the same choice.
+    fn render_tree_toggle(
+        &mut self,
+        show_tooltips: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let tree = self.tree_view;
+        let button = div()
+            .id("files-tree-toggle")
+            .debug_selector(|| "files-tree-toggle".into())
+            .a11y_toggle("Tree view", tree)
+            .cursor_pointer()
+            .rounded_md()
+            .p_1()
+            .flex()
+            .items_center()
+            .when(tree, |d| d.bg(theme::raised()))
+            .hover(|d| d.bg(theme::raised()))
+            .on_click(cx.listener(|this, _, _window, cx| this.toggle_tree_view(cx)))
+            .child(icon(
+                if tree {
+                    "icons/icon-folder.svg"
+                } else {
+                    "icons/icon-list-bullet.svg"
+                },
+                px(theme::icon_small()),
+                if tree {
+                    theme::text()
+                } else {
+                    theme::text_muted()
+                },
+            ));
+        crate::ui::with_tooltip(button, show_tooltips, "Tree view").into_any_element()
+    }
+
+    /// Flips the app-wide file-list switch and persists it for every list.
+    fn toggle_tree_view(&mut self, cx: &mut Context<Self>) {
+        let next = !self.tree_view;
+        self.tree_view = next;
+        self.list_revision = self.list_revision.wrapping_add(1);
+        self.store.update(cx, |store, _| store.set_tree_view(next));
+        cx.notify();
+    }
+
     /// The file list flattened to its fixed-height items, in render order.
     /// The renderer and the keyboard cursor both read this one order, so a
     /// collapsed section or a new snapshot moves them together.
     fn file_items(&self, files: &FileGroups) -> Vec<ChangeListItem> {
+        if !self.tree_view {
+            return self.flat_items(files);
+        }
         let mut items: Vec<ChangeListItem> =
             Vec::with_capacity(files.groups.0.len() + files.groups.1.len() + 4);
         self.section_items(true, &files.staged_tree, files.groups.0.len(), &mut items);
@@ -1061,6 +1122,36 @@ impl ChangesView {
                 }
             });
         }
+    }
+
+    /// The flat list: today's rows, in snapshot order, with no folder rows.
+    fn flat_items(&self, files: &FileGroups) -> Vec<ChangeListItem> {
+        let mut items: Vec<ChangeListItem> =
+            Vec::with_capacity(files.groups.0.len() + files.groups.1.len() + 2);
+        for (staged, count, collapsed) in [
+            (true, files.groups.0.len(), self.staged_collapsed),
+            (false, files.groups.1.len(), self.unstaged_collapsed),
+        ] {
+            if count == 0 {
+                continue;
+            }
+            items.push(if staged {
+                ChangeListItem::StagedHeader
+            } else {
+                ChangeListItem::UnstagedHeader
+            });
+            if collapsed {
+                continue;
+            }
+            items.extend((0..count).map(|index| {
+                if staged {
+                    ChangeListItem::StagedFile { index, depth: 0 }
+                } else {
+                    ChangeListItem::UnstagedFile { index, depth: 0 }
+                }
+            }));
+        }
+        items
     }
 
     /// The built item list, rebuilt only when the snapshot or the fold set
@@ -1380,6 +1471,7 @@ impl ChangesView {
         focused: bool,
         focused_selector: &'static str,
         idle_selector: &'static str,
+        trailing: Option<gpui::AnyElement>,
     ) -> impl IntoElement {
         div()
             .flex_shrink_0()
@@ -1415,6 +1507,7 @@ impl ChangesView {
                     .text_color(theme::text_muted())
                     .child(count.to_string()),
             )
+            .children(trailing.map(|trailing| div().ml_auto().child(trailing)))
     }
 
     fn render_file_list(
@@ -1679,13 +1772,22 @@ impl ChangesView {
         let row_id: SharedString =
             format!("{}-{}", if staged { "s" } else { "u" }, file.path).into();
         let row_selector = row_id.clone();
-        // the folder rows carry the directory now, so the row shows the name
-        let name = file
-            .path
-            .rsplit('/')
-            .next()
-            .unwrap_or(file.path.as_str())
-            .to_string();
+        // the tree's folder rows carry the directory; the flat list shows it
+        // beside the name, as it always has
+        let (dir, name) = if self.tree_view {
+            let name = file
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(file.path.as_str())
+                .to_string();
+            (String::new(), name)
+        } else {
+            match file.path.rsplit_once('/') {
+                Some((dir, name)) => (dir.to_string(), name.to_string()),
+                None => (String::new(), file.path.clone()),
+            }
+        };
         let discard = {
             let store = self.store.clone();
             let this = cx.entity();
@@ -1793,12 +1895,23 @@ impl ChangesView {
                     .text_size(px(theme::font_row_meta()))
                     .child(
                         div()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .text_ellipsis()
+                            .when(self.tree_view, |d| {
+                                d.min_w_0().overflow_hidden().text_ellipsis()
+                            })
+                            .when(!self.tree_view, |d| d.flex_shrink_0())
                             .text_color(theme::text())
                             .child(name),
-                    ),
+                    )
+                    .when(!dir.is_empty(), |row| {
+                        row.child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .text_color(theme::text_muted())
+                                .child(dir),
+                        )
+                    }),
             )
             .when(file.additions.is_some() && !armed, |row| {
                 row.child(
@@ -1909,6 +2022,7 @@ impl ChangesView {
                         history_focused,
                         "history-head-focused",
                         "history-head-idle",
+                        None,
                     ))
                     .child(list),
             )

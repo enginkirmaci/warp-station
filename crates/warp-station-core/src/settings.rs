@@ -37,6 +37,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub changes: ChangesSettings,
     #[serde(default)]
+    pub files: FilesSettings,
+    #[serde(default)]
     pub workflow: WorkflowSettings,
     #[serde(default)]
     pub notifications: NotificationsSettings,
@@ -498,6 +500,21 @@ impl Default for ChangesSettings {
             diff_view: DiffViewMode::Unified,
             diff_wrap: false,
         }
+    }
+}
+
+/// How the file lists lay their rows out. The section is additive: an absent
+/// section reads the tree on, and every list follows the one switch.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+pub struct FilesSettings {
+    /// Group changed files under their folders; off is the flat list.
+    pub tree_view: bool,
+}
+
+impl Default for FilesSettings {
+    fn default() -> Self {
+        Self { tree_view: true }
     }
 }
 
@@ -1125,6 +1142,31 @@ mod tests {
         assert_eq!(saved["general"]["text_size"], "large");
         assert!(saved.get("Repos").is_none());
 
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_files_section_defaults_the_tree_on_and_round_trips() {
+        let path = scratch("files-section");
+        std::fs::write(&path, "{}").unwrap();
+        let service = SettingsService::at(path.clone());
+        assert!(
+            service.get().files.tree_view,
+            "an absent section reads the tree on"
+        );
+
+        service
+            .update(|settings| settings.files.tree_view = false)
+            .expect("save the flat choice");
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["files"]["tree_view"], false);
+        assert_eq!(saved["schema_version"], 1, "an additive key keeps the version");
+
+        assert!(
+            !SettingsService::at(path).get().files.tree_view,
+            "the flat choice round-trips"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }
