@@ -155,7 +155,7 @@ impl Render for SnapItPage {
                             .child(format!(
                                 "SnapIt {} ({}) · {} · {}",
                                 env!("CARGO_PKG_VERSION"),
-                                env!("WARP_SUITE_BUILD"),
+                                env!("WARP_SUITE_COMMIT"),
                                 env!("WARP_SUITE_CHANNEL"),
                                 warpui_kit_core::about::LICENSE,
                             )),
