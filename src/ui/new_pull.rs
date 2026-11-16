@@ -692,6 +692,7 @@ impl NewPullView {
                 .id("new-pull-create")
                 .debug_selector(|| "new-pull-create".into())
                 .a11y_button(label)
+                .tooltip(crate::ui::tooltip_text("Creating the pull request"))
                 .flex_shrink_0()
                 .h(px(shell::CONTROL_HEIGHT))
                 .px_3()

@@ -705,7 +705,9 @@ impl ItemListView {
             .store
             .read(cx)
             .open_activity(self.pull_requests)
-            .map(|open| open.number);
+            // GitHub #12 and Azure #12 are different rows: the selection is
+            // the platform's reference, not the number alone
+            .map(|open| (open.source, open.number));
         let azure_open = self.pull_requests && self.store.read(cx).open_azure_pull.is_some();
         // the first visible row is the selection where both columns show, but
         // never over the form that is already being written
@@ -750,7 +752,7 @@ impl ItemListView {
             .track_scroll(&self.list_scroll);
         for item in items {
             list_rows = list_rows.child(
-                self.render_activity_row(item, selected == Some(item.number))
+                self.render_activity_row(item, selected == Some((item.source, item.number)))
                     .into_any_element(),
             );
         }
@@ -886,7 +888,7 @@ impl ItemListView {
             open.and_then(|open| {
                 self.visible
                     .iter()
-                    .position(|item| item.number == open.number)
+                    .position(|item| (item.source, item.number) == (open.source, open.number))
             })
         };
         let Some(next) = list_nav::step(current, self.visible.len(), key, list_nav::DEFAULT_PAGE)

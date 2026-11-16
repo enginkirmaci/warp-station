@@ -20,6 +20,9 @@ pub struct SnapItPage {
     store: Entity<Store>,
     layouts: Vec<SnapLayout>,
     selected: usize,
+    /// The engine's own `--version` facts, probed once when the page opens:
+    /// the About row promises these and the page repeats them.
+    engine: Option<warpui_kit_platform::sibling::VersionInfo>,
 }
 
 impl SnapItPage {
@@ -33,6 +36,26 @@ impl SnapItPage {
             store,
             layouts,
             selected: 0,
+            engine: warpui_kit_platform::sibling::version("warp-snapit"),
+        }
+    }
+
+    /// The engine's support line: its own facts when its binary answers, and a
+    /// plain statement when it does not, so the page never borrows another
+    /// binary's version.
+    fn engine_line(&self) -> String {
+        match &self.engine {
+            Some(facts) => format!(
+                "SnapIt {} ({}) · {} · {}",
+                facts.version,
+                facts.commit,
+                facts.channel,
+                warpui_kit_core::about::LICENSE,
+            ),
+            None => format!(
+                "SnapIt · the engine is not installed · {}",
+                warpui_kit_core::about::LICENSE,
+            ),
         }
     }
 
@@ -56,6 +79,7 @@ impl SnapItPage {
 impl Render for SnapItPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let running = snapit::is_running();
+        let engine_line = self.engine_line();
         let label = if running {
             "Stop SnapIt"
         } else {
@@ -152,13 +176,7 @@ impl Render for SnapItPage {
                             .debug_selector(|| "snapit-version".into())
                             .text_size(px(theme::font_meta()))
                             .text_color(theme::text_muted())
-                            .child(format!(
-                                "SnapIt {} ({}) · {} · {}",
-                                env!("CARGO_PKG_VERSION"),
-                                env!("WARP_SUITE_COMMIT"),
-                                env!("WARP_SUITE_CHANNEL"),
-                                warpui_kit_core::about::LICENSE,
-                            )),
+                            .child(engine_line),
                     )
                     .into_any_element()
             }

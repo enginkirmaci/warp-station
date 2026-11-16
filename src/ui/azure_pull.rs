@@ -11,6 +11,7 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::diff_controls;
+use crate::ui::markdown as md;
 use crate::ui::pull_request::{
     Shape, avatar, comment_card, menu_divider, menu_item, menu_shell, plain_button,
     plain_button_in, plural, primary_button_in, source_tag, split_button,
@@ -22,7 +23,6 @@ use gpui::{
     SharedString, Window, div, px,
 };
 use gpui_kit::base::ElementExt as _;
-use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -214,6 +214,14 @@ impl Render for AzurePullView {
         };
         let number = open.item.number;
         self.reset_for(number, window, cx);
+        // a comment that landed empties the composer it was written in
+        if self
+            .store
+            .update(cx, |store, _| std::mem::take(&mut store.azure_comment_sent))
+        {
+            self.comment
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        }
         // the tabs' data, asked for as the tab that needs them draws
         if self.tab == AzureTab::Files {
             self.store
@@ -435,6 +443,7 @@ impl AzurePullView {
                     .id("azure-complete")
                     .debug_selector(|| "azure-complete".into())
                     .a11y_button(label)
+                    .tooltip(crate::ui::tooltip_text(label))
                     .flex_shrink_0()
                     .h(px(shell::CONTROL_HEIGHT))
                     .px_3()
@@ -1770,13 +1779,10 @@ fn description_card(pull: &AzurePull) -> AnyElement {
             .p_4()
             .text_size(px(theme::font_body()))
             .text_color(theme::text())
-            .child(
-                TextView::markdown(
-                    gpui::ElementId::Name("azure-pull-description-body".into()),
-                    SharedString::from(text.to_string()),
-                )
-                .selectable(true),
-            )
+            .child(md::text_view_markdown(
+                gpui::ElementId::Name("azure-pull-description-body".into()),
+                SharedString::from(text.to_string()),
+            ))
             .into_any_element(),
         _ => div()
             .p_4()
@@ -1799,7 +1805,6 @@ impl AzurePullView {
         let body = self.comment.read(cx).value().trim().to_string();
         let sendable = !body.is_empty() && !open.acting;
         let store = self.store.clone();
-        let comment = self.comment.clone();
         card(
             "azure-pull-comment",
             "Add a comment",
@@ -1820,12 +1825,11 @@ impl AzurePullView {
                     "Comment",
                     sendable,
                     Shape::Whole,
-                    move |_, window, cx| {
+                    move |_, _, cx| {
                         let text = body.clone();
                         store.update(cx, |store, cx| {
                             store.act_on_azure_pull(AzurePullAction::Comment { text }, cx);
                         });
-                        comment.update(cx, |state, cx| state.set_value("", window, cx));
                     },
                 )))
                 .into_any_element(),

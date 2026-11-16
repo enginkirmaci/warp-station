@@ -411,9 +411,8 @@ impl ChangesView {
         self.request_commit_patch(&detail_hash, &path, cx);
     }
 
-    /// Shows a file's diff, loading its patch the first time.
-    /// A plain press selects the row; a second press on the same conflicted
-    /// row within 400 ms opens its editor.
+    /// Shows a file's diff, loading its patch the first time. A press selects
+    /// the row.
     fn click_file(
         &mut self,
         path: &str,
@@ -1064,6 +1063,7 @@ impl ChangesView {
                                 .id("changes-loading-status")
                                 .role(gpui::Role::Status)
                                 .aria_label("Loading changes")
+                                .tooltip(crate::ui::tooltip_text("Loading changes"))
                                 .flex()
                                 .items_center()
                                 .child(motion::spinner(
@@ -1477,6 +1477,7 @@ impl ChangesView {
                             .id("history-loading-status")
                             .role(gpui::Role::Status)
                             .aria_label("Loading history")
+                            .tooltip(crate::ui::tooltip_text("Loading history"))
                             .flex()
                             .items_center()
                             .child(motion::spinner(
@@ -2132,6 +2133,7 @@ impl ChangesView {
                 .id("commit-button")
                 .debug_selector(|| "commit-button".into())
                 .a11y_button(label)
+                .tooltip(crate::ui::tooltip_text(label))
                 .cursor_pointer()
                 .flex_1()
                 .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
@@ -2318,6 +2320,7 @@ impl ChangesView {
                 .id(SharedString::from(format!("rail-{label}")))
                 .debug_selector(move || format!("rail-{label}"))
                 .a11y_button(word)
+                .tooltip(crate::ui::tooltip_text(word))
                 .flex_shrink_0()
                 .h(px(warpui_kit_core::shell::CONTROL_HEIGHT))
                 .px_3()
@@ -2472,9 +2475,9 @@ impl ChangesView {
         bar.into_any_element()
     }
 
-    /// The branch row's context menu: merge the row into the current branch,
-    /// check it out, copy its name, delete it. It opens at the pointer, closes
-    /// on any press outside, on Escape, and after an action.
+    /// The branch row's context menu: check the row out, copy its name, delete
+    /// it. It opens at the pointer, closes on any press outside, on Escape, and
+    /// after an action.
     fn render_branch_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let menu = self.branch_ui.borrow().menu.clone()?;
         let (current, busy) = {

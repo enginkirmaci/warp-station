@@ -13,10 +13,10 @@ use warp_station::{assets, logging, store::Store, theme, ui::window::MainWindow}
 fn main() {
     // The support contract, before the hotkey payload and logging: `--version`
     // answers with the same line the About screen copies.
-    if std::env::args()
-        .skip(1)
-        .any(|arg| arg == "--version" || arg == "-V")
-    {
+    if std::env::args_os().skip(1).any(|arg| {
+        let arg = arg.to_string_lossy();
+        arg == "--version" || arg == "-V"
+    }) {
         let build = warpui_kit_core::build_info!();
         println!(
             "{}",
@@ -29,7 +29,10 @@ fn main() {
     // The Hyprland global-bind payload: ping the running instance's net
     // thread and exit before any logging/GPUI startup.
     #[cfg(target_os = "linux")]
-    if std::env::args().nth(1).as_deref() == Some(warp_station_core::hotkey::COPY_PASSWORD_ARG) {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg.to_string_lossy() == warp_station_core::hotkey::COPY_PASSWORD_ARG)
+    {
         if let Err(err) = warp_station_core::hotkey::ping_copy_password() {
             eprintln!("warp-station: clipboard password ping failed: {err:#}");
             std::process::exit(1);
@@ -140,8 +143,10 @@ fn main() {
             })
             .detach();
 
+            // how the window comes up: Settings › General › Start minimized
+            let start_minimized = store.read(cx).settings().general.start_minimized;
             let bounds = Bounds::centered(None, size(px(1500.), px(960.)), cx);
-            gpui_kit::open_window(
+            let (window_handle, _) = gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     // the rail, the list and a usable detail pane
@@ -163,6 +168,19 @@ fn main() {
                 },
             )
             .unwrap();
+            // This gpui rev has no minimized `WindowBounds`, and `show: false`
+            // only reaches the Windows window: asking the compositor to
+            // minimize the new window is the one path both platforms honour.
+            // Wayland can only minimize a mapped toplevel, so the first frame
+            // asks again; a Windows or X11 window is already up at creation.
+            if start_minimized
+                && let Err(err) = cx.update_window(window_handle, |_, window, _| {
+                    window.minimize_window();
+                    window.on_next_frame(|window, _| window.minimize_window());
+                })
+            {
+                tracing::warn!("start minimized: {err}");
+            }
 
             cx.on_window_closed(|cx, _window_id| {
                 // the notes window closing must not quit the app

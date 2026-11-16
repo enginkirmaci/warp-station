@@ -801,7 +801,7 @@ impl ReposPage {
                 .find(|repo| repo.folder_path.to_string_lossy() == tab.folder.as_str());
             let name = repo.map_or_else(|| tab.folder.clone(), |repo| repo.name.clone());
             let changes = repo.map_or(0, |repo| repo.git_modified_count);
-            let job = store.git_jobs.contains_key(&tab.folder);
+            let job = store.git_jobs.get(&tab.folder).copied();
             let show_target = self.store.clone();
             let close_target = self.store.clone();
             let middle_target = self.store.clone();
@@ -826,9 +826,10 @@ impl ReposPage {
                     cx.stop_propagation();
                     middle_target.update(cx, |s, cx| s.close_repo_tab(&middle_folder, cx));
                 })
-                .when(job, |tab| {
+                .when_some(job, |tab, job| {
                     let selector = format!("repo-strip-job-{ix}");
                     tab.debug_selector(move || selector.clone())
+                        .tooltip(crate::ui::tooltip_text(crate::net::git_working_word(job)))
                         .child(motion::spinner(
                             SharedString::from(format!("repo-strip-spinner-{ix}")),
                             "icons/icon-spinner.svg",
@@ -1446,6 +1447,11 @@ fn icon_action(
     div()
         .id(id)
         .a11y_button(if busy { busy_label } else { label })
+        .tooltip(crate::ui::tooltip_text(if busy {
+            busy_label
+        } else {
+            label
+        }))
         .debug_selector(move || id.into())
         .cursor_pointer()
         .flex_shrink_0()

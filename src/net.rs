@@ -435,6 +435,21 @@ impl GitAction {
             _ => None,
         }
     }
+
+    /// Whether the action waits on the network. A fetch, pull, push, publish
+    /// or sync can take minutes, so the net loop hands it to the background
+    /// lane instead of holding every read and local mutation in the command
+    /// queue behind it.
+    fn talks_to_remote(&self) -> bool {
+        matches!(
+            self,
+            GitAction::Fetch
+                | GitAction::Pull
+                | GitAction::Push
+                | GitAction::Publish { .. }
+                | GitAction::Sync
+        )
+    }
 }
 
 /// One warp-agent workspace as the repo rows see it: the running chats'
@@ -886,6 +901,27 @@ impl WorkspaceReads {
 
     fn is_newest(&self, folder: &Path, read: u64) -> bool {
         self.0.lock().expect("workspace reads lock").get(folder) == Some(&read)
+    }
+}
+
+/// One repository's mutation lock.
+type RepoLock = std::sync::Arc<tokio::sync::Mutex<()>>;
+
+/// One lock per repository. A remote action owns its repo while it runs, so a
+/// local mutation of that repo waits for it instead of racing its index write,
+/// while another repo's reads and mutations never queue behind it — the net
+/// loop and the background lane both take this lock before touching a repo.
+#[derive(Clone, Default)]
+struct RepoLocks(std::sync::Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, RepoLock>>>);
+
+impl RepoLocks {
+    fn lock(&self, folder: &Path) -> RepoLock {
+        self.0
+            .lock()
+            .expect("repo locks")
+            .entry(folder.to_path_buf())
+            .or_default()
+            .clone()
     }
 }
 
@@ -1404,10 +1440,17 @@ fn spawn_read_intake(
     queue_rx
 }
 
-/// The background lane: repo scans and the activity passes run one at a time,
-/// off the command loop, so a minutes-long `git fetch` or `gh` sweep never
-/// holds a user action (stage, history, a chat send) behind it (audit B1).
-async fn background_loop(rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
+/// The background lane: repo scans, the activity passes and the actions that
+/// wait on the network run one at a time, off the command loop, so a
+/// minutes-long `git fetch` or `gh` sweep never holds a read or a local
+/// mutation (stage, history, a chat send) behind it (audit B1). The repo's own
+/// lock keeps a local mutation of the same repository ordered behind it.
+async fn background_loop(
+    rx: Receiver<NetCommand>,
+    evt_tx: Sender<UiEvent>,
+    workspace_reads: WorkspaceReads,
+    repo_locks: RepoLocks,
+) {
     while let Ok(cmd) = rx.recv().await {
         match cmd {
             NetCommand::Scan { settings } => {
@@ -1455,6 +1498,10 @@ async fn background_loop(rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     }
                 })
                 .await;
+            }
+            NetCommand::Git { folder, action } => {
+                let _repo = repo_locks.lock(&folder).lock_owned().await;
+                settle_git_action(folder, action, &evt_tx, &workspace_reads).await;
             }
             _ => {}
         }
@@ -1512,19 +1559,29 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
         });
     }
 
-    // Scans and activity passes run on their own lane: a long gh sweep must
-    // not hold a user action in this queue behind it (audit B1).
+    // Scans, activity passes and the network git actions run on their own
+    // lane: a long gh sweep or fetch must not hold a read or a local mutation
+    // in this queue behind it (audit B1).
+    let repo_locks = RepoLocks::default();
     let (background_tx, background_rx) = async_channel::unbounded::<NetCommand>();
     {
         let evt_tx = evt_tx.clone();
-        tokio::spawn(background_loop(background_rx, evt_tx));
+        let workspace_reads = workspace_reads.clone();
+        let repo_locks = repo_locks.clone();
+        tokio::spawn(background_loop(
+            background_rx,
+            evt_tx,
+            workspace_reads,
+            repo_locks,
+        ));
     }
 
     while let Ok(cmd) = cmd_rx.recv().await {
-        if matches!(
+        let routed = matches!(
             &cmd,
             NetCommand::Scan { .. } | NetCommand::GitHubPass { .. } | NetCommand::AzurePass { .. }
-        ) {
+        ) || matches!(&cmd, NetCommand::Git { action, .. } if action.talks_to_remote());
+        if routed {
             let _ = background_tx.send(cmd).await;
             continue;
         }
@@ -1533,6 +1590,7 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             NetCommand::Scan { .. }
             | NetCommand::GitHubPass { .. }
             | NetCommand::AzurePass { .. } => {}
+            NetCommand::Git { action, .. } if action.talks_to_remote() => {}
             NetCommand::ProbeAll { folders } => {
                 let probes = probe_pass(folders).await;
                 let _ = evt_tx.send_blocking(UiEvent::StatusSettled { probes });
@@ -1983,33 +2041,11 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 });
             }
             NetCommand::Git { folder, action } => {
-                let run = run_git_action(&folder, &action).await;
-                // a remote pick lands on its local tracking branch; name that
-                // in the toast instead of the remote-tracking ref the user
-                // clicked
-                let detail = match &action {
-                    GitAction::Checkout(target) => {
-                        warp_station_core::git::read::remote_tracking_local(&folder, target)
-                            .map(|(local, _)| local)
-                            .or_else(|| action.detail())
-                    }
-                    _ => action.detail(),
-                };
-                let _ = evt_tx.send_blocking(UiEvent::GitDone {
-                    folder: folder.to_string_lossy().to_string(),
-                    label: action.label(),
-                    error: if run.ok { None } else { run.error },
-                    commit_hash: run.commit_hash,
-                    detail,
-                });
-                // every mutation re-checks the repo it touched: the fresh
-                // status and the rebuilt changes snapshot land together, and
-                // any read still in flight predates them
-                workspace_reads.begin(&folder);
-                let _ = evt_tx.send_blocking(workspace_loaded(folder.clone()).await);
-                let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
-                    probes: probe_pass(vec![folder]).await,
-                });
+                // a local mutation: the network actions were routed to the
+                // background lane above, and this lock is what keeps this
+                // mutation behind such an action of the same repo
+                let _repo = repo_locks.lock(&folder).lock_owned().await;
+                settle_git_action(folder, action, &evt_tx, &workspace_reads).await;
             }
         }
     }
@@ -2107,6 +2143,45 @@ where
         }
     }
     announce_warp(evt_tx, announced, false);
+}
+
+/// Runs one git mutation and streams its settle events: the toast, the fresh
+/// workspace read and the repo's status probe, in that order. The caller holds
+/// the repo's lock for the whole call, so no read or probe sees the repo
+/// mid-mutation and a local mutation stays ordered behind a network action of
+/// the same repository.
+async fn settle_git_action(
+    folder: PathBuf,
+    action: GitAction,
+    evt_tx: &Sender<UiEvent>,
+    workspace_reads: &WorkspaceReads,
+) {
+    let run = run_git_action(&folder, &action).await;
+    // a remote pick lands on its local tracking branch; name that in the toast
+    // instead of the remote-tracking ref the user clicked
+    let detail = match &action {
+        GitAction::Checkout(target) => {
+            warp_station_core::git::read::remote_tracking_local(&folder, target)
+                .map(|(local, _)| local)
+                .or_else(|| action.detail())
+        }
+        _ => action.detail(),
+    };
+    let _ = evt_tx.send_blocking(UiEvent::GitDone {
+        folder: folder.to_string_lossy().to_string(),
+        label: action.label(),
+        error: if run.ok { None } else { run.error },
+        commit_hash: run.commit_hash,
+        detail,
+    });
+    // every mutation re-checks the repo it touched: the fresh status and the
+    // rebuilt changes snapshot land together, and any read still in flight
+    // predates them
+    workspace_reads.begin(&folder);
+    let _ = evt_tx.send_blocking(workspace_loaded(folder.clone()).await);
+    let _ = evt_tx.send_blocking(UiEvent::StatusSettled {
+        probes: probe_pass(vec![folder]).await,
+    });
 }
 
 async fn run_git_action(folder: &Path, action: &GitAction) -> GitRun {

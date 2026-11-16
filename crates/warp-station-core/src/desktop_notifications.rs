@@ -57,6 +57,8 @@ pub fn publish(notice: &DesktopNotice) -> Result<(), String> {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
+        use crate::process::DetachedSpawn;
+
         let mut command = std::process::Command::new("notify-send");
         command.arg("--app-name=Warp Station");
         if notice.severity == Severity::Error {
@@ -67,8 +69,7 @@ pub fn publish(notice: &DesktopNotice) -> Result<(), String> {
         }
         command.arg(&notice.summary).arg(&notice.body);
         command
-            .spawn()
-            .map(|_| ())
+            .spawn_detached()
             .map_err(|err| format!("notify-send: {err}"))
     }
 

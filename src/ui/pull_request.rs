@@ -12,6 +12,7 @@
 use crate::store::{OpenPull, Store};
 use crate::theme;
 use crate::ui::diff_controls;
+use crate::ui::markdown as md;
 use crate::ui::{A11y, icon};
 use gpui::prelude::*;
 use gpui::{
@@ -19,7 +20,6 @@ use gpui::{
     SharedString, Window, div, px,
 };
 use gpui_kit::base::ElementExt as _;
-use gpui_kit::base::text::TextView;
 use gpui_kit::component::input::TextareaState;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -726,26 +726,8 @@ impl PullRequestView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let count = pull.comments.len() + usize::from(!pull.body.trim().is_empty());
+        let count = pull.comments.len();
         let mut thread = div().flex().flex_col().gap_4();
-        if !pull.body.trim().is_empty() {
-            let author = pull.author.clone().unwrap_or_else(|| "ghost".into());
-            let when = pull
-                .created_at
-                .as_deref()
-                .and_then(warp_station_core::rel_time::format_rfc3339)
-                .map_or_else(
-                    || "opened this pull request".to_string(),
-                    |when| format!("opened {when}"),
-                );
-            thread = thread.child(comment_card(
-                0,
-                &author,
-                when,
-                &pull.body,
-                warpui_kit_core::text_menu::focus(cx),
-            ));
-        }
         for (ix, note) in pull.comments.iter().enumerate() {
             let when = note
                 .created_at
@@ -756,7 +738,7 @@ impl PullRequestView {
                     |when| format!("commented {when}"),
                 );
             thread = thread.child(comment_card(
-                ix + 1,
+                ix,
                 &note.author,
                 when,
                 &note.body,
@@ -2148,6 +2130,7 @@ fn head_actions(
                 .id("pull-merge")
                 .debug_selector(|| "pull-merge".into())
                 .a11y_button(label)
+                .tooltip(crate::ui::tooltip_text(label))
                 .flex_shrink_0()
                 .h(px(shell::CONTROL_HEIGHT))
                 .px_3()
@@ -2346,13 +2329,10 @@ fn description_card(pull: &GitHubPull) -> AnyElement {
             .p_4()
             .text_size(px(theme::font_body()))
             .text_color(theme::text())
-            .child(
-                TextView::markdown(
-                    gpui::ElementId::Name("pull-description".into()),
-                    SharedString::from(pull.body.clone()),
-                )
-                .selectable(true),
-            )
+            .child(md::text_view_markdown(
+                gpui::ElementId::Name("pull-description".into()),
+                SharedString::from(pull.body.clone()),
+            ))
             .into_any_element()
     };
     div()
@@ -2702,6 +2682,9 @@ fn check_row(ix: usize, check: &GitHubCheck) -> AnyElement {
         .id(SharedString::from(selector.clone()))
         .debug_selector(move || selector.clone())
         .a11y_button(check.name.clone())
+        .when(check.state == CheckState::Running, |d| {
+            d.tooltip(crate::ui::tooltip_text(format!("Running {}", check.name)))
+        })
         .min_h(px(38.))
         .px_4()
         .flex()
@@ -2778,13 +2761,10 @@ pub(crate) fn comment_card(
                 )
                 .child(warpui_kit_core::text_menu::attach(
                     gpui::ElementId::Name(format!("pull-comment-menu-{ix}").into()),
-                    div().p_4().child(
-                        TextView::markdown(
-                            gpui::ElementId::Name(format!("pull-comment-{ix}").into()),
-                            SharedString::from(text.to_string()),
-                        )
-                        .selectable(true),
-                    ),
+                    div().p_4().child(md::text_view_markdown(
+                        gpui::ElementId::Name(format!("pull-comment-{ix}").into()),
+                        SharedString::from(text.to_string()),
+                    )),
                     focus,
                 )),
         )

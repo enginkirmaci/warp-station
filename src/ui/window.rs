@@ -57,9 +57,17 @@ pub struct MainWindow {
     /// About: which installed member the detail shows. The app you are in
     /// until the user picks another.
     about_selected: warpui_kit_core::about::AppId,
-    /// The installed members the About list renders; probed on first open and
-    /// refreshed each time About is picked from the rail.
+    /// The installed members the About list renders. Seeded with the running
+    /// app at construction, so the screen is whole on its first frame, then
+    /// replaced by the background scan's answer.
     about_members: Vec<warpui_kit_core::about::Member>,
+    /// The background scan is in flight: a slow sibling's `--version` must not
+    /// buy a second probe when About is opened again meanwhile.
+    about_scanning: bool,
+    /// One scan landed already. The first About frame starts the first scan,
+    /// which covers a launch that opens the screen from the environment hook
+    /// instead of a rail click.
+    about_scanned: bool,
     /// The license card is up over the About screen.
     about_license_open: bool,
     /// The license document, built the first time the card opens: a read-only
@@ -165,7 +173,14 @@ impl MainWindow {
             },
             tool: tool.unwrap_or(Tool::Formatters),
             about_selected: warpui_kit_core::about::AppId::Station,
-            about_members: Vec::new(),
+            // the running app is known without asking any process, so About
+            // never draws an empty list while the scan runs
+            about_members: vec![warpui_kit_core::about::current_member(
+                warpui_kit_core::about::AppId::Station,
+                &warpui_kit_core::build_info!(),
+            )],
+            about_scanning: false,
+            about_scanned: false,
             // E2E hook: WARP_STATION_LICENSE=1 opens About with the license
             // card up (a hidden window takes no pointer, so a capture needs
             // the card to open itself).
@@ -267,6 +282,36 @@ impl Render for MainWindow {
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let modifiers = event.keystroke.modifiers;
                 let key = event.keystroke.key.as_str();
+                // `?` and Ctrl+/ are the keyboard sheet; neither fires while a
+                // field owns the keys, so typing a question mark stays typing.
+                let in_field = window
+                    .context_stack()
+                    .iter()
+                    .any(|context| context.contains("Input"));
+                let help_key = !modifiers.alt
+                    && !modifiers.platform
+                    && (event.keystroke.key_char.as_deref() == Some("?")
+                        || key == "?"
+                        || (key == "/" && (modifiers.shift || modifiers.control)));
+                if help_key && !in_field {
+                    if this.shortcuts_open {
+                        this.close_shortcuts(window, cx);
+                    } else {
+                        this.open_shortcuts(window, cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
+                // The card owns the keyboard while it is up: no search focus,
+                // no tab keys and no clipboard action behind it. Escape is the
+                // one key it answers besides `?`.
+                if this.shortcuts_open {
+                    if key == "escape" {
+                        this.close_shortcuts(window, cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 // Copy for the read-only text: the README card and the summary
                 // render through the markdown engine, which takes no focus so
                 // a click never steals the keyboard from a field — but that
@@ -300,36 +345,6 @@ impl Render for MainWindow {
                         s.notify(kind, message.to_string());
                         cx.notify();
                     });
-                    cx.stop_propagation();
-                    return;
-                }
-                // `?` and Ctrl+/ are the keyboard sheet; neither fires while a
-                // field owns the keys, so typing a question mark stays typing.
-                let in_field = window
-                    .context_stack()
-                    .iter()
-                    .any(|context| context.contains("Input"));
-                let help_key = !modifiers.alt
-                    && !modifiers.platform
-                    && (event.keystroke.key_char.as_deref() == Some("?")
-                        || key == "?"
-                        || (key == "/" && (modifiers.shift || modifiers.control)));
-                if help_key && !in_field {
-                    if this.shortcuts_open {
-                        this.close_shortcuts(window, cx);
-                    } else {
-                        this.open_shortcuts(window, cx);
-                    }
-                    cx.stop_propagation();
-                    return;
-                }
-                // The card owns the keyboard while it is up: no search focus,
-                // no tab keys and no clipboard action behind it. Escape is the
-                // one key it answers besides `?`.
-                if this.shortcuts_open {
-                    if key == "escape" {
-                        this.close_shortcuts(window, cx);
-                    }
                     cx.stop_propagation();
                     return;
                 }
@@ -539,6 +554,7 @@ impl MainWindow {
                     .debug_selector(move || format!("running-row-{key}"))
                     .role(gpui::Role::Status)
                     .aria_label(job.title.clone())
+                    .tooltip(crate::ui::tooltip_text(job.title.clone()))
                     .flex()
                     .items_start()
                     .gap_2()
@@ -1779,8 +1795,11 @@ impl MainWindow {
             .whitespace_nowrap()
             .debug_selector(move || id.into())
             .on_click(cx.listener(move |this, _, _, cx| {
-                if section == Section::About {
-                    this.about_members.clear();
+                // re-entering About refreshes the installed members once the
+                // probe can see a sibling that was installed meanwhile; a
+                // press while already on About must not start another probe
+                if section == Section::About && this.section != Section::About {
+                    this.refresh_about(cx);
                 }
                 this.section = section;
                 cx.notify();
@@ -2046,9 +2065,10 @@ impl MainWindow {
         let width = self.store.read(cx).list_width();
         let selected = self.about_selected;
         let current = AppId::Station;
-        if self.about_members.is_empty() {
-            let build = warpui_kit_core::build_info!();
-            self.about_members = about::detect_installed(current, &build);
+        // a launch that opens About from the environment hook has no rail
+        // press to start the scan
+        if !self.about_scanning && !self.about_scanned {
+            self.refresh_about(cx);
         }
 
         let entity = cx.entity();
@@ -2088,6 +2108,39 @@ impl MainWindow {
                 on_action,
                 on_link,
             ))
+    }
+
+    /// Re-reads the installed family off the UI thread: `detect_installed`
+    /// spawns `<sibling> --version` for every installed app and waits on its
+    /// process, so it must never run inside a frame. The seeded row stays on
+    /// screen until the answer lands, and a scan already in flight owns the
+    /// members it will replace.
+    fn refresh_about(&mut self, cx: &mut Context<Self>) {
+        if self.about_scanning {
+            return;
+        }
+        self.about_scanning = true;
+        cx.spawn(async move |this, cx| {
+            let build = warpui_kit_core::build_info!();
+            let members = cx
+                .background_executor()
+                .spawn(async move {
+                    warpui_kit_core::about::detect_installed(
+                        warpui_kit_core::about::AppId::Station,
+                        &build,
+                    )
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.about_scanning = false;
+                this.about_scanned = true;
+                if !members.is_empty() {
+                    this.about_members = members;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// What the About detail's buttons do. The kit decides which one is

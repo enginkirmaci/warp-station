@@ -82,13 +82,13 @@ impl Render for ReadmeView {
         // scroll — right for a whole-document swap)
         match &shown {
             Some(text) if self.fed_text.as_ref() == Some(text) => {}
-            Some(text) => match &self.editor {
-                Some(editor) => md::feed(editor, text.clone(), window, cx),
-                None => {
-                    self.editor = Some(md::attach(text.clone(), window, cx));
-                    self.fed_text = shown.clone();
+            Some(text) => {
+                match &self.editor {
+                    Some(editor) => md::feed(editor, text.clone(), window, cx),
+                    None => self.editor = Some(md::attach(text.clone(), window, cx)),
                 }
-            },
+                self.fed_text = Some(text.clone());
+            }
             None => {
                 self.editor = None;
                 self.fed_text = None;

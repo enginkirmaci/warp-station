@@ -960,6 +960,26 @@ fn the_azure_comment_composer_sends_the_text(cx: &mut TestAppContext) {
         cx.debug_bounds("azure-comment-field").is_some(),
         "the composer stays after sending"
     );
+
+    // the answer is what empties it: a failed POST keeps the words
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::AzurePullActed {
+                folder: "/probe/alpha".into(),
+                number: 214,
+                action: AzurePullAction::Comment {
+                    text: "nice".into(),
+                },
+                result: Ok(()),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        !store.read_with(cx, |s, _| s.azure_comment_sent),
+        "the view drains the flag"
+    );
 }
 
 /// Every verb is one request: a vote, a completion, an abandonment (which asks

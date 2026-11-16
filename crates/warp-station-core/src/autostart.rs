@@ -13,7 +13,8 @@ pub fn reconcile(enable: bool) {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| "warp-station".into());
             let contents = format!(
-                "[Desktop Entry]\nType=Application\nName=Warp Station\nExec={exe}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+                "[Desktop Entry]\nType=Application\nName=Warp Station\nExec={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+                exec_quoted(&exe)
             );
             // a save that did not touch StartAtBoot must not rewrite the file;
             // reconcile is called after every commit and the write is a no-op
@@ -88,4 +89,39 @@ fn xdg_autostart_dir() -> std::path::PathBuf {
             std::path::PathBuf::from(home).join(".config")
         })
         .join("autostart")
+}
+
+/// The desktop-entry `Exec` value for one program path: the spec's quoted
+/// argument form, so a path with a space is not read as program-plus-arguments.
+/// Inside double quotes the spec reserves the quote, backtick, `$` and
+/// backslash, each escaped with a backslash.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn exec_quoted(path: &str) -> String {
+    let mut quoted = String::with_capacity(path.len() + 2);
+    quoted.push('"');
+    for ch in path.chars() {
+        if matches!(ch, '"' | '`' | '$' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(ch);
+    }
+    quoted.push('"');
+    quoted
+}
+
+#[cfg(all(test, unix, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_exec_path_is_quoted_and_escaped() {
+        assert_eq!(
+            exec_quoted("/opt/Warp Station/warp-station"),
+            "\"/opt/Warp Station/warp-station\""
+        );
+        assert_eq!(
+            exec_quoted(r#"/tmp/a$b`c"d\e"#),
+            "\"/tmp/a\\$b\\`c\\\"d\\\\e\""
+        );
+    }
 }

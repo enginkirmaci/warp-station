@@ -5,6 +5,10 @@
 //! tree-sitter-highlighted code blocks stay. The PR comment list stays on
 //! gpui-kit's TextView deliberately: it is a volatile list of many small
 //! comments, not a document, and one editor entity per comment buys nothing.
+//!
+//! A TextView that renders a platform-supplied body goes through
+//! [`text_view_markdown`]: `TextView::markdown` parses during layout with no
+//! catch, so one text that trips the `markdown` crate would abort the frame.
 
 use gpui::{
     AnyElement, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window,
@@ -45,6 +49,21 @@ pub fn render_read_only(editor: &Entity<LiveEditorState>, cx: &gpui::App) -> Any
     render(editor, cx, false)
 }
 
+/// A remote body or comment as a markdown `TextView`, under the kit's parser
+/// guard. A pull request description or comment is platform text nobody has
+/// vetted for the parser, so a text that would panic during layout renders as
+/// plain prose instead of taking the window down.
+pub fn text_view_markdown(id: gpui::ElementId, text: impl Into<SharedString>) -> AnyElement {
+    let text = text.into();
+    if warpui_kit_markdown::renders_as_markdown(&text) {
+        gpui_kit::base::text::TextView::markdown(id, text)
+            .selectable(true)
+            .into_any_element()
+    } else {
+        div().child(text).into_any_element()
+    }
+}
+
 /// Like [`render_read_only`], but for a document embedded in a card: the
 /// card already bounds the width, so the engine's readable measure and top
 /// margin only add blank space around the content.
@@ -71,4 +90,29 @@ fn render(editor: &Entity<LiveEditorState>, cx: &gpui::App, in_card: bool) -> An
         .line_height(relative(25. / 15.))
         .child(element)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_view_markdown;
+
+    /// The `markdown` 1.0.0 compiler bug the guard exists for: a diff of
+    /// deleted Markdown spells this out exactly — its empty lines read `-`,
+    /// its rules `----`. gpui parses during layout, where nothing catches it.
+    const PANICS: &str = "-a\n-\n----\n@@ -1 +0,0 @@\n----";
+
+    #[test]
+    fn a_body_that_panics_the_parser_takes_the_prose_branch() {
+        assert!(!warpui_kit_markdown::renders_as_markdown(PANICS));
+        // the helper builds the fallback for that text without asking the
+        // parser again (the guard memoizes the verdict)
+        let _fallback = text_view_markdown(gpui::ElementId::Name("probe-body".into()), PANICS);
+    }
+
+    #[test]
+    fn ordinary_markdown_still_renders_through_the_text_view() {
+        assert!(warpui_kit_markdown::renders_as_markdown(
+            "# Title\n\n- one\n- two\n\n`code`\n"
+        ));
+    }
 }

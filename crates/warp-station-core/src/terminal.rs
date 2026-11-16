@@ -399,8 +399,11 @@ pub fn launch_argv_in_terminal(
                 .collect()
         }),
     ];
-    // the configured terminal wins when it names a known shape
+    // the configured terminal wins when it names a known shape; its own
+    // resolved path is used so an absolute binary launches, not a namesake
+    // found on PATH
     let configured_base = terminal_base(terminal_executable);
+    let configured_path = exe::locate(terminal_executable.trim());
     let mut ordered: Vec<(&str, ArgsFn)> = Vec::new();
     for entry in table {
         if !configured_base.is_empty() && *entry.0 == configured_base {
@@ -410,7 +413,12 @@ pub fn launch_argv_in_terminal(
         }
     }
     for (name, args) in ordered {
-        if let Some(path) = exe::locate(name) {
+        let resolved = if name == configured_base {
+            configured_path.clone().or_else(|| exe::locate(name))
+        } else {
+            exe::locate(name)
+        };
+        if let Some(path) = resolved {
             let mut command_builder = std::process::Command::new(&path);
             command_builder.args(args(folder, argv));
             if Path::new(folder).exists() {

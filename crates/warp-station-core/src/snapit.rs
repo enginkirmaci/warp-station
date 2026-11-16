@@ -181,9 +181,7 @@ pub fn layouts_in(folder: &std::path::Path) -> Vec<SnapLayout> {
 
 /// The layouts folder warp-snapit reads.
 pub fn layouts_folder() -> std::path::PathBuf {
-    crate::paths::AppPaths::user_data_root()
-        .join("snapit")
-        .join("layouts")
+    warpui_kit_platform::paths::app_dir("snapit").join("layouts")
 }
 
 #[cfg(test)]

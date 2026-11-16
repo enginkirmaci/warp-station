@@ -51,25 +51,18 @@ fn about_opens_on_station_and_copies_the_selected_app(cx: &mut TestAppContext) {
 
     click(cx, "rail-about");
 
-    // The family is in the list, and the current app owns the primary.
-    for key in [
-        "about-row-station",
-        "about-row-agent",
-        "about-row-notes",
-        "about-row-snapit",
-    ] {
-        cx.debug_bounds(key)
-            .unwrap_or_else(|| panic!("{key} renders"));
-    }
+    // The list holds only the members installed on this machine; Station is
+    // the app you are in, so it is always one of them and owns the primary.
+    cx.debug_bounds("about-row-station")
+        .expect("the app you are in is always listed");
     cx.debug_bounds("about-primary").expect("the primary");
 
-    // Picking Notes moves the detail and the copy line with it.
-    click(cx, "about-row-notes");
+    // The copy verb writes the line for the member the detail shows.
     click(cx, "about-copy-version");
     let line = clipboard_text(cx).expect("copy version writes the clipboard");
     let version = env!("CARGO_PKG_VERSION");
     assert!(
-        line.starts_with(&format!("Warp Notes {version} (")),
+        line.starts_with(&format!("Warp Station {version} (")),
         "the copy line names the selected app, got {line:?}"
     );
     assert!(line.ends_with("· dev"), "a plain build says dev: {line:?}");

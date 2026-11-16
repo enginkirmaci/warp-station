@@ -1451,6 +1451,7 @@ fn needy_job_button(
         .when(running, |d| {
             d.bg(theme::panel())
                 .text_color(theme::text_muted())
+                .tooltip(crate::ui::tooltip_text(label))
                 .child(motion::spinner(
                     SharedString::from(format!("{id}-spin")),
                     "icons/icon-spinner.svg",

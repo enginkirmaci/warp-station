@@ -238,6 +238,7 @@ fn ghost_busy(label: &'static str) -> gpui::AnyElement {
         .debug_selector(move || id.clone())
         .role(gpui::Role::Status)
         .aria_label(label)
+        .tooltip(crate::ui::tooltip_text(label))
         .rounded(px(6.))
         .h(warpui_kit_core::shell::control_height())
         .px(px(9.))

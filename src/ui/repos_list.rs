@@ -64,6 +64,7 @@ fn cloning_row(ix: usize, name: &str) -> impl IntoElement + use<> {
                 .id(SharedString::from(format!("repo-cloning-status-{ix}")))
                 .role(gpui::Role::Status)
                 .aria_label("Cloning repository")
+                .tooltip(crate::ui::tooltip_text("Cloning repository"))
                 .flex()
                 .items_center()
                 .child(motion::spinner(
@@ -672,19 +673,30 @@ fn repo_row(
                     ))
                 })
                 .when_some(facts.job, |line, job| {
-                    line.debug_selector(move || format!("repo-row-job-{row_ix}"))
-                        .child(motion::spinner(
-                            SharedString::from(format!("repo-row-spinner-{row_ix}")),
-                            "icons/icon-spinner.svg",
-                            px(theme::icon_tiny()),
-                            theme::text_dim(),
-                        ))
-                        .child(
-                            div()
-                                .text_size(px(theme::font_meta()))
-                                .text_color(theme::text_dim())
-                                .child(crate::net::git_working_word(job)),
-                        )
+                    let word = crate::net::git_working_word(job);
+                    // the spinner rides with its word and the tooltip names
+                    // it, so the job reads without relying on motion alone
+                    line.child(
+                        div()
+                            .id(SharedString::from(format!("repo-row-job-{row_ix}")))
+                            .debug_selector(move || format!("repo-row-job-{row_ix}"))
+                            .tooltip(crate::ui::tooltip_text(word))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(motion::spinner(
+                                SharedString::from(format!("repo-row-spinner-{row_ix}")),
+                                "icons/icon-spinner.svg",
+                                px(theme::icon_tiny()),
+                                theme::text_dim(),
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(theme::font_meta()))
+                                    .text_color(theme::text_dim())
+                                    .child(word),
+                            ),
+                    )
                 })
                 .when(facts.job.is_none(), |line| {
                     line.child(

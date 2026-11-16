@@ -235,7 +235,8 @@ impl AzureView {
                 div()
                     .id("azure-latest-status")
                     .role(gpui::Role::Status)
-                    .aria_label(busy_label)
+                    .aria_label(busy_label.clone())
+                    .tooltip(crate::ui::tooltip_text(busy_label))
                     .flex()
                     .items_center()
                     .child(motion::spinner(
@@ -558,6 +559,7 @@ impl AzureView {
                     .id(SharedString::from(selector.clone()))
                     .debug_selector(move || selector.clone())
                     .a11y_button(title.clone())
+                    .tooltip(crate::ui::tooltip_text(title.clone()))
                     .cursor_pointer()
                     .flex()
                     .items_center()
@@ -930,6 +932,7 @@ fn run_strip(run: &ActivityRun, following: bool) -> AnyElement {
                         .id("run-strip-status")
                         .role(gpui::Role::Status)
                         .aria_label("Run in progress")
+                        .tooltip(crate::ui::tooltip_text("Run in progress"))
                         .flex()
                         .items_center()
                         .child(motion::spinner(
@@ -1063,6 +1066,10 @@ fn stage_card(ix: usize, stage: &RunStage) -> AnyElement {
                         .id(SharedString::from(format!("run-stage-status-{ix}")))
                         .role(gpui::Role::Status)
                         .aria_label(format!("Running stage {}", stage.name))
+                        .tooltip(crate::ui::tooltip_text(format!(
+                            "Running stage {}",
+                            stage.name
+                        )))
                         .flex()
                         .items_center()
                         .child(motion::spinner(
@@ -1123,6 +1130,7 @@ fn step_row(stage_ix: usize, job_ix: usize, step_ix: usize, step: &RunJob) -> An
     let time = step.duration().unwrap_or_default();
     let selector = format!("run-step-{stage_ix}-{job_ix}-{step_ix}");
     let spinner_id = selector.clone();
+    let status_id = format!("{selector}-status");
     div()
         .id(SharedString::from(selector.clone()))
         .debug_selector(move || selector.clone())
@@ -1139,13 +1147,23 @@ fn step_row(stage_ix: usize, job_ix: usize, step_ix: usize, step: &RunJob) -> An
             theme::text_dim()
         })
         .child(if glyph == "icons/icon-spinner.svg" {
-            motion::spinner(
-                SharedString::from(spinner_id),
-                "icons/icon-spinner.svg",
-                px(theme::icon_tiny()),
-                color,
-            )
-            .into_any_element()
+            div()
+                .id(SharedString::from(status_id))
+                .role(gpui::Role::Status)
+                .aria_label(format!("Running step {}", step.name))
+                .tooltip(crate::ui::tooltip_text(format!(
+                    "Running step {}",
+                    step.name
+                )))
+                .flex()
+                .items_center()
+                .child(motion::spinner(
+                    SharedString::from(spinner_id),
+                    "icons/icon-spinner.svg",
+                    px(theme::icon_tiny()),
+                    color,
+                ))
+                .into_any_element()
         } else {
             icon(glyph, px(theme::icon_tiny()), color).into_any_element()
         })
@@ -1188,6 +1206,7 @@ fn job_row(stage_ix: usize, job_ix: usize, job: &RunJob) -> AnyElement {
         .id(SharedString::from(selector.clone()))
         .debug_selector(move || selector.clone())
         .a11y_button(job.name.clone())
+        .tooltip(crate::ui::tooltip_text(job.name.clone()))
         .min_h(px(40.))
         .px_4()
         .flex()

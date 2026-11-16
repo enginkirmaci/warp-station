@@ -26,6 +26,10 @@ pub struct SummaryPage {
     /// A run that finishes adds a file, so the list reloads on the falling edge.
     was_busy: bool,
     loaded: bool,
+    /// A reload owns its background read; a request that lands meanwhile asks
+    /// for one more pass instead of racing it.
+    loading: bool,
+    reload_again: bool,
 }
 
 impl SummaryPage {
@@ -40,40 +44,78 @@ impl SummaryPage {
             fed_text: None,
             was_busy: false,
             loaded: false,
+            loading: false,
+            reload_again: false,
         }
     }
 
-    fn reload(&mut self, cx: &Context<Self>) {
+    /// Reads the store off the UI thread and lands the list with the file it
+    /// keeps: `read_dir` and `read_to_string` are filesystem calls, and a
+    /// slow or network-backed notes store must not hold the frame that asks
+    /// for it.
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        if self.loading {
+            self.reload_again = true;
+            return;
+        }
+        self.loading = true;
         let settings = self.store.read(cx).settings();
         let folder =
             warp_station_core::notes::resolve_store_root(&settings.general.notes_store_path)
                 .join("Summaries");
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&folder)
-            .map(|entries| {
-                entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-                    .collect()
-            })
-            .unwrap_or_default();
-        files.sort_by(|a, b| b.cmp(a));
-        self.files = files;
-        self.loaded = true;
-        let first = self.files.first().cloned();
-        let keep = self
-            .selected
-            .clone()
-            .filter(|path| self.files.contains(path));
-        self.select(keep.or(first));
+        let keep = self.selected.clone();
+        cx.spawn(async move |this, cx| {
+            let (files, selected, text) = cx
+                .background_executor()
+                .spawn(async move {
+                    let files = summary_files(&folder);
+                    let selected = keep
+                        .filter(|path| files.contains(path))
+                        .or_else(|| files.first().cloned());
+                    let text = selected
+                        .as_ref()
+                        .and_then(|path| std::fs::read_to_string(path).ok())
+                        .map(SharedString::from);
+                    (files, selected, text)
+                })
+                .await;
+            let _ = this.update(cx, |page, cx| {
+                page.loading = false;
+                page.files = files;
+                page.selected = selected;
+                page.text = text;
+                page.loaded = true;
+                if std::mem::take(&mut page.reload_again) {
+                    page.reload(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
-    fn select(&mut self, path: Option<PathBuf>) {
-        self.text = path
-            .as_ref()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .map(SharedString::from);
-        self.selected = path;
+    /// Picks a summary and reads it off the UI thread: the row and its heading
+    /// move at once, and the text lands only while it is still the picked file.
+    fn select(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
+        self.selected = path.clone();
+        let Some(path) = path else {
+            self.text = None;
+            return;
+        };
+        let read = path.clone();
+        cx.spawn(async move |this, cx| {
+            let text = cx
+                .background_executor()
+                .spawn(async move { std::fs::read_to_string(read).ok().map(SharedString::from) })
+                .await;
+            let _ = this.update(cx, |page, cx| {
+                if page.selected.as_ref() == Some(&path) {
+                    page.text = text;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn row(&self, path: &PathBuf, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -86,7 +128,7 @@ impl SummaryPage {
         )
         .a11y_button(format!("{name} — {file}"))
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.select(Some(target.clone()));
+            this.select(Some(target.clone()), cx);
             cx.notify();
         }))
         .child(
@@ -117,6 +159,11 @@ impl SummaryPage {
             } else {
                 "Summarize yesterday"
             })
+            .tooltip(crate::ui::tooltip_text(if busy {
+                "Summarizing yesterday's work"
+            } else {
+                "Summarize yesterday's work"
+            }))
             .flex_shrink_0()
             .h(px(shell::CONTROL_HEIGHT))
             .px_3()
@@ -164,6 +211,21 @@ impl SummaryPage {
                 "Summarize yesterday"
             })
     }
+}
+
+/// The store's summary files, newest first: their names are dates.
+fn summary_files(folder: &std::path::Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort_by(|a, b| b.cmp(a));
+    files
 }
 
 /// The summary's day, as the prototype writes it ("Sunday, 1 Nov"); a file

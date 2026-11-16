@@ -79,7 +79,7 @@ const CANCEL_GRACE: Duration = Duration::from_secs(30);
 
 fn config_dir() -> PathBuf {
     // the door endpoint lives in warp-agent's own folder under the suite root
-    crate::paths::AppPaths::user_data_root().join("agent")
+    warpui_kit_platform::paths::app_dir("agent")
 }
 
 /// The door endpoint as published by a running warp-agent.
@@ -194,19 +194,6 @@ impl Client {
         self.request(cmd::OPEN_WORKSPACE, json!({"path": path.to_string_lossy()}))
             .await
             .map(|_| ())
-    }
-
-    pub async fn new_chat(
-        &mut self,
-        workspace: &str,
-        prefill: &str,
-        auto_send: bool,
-        choice: &ModelChoice,
-    ) -> Result<()> {
-        let mut params =
-            json!({"workspace": workspace, "prefill": prefill, "auto_send": auto_send});
-        choice.apply(&mut params);
-        self.request(cmd::NEW_CHAT, params).await.map(|_| ())
     }
 
     /// The harness's model catalog with the variants each model offers. The

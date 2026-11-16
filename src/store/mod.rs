@@ -255,6 +255,8 @@ pub struct Store {
     pipeline_gate: Option<PipelineGate>,
     /// The Azure pull request open in the Pipelines tab, when one is.
     pub open_azure_pull: Option<OpenAzurePull>,
+    /// A comment just landed: the view drains this to empty its composer.
+    pub azure_comment_sent: bool,
     /// Keys already asked for ("detail", "files", "commits", "diff:<path>"),
     /// so drawing cannot re-ask.
     azure_pull_requested: std::collections::HashSet<(String, u64, String)>,
@@ -529,6 +531,7 @@ impl Store {
             pipeline_watch: None,
             pipeline_gate: None,
             open_azure_pull: None,
+            azure_comment_sent: false,
             azure_pull_requested: std::collections::HashSet::new(),
             confirm_azure_abandon: None,
             new_pull_requested: std::env::var("WARP_STATION_NEW_PULL").as_deref() == Ok("1"),
@@ -1417,6 +1420,13 @@ impl Store {
                 }
                 match result {
                     Ok(()) => {
+                        // a comment's composer empties only once its POST landed
+                        if matches!(
+                            action,
+                            warp_station_core::azure::AzurePullAction::Comment { .. }
+                        ) {
+                            self.azure_comment_sent = true;
+                        }
                         let done_word = action.done_word(number);
                         let completing =
                             matches!(action, warp_station_core::azure::AzurePullAction::Complete);
@@ -1911,10 +1921,6 @@ impl Store {
                             format!("Deleted {} in {name}", detail.as_deref().unwrap_or(&name))
                         }
                         ("revert", _) => format!("Reverted in {name}"),
-                        ("resolve conflict", _) => format!(
-                            "Resolved {} in {name}",
-                            detail.as_deref().unwrap_or("the file")
-                        ),
                         _ => format!("{label} ok"),
                     });
                     if let Some(hash) = commit_hash {
@@ -6497,6 +6503,8 @@ impl Store {
             self.global_search_pending = false;
             self.code_search_hits.clear();
             self.code_searching = false;
+            // a sweep already out for the erased term must not land after it
+            self.code_search_generation += 1;
             cx.notify();
             return;
         }

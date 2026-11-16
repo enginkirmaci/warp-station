@@ -657,7 +657,9 @@ pub fn log_tail(text: &str, cap: usize) -> String {
     if text.len() <= cap {
         return text.to_string();
     }
-    let start = text.len() - cap;
+    // a log cut can land inside a multi-byte character (→, ✓); step back to
+    // the character's first byte before slicing
+    let start = text.floor_char_boundary(text.len() - cap);
     let start = text[start..]
         .find('\n')
         .map_or(start, |offset| start + offset + 1);
@@ -852,6 +854,16 @@ mod tests {
             tail.starts_with("three"),
             "cut on a line, not mid-word: {tail}"
         );
+    }
+
+    #[test]
+    fn a_log_tail_cut_inside_a_character_steps_back_to_its_start() {
+        // a cap that lands inside the arrow's bytes would panic on the slice
+        let text = format!("{}→\nlast line\n", "a".repeat(50));
+        let arrow = text.find('→').unwrap();
+        let cap = text.len() - arrow - 1;
+        assert_eq!(text.len() - cap, arrow + 1, "the cut is mid-character");
+        assert_eq!(log_tail(&text, cap), "last line\n");
     }
 
     fn github_row(number: u64, pull: bool) -> crate::github::GitHubItem {

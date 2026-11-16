@@ -261,6 +261,8 @@ pub fn merge_scan(
             entry.github_web_url = prev.github_web_url.clone();
             entry.github_pr_count = prev.github_pr_count;
             entry.github_issue_count = prev.github_issue_count;
+            entry.azure_pull_count = prev.azure_pull_count;
+            entry.azure_work_item_count = prev.azure_work_item_count;
         }
         merged.push(entry);
     }
@@ -355,11 +357,11 @@ mod tests {
             git_has_remote: true,
             git_branch_published: false,
             git_status_loaded: true,
-            github_pr_count: 0,
-            github_issue_count: 0,
-            azure_pull_count: 0,
+            github_pr_count: 2,
+            github_issue_count: 3,
+            azure_pull_count: 4,
             github_web_url: None,
-            azure_work_item_count: 0,
+            azure_work_item_count: 5,
         };
         let scanned = ScannedRepo {
             name: "repo".into(),
@@ -380,6 +382,12 @@ mod tests {
         assert_eq!(merged[0].git_branch_name.as_deref(), Some("main"));
         assert_eq!(merged[0].git_modified_count, 3);
         assert!(merged[0].is_favorite());
+        // the Azure pass's counts survive the rescan beside the GitHub ones
+        assert_eq!(merged[0].github_pr_count, 2);
+        assert_eq!(merged[0].github_issue_count, 3);
+        assert_eq!(merged[0].azure_pull_count, 4);
+        assert_eq!(merged[0].azure_work_item_count, 5);
+        assert_eq!(merged[0].pull_total(), 6);
     }
 
     #[test]

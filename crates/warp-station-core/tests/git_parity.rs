@@ -30,6 +30,47 @@ fn require() -> Option<std::path::PathBuf> {
     git(&["rev-parse"]).is_some().then_some(root)
 }
 
+/// Runs `git` in a scratch repository the probe owns: an identity and no
+/// signing, so the probe never depends on this machine's git config.
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args([
+            "-c",
+            "user.name=warp-station probe",
+            "-c",
+            "user.email=probe@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// One commit on the scratch repository's current branch, returning its hash.
+fn commit_in(dir: &Path, subject: &str, body: &str) -> String {
+    git_in(
+        dir,
+        &[
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            subject,
+            "-m",
+            body,
+        ],
+    );
+    git_in(dir, &["rev-parse", "HEAD"])
+}
+
 #[test]
 fn probe_matches_cli_status() {
     let Some(root) = require() else { return };
@@ -208,8 +249,11 @@ fn the_pull_prefill_matches_the_log() {
     let cli_subject = git(&["log", "-1", "--format=%s"]).unwrap_or_default();
     assert_eq!(subject, cli_subject.trim(), "tip subject");
 
-    // the body carries every commit's message body in base..head
-    for revision in ["HEAD", "HEAD~1"] {
+    // the body carries every commit's message body in `base..head`, and the
+    // base is excluded: it is already what the pull lands on
+    let range =
+        git(&["rev-list", &format!("{}..{}", base.trim(), head.trim())]).unwrap_or_default();
+    for revision in range.lines().filter(|line| !line.trim().is_empty()) {
         let cli_body = git(&["log", "-1", "--format=%b", revision]).unwrap_or_default();
         let cli_body = cli_body.trim();
         if !cli_body.is_empty() {
@@ -219,4 +263,49 @@ fn the_pull_prefill_matches_the_log() {
             );
         }
     }
+}
+
+/// The range's shape is the contract, so the probe builds its own history
+/// instead of leaning on this repository's latest two commits: every body in
+/// `base..head` joins the prefill, the tip's subject is the title, and the base
+/// — already on the branch the pull lands on — contributes nothing.
+#[test]
+fn the_pull_prefill_joins_the_range_and_drops_the_base() {
+    let dir = tempfile::tempdir().expect("scratch repo");
+    let root = dir.path();
+    git_in(root, &["init", "--quiet", "--initial-branch=main"]);
+    let base = commit_in(
+        root,
+        "base subject",
+        "the base body is already on the branch",
+    );
+    let first = commit_in(root, "first subject", "the first body");
+    let tip = commit_in(root, "tip subject", "the tip body");
+
+    let (subject, body) = read::pull_prefill(root, &base, &tip).expect("prefill");
+    assert_eq!(subject, "tip subject", "the tip subject is the title");
+    assert!(
+        body.contains("the first body"),
+        "every body in range joins: {body:?}"
+    );
+    assert!(
+        body.contains("the tip body"),
+        "the tip body joins: {body:?}"
+    );
+    assert!(
+        !body.contains("the base body is already on the branch"),
+        "the base commit is outside the range: {body:?}"
+    );
+    assert!(
+        !body.contains("first subject"),
+        "bodies carry no subjects: {body:?}"
+    );
+    assert!(
+        body.find("the tip body") < body.find("the first body"),
+        "the walk is newest first, as pull_prefill documents"
+    );
+
+    // a single-commit range is the common case: one body, no separators
+    let (_, one) = read::pull_prefill(root, &first, &tip).expect("prefill");
+    assert_eq!(one.trim(), "the tip body");
 }
