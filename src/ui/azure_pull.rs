@@ -11,6 +11,7 @@
 use crate::store::Store;
 use crate::theme;
 use crate::ui::diff_controls;
+use crate::ui::file_tree;
 use crate::ui::markdown as md;
 use crate::ui::pull_request::{
     Shape, avatar, comment_card, menu_divider, menu_item, menu_shell, plain_button,
@@ -95,6 +96,12 @@ pub struct AzurePullView {
     files_focus: FocusHandle,
     files_scroll: ScrollHandle,
     file_paths: Vec<String>,
+    /// Whether the rail draws its tree; read from the app-wide switch.
+    tree_view: bool,
+    /// The Files rail's tree state: folded folders and the cursor. The
+    /// selection stays `file_ix`.
+    files_folded: std::collections::HashSet<String>,
+    files_cursor: Option<file_tree::Cursor>,
     /// The panes on screen this frame: the Files rail registers itself while
     /// its tab is drawn.
     pane_nav: Rc<pane_nav::PaneNav>,
@@ -111,6 +118,7 @@ impl AzurePullView {
         let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Write a comment…"));
         // the composer's button follows what is typed in it
         cx.observe(&comment, |_, _, cx| cx.notify()).detach();
+        let tree_view = store.read(cx).tree_view();
         let diff_view = store.read(cx).diff_view();
         let diff_wrap = store.read(cx).diff_wrap();
         Self {
@@ -132,6 +140,9 @@ impl AzurePullView {
             files_focus: cx.focus_handle(),
             files_scroll: ScrollHandle::default(),
             file_paths: Vec::new(),
+            tree_view,
+            files_folded: std::collections::HashSet::new(),
+            files_cursor: None,
             pane_nav,
         }
     }
@@ -155,40 +166,139 @@ impl AzurePullView {
     /// The Files rail's keys: a pane move first, then the row cursor. Azure
     /// hands out no patch with the change list, so each step also asks for the
     /// new file's diff.
+    /// The Files rail's keys: a folder row keeps `Left`/`Right`/`Enter` for
+    /// folding, a file row leaves the arrows to the pane move, and every step
+    /// walks the visible rows.
     fn handle_files_key(
         &mut self,
         event: &gpui::KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if let Some(dir) = pane_nav::direction(event) {
-            return self.pane_nav.move_from(&self.files_focus, dir, window, cx);
-        }
         if event.keystroke.modifiers.modified() {
             return false;
         }
-        let Some(key) = list_nav::list_key(event) else {
-            return false;
-        };
-        if !key.moves() {
-            return false;
+        let rows = self.files_rows();
+        if let Some(key) = list_nav::list_key(event) {
+            match key {
+                list_nav::ListKey::Left => {
+                    if self.files_collapse_or_parent(&rows) {
+                        cx.notify();
+                        return true;
+                    }
+                }
+                list_nav::ListKey::Right => {
+                    if self.files_expand_or_child(&rows, cx) {
+                        cx.notify();
+                        return true;
+                    }
+                }
+                list_nav::ListKey::Enter => {
+                    if self.files_toggle_cursor(&rows) {
+                        cx.notify();
+                        return true;
+                    }
+                    return false;
+                }
+                list_nav::ListKey::Up
+                | list_nav::ListKey::Down
+                | list_nav::ListKey::Home
+                | list_nav::ListKey::End
+                | list_nav::ListKey::PageUp
+                | list_nav::ListKey::PageDown => {
+                    // a fresh rail has no cursor yet: the selection is the
+                    // stop the first step counts from
+                    let current = self.files_cursor_index(&rows).or_else(|| {
+                        rows.iter()
+                            .position(|row| row.file_index() == Some(self.file_ix))
+                    });
+                    let Some(next) =
+                        list_nav::step(current, rows.len(), key, list_nav::DEFAULT_PAGE)
+                    else {
+                        return false;
+                    };
+                    let row = rows[next].clone();
+                    self.files_cursor = Some(row.cursor());
+                    if let Some(index) = row.file_index() {
+                        self.select_azure_file(index, cx);
+                    }
+                    self.files_scroll.scroll_to_item(next);
+                    cx.notify();
+                    return true;
+                }
+                _ => {}
+            }
         }
-        let Some(next) = list_nav::step(
-            Some(self.file_ix),
-            self.file_paths.len(),
-            key,
-            list_nav::DEFAULT_PAGE,
-        ) else {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.files_focus, dir, window, cx);
+        }
+        false
+    }
+
+    /// `Left` on a folder row: fold it, or step to its parent when folded.
+    fn files_collapse_or_parent(&mut self, rows: &[file_tree::Row]) -> bool {
+        let Some(ix) = self.files_cursor_index(rows) else {
             return false;
         };
-        self.file_ix = next;
-        self.files_scroll.scroll_to_item(next);
-        if let Some(path) = self.file_paths.get(next).cloned() {
+        let Some(path) = rows[ix].folder_path().map(str::to_string) else {
+            return false;
+        };
+        if !self.files_folded.contains(&path) {
+            self.files_folded.insert(path);
+            self.files_scroll_to_cursor(rows);
+            return true;
+        }
+        let depth = rows[ix].depth();
+        if let Some(parent) = rows[..ix].iter().rev().find(|row| row.depth() < depth) {
+            self.files_cursor = Some(parent.cursor());
+            self.files_scroll_to_cursor(rows);
+        }
+        true
+    }
+
+    /// `Right` on a folder row: unfold it, or step to its first child.
+    fn files_expand_or_child(&mut self, rows: &[file_tree::Row], cx: &mut Context<Self>) -> bool {
+        let Some(ix) = self.files_cursor_index(rows) else {
+            return false;
+        };
+        let Some(path) = rows[ix].folder_path().map(str::to_string) else {
+            return false;
+        };
+        if self.files_folded.remove(&path) {
+            self.files_scroll_to_cursor(rows);
+            return true;
+        }
+        let depth = rows[ix].depth();
+        if let Some(child) = rows.get(ix + 1).filter(|row| row.depth() > depth) {
+            self.files_cursor = Some(child.cursor());
+            if let Some(index) = child.file_index() {
+                self.select_azure_file(index, cx);
+            }
+            self.files_scroll_to_cursor(rows);
+        }
+        true
+    }
+
+    /// `Enter` on a folder row of the rail folds or unfolds it.
+    fn files_toggle_cursor(&mut self, rows: &[file_tree::Row]) -> bool {
+        let Some(ix) = self.files_cursor_index(rows) else {
+            return false;
+        };
+        let Some(path) = rows[ix].folder_path().map(str::to_string) else {
+            return false;
+        };
+        self.toggle_files_folder(&path);
+        self.files_scroll_to_cursor(rows);
+        true
+    }
+
+    /// Lands the selection on one file: the diff is a second call per file.
+    fn select_azure_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.file_ix = index;
+        if let Some(path) = self.file_paths.get(index).cloned() {
             self.store
                 .update(cx, |store, cx| store.load_azure_pull_diff(&path, cx));
         }
-        cx.notify();
-        true
     }
 
     fn reset_for(&mut self, number: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -198,6 +308,8 @@ impl AzurePullView {
         self.showing = Some(number);
         self.tab = AzureTab::Overview;
         self.file_ix = 0;
+        self.files_folded.clear();
+        self.files_cursor = None;
         self.review_menu = false;
         self.primary_menu = false;
         self.reviewer_menu = false;
@@ -209,6 +321,7 @@ impl AzurePullView {
 impl Render for AzurePullView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let this = cx.entity();
+        self.tree_view = self.store.read(cx).tree_view();
         let Some(open) = self.store.read(cx).open_azure_pull.clone() else {
             return div().into_any_element();
         };
@@ -1083,8 +1196,26 @@ impl AzurePullView {
             .flex_col()
             .track_scroll(&self.files_scroll)
             .py_1();
-        for (index, entry) in files.iter().enumerate() {
-            rows = rows.child(file_row(index, entry, index == ix, this));
+        if self.tree_view {
+            let tree = file_tree::Tree::build(self.file_paths.iter().map(|path| path.as_str()));
+            for row in tree.rows(&self.files_folded) {
+                rows = rows.child(match row {
+                    file_tree::Row::Folder {
+                        path,
+                        label,
+                        count,
+                        depth,
+                        folded,
+                    } => self.folder_row(this, &path, &label, count, depth, folded),
+                    file_tree::Row::File { index, depth, .. } => {
+                        self.file_row(this, index, &files[index], depth, index == ix)
+                    }
+                });
+            }
+        } else {
+            for (index, entry) in files.iter().enumerate() {
+                rows = rows.child(self.file_row(this, index, entry, 0, index == ix));
+            }
         }
         rail = rail.child(rows);
         let narrow = self.column_width < STACKED_COLUMN;
@@ -1984,75 +2115,197 @@ fn policy_row(path: &'static str, color: Rgba, title: String, detail: String) ->
 }
 
 /// One row of the changed-file rail.
-fn file_row(
-    index: usize,
-    file: &AzureFile,
-    selected: bool,
-    this: &Entity<AzurePullView>,
-) -> AnyElement {
-    let this = this.clone();
-    let path = file.path.clone();
-    let selector = format!("azure-pull-file-{index}");
-    let (dir, name) = split_path(&path);
-    div()
-        .id(SharedString::from(selector.clone()))
-        .debug_selector(move || selector.clone())
-        .a11y_button(path.clone())
-        .cursor_pointer()
-        .flex()
-        .items_center()
-        .gap_2()
-        .h(px(34.))
-        .pl(px(13.))
-        .pr_2()
-        .border_l(px(3.))
-        .border_color(if selected {
-            gpui::Hsla::from(theme::accent())
-        } else {
-            gpui::transparent_black()
-        })
-        .when(selected, |d| d.bg(theme::raised()))
-        .hover(|d| d.bg(theme::panel()))
-        .on_click(move |_, _, cx| {
-            let path = path.clone();
-            this.update(cx, |view, cx| {
-                view.file_ix = index;
-                view.store
-                    .update(cx, |store, cx| store.load_azure_pull_diff(&path, cx));
-                cx.notify();
-            });
-        })
-        .child(
-            div()
-                .flex_shrink_0()
-                .w(px(14.))
-                .font_family(theme::code_font())
-                .text_size(px(theme::font_mono_meta()))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(diff_controls::status_color(file.letter()))
-                .child(file.letter()),
+impl AzurePullView {
+    /// One file row of the Files rail: the app-wide switch decides whether the
+    /// dim directory rides beside the name or the tree's row carries it.
+    fn file_row(
+        &self,
+        this: &Entity<AzurePullView>,
+        index: usize,
+        file: &AzureFile,
+        depth: usize,
+        selected: bool,
+    ) -> AnyElement {
+        let this = this.clone();
+        let path = file.path.clone();
+        let selector = format!("azure-pull-file-{index}");
+        let (dir, name) = split_path(&path);
+        div()
+            .id(SharedString::from(selector.clone()))
+            .debug_selector(move || selector.clone())
+            .a11y_button(path.clone())
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(34.))
+            .pl(px(13. + depth as f32 * 14.))
+            .pr_2()
+            .border_l(px(3.))
+            .border_color(if selected {
+                gpui::Hsla::from(theme::accent())
+            } else {
+                gpui::transparent_black()
+            })
+            .when(selected, |d| d.bg(theme::raised()))
+            .hover(|d| d.bg(theme::panel()))
+            .on_click(move |_, _, cx| {
+                let path = path.clone();
+                this.update(cx, |view, cx| {
+                    view.file_ix = index;
+                    view.files_cursor = Some(file_tree::Cursor::File(index));
+                    view.store
+                        .update(cx, |store, cx| store.load_azure_pull_diff(&path, cx));
+                    cx.notify();
+                });
+            })
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(14.))
+                    .font_family(theme::code_font())
+                    .text_size(px(theme::font_mono_meta()))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(diff_controls::status_color(file.letter()))
+                    .child(file.letter()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text())
+                    .when(self.tree_view, |d| {
+                        d.child(
+                            div()
+                                .min_w(px(0.))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(name.clone()),
+                        )
+                    })
+                    .when(!self.tree_view, |d| {
+                        d.child(
+                            div()
+                                .flex_shrink(1.)
+                                .min_w(px(0.))
+                                .text_color(theme::text_muted())
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(dir),
+                        )
+                        .child(div().flex_shrink_0().child(name))
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// A folder row of the Files rail: the Changes band's shape, no verbs.
+    fn folder_row(
+        &self,
+        this: &Entity<AzurePullView>,
+        path: &str,
+        label: &str,
+        count: usize,
+        depth: usize,
+        folded: bool,
+    ) -> AnyElement {
+        let cursor =
+            self.files_cursor.as_ref() == Some(&file_tree::Cursor::Folder(path.to_string()));
+        let selector = format!("azure-pull-folder-{path}");
+        let row_selector = selector.clone();
+        let a11y: SharedString = format!(
+            "{label} ({count} {})",
+            if count == 1 { "file" } else { "files" }
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::text())
-                .child(
-                    div()
-                        .flex_shrink(1.)
-                        .min_w(px(0.))
-                        .text_color(theme::text_muted())
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(dir),
-                )
-                .child(div().flex_shrink_0().child(name)),
-        )
-        .into_any_element()
+        .into();
+        let this = this.clone();
+        let path = path.to_string();
+        let label = label.to_string();
+        div()
+            .id(SharedString::from(selector.clone()))
+            .debug_selector(move || row_selector.clone())
+            .a11y_tree_item(a11y, Some(!folded))
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .gap_2()
+            .h(px(34.))
+            .pl(px(13. + depth as f32 * 14.))
+            .pr_2()
+            .when(cursor, |d| d.bg(theme::raised()))
+            .hover(|d| d.bg(theme::panel()))
+            .on_click(move |_, _, cx| {
+                this.update(cx, |view, cx| {
+                    view.files_cursor = Some(file_tree::Cursor::Folder(path.clone()));
+                    view.toggle_files_folder(&path);
+                    cx.notify();
+                });
+            })
+            .child(icon(
+                if folded {
+                    "icons/icon-chevron-right.svg"
+                } else {
+                    "icons/icon-chevron-down.svg"
+                },
+                px(theme::icon_tiny()),
+                theme::text_faint(),
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text())
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text_muted())
+                    .child(count.to_string()),
+            )
+            .into_any_element()
+    }
+
+    fn toggle_files_folder(&mut self, path: &str) {
+        if !self.files_folded.remove(path) {
+            self.files_folded.insert(path.to_string());
+        }
+    }
+
+    /// The rail's visible rows for the keys: the tree, or every file flat.
+    fn files_rows(&self) -> Vec<file_tree::Row> {
+        if !self.tree_view {
+            return (0..self.file_paths.len())
+                .map(|index| file_tree::Row::File {
+                    index,
+                    name: String::new(),
+                    depth: 0,
+                })
+                .collect();
+        }
+        let tree = file_tree::Tree::build(self.file_paths.iter().map(|path| path.as_str()));
+        tree.rows(&self.files_folded)
+    }
+
+    fn files_cursor_index(&self, rows: &[file_tree::Row]) -> Option<usize> {
+        let cursor = self.files_cursor.as_ref()?;
+        rows.iter().position(|row| &row.cursor() == cursor)
+    }
+
+    fn files_scroll_to_cursor(&self, rows: &[file_tree::Row]) {
+        if let Some(ix) = self.files_cursor_index(rows) {
+            self.files_scroll.scroll_to_item(ix);
+        }
+    }
 }
 
 fn split_path(path: &str) -> (String, String) {

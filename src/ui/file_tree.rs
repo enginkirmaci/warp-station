@@ -28,6 +28,46 @@ pub enum Row {
     },
 }
 
+/// The cursor's row: a folder path or a file index. A rail keeps this
+/// separate from its selection so folding never moves the diff.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Cursor {
+    Folder(String),
+    File(usize),
+}
+
+impl Row {
+    /// The cursor key for this row.
+    pub fn cursor(&self) -> Cursor {
+        match self {
+            Row::Folder { path, .. } => Cursor::Folder(path.clone()),
+            Row::File { index, .. } => Cursor::File(*index),
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        match self {
+            Row::Folder { depth, .. } | Row::File { depth, .. } => *depth,
+        }
+    }
+
+    /// The folder's path, when this is a folder row.
+    pub fn folder_path(&self) -> Option<&str> {
+        match self {
+            Row::Folder { path, .. } => Some(path),
+            Row::File { .. } => None,
+        }
+    }
+
+    /// The file's index, when this is a file row.
+    pub fn file_index(&self) -> Option<usize> {
+        match self {
+            Row::File { index, .. } => Some(*index),
+            Row::Folder { .. } => None,
+        }
+    }
+}
+
 /// A section's tree of changed files.
 pub struct Tree {
     root: Node,
@@ -286,6 +326,16 @@ mod tests {
         assert!(!tree.contains_folder("src"), "a chain root is not a row");
         assert!(!tree.contains_folder("src/ui/a.rs"));
         assert!(!tree.contains_folder(""));
+    }
+
+    #[test]
+    fn a_row_names_its_cursor() {
+        let rows = rows(&["src/ui/a.rs"]);
+        assert_eq!(rows[0].cursor(), Cursor::Folder("src/ui".into()));
+        assert_eq!(rows[1].cursor(), Cursor::File(0));
+        assert_eq!(rows[0].folder_path(), Some("src/ui"));
+        assert_eq!(rows[1].file_index(), Some(0));
+        assert_eq!(rows[1].depth(), 1);
     }
 
     #[test]

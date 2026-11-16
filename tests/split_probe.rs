@@ -4131,14 +4131,14 @@ fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) 
     let mut pull = ready_pull(0);
     pull.files = vec![
         warp_station_core::github::GitHubFilePatch {
-            path: "src/main.rs".into(),
+            path: "src/a.rs".into(),
             status: "M".into(),
             additions: 2,
             deletions: 1,
             patch: String::new(),
         },
         warp_station_core::github::GitHubFilePatch {
-            path: "src/lib.rs".into(),
+            path: "src/b.rs".into(),
             status: "M".into(),
             additions: 1,
             deletions: 0,
@@ -4153,7 +4153,7 @@ fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) 
     click(cx, "pull-tab-files");
     draw(cx);
     assert!(
-        cx.debug_bounds("pull-diff-src/main.rs").is_some(),
+        cx.debug_bounds("pull-diff-src/a.rs").is_some(),
         "the rail starts on the first file"
     );
 
@@ -4176,7 +4176,7 @@ fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("down");
     draw(cx);
     assert!(
-        cx.debug_bounds("pull-diff-src/lib.rs").is_some(),
+        cx.debug_bounds("pull-diff-src/b.rs").is_some(),
         "↓ stepped the rail to the second file"
     );
 
@@ -4184,7 +4184,7 @@ fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) 
     cx.simulate_keystrokes("down");
     draw(cx);
     assert!(
-        cx.debug_bounds("pull-diff-src/lib.rs").is_some(),
+        cx.debug_bounds("pull-diff-src/b.rs").is_some(),
         "→ at the rail never wraps back into the pull request list"
     );
 }

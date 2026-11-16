@@ -750,6 +750,21 @@ fn the_azure_pull_detail_draws_its_head_and_overview(cx: &mut TestAppContext) {
     draw(cx);
     assert!(cx.debug_bounds("azure-pull-files").is_some());
     assert!(cx.debug_bounds("azure-pull-file-0").is_some());
+
+    // the rail is a tree: the file nests under its folder, and the folder folds
+    assert!(
+        cx.debug_bounds("azure-pull-folder-src").is_some(),
+        "the rail groups the file under its folder"
+    );
+    click(cx, "azure-pull-folder-src");
+    assert!(
+        cx.debug_bounds("azure-pull-file-0").is_none(),
+        "the fold hides the folder's file"
+    );
+    assert!(
+        cx.debug_bounds("azure-pull-folder-src").is_some(),
+        "a folded folder keeps its row"
+    );
 }
 
 /// The Reviewers card's Add control opens the organization's people and the
