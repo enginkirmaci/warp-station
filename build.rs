@@ -53,7 +53,11 @@ fn embed_assets() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let target = out.join("embedded_assets.rs");
     fs::write(&target, generated).expect("write embedded_assets.rs");
-    println!("cargo:rerun-if-changed={}", target.display());
+    // Deliberately no `cargo:rerun-if-changed` on `target`: that file is this
+    // script's own output, so declaring it as an input rewrote it on every
+    // invocation, re-ran this script and recompiled the whole crate - 11 s per
+    // `cargo test` with no source change at all. rustc tracks the `include!`
+    // through dep-info, so a regenerated table still rebuilds the crate.
 }
 
 fn collect(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) {
