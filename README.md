@@ -23,7 +23,7 @@ The rail's **Pomodoro** page is the live view of the sibling
 the day's focus counts, with Start/Pause and Reset driving the app over its
 loopback door and "Open Pomodoro" for everything else. Its durations,
 long-break cycle, history and notifications live in that app; Station only
-names the executable and can hide the section in Settings › Integrations.
+names the executable and can hide the section in Settings › Suite apps.
 
 ## Keyboard
 

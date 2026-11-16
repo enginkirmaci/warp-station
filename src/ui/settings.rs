@@ -1,10 +1,12 @@
-//! The Settings page: every settings section as a card of labeled inputs and
-//! switches, seeded from the live settings when the page opens. Every
-//! mutation autosaves: a keystroke or toggle schedules a debounced commit
-//! that writes the whole graph atomically and live-applies (a scan-related
-//! change also kicks a rescan), so no Save step exists. The AI card's
-//! harness radio scopes the Model and Variant pickers to warp-agent's
-//! catalog, and it manages the wand prompt templates.
+//! The Settings page: the rail's sections grouped into families, each section a
+//! run of labeled rows split into topics, seeded from the live settings when the
+//! page opens. Every mutation autosaves: a keystroke or toggle schedules a
+//! debounced commit that writes the whole graph atomically and live-applies (a
+//! scan-related change also kicks a rescan), so no Save step exists. A switch
+//! that arms other rows masters them: they stay on screen, indented, and dim
+//! while it is off instead of disappearing. The AI section's harness radio
+//! scopes the Model and Variant pickers to warp-agent's catalog, and it manages
+//! the wand prompt templates.
 
 use crate::net::TemplateOp;
 use crate::store::Store;
@@ -35,73 +37,95 @@ struct HarnessScope {
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
     General,
-    Notifications,
     Appearance,
-    Repositories,
-    Git,
+    Notifications,
+    Scanning,
+    RepositoryList,
     Workflow,
     ExternalTools,
     Ai,
-    Integrations,
+    SuiteApps,
+    Platforms,
 }
 
-/// The sections in list order: value, row id, title, what it holds.
-const SECTIONS: [(Section, &str, &str, &str); 9] = [
+/// The sections in list order: value, family, row id, title, what it holds. A
+/// family heading is drawn once, above its family's first section.
+const SECTIONS: [(Section, &str, &str, &str, &str); 10] = [
     (
         Section::General,
+        "Application",
         "settings-general",
         "General",
         "Startup and tooltips",
     ),
     (
-        Section::Notifications,
-        "settings-notifications",
-        "Notifications",
-        "Desktop toasts when unfocused",
-    ),
-    (
         Section::Appearance,
+        "Application",
         "settings-appearance",
         "Appearance",
-        "Text size and motion",
+        "Palette, text size and motion",
     ),
     (
-        Section::Repositories,
-        "settings-repositories",
-        "Repository scanning",
-        "Folders, patterns and grouping",
+        Section::Notifications,
+        "Application",
+        "settings-notifications",
+        "Notifications",
+        "Desktop toasts and what reaches them",
     ),
-    (Section::Git, "settings-git", "Git", "Branch naming"),
+    (
+        Section::Scanning,
+        "Repositories",
+        "settings-scanning",
+        "Scanning",
+        "Folders, exclusions and patterns",
+    ),
+    (
+        Section::RepositoryList,
+        "Repositories",
+        "settings-list",
+        "Repository list",
+        "Grouping and automatic refresh",
+    ),
     (
         Section::Workflow,
+        "Repositories",
         "settings-workflow",
-        "Workflow",
-        "Push, pull request and pipeline steps",
+        "Git and workflow",
+        "Branch naming, flow and watching",
     ),
     (
         Section::ExternalTools,
+        "Apps and tools",
         "settings-tools",
         "External tools",
-        "Editors, terminals and CLIs",
+        "Editors, terminal, search and CLIs",
     ),
     (
         Section::Ai,
+        "Apps and tools",
         "settings-ai",
         "AI",
-        "Harness, model and prompt templates",
+        "warp-agent, models and prompt templates",
     ),
     (
-        Section::Integrations,
-        "settings-integrations",
-        "Integrations",
-        "Notes, Pomodoro, GitHub and Azure DevOps",
+        Section::SuiteApps,
+        "Apps and tools",
+        "settings-apps",
+        "Suite apps",
+        "Notes, Pomodoro and SnapIt",
+    ),
+    (
+        Section::Platforms,
+        "Apps and tools",
+        "settings-platforms",
+        "Platforms",
+        "GitHub and Azure DevOps",
     ),
 ];
 
 pub struct SettingsPage {
     pub store: Entity<Store>,
     // General
-    notes_store_path: Entity<InputState>,
     show_tooltips: bool,
     start_minimized: bool,
     start_at_boot: bool,
@@ -165,6 +189,7 @@ pub struct SettingsPage {
     model_picker: Entity<FilteredPicker>,
     variant_picker: Entity<FilteredPicker>,
     // Notes (warp-notes)
+    notes_store_path: Entity<InputState>,
     warp_notes_enabled: bool,
     warp_notes_executable: Entity<InputState>,
     // Pomodoro (warp-pomodoro)
@@ -275,6 +300,50 @@ fn merge_scan_folder_edits(seed: &[String], live: &[String], edited: &[String]) 
         }
     }
     merged
+}
+
+/// A family heading in the settings rail: the list's quiet step, drawn once
+/// above the family's first section. Never a row — nothing is selected,
+/// counted or pressed here.
+fn family_heading(label: &'static str) -> gpui::AnyElement {
+    div()
+        .debug_selector(move || format!("settings-family-{label}"))
+        .flex_shrink_0()
+        .px_4()
+        .pt_4()
+        .pb_1()
+        .text_size(px(theme::font_row_meta()))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::text_dim())
+        .child(label)
+        .into_any_element()
+}
+
+/// A topic heading inside a section: the kit's `subhead`, addressable by a
+/// probe. The section's first block runs under the section title; a heading
+/// marks each topic after it.
+fn topic(title: &'static str) -> gpui::AnyElement {
+    div()
+        .debug_selector(move || format!("settings-topic-{title}"))
+        .child(kit_settings::subhead(title))
+        .into_any_element()
+}
+
+/// The rows a switch masters: indented under it and dimmed while it is off,
+/// never removed. A hidden setting cannot be found, and the section must not
+/// change height when the switch flips.
+fn child_rows(rows: Vec<gpui::AnyElement>, master_off: bool) -> Vec<gpui::AnyElement> {
+    rows.into_iter()
+        .map(|row| {
+            div()
+                .w_full()
+                .min_w_0()
+                .pl_4()
+                .when(master_off, |line| line.opacity(0.55))
+                .child(row)
+                .into_any_element()
+        })
+        .collect()
 }
 
 impl SettingsPage {
@@ -751,7 +820,12 @@ impl Render for SettingsPage {
             .unwrap_or(false);
         let section = self.section;
         let mut rows = div().flex().flex_col().pt_1();
-        for (item, id, title, hint) in SECTIONS {
+        let mut family = "";
+        for (item, item_family, id, title, hint) in SECTIONS {
+            if item_family != family {
+                family = item_family;
+                rows = rows.child(family_heading(item_family));
+            }
             rows = rows.child(
                 warpui_kit_core::shell::list_row(id, item == section)
                     .debug_selector(move || id.into())
@@ -790,8 +864,9 @@ impl Render for SettingsPage {
                     .text_color(theme::text())
                     .child("Settings"),
             )
-            // eight sections do not fit a short window; the selected section
-            // must stay reachable instead of being clipped by the pane
+            // ten sections and three family headings do not fit a short
+            // window; the selected section must stay reachable instead of
+            // being clipped by the pane
             .child(
                 div()
                     .id("settings-sections-scroll")
@@ -804,7 +879,7 @@ impl Render for SettingsPage {
         let (title, hint) = SECTIONS
             .iter()
             .find(|entry| entry.0 == section)
-            .map_or(("Settings", ""), |entry| (entry.2, entry.3));
+            .map_or(("Settings", ""), |entry| (entry.3, entry.4));
         let head = div()
             .flex_shrink_0()
             .w_full()
@@ -930,8 +1005,9 @@ impl SettingsPage {
     ///
     /// `DESIGN.md`: "one row per setting, label left and control right, 60
     /// high". The prototype draws the whole page as one `.measure` column of
-    /// rows with a `line-soft` rule between them, so the sections here return
-    /// rows and never a card.
+    /// rows with a `line-soft` rule between them, so a section returns rows and
+    /// never a card. A section's first block runs under its title; `topic`
+    /// marks each block after it, and `child_rows` indents what a switch arms.
     fn section_rows(
         &mut self,
         section: Section,
@@ -941,6 +1017,7 @@ impl SettingsPage {
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         match section {
             Section::General => {
+                // how the window comes up, and the one hover affordance
                 rows.push(kit_settings::switch_row(
                     "set-start-at-boot",
                     "Start at boot",
@@ -977,88 +1054,9 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "Notes store path",
-                    &self.notes_store_path,
-                    rows.is_empty(),
-                    window,
-                    cx,
-                ));
-            }
-            Section::Notifications => {
-                // the desktop mirror's master switch and its two dimensions:
-                // when (the unfocused gate) and what (the three categories).
-                // Every flip autosaves like the other sections'; the only side
-                // effect is the copy, so save() carries no kicks for it.
-                rows.push(kit_settings::switch_row_with_desc(
-                    "set-notify-enabled",
-                    "Desktop notifications",
-                    "settings-row-Desktop notifications".to_string(),
-                    "Mirrors the app's toasts to the desktop",
-                    self.notify_enabled,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.notify_enabled = !this.notify_enabled;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
-                rows.push(kit_settings::switch_row_with_desc(
-                    "set-notify-unfocused",
-                    "Only while unfocused",
-                    "settings-row-Only while unfocused".to_string(),
-                    "Nothing reaches the desktop while a Warp Station window has focus",
-                    self.notify_only_unfocused,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.notify_only_unfocused = !this.notify_only_unfocused;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
-                rows.push(kit_settings::subhead("What to hear about"));
-                rows.push(kit_settings::switch_row(
-                    "set-notify-errors",
-                    "Errors",
-                    "settings-row-Errors".to_string(),
-                    self.notify_errors,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.notify_errors = !this.notify_errors;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
-                rows.push(kit_settings::switch_row_with_desc(
-                    "set-notify-actions",
-                    "Action confirmations",
-                    "settings-row-Action confirmations".to_string(),
-                    "Merges, commits, agent handoffs, generation drafts, password copies",
-                    self.notify_actions,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.notify_actions = !this.notify_actions;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
-                rows.push(kit_settings::switch_row_with_desc(
-                    "set-notify-pipelines",
-                    "Pipeline results",
-                    "settings-row-Pipeline results".to_string(),
-                    "A watched run's pass, failure or skip",
-                    self.notify_pipelines,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.notify_pipelines = !this.notify_pipelines;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
             }
             Section::Appearance => {
-                // the three appearance rows apply at once and carry the
-                // design's one-line explanation under the label
+                // the shared suite values apply at once; motion is this app's
                 rows.push(kit_settings::row_with_desc(
                     "settings-row-Palette".to_string(),
                     "Palette",
@@ -1073,6 +1071,7 @@ impl SettingsPage {
                     warpui_kit_core::text_size_control(),
                     rows.is_empty(),
                 ));
+                rows.push(topic("Motion"));
                 let reduced = self.store.read(cx).settings().general.reduce_motion;
                 let store = self.store.clone();
                 rows.push(kit_settings::switch_row_with_desc(
@@ -1081,7 +1080,7 @@ impl SettingsPage {
                     "settings-row-Reduce motion".to_string(),
                     "Turns off transitions and keeps spinners still. Busy labels stay",
                     reduced,
-                    rows.is_empty(),
+                    false,
                     move |_, _, cx| {
                         store.update(cx, |s, cx| {
                             s.set_reduce_motion(!reduced, cx);
@@ -1090,9 +1089,85 @@ impl SettingsPage {
                     },
                 ));
             }
-            Section::Repositories => {
-                // the prototype's `.setting.stack`: the label over a full-width
-                // `.area` (a folder list is a block, not a 340-wide value)
+            Section::Notifications => {
+                // the desktop mirror's master switch; what it arms stays on
+                // screen and dims while it is off
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-notify-enabled",
+                    "Desktop notifications",
+                    "settings-row-Desktop notifications".to_string(),
+                    "Mirrors the app's toasts to the desktop; the rows below only apply while this is on",
+                    self.notify_enabled,
+                    rows.is_empty(),
+                    cx.listener(|this, _, _, cx| {
+                        this.notify_enabled = !this.notify_enabled;
+                        this.save(cx);
+                        cx.notify();
+                    }),
+                ));
+                rows.extend(child_rows(
+                    vec![kit_settings::switch_row_with_desc(
+                        "set-notify-unfocused",
+                        "Only while unfocused",
+                        "settings-row-Only while unfocused".to_string(),
+                        "Nothing reaches the desktop while a Warp Station window has focus",
+                        self.notify_only_unfocused,
+                        false,
+                        cx.listener(|this, _, _, cx| {
+                            this.notify_only_unfocused = !this.notify_only_unfocused;
+                            this.save(cx);
+                            cx.notify();
+                        }),
+                    )],
+                    !self.notify_enabled,
+                ));
+                rows.push(topic("What to hear about"));
+                rows.extend(child_rows(
+                    vec![
+                        kit_settings::switch_row(
+                            "set-notify-errors",
+                            "Errors",
+                            "settings-row-Errors".to_string(),
+                            self.notify_errors,
+                            false,
+                            cx.listener(|this, _, _, cx| {
+                                this.notify_errors = !this.notify_errors;
+                                this.save(cx);
+                                cx.notify();
+                            }),
+                        ),
+                        kit_settings::switch_row_with_desc(
+                            "set-notify-actions",
+                            "Action confirmations",
+                            "settings-row-Action confirmations".to_string(),
+                            "Merges, commits, agent handoffs, generation drafts, password copies",
+                            self.notify_actions,
+                            false,
+                            cx.listener(|this, _, _, cx| {
+                                this.notify_actions = !this.notify_actions;
+                                this.save(cx);
+                                cx.notify();
+                            }),
+                        ),
+                        kit_settings::switch_row_with_desc(
+                            "set-notify-pipelines",
+                            "Pipeline results",
+                            "settings-row-Pipeline results".to_string(),
+                            "A watched run's pass, failure or skip",
+                            self.notify_pipelines,
+                            false,
+                            cx.listener(|this, _, _, cx| {
+                                this.notify_pipelines = !this.notify_pipelines;
+                                this.save(cx);
+                                cx.notify();
+                            }),
+                        ),
+                    ],
+                    !self.notify_enabled,
+                ));
+            }
+            Section::Scanning => {
+                // what the walker looks at, then what it counts as a repository
                 rows.push(kit_settings::stack_row(
                     "settings-row-Scan folders".to_string(),
                     "Scan folders",
@@ -1117,34 +1192,38 @@ impl SettingsPage {
                     .h(px(64.)),
                     rows.is_empty(),
                 ));
+                rows.push(topic("What counts as a repository"));
                 rows.push(field_row(
                     "Git folder pattern",
                     &self.git_folder_pattern,
-                    rows.is_empty(),
+                    false,
                     window,
                     cx,
                 ));
                 rows.push(field_row(
                     "Solution file pattern",
                     &self.solution_file_pattern,
-                    rows.is_empty(),
+                    false,
                     window,
                     cx,
                 ));
                 rows.push(field_row(
                     "Platform folder name",
                     &self.platform_folder_name,
-                    rows.is_empty(),
+                    false,
                     window,
                     cx,
                 ));
                 rows.push(field_row(
                     "Max scan depth",
                     &self.max_scan_depth,
-                    rows.is_empty(),
+                    false,
                     window,
                     cx,
                 ));
+            }
+            Section::RepositoryList => {
+                // how the list is arranged, and when it refreshes itself
                 rows.push(kit_settings::switch_row(
                     "set-group-by-root",
                     "Group repos by folder",
@@ -1157,25 +1236,28 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                if self.group_by_root {
-                    rows.push(group_depth_row(self, cx, rows.is_empty()));
-                }
+                rows.extend(child_rows(
+                    vec![group_depth_row(self, cx, false)],
+                    !self.group_by_root,
+                ));
+                rows.push(topic("Refresh"));
                 rows.push(kit_settings::switch_row_with_desc(
                     "set-auto-refresh-focus",
                     "Refresh on focus",
                     "settings-row-Refresh on focus".to_string(),
                     "Rescan the repo list when the window regains focus",
                     self.auto_refresh_on_focus,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.auto_refresh_on_focus = !this.auto_refresh_on_focus;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(auto_refresh_minutes_row(self, window, cx, rows.is_empty()));
+                rows.push(auto_refresh_minutes_row(self, window, cx, false));
             }
-            Section::Git => {
+            Section::Workflow => {
+                // the branch name, then what the app does with the branch
                 rows.push(field_row(
                     "Branch name prefix",
                     &self.branch_name_prefix,
@@ -1183,59 +1265,59 @@ impl SettingsPage {
                     window,
                     cx,
                 ));
-            }
-            Section::Workflow => {
-                // the master only moves screens; Create and Merge keep their
-                // own presses and the sub-switches narrow the two steps
+                rows.push(topic("Flow"));
                 rows.push(kit_settings::switch_row_with_desc(
                     "set-flow-auto",
                     "Automate the flow",
                     "settings-row-Automate the flow".to_string(),
-                    "After a push, open the pull-request step; after a merge, open the pipeline",
+                    "After a push, open the pull-request step; after a merge, open the pipeline. The two steps below only run while this is on",
                     self.flow_auto_advance,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.flow_auto_advance = !this.flow_auto_advance;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                if self.flow_auto_advance {
-                    rows.push(kit_settings::switch_row_with_desc(
-                        "set-flow-push",
-                        "Open the PR step after push",
-                        "settings-row-Open the PR step after push".to_string(),
-                        "The pushed branch's Create pull request step opens by itself in the pane",
-                        self.flow_open_pull,
-                        rows.is_empty(),
-                        cx.listener(|this, _, _, cx| {
-                            this.flow_open_pull = !this.flow_open_pull;
-                            this.save(cx);
-                            cx.notify();
-                        }),
-                    ));
-                    rows.push(kit_settings::switch_row_with_desc(
-                        "set-flow-merge",
-                        "Open Pipelines after merge",
-                        "settings-row-Open Pipelines after merge".to_string(),
-                        "The merged pull request's pipeline opens on its target branch",
-                        self.flow_open_pipelines,
-                        rows.is_empty(),
-                        cx.listener(|this, _, _, cx| {
-                            this.flow_open_pipelines = !this.flow_open_pipelines;
-                            this.save(cx);
-                            cx.notify();
-                        }),
-                    ));
-                }
-                rows.push(kit_settings::subhead("Watching"));
+                rows.extend(child_rows(
+                    vec![
+                        kit_settings::switch_row_with_desc(
+                            "set-flow-push",
+                            "Open the PR step after push",
+                            "settings-row-Open the PR step after push".to_string(),
+                            "The pushed branch's Create pull request step opens by itself in the pane",
+                            self.flow_open_pull,
+                            false,
+                            cx.listener(|this, _, _, cx| {
+                                this.flow_open_pull = !this.flow_open_pull;
+                                this.save(cx);
+                                cx.notify();
+                            }),
+                        ),
+                        kit_settings::switch_row_with_desc(
+                            "set-flow-merge",
+                            "Open Pipelines after merge",
+                            "settings-row-Open Pipelines after merge".to_string(),
+                            "The merged pull request's pipeline opens on its target branch",
+                            self.flow_open_pipelines,
+                            false,
+                            cx.listener(|this, _, _, cx| {
+                                this.flow_open_pipelines = !this.flow_open_pipelines;
+                                this.save(cx);
+                                cx.notify();
+                            }),
+                        ),
+                    ],
+                    !self.flow_auto_advance,
+                ));
+                rows.push(topic("Watching"));
                 rows.push(kit_settings::switch_row_with_desc(
                     "set-flow-watch",
                     "Keep watching in the background",
                     "settings-row-Keep watching in the background".to_string(),
                     "A watched run keeps polling after you leave Pipelines, so its toast finds you on any tab",
                     self.flow_watch_background,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.flow_watch_background = !this.flow_watch_background;
                         this.save(cx);
@@ -1248,7 +1330,7 @@ impl SettingsPage {
                     "settings-row-Watch every run on the branch".to_string(),
                     "A merge that starts several workflows reports one gate result (2 of 3 passed)",
                     self.flow_watch_all,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.flow_watch_all = !this.flow_watch_all;
                         this.save(cx);
@@ -1257,18 +1339,7 @@ impl SettingsPage {
                 ));
             }
             Section::ExternalTools => {
-                rows.push(kit_settings::switch_row(
-                    "set-vs",
-                    "Enable Visual Studio (Windows)",
-                    "settings-row-Enable Visual Studio (Windows)".to_string(),
-                    self.enable_visual_studio,
-                    rows.is_empty(),
-                    cx.listener(|this, _, _, cx| {
-                        this.enable_visual_studio = !this.enable_visual_studio;
-                        this.save(cx);
-                        cx.notify();
-                    }),
-                ));
+                // one block per tool: its switch, then the fields it arms
                 rows.push(kit_settings::switch_row(
                     "set-vscode",
                     "Enable VS Code",
@@ -1281,128 +1352,140 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "VS Code executable",
-                    &self.vscode_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![
+                        field_row(
+                            "VS Code executable",
+                            &self.vscode_executable,
+                            false,
+                            window,
+                            cx,
+                        ),
+                        field_row("VS Code profile", &self.vscode_profile, false, window, cx),
+                    ],
+                    !self.enable_vscode,
                 ));
-                rows.push(field_row(
-                    "VS Code profile",
-                    &self.vscode_profile,
-                    rows.is_empty(),
-                    window,
-                    cx,
-                ));
+                // Visual Studio opens a solution, and that launcher is
+                // Windows-only, so its block is too
+                if cfg!(windows) {
+                    rows.push(kit_settings::switch_row(
+                        "set-vs",
+                        "Enable Visual Studio",
+                        "settings-row-Enable Visual Studio".to_string(),
+                        self.enable_visual_studio,
+                        false,
+                        cx.listener(|this, _, _, cx| {
+                            this.enable_visual_studio = !this.enable_visual_studio;
+                            this.save(cx);
+                            cx.notify();
+                        }),
+                    ));
+                    rows.extend(child_rows(
+                        vec![field_row(
+                            "Visual Studio executable",
+                            &self.ide_executable,
+                            false,
+                            window,
+                            cx,
+                        )],
+                        !self.enable_visual_studio,
+                    ));
+                }
+                rows.push(topic("Terminal"));
                 rows.push(kit_settings::switch_row(
                     "set-terminal",
                     "Enable Terminal",
                     "settings-row-Enable Terminal".to_string(),
                     self.enable_terminal,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.enable_terminal = !this.enable_terminal;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "Terminal executable",
-                    &self.terminal_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "Terminal executable",
+                        &self.terminal_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.enable_terminal,
                 ));
-                rows.push(field_row(
-                    "IDE executable",
-                    &self.ide_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
-                ));
+                rows.push(topic("Code search"));
                 rows.push(kit_settings::switch_row(
                     "set-code-search",
                     "Cross-repo code search",
                     "settings-row-Cross-repo code search".to_string(),
                     self.enable_code_search,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.enable_code_search = !this.enable_code_search;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "ripgrep executable",
-                    &self.code_search_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
-                ));
-                if cfg!(windows) {
-                    rows.push(kit_settings::switch_row(
-                        "set-snapit",
-                        "Start SnapIt automatically (Windows)",
-                        "settings-row-Start SnapIt automatically (Windows)".to_string(),
-                        self.snapit_auto_start,
-                        rows.is_empty(),
-                        cx.listener(|this, _, _, cx| {
-                            this.snapit_auto_start = !this.snapit_auto_start;
-                            this.save(cx);
-                            cx.notify();
-                        }),
-                    ));
-                    rows.push(field_row(
-                        "SnapIt executable",
-                        &self.snapit_executable,
-                        rows.is_empty(),
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "ripgrep executable",
+                        &self.code_search_executable,
+                        false,
                         window,
                         cx,
-                    ));
-                }
-                rows.push(kit_settings::subhead("OpenCode"));
+                    )],
+                    !self.enable_code_search,
+                ));
+                rows.push(topic("CLI launchers"));
                 rows.push(kit_settings::switch_row(
                     "set-opencode",
                     "Enable OpenCode",
                     "settings-row-Enable OpenCode".to_string(),
                     self.enable_opencode,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.enable_opencode = !this.enable_opencode;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "OpenCode executable",
-                    &self.opencode_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "OpenCode executable",
+                        &self.opencode_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.enable_opencode,
                 ));
-                rows.push(kit_settings::subhead("DeepSeek"));
                 rows.push(kit_settings::switch_row(
                     "set-deepseek",
                     "Enable DeepSeek",
                     "settings-row-Enable DeepSeek".to_string(),
                     self.enable_deepseek,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.enable_deepseek = !this.enable_deepseek;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "DeepSeek executable",
-                    &self.deepseek_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "DeepSeek executable",
+                        &self.deepseek_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.enable_deepseek,
                 ));
             }
             Section::Ai => {
+                // the assistant, the defaults its catalog seeds, and the wand
+                // prompt templates it runs
                 rows.push(kit_settings::switch_row(
                     "set-warp-agent",
                     "Enable warp-agent",
@@ -1415,36 +1498,47 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "warp-agent executable",
-                    &self.warp_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "warp-agent executable",
+                        &self.warp_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.warp_enabled,
                 ));
-                rows.push(self.harness_row(cx, rows.is_empty()));
-                rows.push(kit_settings::row(
-                    "settings-row-Model".to_string(),
-                    "Model",
-                    div()
-                        .w(px(320.))
-                        .flex_shrink_0()
-                        .child(self.model_picker.clone()),
-                    rows.is_empty(),
+                rows.push(topic("Defaults"));
+                rows.extend(child_rows(
+                    vec![
+                        self.harness_row(cx, false),
+                        kit_settings::row(
+                            "settings-row-Model".to_string(),
+                            "Model",
+                            div()
+                                .w(px(320.))
+                                .flex_shrink_0()
+                                .child(self.model_picker.clone()),
+                            false,
+                        ),
+                        kit_settings::row(
+                            "settings-row-Variant".to_string(),
+                            "Variant",
+                            div()
+                                .w(px(240.))
+                                .flex_shrink_0()
+                                .child(self.variant_picker.clone()),
+                            false,
+                        ),
+                    ],
+                    !self.warp_enabled,
                 ));
-                rows.push(kit_settings::row(
-                    "settings-row-Variant".to_string(),
-                    "Variant",
-                    div()
-                        .w(px(240.))
-                        .flex_shrink_0()
-                        .child(self.variant_picker.clone()),
-                    rows.is_empty(),
-                ));
-                rows.push(kit_settings::subhead("Prompt templates"));
+                rows.push(topic("Prompt templates"));
                 rows.push(self.templates_section(cx));
             }
-            Section::Integrations => {
+            Section::SuiteApps => {
+                // the suite's siblings: warp-notes, warp-pomodoro and, on
+                // Windows, SnapIt
                 rows.push(kit_settings::switch_row(
                     "set-notes",
                     "Enable warp-notes",
@@ -1457,36 +1551,78 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "warp-notes executable",
-                    &self.warp_notes_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![
+                        field_row(
+                            "warp-notes executable",
+                            &self.warp_notes_executable,
+                            false,
+                            window,
+                            cx,
+                        ),
+                        field_row(
+                            "Notes store path",
+                            &self.notes_store_path,
+                            false,
+                            window,
+                            cx,
+                        ),
+                    ],
+                    !self.warp_notes_enabled,
                 ));
                 rows.push(kit_settings::switch_row(
                     "set-pomodoro",
                     "Enable Pomodoro",
                     "settings-row-Enable Pomodoro".to_string(),
                     self.pomodoro_enabled,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.pomodoro_enabled = !this.pomodoro_enabled;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "warp-pomodoro executable",
-                    &self.pomodoro_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "warp-pomodoro executable",
+                        &self.pomodoro_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.pomodoro_enabled,
                 ));
+                if cfg!(windows) {
+                    rows.push(kit_settings::switch_row(
+                        "set-snapit",
+                        "Start SnapIt automatically",
+                        "settings-row-Start SnapIt automatically".to_string(),
+                        self.snapit_auto_start,
+                        false,
+                        cx.listener(|this, _, _, cx| {
+                            this.snapit_auto_start = !this.snapit_auto_start;
+                            this.save(cx);
+                            cx.notify();
+                        }),
+                    ));
+                    rows.extend(child_rows(
+                        vec![field_row(
+                            "SnapIt executable",
+                            &self.snapit_executable,
+                            false,
+                            window,
+                            cx,
+                        )],
+                        !self.snapit_auto_start,
+                    ));
+                }
+            }
+            Section::Platforms => {
+                // the two hosts Station reads a repository's work from
                 rows.push(kit_settings::switch_row(
                     "set-github",
-                    "GitHub",
-                    "settings-row-GitHub".to_string(),
+                    "Enable GitHub",
+                    "settings-row-Enable GitHub".to_string(),
                     self.enable_github,
                     rows.is_empty(),
                     cx.listener(|this, _, _, cx| {
@@ -1495,38 +1631,40 @@ impl SettingsPage {
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "GitHub CLI executable",
-                    &self.github_executable,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![field_row(
+                        "GitHub CLI executable",
+                        &self.github_executable,
+                        false,
+                        window,
+                        cx,
+                    )],
+                    !self.enable_github,
                 ));
                 rows.push(kit_settings::switch_row(
                     "set-azure",
-                    "Azure DevOps",
-                    "settings-row-Azure DevOps".to_string(),
+                    "Enable Azure DevOps",
+                    "settings-row-Enable Azure DevOps".to_string(),
                     self.enable_azure,
-                    rows.is_empty(),
+                    false,
                     cx.listener(|this, _, _, cx| {
                         this.enable_azure = !this.enable_azure;
                         this.save(cx);
                         cx.notify();
                     }),
                 ));
-                rows.push(field_row(
-                    "Azure DevOps PAT",
-                    &self.azure_pat,
-                    rows.is_empty(),
-                    window,
-                    cx,
-                ));
-                rows.push(field_row(
-                    "Azure DevOps server URL",
-                    &self.azure_url,
-                    rows.is_empty(),
-                    window,
-                    cx,
+                rows.extend(child_rows(
+                    vec![
+                        field_row("Azure DevOps PAT", &self.azure_pat, false, window, cx),
+                        field_row(
+                            "Azure DevOps server URL",
+                            &self.azure_url,
+                            false,
+                            window,
+                            cx,
+                        ),
+                    ],
+                    !self.enable_azure,
                 ));
             }
         }

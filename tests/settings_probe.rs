@@ -10,10 +10,10 @@ use warp_station::ui::settings::SettingsPage;
 /// Serializes the HOME-swapping probes against each other.
 static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// The Integrations section carries the Azure controls, and the switch saves
-/// the integration flag immediately — the same row the live page shows.
+/// The Platforms section carries the Azure controls, and the switch saves the
+/// integration flag immediately — the same row the live page shows.
 #[gpui_kit::gpui::test]
-fn the_integrations_section_carries_the_azure_controls(cx: &mut TestAppContext) {
+fn the_platforms_section_carries_the_azure_controls(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
@@ -38,12 +38,13 @@ fn the_integrations_section_carries_the_azure_controls(cx: &mut TestAppContext) 
         cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
-    click(cx, "settings-integrations");
+    click(cx, "settings-platforms");
     cx.update(|window, cx| drop(window.draw(cx)));
 
     assert!(
-        cx.debug_bounds("settings-row-Azure DevOps").is_some(),
-        "the Azure switch is in Integrations"
+        cx.debug_bounds("settings-row-Enable Azure DevOps")
+            .is_some(),
+        "the Azure switch is in Platforms"
     );
     assert!(
         cx.debug_bounds("settings-field-Azure DevOps PAT").is_some(),
@@ -316,10 +317,16 @@ fn the_workflow_section_carries_the_flow_switches(cx: &mut TestAppContext) {
             .is_some(),
         "the watch-all row renders"
     );
+    // the two step switches are the master's children: on screen from the
+    // start and dimmed while it is off, never removed (a hidden setting
+    // cannot be found, and the section must not jump on a flip)
     assert!(
         cx.debug_bounds("settings-row-Open the PR step after push")
-            .is_none(),
-        "the step switches stay folded until the master is on"
+            .is_some()
+            && cx
+                .debug_bounds("settings-row-Open Pipelines after merge")
+                .is_some(),
+        "the two steps stay on screen while the master is off"
     );
 
     let row = cx
@@ -346,7 +353,36 @@ fn the_workflow_section_carries_the_flow_switches(cx: &mut TestAppContext) {
             && cx
                 .debug_bounds("settings-row-Open Pipelines after merge")
                 .is_some(),
-        "the two gated steps open under the master"
+        "the two steps stay on screen when the master turns on"
+    );
+
+    // and they stay when it turns off again: the flip changes their dim, not
+    // their presence
+    let row = cx
+        .debug_bounds("settings-row-Automate the flow")
+        .expect("the master row is still on screen");
+    cx.simulate_click(
+        gpui::point(row.right() - gpui::px(20.), row.center().y),
+        gpui::Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        !cx.update(|_, _| {
+            warp_station_core::settings::SettingsService::open()
+                .get()
+                .workflow
+                .auto_advance
+        }),
+        "the second flip clears the flag"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-Open the PR step after push")
+            .is_some()
+            && cx
+                .debug_bounds("settings-row-Open Pipelines after merge")
+                .is_some(),
+        "the steps stay after the master turns off"
     );
 
     let _ = std::fs::remove_dir_all(&home);
@@ -482,12 +518,12 @@ fn harness_model_and_variant_persist(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// The Git card keeps only the branch naming row: the auto fetch, focus gate,
-/// auto refresh and focus-sync controls were removed with the feature, so the
-/// page must not render any of their selectors and a save must not write their
-/// old settings keys.
+/// The Git and workflow section keeps only the branch naming row: the auto
+/// fetch, focus gate, auto refresh and focus-sync controls were removed with
+/// the feature, so the page must not render any of their selectors and a save
+/// must not write their old settings keys.
 #[gpui_kit::gpui::test]
-fn the_git_card_has_no_periodic_fetch_controls(cx: &mut TestAppContext) {
+fn the_workflow_section_has_no_periodic_fetch_controls(cx: &mut TestAppContext) {
     let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
@@ -529,12 +565,12 @@ fn the_git_card_has_no_periodic_fetch_controls(cx: &mut TestAppContext) {
     let cx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
-    click(cx, "settings-git");
+    click(cx, "settings-workflow");
 
     assert!(
         cx.debug_bounds("settings-field-Branch name prefix")
             .is_some(),
-        "the Git card still holds the branch naming row"
+        "the workflow section still holds the branch naming row"
     );
     for gone in [
         "auto-fetch-row",
@@ -833,12 +869,12 @@ fn group_repos_switch_toggles_and_persists(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    click(wcx, "settings-repositories");
+    click(wcx, "settings-list");
 
     assert!(
         wcx.debug_bounds("settings-row-Group repos by folder")
             .is_some(),
-        "the grouping switch row renders in the scanning card"
+        "the grouping switch row renders in the repository-list section"
     );
 
     // the design's row ends with its control: a click near the right edge
@@ -921,16 +957,16 @@ fn auto_refresh_rows_toggle_and_persist(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    click(wcx, "settings-repositories");
+    click(wcx, "settings-list");
 
     assert!(
         wcx.debug_bounds("settings-row-Refresh on focus").is_some(),
-        "the focus switch row renders in the scanning card"
+        "the focus switch row renders in the repository-list section"
     );
     assert!(
         wcx.debug_bounds("settings-row-Auto-refresh every")
             .is_some(),
-        "the minutes row renders in the scanning card"
+        "the minutes row renders in the repository-list section"
     );
     assert!(
         wcx.debug_bounds("settings-field-Auto-refresh every")
@@ -1025,7 +1061,7 @@ fn group_depth_picker_renders_grouped_and_persists(cx: &mut TestAppContext) {
     let wcx = gpui::VisualTestContext::from_window(handle.into(), cx).into_mut();
     wcx.run_until_parked();
     wcx.update(|window, cx| drop(window.draw(cx)));
-    click(wcx, "settings-repositories");
+    click(wcx, "settings-list");
 
     assert!(
         wcx.debug_bounds("group-depth-row").is_some(),
@@ -1275,31 +1311,52 @@ fn the_settings_head_keeps_its_actions_inside_the_pane(cx: &mut TestAppContext) 
         cx.add_window_view(|window, cx| SettingsPage::new(store, window, cx));
     cx.run_until_parked();
     // the window the app actually opens at, at the owner's desktop scale: the
-    // head only overflowed at this size, not at the maximized test default
+    // head only overflowed at this width, not at the maximized test default.
+    // The height is taller than the owner's so all ten rail rows can be
+    // clicked: the overflow this checks is horizontal.
     cx.simulate_scale_factor_change(1.1667);
-    cx.simulate_resize(gpui::size(gpui::px(1280.), gpui::px(820.)));
+    cx.simulate_resize(gpui::size(gpui::px(1280.), gpui::px(1000.)));
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     cx.update(|window, cx| drop(window.draw(cx)));
 
+    // every section's head, through the rail's real ids: a misspelt selector
+    // used to make this loop re-check General and pass
     for section in [
-        "settings-section-Git",
-        "settings-section-External tools",
-        "settings-section-AI",
-        "settings-section-Appearance",
+        "settings-general",
+        "settings-appearance",
+        "settings-notifications",
+        "settings-scanning",
+        "settings-list",
+        "settings-workflow",
+        "settings-tools",
+        "settings-ai",
+        "settings-apps",
+        "settings-platforms",
     ] {
-        if cx.debug_bounds(section).is_some() {
-            click(cx, section);
-            cx.update(|window, cx| drop(window.draw(cx)));
-        }
-        let pane = cx.debug_bounds("settings-detail").expect("detail pane");
-        let folder = cx
-            .debug_bounds("settings-open-folder")
-            .unwrap_or_else(|| panic!("{section} carries the head's Data folder action"));
         assert!(
-            folder.right() <= pane.right(),
-            "{section}: the head action {folder:?} runs past the pane {pane:?}"
+            cx.debug_bounds(section).is_some(),
+            "{section} is a row of the settings rail"
         );
+        click(cx, section);
+        cx.update(|window, cx| drop(window.draw(cx)));
+        let pane = cx.debug_bounds("settings-detail").expect("detail pane");
+        if section == "settings-appearance" {
+            // Appearance applies at once and has nothing to save, so the
+            // design gives its head no action
+            assert!(
+                cx.debug_bounds("settings-open-folder").is_none(),
+                "Appearance's head carries no Data folder action"
+            );
+        } else {
+            let folder = cx
+                .debug_bounds("settings-open-folder")
+                .unwrap_or_else(|| panic!("{section} carries the head's Data folder action"));
+            assert!(
+                folder.right() <= pane.right(),
+                "{section}: the head action {folder:?} runs past the pane {pane:?}"
+            );
+        }
         assert!(
             cx.debug_bounds("settings-save").is_none(),
             "{section}: the Save button is gone — the page autosaves"
@@ -1455,7 +1512,7 @@ fn settings_save_keeps_scan_roots_added_after_the_page_opened(cx: &mut TestAppCo
 
     // any text edit commits the whole page after 600ms; the Scan-folders
     // area still shows the list this page was built with
-    click(&mut wcx, "settings-git");
+    click(&mut wcx, "settings-workflow");
     click(&mut wcx, "settings-field-Branch name prefix");
     wcx.simulate_input("x");
     wcx.run_until_parked();
@@ -1484,6 +1541,235 @@ fn settings_save_keeps_scan_roots_added_after_the_page_opened(cx: &mut TestAppCo
     assert!(
         saved.contains("/roots/beta"),
         "a later save keeps it too: {saved}"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The rail's grouping contract: three family headings over ten sections, each
+/// section's topic headings, the rows that moved between sections, and the
+/// switches that keep their children on screen while they are off.
+#[gpui_kit::gpui::test]
+fn settings_rail_groups_sections_into_families(cx: &mut TestAppContext) {
+    let _home_guard = HOME_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let home = std::env::temp_dir().join(format!(
+        "warp-station-settings-groups-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join(".warp")).unwrap();
+    // SAFETY: process-global env; serialized against the sibling HOME probes
+    unsafe {
+        std::env::set_var("HOME", &home);
+        #[cfg(windows)]
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    }
+    let scratch = home.join(".warp").join("settings.json");
+    std::fs::write(&scratch, "{}").expect("scratch settings");
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| {
+        Store::with_settings(
+            net_tx,
+            std::sync::Arc::new(warp_station_core::settings::SettingsService::at(
+                scratch.clone(),
+            )),
+        )
+    });
+    let handle = cx.open_window(
+        gpui::size(gpui::px(1400.), gpui::px(2600.)),
+        |window, cx| SettingsPage::new(store, window, cx),
+    );
+    let mut wcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    wcx.run_until_parked();
+    wcx.update(|window, cx| drop(window.draw(cx)));
+
+    // the rail: three family headings over ten sections
+    for family in [
+        "settings-family-Application",
+        "settings-family-Repositories",
+        "settings-family-Apps and tools",
+    ] {
+        assert!(
+            wcx.debug_bounds(family).is_some(),
+            "{family} heads the rail"
+        );
+    }
+    for section in [
+        "settings-general",
+        "settings-appearance",
+        "settings-notifications",
+        "settings-scanning",
+        "settings-list",
+        "settings-workflow",
+        "settings-tools",
+        "settings-ai",
+        "settings-apps",
+        "settings-platforms",
+    ] {
+        assert!(
+            wcx.debug_bounds(section).is_some(),
+            "{section} is a rail row"
+        );
+    }
+    for gone in [
+        "settings-repositories",
+        "settings-git",
+        "settings-integrations",
+    ] {
+        assert!(wcx.debug_bounds(gone).is_none(), "{gone} is renamed");
+    }
+
+    // Scanning keeps the walker's inputs, then what it counts as a repository
+    click(&mut wcx, "settings-scanning");
+    assert!(
+        wcx.debug_bounds("settings-row-Scan folders").is_some(),
+        "the folder area renders"
+    );
+    assert!(
+        wcx.debug_bounds("settings-topic-What counts as a repository")
+            .is_some(),
+        "the recognition rules sit under their own topic"
+    );
+    assert!(
+        wcx.debug_bounds("settings-field-Git folder pattern")
+            .is_some(),
+        "the git folder pattern is in Scanning"
+    );
+    assert!(
+        wcx.debug_bounds("settings-field-Notes store path")
+            .is_none(),
+        "the notes store path left General"
+    );
+
+    // Repository list: the grouping switch keeps its depth row on screen while
+    // it is off
+    click(&mut wcx, "settings-list");
+    assert!(
+        wcx.debug_bounds("settings-row-Group repos by folder")
+            .is_some(),
+        "the grouping switch renders"
+    );
+    assert!(
+        wcx.debug_bounds("group-depth-row").is_some(),
+        "the depth row stays while grouping is off"
+    );
+    assert!(
+        wcx.debug_bounds("settings-topic-Refresh").is_some(),
+        "refresh has its own topic"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Refresh on focus").is_some(),
+        "the focus switch is under Refresh"
+    );
+
+    // Git and workflow: branch naming, the flow master and its steps, watching
+    click(&mut wcx, "settings-workflow");
+    assert!(
+        wcx.debug_bounds("settings-field-Branch name prefix")
+            .is_some(),
+        "branch naming is in Git and workflow"
+    );
+    assert!(
+        wcx.debug_bounds("settings-topic-Flow").is_some(),
+        "the flow has its own topic"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Open the PR step after push")
+            .is_some(),
+        "the flow steps stay on screen while the master is off"
+    );
+
+    // External tools: one block per tool under three topics
+    click(&mut wcx, "settings-tools");
+    for topic_selector in [
+        "settings-topic-Terminal",
+        "settings-topic-Code search",
+        "settings-topic-CLI launchers",
+    ] {
+        assert!(
+            wcx.debug_bounds(topic_selector).is_some(),
+            "{topic_selector} renders"
+        );
+    }
+    assert!(
+        wcx.debug_bounds("settings-row-Enable VS Code").is_some(),
+        "the VS Code block leads the section"
+    );
+    if cfg!(windows) {
+        assert!(
+            wcx.debug_bounds("settings-row-Enable Visual Studio")
+                .is_some(),
+            "Visual Studio renders on Windows"
+        );
+        assert!(
+            wcx.debug_bounds("settings-field-Visual Studio executable")
+                .is_some(),
+            "its renamed executable field renders"
+        );
+    } else {
+        assert!(
+            wcx.debug_bounds("settings-row-Enable Visual Studio")
+                .is_none(),
+            "the Windows-only launcher has no rows elsewhere"
+        );
+        assert!(
+            wcx.debug_bounds("settings-field-Visual Studio executable")
+                .is_none(),
+            "its executable field is Windows-only too"
+        );
+    }
+
+    // AI: the assistant, the defaults it seeds, the templates
+    click(&mut wcx, "settings-ai");
+    assert!(
+        wcx.debug_bounds("settings-topic-Defaults").is_some(),
+        "the defaults have their own topic"
+    );
+    assert!(
+        wcx.debug_bounds("settings-topic-Prompt templates")
+            .is_some(),
+        "the templates have their own topic"
+    );
+
+    // Suite apps: the notes store path and SnapIt moved here
+    click(&mut wcx, "settings-apps");
+    assert!(
+        wcx.debug_bounds("settings-field-Notes store path")
+            .is_some(),
+        "the notes store path lives with warp-notes"
+    );
+    if cfg!(windows) {
+        assert!(
+            wcx.debug_bounds("settings-row-Start SnapIt automatically")
+                .is_some(),
+            "SnapIt is a suite app"
+        );
+        assert!(
+            wcx.debug_bounds("settings-field-SnapIt executable")
+                .is_some(),
+            "its executable sits in Suite apps"
+        );
+    }
+
+    // Platforms: the two verb switches, not the bare nouns
+    click(&mut wcx, "settings-platforms");
+    assert!(
+        wcx.debug_bounds("settings-row-Enable GitHub").is_some(),
+        "GitHub's switch says what it does"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Enable Azure DevOps")
+            .is_some(),
+        "Azure's switch says what it does"
+    );
+    assert!(
+        wcx.debug_bounds("settings-row-Azure DevOps").is_none(),
+        "the bare-noun switch is gone"
     );
 
     let _ = std::fs::remove_dir_all(&home);
