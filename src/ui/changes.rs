@@ -114,6 +114,31 @@ struct CursorRow {
     depth: usize,
 }
 
+/// One row of the History commit rail: the tree's folders and files, or the
+/// flat list when the app-wide switch is off.
+#[derive(Clone)]
+enum RailItem {
+    Folder(FolderItem),
+    File { index: usize, depth: usize },
+}
+
+/// The History rail's cursor. It is not the selection: a folder row can own it
+/// while the diff keeps the selected file.
+#[derive(Clone, Eq, PartialEq)]
+struct RailKey {
+    path: String,
+    folder: bool,
+}
+
+/// One cursor stop of the rail, with the item it points at.
+struct RailRow {
+    item_ix: usize,
+    key: RailKey,
+    depth: usize,
+    /// The file index, when the row is a file.
+    index: Option<usize>,
+}
+
 impl FileSection {
     fn label(self) -> &'static str {
         match self {
@@ -206,6 +231,14 @@ pub struct ChangesView {
     detail_requests: std::collections::HashSet<String>,
     /// The file the drilled commit's rail shows; reset when the drill moves.
     commit_file: usize,
+    /// The rail's folded folders and cursor; the selection stays `commit_file`.
+    commit_folded: std::collections::HashSet<String>,
+    commit_cursor: Option<RailKey>,
+    /// The rail's tree, built once per commit hash.
+    commit_tree: Option<(String, std::sync::Arc<file_tree::Tree>)>,
+    /// The rail's built items for (hash, tree view, rail revision).
+    commit_items_cache: Option<(String, bool, u64, Rc<Vec<RailItem>>)>,
+    commit_rail_revision: u64,
     /// The repo the view's local state belongs to; a mismatch resets it all.
     loaded_for: Option<String>,
     /// Staged/unstaged groups, rebuilt only when the store's change snapshot
@@ -230,6 +263,9 @@ pub struct ChangesView {
     file_scroll: UniformListScrollHandle,
     /// The history commit list's keyboard focus.
     history_focus: FocusHandle,
+    /// The commit rail's own focus and scroll, for its tree's keys.
+    commit_rail_focus: FocusHandle,
+    commit_rail_scroll: UniformListScrollHandle,
     /// The height-measured commit list: day headers and commits as separate
     /// items, so the header never takes room from the commit below it.
     history_items: Vec<HistoryItem>,
@@ -298,6 +334,11 @@ impl ChangesView {
             detail_patches: std::collections::HashMap::new(),
             detail_requests: std::collections::HashSet::new(),
             commit_file: 0,
+            commit_folded: std::collections::HashSet::new(),
+            commit_cursor: None,
+            commit_tree: None,
+            commit_items_cache: None,
+            commit_rail_revision: 0,
             loaded_for: None,
             groups_cache: None,
             folded: std::collections::HashSet::new(),
@@ -309,6 +350,8 @@ impl ChangesView {
             file_focus: cx.focus_handle(),
             file_scroll: UniformListScrollHandle::default(),
             history_focus: cx.focus_handle(),
+            commit_rail_focus: cx.focus_handle(),
+            commit_rail_scroll: UniformListScrollHandle::default(),
             history_items: Vec::new(),
             history_list: ListState::new(0, ListAlignment::Top, px(400.)),
             history_list_key: (0, 0),
@@ -348,6 +391,7 @@ impl ChangesView {
         self.detail_patches.clear();
         self.detail_requests.clear();
         self.commit_file = 0;
+        self.reset_commit_rail();
         self.folded.clear();
         self.file_cursor = None;
         self.list_revision = self.list_revision.wrapping_add(1);
@@ -377,6 +421,7 @@ impl ChangesView {
         self.history_open = true;
         self.drilled_commit = None;
         self.commit_file = 0;
+        self.reset_commit_rail();
         if needs_load && let Some(folder) = self.store.read(cx).selected_repo.clone() {
             self.store.update(cx, |store, cx| {
                 store.start_history_pass();
@@ -397,6 +442,7 @@ impl ChangesView {
     pub fn drill_commit(&mut self, hash: &str, cx: &mut Context<Self>) {
         self.drilled_commit = Some(hash.to_string());
         self.commit_file = 0;
+        self.reset_commit_rail();
         if let Some(folder) = self.store.read(cx).selected_repo.clone() {
             let _ = self
                 .store
@@ -436,8 +482,30 @@ impl ChangesView {
     /// Selects one file on the drilled commit's rail and loads its diff.
     fn select_commit_file(&mut self, index: usize, cx: &mut Context<Self>) {
         self.commit_file = index;
+        let path = self
+            .store
+            .read(cx)
+            .commit_details
+            .as_ref()
+            .and_then(|details| details.files.get(index))
+            .map(|file| file.path.clone());
+        if let Some(path) = path {
+            self.commit_cursor = Some(RailKey {
+                path,
+                folder: false,
+            });
+        }
         self.ensure_commit_file_selected(cx);
         cx.notify();
+    }
+
+    /// Drops the rail's per-commit state: its cursor, its folds and its tree.
+    fn reset_commit_rail(&mut self) {
+        self.commit_cursor = None;
+        self.commit_folded.clear();
+        self.commit_tree = None;
+        self.commit_items_cache = None;
+        self.commit_rail_revision = self.commit_rail_revision.wrapping_add(1);
     }
 
     /// Keeps the drilled commit's rail selection on a live file: the first
@@ -468,6 +536,263 @@ impl ChangesView {
             )
         };
         self.request_commit_patch(&detail_hash, &path, cx);
+    }
+
+    /// The rail's tree for one commit, built once per commit hash.
+    fn commit_rail_tree(
+        &mut self,
+        details: &warp_station_core::model::GitCommitDetails,
+    ) -> std::sync::Arc<file_tree::Tree> {
+        if let Some((hash, tree)) = &self.commit_tree
+            && *hash == details.hash
+        {
+            return tree.clone();
+        }
+        let tree = std::sync::Arc::new(file_tree::Tree::build(
+            details.files.iter().map(|file| file.path.as_str()),
+        ));
+        self.commit_tree = Some((details.hash.clone(), tree.clone()));
+        self.commit_cursor = None;
+        self.commit_folded.clear();
+        self.commit_items_cache = None;
+        self.commit_rail_revision = self.commit_rail_revision.wrapping_add(1);
+        tree
+    }
+
+    /// The rail's visible items: the commit's tree, or the flat list when the
+    /// app-wide switch is off.
+    fn commit_rail_items(
+        &mut self,
+        details: &warp_station_core::model::GitCommitDetails,
+    ) -> Rc<Vec<RailItem>> {
+        let tree = self.commit_rail_tree(details);
+        if let Some((hash, tree_view, revision, items)) = &self.commit_items_cache
+            && *hash == details.hash
+            && *tree_view == self.tree_view
+            && *revision == self.commit_rail_revision
+        {
+            return items.clone();
+        }
+        let mut items = Vec::with_capacity(details.files.len() + 8);
+        if self.tree_view {
+            for row in tree.rows(&self.commit_folded) {
+                items.push(match row {
+                    file_tree::Row::Folder {
+                        path,
+                        label,
+                        count,
+                        depth,
+                        ..
+                    } => RailItem::Folder(FolderItem {
+                        path: path.into(),
+                        label: label.into(),
+                        count,
+                        depth,
+                    }),
+                    file_tree::Row::File { index, depth, .. } => RailItem::File { index, depth },
+                });
+            }
+        } else {
+            items.extend((0..details.files.len()).map(|index| RailItem::File { index, depth: 0 }));
+        }
+        let items = Rc::new(items);
+        self.commit_items_cache = Some((
+            details.hash.clone(),
+            self.tree_view,
+            self.commit_rail_revision,
+            items.clone(),
+        ));
+        items
+    }
+
+    /// Every row the rail's cursor can land on, in item order.
+    fn commit_rail_rows(&mut self, cx: &mut Context<Self>) -> Vec<RailRow> {
+        let Some(details) = self.store.read(cx).commit_details.clone() else {
+            return Vec::new();
+        };
+        let items = self.commit_rail_items(&details);
+        let mut rows = Vec::with_capacity(items.len());
+        for (item_ix, item) in items.iter().enumerate() {
+            match item {
+                RailItem::Folder(folder) => rows.push(RailRow {
+                    item_ix,
+                    depth: folder.depth,
+                    key: RailKey {
+                        path: folder.path.to_string(),
+                        folder: true,
+                    },
+                    index: None,
+                }),
+                RailItem::File { index, depth } => {
+                    let Some(file) = details.files.get(*index) else {
+                        continue;
+                    };
+                    rows.push(RailRow {
+                        item_ix,
+                        depth: *depth,
+                        key: RailKey {
+                            path: file.path.clone(),
+                            folder: false,
+                        },
+                        index: Some(*index),
+                    });
+                }
+            }
+        }
+        rows
+    }
+
+    fn commit_cursor_index(&self, rows: &[RailRow]) -> Option<usize> {
+        let cursor = self.commit_cursor.as_ref()?;
+        rows.iter().position(|row| &row.key == cursor)
+    }
+
+    /// Steps the rail's cursor: a file row selects its diff, a folder row only
+    /// moves the cursor.
+    fn move_commit_cursor(&mut self, key: list_nav::ListKey, cx: &mut Context<Self>) {
+        let rows = self.commit_rail_rows(cx);
+        if rows.is_empty() {
+            return;
+        }
+        let current = self.commit_cursor_index(&rows);
+        let Some(next) = list_nav::step(current, rows.len(), key, list_nav::DEFAULT_PAGE) else {
+            return;
+        };
+        let item_ix = rows[next].item_ix;
+        let cursor = rows[next].key.clone();
+        let index = rows[next].index;
+        self.commit_cursor = Some(cursor);
+        if let Some(index) = index {
+            self.select_commit_file(index, cx);
+        } else {
+            cx.notify();
+        }
+        self.commit_rail_scroll
+            .scroll_to_item(item_ix, ScrollStrategy::Nearest);
+    }
+
+    /// `Left` on a folder row of the rail: fold it, or step to its parent.
+    fn collapse_commit_or_parent(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.commit_rail_rows(cx);
+        let Some(ix) = self.commit_cursor_index(&rows) else {
+            return false;
+        };
+        let depth = rows[ix].depth;
+        let row = &rows[ix];
+        if !row.key.folder {
+            return false;
+        }
+        if !self.commit_folded.contains(&row.key.path) {
+            self.commit_folded.insert(row.key.path.clone());
+            self.commit_rail_revision = self.commit_rail_revision.wrapping_add(1);
+            cx.notify();
+            return true;
+        }
+        if let Some(parent) = rows[..ix]
+            .iter()
+            .rev()
+            .find(|candidate| candidate.depth < depth)
+        {
+            self.commit_cursor = Some(parent.key.clone());
+            self.commit_rail_scroll
+                .scroll_to_item(parent.item_ix, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+        true
+    }
+
+    /// `Right` on a folder row of the rail: unfold it, or step to its first
+    /// child.
+    fn expand_commit_or_child(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.commit_rail_rows(cx);
+        let Some(ix) = self.commit_cursor_index(&rows) else {
+            return false;
+        };
+        let depth = rows[ix].depth;
+        let row = &rows[ix];
+        if !row.key.folder {
+            return false;
+        }
+        if self.commit_folded.remove(&row.key.path) {
+            self.commit_rail_revision = self.commit_rail_revision.wrapping_add(1);
+            cx.notify();
+            return true;
+        }
+        if let Some(child) = rows.get(ix + 1).filter(|candidate| candidate.depth > depth) {
+            self.commit_cursor = Some(child.key.clone());
+            self.commit_rail_scroll
+                .scroll_to_item(child.item_ix, ScrollStrategy::Nearest);
+            cx.notify();
+        }
+        true
+    }
+
+    /// `Enter` on a folder row of the rail folds or unfolds it; a file row
+    /// stays unhandled.
+    fn toggle_commit_folder_cursor(&mut self, cx: &mut Context<Self>) -> bool {
+        let rows = self.commit_rail_rows(cx);
+        let Some(ix) = self.commit_cursor_index(&rows) else {
+            return false;
+        };
+        if !rows[ix].key.folder {
+            return false;
+        }
+        let path = rows[ix].key.path.clone();
+        self.toggle_commit_folder(&path, cx);
+        true
+    }
+
+    fn toggle_commit_folder(&mut self, path: &str, cx: &mut Context<Self>) {
+        if !self.commit_folded.remove(path) {
+            self.commit_folded.insert(path.to_string());
+        }
+        self.commit_rail_revision = self.commit_rail_revision.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// The rail's keys: a folder row owns `Left`/`Right`/`Enter`; the arrow
+    /// walk crosses every visible row, and a file row leaves `Left`/`Right` to
+    /// the pane move.
+    fn handle_commit_rail_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        if let Some(key) = list_nav::list_key(event) {
+            match key {
+                list_nav::ListKey::Left => {
+                    if self.collapse_commit_or_parent(cx) {
+                        return true;
+                    }
+                }
+                list_nav::ListKey::Right => {
+                    if self.expand_commit_or_child(cx) {
+                        return true;
+                    }
+                }
+                list_nav::ListKey::Enter => return self.toggle_commit_folder_cursor(cx),
+                list_nav::ListKey::Up
+                | list_nav::ListKey::Down
+                | list_nav::ListKey::Home
+                | list_nav::ListKey::End
+                | list_nav::ListKey::PageUp
+                | list_nav::ListKey::PageDown => {
+                    self.move_commit_cursor(key, cx);
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        if let Some(dir) = pane_nav::direction(event) {
+            return self
+                .pane_nav
+                .move_from(&self.commit_rail_focus, dir, window, cx);
+        }
+        false
     }
 
     /// Shows a file's diff, loading its patch the first time. A press selects
@@ -2434,20 +2759,33 @@ impl ChangesView {
             .unwrap_or(0);
         // the rail is virtualized too: a ten-thousand-file commit builds only
         // the rows on screen, and the details are an Arc so this pane does not
-        // clone the whole file list on every repaint
+        // clone the whole file list on every repaint. The tree's folders fold;
+        // the selection stays the file whose diff is shown.
+        self.pane_nav.register(&self.commit_rail_focus);
+        let rail_items = self.commit_rail_items(&details);
         let rail_files = details.clone();
         let rows = uniform_list(
             SharedString::from("commit-files"),
-            details.files.len(),
+            rail_items.len(),
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
                 range
-                    .map(|index| this.render_commit_file_row(&rail_files, index, selected_file, cx))
+                    .map(|ix| match rail_items[ix].clone() {
+                        RailItem::Folder(folder) => this.render_commit_folder_row(&folder, cx),
+                        RailItem::File { index, depth } => this.render_commit_file_row(
+                            &rail_files,
+                            index,
+                            selected_file,
+                            depth,
+                            cx,
+                        ),
+                    })
                     .collect()
             }),
         )
         .flex_1()
         .min_h_0()
         .py_1()
+        .track_scroll(&self.commit_rail_scroll)
         .debug_selector(|| "commit-files".into())
         .into_any_element();
         let rail = div()
@@ -2460,6 +2798,20 @@ impl ChangesView {
             .bg(theme::surface())
             .border_r_1()
             .border_color(theme::hairline())
+            .track_focus(&self.commit_rail_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_commit_rail_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.commit_rail_focus.is_focused(window) {
+                        window.focus(&this.commit_rail_focus, cx);
+                    }
+                }),
+            )
             .child(
                 div()
                     .flex_shrink_0()
@@ -2531,18 +2883,105 @@ impl ChangesView {
     /// One fixed-height row of the virtualized commit rail: the status
     /// letter, the dir/name split and the line counts, on the raised surface
     /// when it is the selected file.
+    /// A folder row of the commit rail: the Changes list's band without the
+    /// verbs — this rail is read-only.
+    fn render_commit_folder_row(
+        &mut self,
+        folder: &FolderItem,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let folded = self.commit_folded.contains(folder.path.as_ref());
+        let cursor = self.commit_cursor.as_ref()
+            == Some(&RailKey {
+                path: folder.path.to_string(),
+                folder: true,
+            });
+        let selector = format!("commit-folder-{}", folder.path);
+        let row_selector = selector.clone();
+        let label: SharedString = format!(
+            "{} ({} {})",
+            folder.label,
+            folder.count,
+            if folder.count == 1 { "file" } else { "files" }
+        )
+        .into();
+        let click_folder = folder.clone();
+        div()
+            .id(SharedString::from(selector.clone()))
+            .debug_selector(move || row_selector.clone())
+            .a11y_tree_item(label, Some(!folded))
+            .cursor_pointer()
+            .w_full()
+            .h(px(COMMIT_RAIL_ROW_H))
+            .pl(px(13. + folder.depth as f32 * 14.))
+            .pr_2()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .when(cursor, |d| d.bg(theme::raised()))
+            .hover(|s| s.bg(theme::panel()))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.commit_cursor = Some(RailKey {
+                    path: click_folder.path.to_string(),
+                    folder: true,
+                });
+                this.toggle_commit_folder(&click_folder.path, cx);
+                window.focus(&this.commit_rail_focus, cx);
+            }))
+            .child(icon(
+                if folded {
+                    "icons/icon-chevron-right.svg"
+                } else {
+                    "icons/icon-chevron-down.svg"
+                },
+                px(theme::icon_tiny()),
+                theme::text_faint(),
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text())
+                    .child(folder.label.to_string()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::text_muted())
+                    .child(folder.count.to_string()),
+            )
+            .into_any_element()
+    }
+
     fn render_commit_file_row(
         &mut self,
         details: &std::sync::Arc<warp_station_core::model::GitCommitDetails>,
         index: usize,
         selected_file: usize,
+        depth: usize,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let file = &details.files[index];
         let selected = index == selected_file;
-        let (dir, name) = match file.path.rsplit_once('/') {
-            Some((dir, name)) => (format!("{dir}/"), name.to_string()),
-            None => (String::new(), file.path.clone()),
+        let (dir, name) = if self.tree_view {
+            let name = file
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(file.path.as_str())
+                .to_string();
+            (String::new(), name)
+        } else {
+            match file.path.rsplit_once('/') {
+                Some((dir, name)) => (format!("{dir}/"), name.to_string()),
+                None => (String::new(), file.path.clone()),
+            }
         };
         let status = file.display_status_code().to_string();
         let mut counts = div()
@@ -2572,7 +3011,7 @@ impl ChangesView {
             .flex_shrink_0()
             .w_full()
             .h(px(COMMIT_RAIL_ROW_H))
-            .pl(px(13.))
+            .pl(px(13. + depth as f32 * 14.))
             .pr_2()
             .flex()
             .flex_row()
@@ -2586,7 +3025,10 @@ impl ChangesView {
             })
             .when(selected, |d| d.bg(theme::raised()))
             .when(!selected, |d| d.hover(|s| s.bg(theme::panel())))
-            .on_click(cx.listener(move |this, _, _, cx| this.select_commit_file(index, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.select_commit_file(index, cx);
+                window.focus(&this.commit_rail_focus, cx);
+            }))
             .child(
                 div()
                     .w(px(14.))
@@ -2607,7 +3049,15 @@ impl ChangesView {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_size(px(theme::font_meta()))
-                    .child(div().flex_shrink_0().text_color(theme::text()).child(name))
+                    .child(
+                        div()
+                            .when(self.tree_view, |d| {
+                                d.min_w_0().overflow_hidden().text_ellipsis()
+                            })
+                            .when(!self.tree_view, |d| d.flex_shrink_0())
+                            .text_color(theme::text())
+                            .child(name),
+                    )
                     .when(!dir.is_empty(), |line| {
                         line.child(
                             div()

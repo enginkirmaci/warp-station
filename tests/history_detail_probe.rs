@@ -333,3 +333,102 @@ fn a_huge_commit_rail_draws_only_the_viewport(cx: &mut TestAppContext) {
         "the last rail row is off screen and must not be built"
     );
 }
+
+/// The commit rail shows the commit's files as a tree: a folder folds with the
+/// mouse and the keys, and folding never changes the file whose diff is shown.
+#[gpui_kit::gpui::test]
+fn the_commit_rail_folds_its_tree(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let settings = scratch("rail-tree");
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(net_tx, Arc::new(SettingsService::at(settings)));
+        store.replace_repos(vec![repo()]);
+        store.select_repo("/probe/alpha", cx);
+        store.set_history(vec![GitCommitInfo {
+            hash: HASH.into(),
+            subject: "feat: tree the rail".into(),
+            author: Some("Probe Author".into()),
+            date: chrono::Local::now(),
+        }]);
+        store.open_detail_tab(WorkspaceTab::History, cx);
+        store
+    });
+    store.update(cx, |store, _| {
+        store.commit_details = Some(Arc::new(GitCommitDetails {
+            hash: HASH.into(),
+            files: vec![
+                changed_file("src/a.rs", 1, 0),
+                changed_file("src/ui/b.rs", 1, 0),
+                changed_file("Cargo.toml", 1, 0),
+            ],
+            body: None,
+        }));
+    });
+
+    let (_host, vcx) = cx.add_window_view(|window, cx| {
+        let changes = cx.new(|cx| ChangesView::new(store.clone(), window, cx));
+        Host { changes }
+    });
+    draw(vcx);
+    draw(vcx);
+
+    // the tree groups the nested files under their folders
+    assert!(
+        vcx.debug_bounds("commit-folder-src").is_some(),
+        "the rail draws the commit's tree"
+    );
+    assert!(
+        vcx.debug_bounds("commit-folder-src/ui").is_some(),
+        "a nested folder keeps its own row"
+    );
+    assert!(vcx.debug_bounds("commit-file-0").is_some());
+
+    // a press on a folder folds it away and never asks for a new diff
+    click(vcx, "commit-folder-src");
+    while net_rx.try_recv().is_ok() {}
+    assert!(
+        vcx.debug_bounds("commit-folder-src/ui").is_none(),
+        "the fold hides the nested folder"
+    );
+    assert!(vcx.debug_bounds("commit-file-0").is_none(), "and its files");
+    assert!(
+        vcx.debug_bounds("commit-file-2").is_some(),
+        "a file outside the folder stays"
+    );
+    assert!(
+        vcx.debug_bounds("commit-diff").is_some(),
+        "the diff pane keeps its file"
+    );
+    assert!(net_rx.try_recv().is_err(), "folding asked for no diff");
+
+    // pressing it again unfolds the subtree
+    click(vcx, "commit-folder-src");
+    assert!(vcx.debug_bounds("commit-file-0").is_some());
+
+    // the keys fold too: pick a file, step up to its folder, press left
+    click(vcx, "commit-file-1");
+    while net_rx.try_recv().is_ok() {}
+    vcx.simulate_keystrokes("up");
+    draw(vcx);
+    vcx.simulate_keystrokes("left");
+    draw(vcx);
+    assert!(
+        vcx.debug_bounds("commit-file-1").is_none(),
+        "left folds the folder"
+    );
+    vcx.simulate_keystrokes("right");
+    draw(vcx);
+    assert!(
+        vcx.debug_bounds("commit-file-1").is_some(),
+        "right unfolds it"
+    );
+    vcx.simulate_keystrokes("enter");
+    draw(vcx);
+    assert!(
+        vcx.debug_bounds("commit-file-1").is_none(),
+        "enter toggles it"
+    );
+}
