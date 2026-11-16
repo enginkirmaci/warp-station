@@ -3,4 +3,5 @@
 //! applying.
 
 pub mod cli;
+pub mod merge;
 pub mod read;
