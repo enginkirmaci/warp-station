@@ -1161,10 +1161,13 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved["files"]["tree_view"], false);
-        assert_eq!(saved["schema_version"], 1, "an additive key keeps the version");
+        assert_eq!(
+            saved["schema_version"], 1,
+            "an additive key keeps the version"
+        );
 
         assert!(
-            !SettingsService::at(path).get().files.tree_view,
+            !SettingsService::at(path.clone()).get().files.tree_view,
             "the flat choice round-trips"
         );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

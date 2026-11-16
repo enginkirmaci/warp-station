@@ -63,8 +63,8 @@ pub fn render(
     let folder = repo.folder_path.to_string_lossy().to_string();
     let settings = store.settings();
     let launchers = launchers::launchers(&settings, repo);
-    // The head owns the primary launch; the card lists every other way in.
-    let others = launchers.get(1..).unwrap_or_default();
+    // The head owns the primary launch; the card lists every way in, the
+    // primary included, so the editor always has a tile here too.
     let left = div()
         .flex_1()
         .min_w(px(320.))
@@ -72,9 +72,7 @@ pub fn render(
         .flex_col()
         .gap_4()
         .child(needs_you_section(store, repo, &settings, entities))
-        .when(!others.is_empty(), |column| {
-            column.child(open_in_section(others, &folder, entities))
-        });
+        .child(open_in_section(&launchers, &folder, entities));
     let right = div()
         .flex_1()
         .min_w(px(320.))
@@ -891,19 +889,18 @@ fn primary_action(
         .into_any_element()
 }
 
-/// Every other way to open the repo, keys included.
+/// Every way to open the repo, keys included — the head's primary too.
 fn open_in_section(launchers: &[Launcher], folder: &str, entities: &Entity<Store>) -> AnyElement {
     let mut grid = div().mx_4().my_3().flex().flex_wrap().gap_2();
     for launcher in launchers {
         let target = entities.clone();
         let path = folder.to_string();
         let launch = launcher.launch.clone();
+        let selector = format!("insp-launch-{}", launcher.label);
         grid = grid.child(
             div()
-                .id(SharedString::from(format!(
-                    "insp-launch-{}",
-                    launcher.label
-                )))
+                .id(SharedString::from(selector.clone()))
+                .debug_selector(move || selector.clone())
                 .a11y_button(launcher.label)
                 .cursor_pointer()
                 .flex_1()

@@ -34,7 +34,7 @@ impl NoticeKind {
     pub fn for_copy_message(message: &str) -> Self {
         if message.starts_with("Clipboard copy failed") {
             NoticeKind::Error
-        } else if message == "No password stored" {
+        } else if message == "No password stored" || message == "Clipboard Password is off" {
             NoticeKind::Info
         } else {
             NoticeKind::Success

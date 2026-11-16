@@ -5,17 +5,31 @@
 //! gpui's Wayland clipboard write is focus-gated and a global hotkey fires
 //! exactly when no Warp Station window has focus.
 
+/// What the hotkey thread finds on disk when it fires.
+enum StoredPassword {
+    /// The Settings switch is off: the grab may still be held from launch,
+    /// but it must copy nothing.
+    Off,
+    /// The switch is on and no password was ever saved.
+    Missing,
+    Ready(String),
+}
+
 /// The stored password decoded from the settings file — the net thread reads
 /// disk directly (it has no store entity), which matches what the store
 /// persists on every save.
-fn stored_password_from_settings() -> Option<String> {
-    crate::settings::SettingsService::open_readonly()
-        .get()
+fn stored_password_from_settings() -> StoredPassword {
+    let settings = crate::settings::SettingsService::open_readonly().get();
+    if !settings.clipboard_password.enable_clipboard_password {
+        return StoredPassword::Off;
+    }
+    settings
         .clipboard_password
         .encrypted_password
         .as_deref()
         .filter(|stored| !stored.is_empty())
         .and_then(crate::clipboard_password::decode)
+        .map_or(StoredPassword::Missing, StoredPassword::Ready)
 }
 
 #[cfg(target_os = "linux")]
@@ -91,8 +105,10 @@ mod linux {
     /// matter which window has focus — unlike a gpui write from this process.
     pub async fn copy_password_to_clipboard() -> &'static str {
         use tokio::io::AsyncWriteExt;
-        let Some(password) = super::stored_password_from_settings() else {
-            return "No password stored";
+        let password = match super::stored_password_from_settings() {
+            super::StoredPassword::Ready(password) => password,
+            super::StoredPassword::Off => return "Clipboard Password is off",
+            super::StoredPassword::Missing => return "No password stored",
         };
         let child = tokio::process::Command::new("wl-copy")
             .stdin(std::process::Stdio::piped())
@@ -241,14 +257,15 @@ mod windows {
     /// the UI thread.
     pub fn copy_password_to_clipboard() -> &'static str {
         match super::stored_password_from_settings() {
-            Some(password) => match set_clipboard_text(&password) {
+            super::StoredPassword::Ready(password) => match set_clipboard_text(&password) {
                 Ok(()) => "Password copied to clipboard",
                 Err(err) => {
                     tracing::warn!("clipboard write failed: {err:#}");
                     "Clipboard copy failed"
                 }
             },
-            None => "No password stored",
+            super::StoredPassword::Off => "Clipboard Password is off",
+            super::StoredPassword::Missing => "No password stored",
         }
     }
 

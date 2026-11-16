@@ -3260,6 +3260,31 @@ fn the_overview_links_open_their_tab(cx: &mut TestAppContext) {
     visit(cx, "insp-github-open", "detail-tab-issues-panel");
 }
 
+/// The head owns the filled primary, but the Overview's Open in card lists
+/// every way in — the primary included, so VS Code is reachable from both.
+#[gpui::test]
+fn the_open_in_card_lists_the_primary_launcher_too(cx: &mut TestAppContext) {
+    let (store, _net_rx) =
+        scratch_store(cx, "open-in-primary", vec![entry("alpha", "/probe/alpha")]);
+    let cx = open_window(&store, cx);
+
+    assert!(
+        cx.debug_bounds("insp-primary").is_some(),
+        "the head still carries the filled primary"
+    );
+    assert!(
+        cx.debug_bounds("insp-launch-Open in VS Code").is_some(),
+        "VS Code is also a tile in the Open in card"
+    );
+    for tile in [
+        "insp-launch-Open folder",
+        "insp-launch-Open terminal",
+        "insp-launch-Notes for this repo",
+    ] {
+        assert!(cx.debug_bounds(tile).is_some(), "{tile} renders");
+    }
+}
+
 /// With no issues the card's latest pull request opens the pull request
 /// itself, not its list: the pane is the one detail surface.
 #[gpui::test]

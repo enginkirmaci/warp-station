@@ -33,7 +33,13 @@ pub fn stored_password(settings: &warp_station_core::settings::AppSettings) -> O
 
 /// Copies the stored password and returns the toast text.
 pub fn copy_stored_password(store: &Entity<Store>, cx: &mut App) -> &'static str {
-    match stored_password(&store.read(cx).settings()) {
+    let settings = store.read(cx).settings();
+    // the Settings switch is the master: with it off the key copies nothing,
+    // even when a password from an earlier session is still in the file
+    if !settings.clipboard_password.enable_clipboard_password {
+        return "Clipboard Password is off";
+    }
+    match stored_password(&settings) {
         Some(password) => {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(password));
             "Password copied to clipboard"

@@ -31,6 +31,11 @@ names the executable and can hide the section in Settings › Suite apps.
 sheet: every key the window answers to, grouped by the surface that owns it.
 `Esc` closes it.
 
+`Ctrl+Shift+V` copies the stored Clipboard Password. The page that stores it
+lives under Tools once **Settings › External tools › Enable Clipboard
+Password** is on; with that switch on, the app binds the same shortcut
+system-wide at the next launch.
+
 On a focused repository row: `↑`/`↓` move, `Enter` opens the repository as a
 tab, `Alt+F` favorites, `Alt+A` archives or restores, and `Alt+C` opens
 Changes. `Shift`+letter opens an app (`Shift+C` is VS Code; the launch menu

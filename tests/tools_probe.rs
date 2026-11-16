@@ -4,7 +4,7 @@
 use gpui::TestAppContext;
 use gpui::prelude::*;
 use warp_station::store::Store;
-use warp_station::ui::clipboard_password::ClipboardPasswordDrawer;
+use warp_station::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
 use warp_station::ui::formatters::FormattersDrawer;
 use warp_station::ui::nuget::NugetDrawer;
 use warp_station::ui::windows_tools::SnapItPage;
@@ -45,6 +45,43 @@ fn clipboard_password_drawer_draws(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| drop(window.draw(cx)));
     cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+/// The Settings switch is the master: with it off the key copies nothing,
+/// even while a password from an earlier session is still in the file.
+#[gpui_kit::gpui::test]
+fn copying_the_password_follows_the_enable_switch(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store =
+        cx.new(|_cx| Store::with_settings(net_tx, scratch_service("tools-copy_follows_switch")));
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| {
+            settings.clipboard_password.enable_clipboard_password = false;
+            settings.clipboard_password.encrypted_password =
+                Some(warp_station_core::clipboard_password::encode("s3cret"));
+        });
+    });
+
+    let message = cx.update(|cx| copy_stored_password(&store, cx));
+    assert_eq!(message, "Clipboard Password is off");
+    assert_eq!(
+        cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text())),
+        None,
+        "the off switch hands nothing to the clipboard"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, _| {
+        s.update_settings(|settings| settings.clipboard_password.enable_clipboard_password = true);
+    });
+    let message = cx.update(|cx| copy_stored_password(&store, cx));
+    assert_eq!(message, "Password copied to clipboard");
+    assert_eq!(
+        cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text())),
+        Some("s3cret".to_string())
+    );
 }
 
 #[gpui_kit::gpui::test]

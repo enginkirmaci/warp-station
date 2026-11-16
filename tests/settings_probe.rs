@@ -1690,6 +1690,7 @@ fn settings_rail_groups_sections_into_families(cx: &mut TestAppContext) {
         "settings-topic-Terminal",
         "settings-topic-Code search",
         "settings-topic-CLI launchers",
+        "settings-topic-Station tools",
     ] {
         assert!(
             wcx.debug_bounds(topic_selector).is_some(),
@@ -1699,6 +1700,19 @@ fn settings_rail_groups_sections_into_families(cx: &mut TestAppContext) {
     assert!(
         wcx.debug_bounds("settings-row-Enable VS Code").is_some(),
         "the VS Code block leads the section"
+    );
+    let clipboard = wcx
+        .debug_bounds("settings-row-Enable Clipboard Password")
+        .expect("the Clipboard Password switch renders under Station tools");
+    wcx.simulate_click(
+        gpui::point(clipboard.right() - gpui::px(20.), clipboard.center().y),
+        gpui::Modifiers::default(),
+    );
+    wcx.run_until_parked();
+    let json = std::fs::read_to_string(&scratch).expect("saved settings");
+    assert!(
+        json.contains("\"enable_clipboard_password\": true"),
+        "the Clipboard Password switch persisted (got {json})"
     );
     if cfg!(windows) {
         assert!(

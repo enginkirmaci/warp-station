@@ -98,7 +98,7 @@ const SECTIONS: [(Section, &str, &str, &str, &str); 10] = [
         "Apps and tools",
         "settings-tools",
         "External tools",
-        "Editors, terminal, search and CLIs",
+        "Editors, terminal, search, CLIs and tools",
     ),
     (
         Section::Ai,
@@ -172,6 +172,8 @@ pub struct SettingsPage {
     enable_visual_studio: bool,
     snapit_auto_start: bool,
     snapit_executable: Entity<InputState>,
+    // Clipboard Password (the Tools page's gate and the system-wide hotkey)
+    clipboard_password_enabled: bool,
     // OpenCode CLI (the repo row's launch button)
     enable_opencode: bool,
     opencode_executable: Entity<InputState>,
@@ -474,6 +476,7 @@ impl SettingsPage {
             enable_visual_studio: repos.enable_visual_studio,
             snapit_auto_start: settings.snapit.auto_start,
             snapit_executable: field(window, cx, &settings.snapit.executable),
+            clipboard_password_enabled: settings.clipboard_password.enable_clipboard_password,
             enable_opencode: settings.opencode.enable_opencode,
             enable_deepseek: settings.deepseek.enable_deepseek,
             warp_enabled: settings.warp_agent.enable_warp_agent,
@@ -643,6 +646,7 @@ impl SettingsPage {
         );
         let snapit_auto_start = self.snapit_auto_start;
         let snapit_exe = Self::value(&self.snapit_executable, cx);
+        let clipboard_password_enabled = self.clipboard_password_enabled;
         let warp_enabled = self.warp_enabled;
         let warp_exe = Self::value(&self.warp_executable, cx);
         let variant = Self::value(&self.variant, cx);
@@ -718,6 +722,7 @@ impl SettingsPage {
                 s.repos.azure_devops_url = azure_url;
                 s.snapit.auto_start = snapit_auto_start;
                 s.snapit.executable = snapit_exe;
+                s.clipboard_password.enable_clipboard_password = clipboard_password_enabled;
                 s.notifications.enabled = notifications.0;
                 s.notifications.only_when_unfocused = notifications.1;
                 s.notifications.errors = notifications.2;
@@ -1481,6 +1486,20 @@ impl SettingsPage {
                         cx,
                     )],
                     !self.enable_deepseek,
+                ));
+                rows.push(topic("Station tools"));
+                rows.push(kit_settings::switch_row_with_desc(
+                    "set-clipboard-password",
+                    "Enable Clipboard Password",
+                    "settings-row-Enable Clipboard Password".to_string(),
+                    "Adds the Clipboard Password page under Tools and arms Ctrl+Shift+V; the system-wide grab follows at the next launch",
+                    self.clipboard_password_enabled,
+                    false,
+                    cx.listener(|this, _, _, cx| {
+                        this.clipboard_password_enabled = !this.clipboard_password_enabled;
+                        this.save(cx);
+                        cx.notify();
+                    }),
                 ));
             }
             Section::Ai => {
