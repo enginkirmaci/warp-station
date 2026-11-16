@@ -200,6 +200,63 @@ pub enum WholeFileReason {
     Unreadable,
 }
 
+/// One conflict still in a result buffer: where its markers sit and the text
+/// each side contributed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BufferConflict {
+    pub result: LineSpan,
+    pub ours_text: Vec<String>,
+    pub theirs_text: Vec<String>,
+    pub base_text: Vec<String>,
+}
+
+/// The conflict regions a result buffer still carries. The page re-runs this
+/// after every edit, so saving and staging follow the buffer, not the file it
+/// was seeded from.
+pub fn buffer_conflicts(text: &str) -> Vec<BufferConflict> {
+    let lines = lines_of(text);
+    parse_blocks(&lines)
+        .into_iter()
+        .map(|block| BufferConflict {
+            result: LineSpan {
+                start: block.start as u32,
+                len: (block.end - block.start + 1) as u32,
+            },
+            ours_text: lines[block.ours_start()..block.base.unwrap_or(block.sep)].to_vec(),
+            base_text: block
+                .base
+                .map(|base| lines[base + 1..block.sep].to_vec())
+                .unwrap_or_default(),
+            theirs_text: lines[block.sep + 1..block.end].to_vec(),
+        })
+        .collect()
+}
+
+/// How many conflicts a buffer still holds: complete blocks plus marker
+/// fragments a hand edit left behind. Zero is the only clean answer.
+pub fn unresolved_count(text: &str) -> usize {
+    let lines = lines_of(text);
+    let blocks = parse_blocks(&lines);
+    let mut covered = vec![false; lines.len()];
+    for block in &blocks {
+        covered[block.start..=block.end].fill(true);
+    }
+    let fragments = lines
+        .iter()
+        .enumerate()
+        .filter(|(index, line)| !covered[*index] && marker_fragment(line))
+        .count();
+    blocks.len() + fragments
+}
+
+fn marker_fragment(line: &str) -> bool {
+    ['<', '|', '=', '>'].into_iter().any(|ch| {
+        let rest = line.trim_start_matches(ch);
+        let run = line.len() - rest.len();
+        run >= MIN_MARKER_LEN && (rest.is_empty() || rest.starts_with(' '))
+    })
+}
+
 impl WholeFileReason {
     pub fn label(self) -> &'static str {
         match self {
@@ -665,5 +722,27 @@ mod tests {
             Some(LineSpan { start: 2, len: 1 })
         );
         assert_eq!(locate(&lines, &["a".to_string()], &mut cursor), None);
+    }
+
+    #[test]
+    fn a_buffer_reports_its_blocks_and_orphans() {
+        let text = "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\nb\n";
+        let conflicts = buffer_conflicts(text);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].ours_text, ["ours"]);
+        assert_eq!(conflicts[0].theirs_text, ["theirs"]);
+        assert_eq!(conflicts[0].result, LineSpan { start: 1, len: 5 });
+        assert_eq!(unresolved_count(text), 1);
+
+        let diff3 =
+            "a\n<<<<<<< HEAD\nours\n||||||| base\ncommon\n=======\ntheirs\n>>>>>>> feature\nb\n";
+        assert_eq!(buffer_conflicts(diff3)[0].base_text, ["common"]);
+
+        assert_eq!(unresolved_count("a\nresolved\nb\n"), 0);
+        // a half-deleted block still carries its marker fragments
+        assert_eq!(
+            unresolved_count("a\n<<<<<<< HEAD\nours\n=======\ntheirs\n"),
+            2
+        );
     }
 }

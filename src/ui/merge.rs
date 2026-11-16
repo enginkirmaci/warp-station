@@ -1,23 +1,40 @@
 //! The Merge section: one stopped operation at a time — its unmerged files on
-//! the left, the Incoming and Current panes on the right. The session comes
-//! from `warp_station_core::git::merge`; the editable Result and the staging
-//! verbs are later phases, so this page only reads.
+//! the left, the Incoming and Current panes over the editable Result. The
+//! session comes from `warp_station_core::git::merge`; the page seeds the
+//! Result from the worktree file, writes it back on Save, and re-parses the
+//! buffer after every edit so Save and the staging gate follow the text, not
+//! the file it started from.
 
 use crate::store::Store;
 use crate::theme;
+use crate::ui::neutral_button;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, FontWeight, Render, SharedString, Window, div, px, uniform_list,
 };
+use gpui_kit::component::input::{Editor, EditorState, RangeDecoration, RangeDecorationCollection};
 use std::path::Path;
 use std::rc::Rc;
-use warp_station_core::git::merge::{MergeFile, MergeOperation, MergeRow, MergeSession};
+use warp_station_core::git::merge::{
+    BufferConflict, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, WholeFileReason,
+    buffer_conflicts, unresolved_count,
+};
 use warpui_kit_core::{motion, shell};
 
 /// One source-pane row: the diff's mono line height.
 const LINE_H: f32 = 21.0;
 /// The line-number gutter's width.
 const GUTTER_W: f32 = 46.0;
+/// The conflict strip above the Result scrolls past this height.
+const STRIP_MAX_H: f32 = 96.0;
+
+/// Which side a block take writes into the buffer.
+#[derive(Clone, Copy)]
+enum Take {
+    Ours,
+    Theirs,
+    Both,
+}
 
 pub struct MergePage {
     store: Entity<Store>,
@@ -29,6 +46,12 @@ pub struct MergePage {
     selected: usize,
     /// The selected file's rows and stage lines, cloned once per pick.
     shown: Option<ShownFile>,
+    /// The editable Result for the selected file.
+    result: Option<ResultPane>,
+    /// A file switch was refused because the buffer has unsaved edits.
+    switch_blocked: bool,
+    /// "Take both" writes the current side first while this is true.
+    both_current_first: bool,
 }
 
 struct ShownFile {
@@ -36,6 +59,24 @@ struct ShownFile {
     rows: Rc<Vec<MergeRow>>,
     ours: Rc<Vec<String>>,
     theirs: Rc<Vec<String>>,
+    result: Rc<Vec<String>>,
+}
+
+struct ResultPane {
+    folder: String,
+    path: String,
+    editor: Entity<EditorState>,
+    /// The buffer as last read from the editor.
+    text: String,
+    /// The worktree text the buffer was seeded from: dirty is a comparison.
+    disk_text: String,
+    dirty: bool,
+    blocks: Vec<BufferConflict>,
+    unresolved: usize,
+    error: Option<String>,
+    /// The Result editor's conflict tints; the collection tracks edits, but
+    /// the page re-sets it after every re-parse.
+    decorations: Option<RangeDecorationCollection>,
 }
 
 impl MergePage {
@@ -47,15 +88,25 @@ impl MergePage {
             generation: 0,
             selected: 0,
             shown: None,
+            result: None,
+            switch_blocked: false,
+            both_current_first: true,
         }
     }
 
     fn pick_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.result.as_ref().is_some_and(|pane| pane.dirty) {
+            self.switch_blocked = true;
+            cx.notify();
+            return;
+        }
+        self.switch_blocked = false;
         if self.selected == index {
             return;
         }
         self.selected = index;
         self.shown = None;
+        self.result = None;
         cx.notify();
     }
 
@@ -79,14 +130,189 @@ impl MergePage {
                 rows: Rc::new(text.rows.clone()),
                 ours: Rc::new(text.ours.clone()),
                 theirs: Rc::new(text.theirs.clone()),
+                result: Rc::new(text.result.clone()),
             }),
             _ => None,
         };
     }
+
+    /// Seeds the Result editor from the worktree file, once per selected file.
+    /// The session's result lines are the fallback when the file cannot be
+    /// read (it was deleted under us mid-merge).
+    fn ensure_result(
+        &mut self,
+        folder: &str,
+        path: &str,
+        fallback: Rc<Vec<String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .result
+            .as_ref()
+            .is_some_and(|pane| pane.folder == folder && pane.path == path)
+        {
+            return;
+        }
+        let text = std::fs::read_to_string(Path::new(folder).join(path)).unwrap_or_else(|_| {
+            let mut text = fallback.join("\n");
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text
+        });
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .line_number(true)
+                .folding(false)
+                .auto_close(false)
+                .smart_indent(false)
+        });
+        editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+        let decorations = editor.update(cx, |state, cx| {
+            state.create_range_decorations_collection(result_decorations(&text), cx)
+        });
+        cx.observe(&editor, move |this, editor, cx| {
+            let text = editor.read(cx).value().to_string();
+            this.buffer_edited(text, cx);
+        })
+        .detach();
+        self.result = Some(ResultPane {
+            folder: folder.to_string(),
+            path: path.to_string(),
+            editor,
+            disk_text: text.clone(),
+            text: text.clone(),
+            dirty: false,
+            blocks: buffer_conflicts(&text),
+            unresolved: unresolved_count(&text),
+            error: None,
+            decorations: Some(decorations),
+        });
+    }
+
+    /// Re-parses the buffer after an edit; this is what the count and the
+    /// staging gate read.
+    fn buffer_edited(&mut self, text: String, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_mut() else {
+            return;
+        };
+        if text == pane.text {
+            return;
+        }
+        pane.dirty = text != pane.disk_text;
+        pane.blocks = buffer_conflicts(&text);
+        pane.unresolved = unresolved_count(&text);
+        pane.text = text;
+        if let Some(decorations) = pane.decorations.as_ref() {
+            decorations.set(result_decorations(&pane.text), cx);
+        }
+        cx.notify();
+    }
+
+    /// Rewrites one conflict block with the chosen side and re-parses.
+    fn take(&mut self, take: Take, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_mut() else {
+            return;
+        };
+        let Some(block) = pane.blocks.get(index).cloned() else {
+            return;
+        };
+        let replacement: Vec<String> = match take {
+            Take::Ours => block.ours_text.clone(),
+            Take::Theirs => block.theirs_text.clone(),
+            Take::Both => {
+                let (first, second) = if self.both_current_first {
+                    (&block.ours_text, &block.theirs_text)
+                } else {
+                    (&block.theirs_text, &block.ours_text)
+                };
+                first.iter().chain(second.iter()).cloned().collect()
+            }
+        };
+        let next = splice_lines(&pane.text, block.result, &replacement);
+        let editor = pane.editor.clone();
+        editor.update(cx, |state, cx| state.set_value(&next, window, cx));
+        pane.text = next.clone();
+        pane.dirty = next != pane.disk_text;
+        pane.blocks = buffer_conflicts(&next);
+        pane.unresolved = unresolved_count(&next);
+        if let Some(decorations) = pane.decorations.as_ref() {
+            decorations.set(result_decorations(&next), cx);
+        }
+        cx.notify();
+    }
+
+    fn save(&mut self, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_mut() else {
+            return;
+        };
+        let path = Path::new(&pane.folder).join(&pane.path);
+        match std::fs::write(&path, pane.text.as_bytes()) {
+            Ok(()) => {
+                pane.disk_text = pane.text.clone();
+                pane.dirty = false;
+                pane.error = None;
+                self.switch_blocked = false;
+            }
+            Err(error) => pane.error = Some(format!("Could not save: {error}")),
+        }
+        cx.notify();
+    }
+
+    fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_mut() else {
+            return;
+        };
+        let path = Path::new(&pane.folder).join(&pane.path);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let editor = pane.editor.clone();
+                editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+                pane.text = text.clone();
+                pane.disk_text = text.clone();
+                pane.dirty = false;
+                pane.error = None;
+                pane.blocks = buffer_conflicts(&text);
+                pane.unresolved = unresolved_count(&text);
+                if let Some(decorations) = pane.decorations.as_ref() {
+                    decorations.set(result_decorations(&text), cx);
+                }
+                self.switch_blocked = false;
+            }
+            Err(error) => pane.error = Some(format!("Could not reload: {error}")),
+        }
+        cx.notify();
+    }
+
+    /// The session's count with the selected file's buffer count swapped in,
+    /// so the header and the list follow the edits.
+    fn unresolved_total(&self, session: &MergeSession) -> usize {
+        let disk = session
+            .files
+            .get(self.selected)
+            .and_then(|file| match file {
+                MergeFile::Text(text) => Some(text.unresolved()),
+                MergeFile::WholeFile(_) => None,
+            });
+        match (disk, self.result.as_ref()) {
+            (Some(disk), Some(pane)) if self.pane_matches(pane) => {
+                session.unresolved() - disk + pane.unresolved
+            }
+            _ => session.unresolved(),
+        }
+    }
+
+    fn pane_matches(&self, pane: &ResultPane) -> bool {
+        self.session
+            .as_ref()
+            .and_then(|session| session.files.get(self.selected))
+            .is_some_and(|file| file.path() == pane.path)
+    }
 }
 
 impl Render for MergePage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.store
             .update(cx, |store, cx| store.ensure_merge_loaded(cx));
         let (repos, target, generation) = {
@@ -102,6 +328,8 @@ impl Render for MergePage {
             self.session = self.store.read(cx).merge.clone();
             self.selected = 0;
             self.shown = None;
+            self.result = None;
+            self.switch_blocked = false;
         }
         let Some(target) = target else {
             return div().size_full().into_any_element();
@@ -114,9 +342,21 @@ impl Render for MergePage {
             return loading(&target).into_any_element();
         };
 
-        let header = self.header(&target, &repos, session, cx);
+        let unresolved = self.unresolved_total(session);
+        let header = self.header(&target, &repos, session, unresolved, cx);
         let list = self.file_list(session, cx);
-        let detail = self.detail(session, cx);
+        let labels = session.operation.side_labels();
+        let text_file = match session.files.get(self.selected) {
+            Some(MergeFile::Text(text)) => {
+                Some((text.path.clone(), text.ours.len(), text.theirs.len()))
+            }
+            _ => None,
+        };
+        let whole = match session.files.get(self.selected) {
+            Some(MergeFile::WholeFile(whole)) => Some((whole.path.clone(), whole.reason)),
+            _ => None,
+        };
+        let detail = self.detail(&target, labels, text_file, whole, window, cx);
         div()
             .id("merge-page")
             .debug_selector(|| "merge-page".into())
@@ -136,6 +376,7 @@ impl MergePage {
         target: &str,
         repos: &[(String, MergeOperation)],
         session: &MergeSession,
+        unresolved: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut row = div()
@@ -169,7 +410,6 @@ impl MergePage {
                     .text_color(theme::text_muted())
                     .child(repo_name(target)),
             );
-        let unresolved = session.unresolved();
         if unresolved > 0 {
             row = row.child(
                 div()
@@ -209,8 +449,14 @@ impl MergePage {
                             chip.bg(theme::panel()).text_color(theme::text_dim())
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
+                            if this.result.as_ref().is_some_and(|pane| pane.dirty) {
+                                this.switch_blocked = true;
+                                cx.notify();
+                                return;
+                            }
                             this.selected = 0;
                             this.shown = None;
+                            this.result = None;
                             this.store.update(cx, |store, cx| {
                                 store.select_merge_folder(picked.clone(), cx);
                             });
@@ -267,7 +513,14 @@ impl MergePage {
         let selected = index == self.selected;
         let (detail, attention) = match file {
             MergeFile::Text(text) => {
-                let unresolved = text.unresolved();
+                let unresolved = if selected {
+                    self.result
+                        .as_ref()
+                        .map(|pane| pane.unresolved)
+                        .unwrap_or_else(|| text.unresolved())
+                } else {
+                    text.unresolved()
+                };
                 (format!("{unresolved} unresolved"), unresolved > 0)
             }
             MergeFile::WholeFile(whole) => (whole.reason.label().to_string(), true),
@@ -294,46 +547,37 @@ impl MergePage {
             .into_any_element()
     }
 
-    fn detail(&self, session: &MergeSession, cx: &mut Context<Self>) -> AnyElement {
-        let file = session.files.get(self.selected);
-        match file {
-            Some(MergeFile::Text(text)) => {
-                let Some(shown) = self.shown.as_ref() else {
-                    return empty_detail("Reading the conflict…");
-                };
-                let labels = session.operation.side_labels();
-                let ours = shown.ours.clone();
-                let theirs = shown.theirs.clone();
-                let rows = shown.rows.clone();
-                let id = SharedString::from(format!("merge-panes-{}-{}", text.path, rows.len()));
-                let list = uniform_list(
-                    id,
-                    rows.len(),
-                    cx.processor(move |_this, range: std::ops::Range<usize>, _window, _cx| {
-                        range
-                            .map(|index| pane_row(index, &rows, &ours, &theirs))
-                            .collect::<Vec<_>>()
-                    }),
-                );
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(pane_head(labels, text.ours.len(), text.theirs.len()))
-                    .child(
-                        div()
-                            .debug_selector(|| "merge-panes".into())
-                            .flex_1()
-                            .min_h_0()
-                            .font_family(theme::code_font())
-                            .text_size(px(theme::font_mono_meta()))
-                            .child(list.size_full()),
-                    )
-                    .into_any_element()
-            }
-            Some(MergeFile::WholeFile(whole)) => div()
+    fn detail(
+        &mut self,
+        target: &str,
+        labels: (&'static str, &'static str),
+        text_file: Option<(String, usize, usize)>,
+        whole: Option<(String, WholeFileReason)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some((path, ours_lines, theirs_lines)) = text_file {
+            let fallback = self
+                .shown
+                .as_ref()
+                .map(|shown| shown.result.clone())
+                .unwrap_or_default();
+            self.ensure_result(target, &path, fallback, window, cx);
+            let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, cx);
+            let result = self.result_section(labels, cx);
+            return div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(div().flex_1().min_h_0().child(panes))
+                .child(div().h(px(1.)).flex_none().bg(theme::hairline()))
+                .child(div().flex_1().min_h_0().flex().flex_col().child(result))
+                .into_any_element();
+        }
+        if let Some((path, reason)) = whole {
+            return div()
                 .flex_1()
                 .flex()
                 .flex_col()
@@ -345,13 +589,13 @@ impl MergePage {
                         .text_size(px(theme::font_body()))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::text())
-                        .child(file_name(&whole.path)),
+                        .child(file_name(&path)),
                 )
                 .child(
                     div()
                         .text_size(px(theme::font_meta()))
                         .text_color(theme::text_muted())
-                        .child(whole.reason.label()),
+                        .child(reason.label()),
                 )
                 .child(
                     div()
@@ -359,9 +603,228 @@ impl MergePage {
                         .text_color(theme::text_muted())
                         .child("Take ours / take theirs lands with the staging phase."),
                 )
-                .into_any_element(),
-            None => empty_detail("No file selected"),
+                .into_any_element();
         }
+        empty_detail("No file selected")
+    }
+
+    fn source_panes(
+        &self,
+        labels: (&'static str, &'static str),
+        path: &str,
+        ours_lines: usize,
+        theirs_lines: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(shown) = self.shown.as_ref() else {
+            return empty_detail("Reading the conflict…");
+        };
+        let ours = shown.ours.clone();
+        let theirs = shown.theirs.clone();
+        let rows = shown.rows.clone();
+        let id = SharedString::from(format!("merge-panes-{path}-{}", rows.len()));
+        let list = uniform_list(
+            id,
+            rows.len(),
+            cx.processor(move |_this, range: std::ops::Range<usize>, _window, _cx| {
+                range
+                    .map(|index| pane_row(index, &rows, &ours, &theirs))
+                    .collect::<Vec<_>>()
+            }),
+        );
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(pane_head(labels, ours_lines, theirs_lines))
+            .child(
+                div()
+                    .debug_selector(|| "merge-panes".into())
+                    .flex_1()
+                    .min_h_0()
+                    .font_family(theme::code_font())
+                    .text_size(px(theme::font_mono_meta()))
+                    .child(list.size_full()),
+            )
+            .into_any_element()
+    }
+
+    fn result_section(
+        &self,
+        labels: (&'static str, &'static str),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(pane) = self.result.as_ref() else {
+            return empty_detail("Reading the result…");
+        };
+        let entity = cx.entity();
+        let save_entity = entity.clone();
+        let reload_entity = entity.clone();
+        let order_entity = entity.clone();
+        let dirty = pane.dirty;
+        let unresolved = pane.unresolved;
+
+        let mut bar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .h(px(34.))
+            .flex_none()
+            .border_b_1()
+            .border_color(theme::hairline())
+            .child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::text_muted())
+                    .child("RESULT"),
+            );
+        if unresolved > 0 {
+            bar = bar.child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::WARN)
+                    .child(format!("{unresolved} unresolved")),
+            );
+        } else {
+            bar = bar.child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::SUCCESS_BRIGHT)
+                    .child("Resolved"),
+            );
+        }
+        if self.switch_blocked {
+            bar = bar.child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::WARN)
+                    .child("Unsaved edits — Save or Reload before switching files"),
+            );
+        }
+        if let Some(error) = pane.error.as_ref() {
+            bar = bar.child(
+                div()
+                    .text_size(px(theme::font_micro()))
+                    .text_color(theme::DANGER)
+                    .child(error.clone()),
+            );
+        }
+        bar = bar.child(div().flex_1()).child(neutral_button(
+            "merge-order",
+            format!("Both: {} first", labels.0),
+            true,
+            move |_, _, cx| {
+                order_entity.update(cx, |this, cx| {
+                    this.both_current_first = !this.both_current_first;
+                    cx.notify();
+                })
+            },
+        ));
+        bar = bar.child(neutral_button(
+            "merge-reload",
+            "Reload",
+            true,
+            move |_, window, cx| reload_entity.update(cx, |this, cx| this.reload(window, cx)),
+        ));
+        bar = bar.child(neutral_button(
+            "merge-save",
+            "Save",
+            dirty,
+            move |_, _, cx| save_entity.update(cx, |this, cx| this.save(cx)),
+        ));
+
+        let strip = self.conflict_strip(labels, cx);
+        let editor = Editor::new(&pane.editor)
+            .bordered(false)
+            .appearance(false)
+            .h_full()
+            .aria_label("Merge result")
+            .font_family(SharedString::from(theme::code_font()))
+            .text_size(px(theme::font_mono_meta()));
+        let mut section = div().flex().flex_col().flex_1().min_h_0().child(bar);
+        if !pane.blocks.is_empty() {
+            section = section.child(strip);
+        }
+        section
+            .child(div().flex_1().min_h_0().child(editor))
+            .into_any_element()
+    }
+
+    fn conflict_strip(
+        &self,
+        labels: (&'static str, &'static str),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(pane) = self.result.as_ref() else {
+            return div().into_any_element();
+        };
+        let mut rows = div()
+            .id("merge-conflicts")
+            .debug_selector(|| "merge-conflicts".into())
+            .flex()
+            .flex_col()
+            .flex_none()
+            .max_h(px(STRIP_MAX_H))
+            .overflow_y_scroll()
+            .border_b_1()
+            .border_color(theme::hairline());
+        for (index, block) in pane.blocks.iter().enumerate() {
+            let ours = cx.entity();
+            let theirs = cx.entity();
+            let both = cx.entity();
+            rows = rows.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .h(px(30.))
+                    .border_b_1()
+                    .border_color(theme::hairline())
+                    .child(
+                        div()
+                            .text_size(px(theme::font_micro()))
+                            .text_color(theme::text_muted())
+                            .child(format!(
+                                "Conflict {} · line {}",
+                                index + 1,
+                                block.result.start + 1
+                            )),
+                    )
+                    .child(div().flex_1())
+                    .child(neutral_button(
+                        format!("merge-take-ours-{index}"),
+                        labels.0,
+                        true,
+                        move |_, window, cx| {
+                            ours.update(cx, |this, cx| this.take(Take::Ours, index, window, cx))
+                        },
+                    ))
+                    .child(neutral_button(
+                        format!("merge-take-theirs-{index}"),
+                        labels.1,
+                        true,
+                        move |_, window, cx| {
+                            theirs.update(cx, |this, cx| this.take(Take::Theirs, index, window, cx))
+                        },
+                    ))
+                    .child(neutral_button(
+                        format!("merge-take-both-{index}"),
+                        "Both",
+                        true,
+                        move |_, window, cx| {
+                            both.update(cx, |this, cx| this.take(Take::Both, index, window, cx))
+                        },
+                    )),
+            );
+        }
+        rows.into_any_element()
     }
 }
 
@@ -446,6 +909,58 @@ fn code_cell(text: &str) -> AnyElement {
         .text_color(theme::text())
         .child(text.to_string())
         .into_any_element()
+}
+
+/// Replaces one line span in a text with the given lines, keeping the file's
+/// line ending and whether it ended with one.
+fn splice_lines(text: &str, span: LineSpan, replacement: &[String]) -> String {
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let trailing = text.ends_with('\n');
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let start = (span.start as usize).min(lines.len());
+    let end = (span.start as usize + span.len as usize).min(lines.len());
+    lines.splice(start..end, replacement.iter().cloned());
+    let mut next = lines.join(eol);
+    if trailing {
+        next.push_str(eol);
+    }
+    next
+}
+
+/// The Result editor's conflict tints, one per complete block still in the
+/// buffer.
+fn result_decorations(text: &str) -> Vec<RangeDecoration> {
+    buffer_conflicts(text)
+        .into_iter()
+        .filter_map(|block| line_byte_range(text, block.result))
+        .map(|range| RangeDecoration::new(range).with_color(theme::tint(theme::WARN)))
+        .collect()
+}
+
+/// The byte range one line span covers, its newlines included. Ranges are the
+/// decoration collection's UTF-8 offsets.
+fn line_byte_range(text: &str, span: LineSpan) -> Option<std::ops::Range<usize>> {
+    let mut ends = Vec::new();
+    let mut at = 0;
+    for piece in text.split_inclusive('\n') {
+        at += piece.len();
+        ends.push(at);
+    }
+    let start_line = span.start as usize;
+    if ends.is_empty() || start_line >= ends.len() {
+        return None;
+    }
+    let start = if start_line == 0 {
+        0
+    } else {
+        ends[start_line - 1]
+    };
+    let end_line = (start_line + span.len as usize).min(ends.len());
+    if end_line == 0 {
+        return None;
+    }
+    let end = ends[end_line - 1];
+    (end > start).then_some(start..end)
 }
 
 fn loading(target: &str) -> AnyElement {

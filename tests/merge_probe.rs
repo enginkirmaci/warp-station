@@ -165,3 +165,66 @@ fn the_rail_item_follows_the_stopped_operation(cx: &mut TestAppContext) {
         "and the section falls back to Repos"
     );
 }
+
+fn draw(cx: &mut gpui::VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} renders"));
+    cx.simulate_click(bounds.center(), gpui::Modifiers::default());
+    draw(cx);
+}
+
+#[gpui_kit::gpui::test]
+fn taking_a_side_rewrites_the_buffer_and_saves(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let folder = std::env::temp_dir().join(format!(
+        "warp-station-merge-probe-take-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).expect("the fixture directory creates");
+    let worktree = folder.join("a.txt");
+    std::fs::write(
+        &worktree,
+        "<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature\n",
+    )
+    .expect("the fixture file writes");
+    let folder_text = folder.to_string_lossy().to_string();
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("take")));
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        store
+            .merge_ops
+            .insert(folder_text.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder_text.clone());
+        store.merge = Some(session());
+        store.merge_loaded_for = Some(folder_text.clone());
+        store.merge_generation = 1;
+        cx.notify();
+    });
+
+    let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
+    draw(cx);
+    click(cx, "merge-take-ours-0");
+    assert!(
+        cx.debug_bounds("merge-take-ours-0").is_none(),
+        "the block leaves the strip once it is taken"
+    );
+    click(cx, "merge-save");
+    let saved = std::fs::read_to_string(&worktree).expect("the result writes");
+    assert!(
+        !saved.contains("<<<<<<<"),
+        "the markers are gone: {saved:?}"
+    );
+    assert_eq!(saved, "main\n");
+    let _ = std::fs::remove_dir_all(&folder);
+}
