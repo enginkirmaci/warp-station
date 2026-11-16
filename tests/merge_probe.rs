@@ -369,3 +369,64 @@ fn a_single_repo_probe_keeps_the_other_flags(cx: &mut TestAppContext) {
         "beta's flag survives alpha's partial probe"
     );
 }
+
+#[gpui_kit::gpui::test]
+fn alt_arrows_walk_the_conflict_strip(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let folder = std::env::temp_dir().join(format!(
+        "warp-station-merge-probe-keys-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).expect("the fixture directory creates");
+    std::fs::write(
+        folder.join("a.txt"),
+        "<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature\n<<<<<<< HEAD\ntwo\n=======\ntheirs\n>>>>>>> feature\n",
+    )
+    .expect("the fixture file writes");
+    let folder_text = folder.to_string_lossy().to_string();
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("keys")));
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        store
+            .merge_ops
+            .insert(folder_text.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder_text.clone());
+        store.merge = Some(session());
+        store.merge_loaded_for = Some(folder_text.clone());
+        store.merge_generation = 1;
+        cx.notify();
+    });
+    let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
+    draw(cx);
+
+    let strip = cx.debug_bounds("merge-conflicts").expect("the strip draws");
+    cx.simulate_click(strip.center(), gpui::Modifiers::default());
+    draw(cx);
+    let first = cx
+        .debug_bounds("merge-conflict-active")
+        .expect("a conflict row is active")
+        .origin
+        .y;
+    cx.simulate_keystrokes("alt-down");
+    draw(cx);
+    let second = cx
+        .debug_bounds("merge-conflict-active")
+        .expect("the next conflict becomes active")
+        .origin
+        .y;
+    assert!(second > first, "Alt+Down moves the active conflict down");
+    cx.simulate_keystrokes("alt-up");
+    draw(cx);
+    let back = cx
+        .debug_bounds("merge-conflict-active")
+        .expect("the first conflict is active again")
+        .origin
+        .y;
+    assert_eq!(back, first, "Alt+Up returns to the first conflict");
+    let _ = std::fs::remove_dir_all(&folder);
+}

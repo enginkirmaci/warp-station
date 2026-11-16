@@ -84,6 +84,10 @@ pub fn groups(settings: &AppSettings, repo: Option<&RepoEntry>) -> Vec<Group> {
             row("Tab / Shift Tab", "Same, when a list is on that side"),
         ],
     );
+    let merge = Group::new(
+        "Merge (conflict strip)",
+        vec![row("Alt ↑ / Alt ↓", "Previous / next conflict")],
+    );
     let mut repository_rows = vec![
         row("Enter", "Open the selected repository in a tab"),
         row("Alt F", "Favorite or unfavorite the selected repository"),
@@ -108,7 +112,7 @@ pub fn groups(settings: &AppSettings, repo: Option<&RepoEntry>) -> Vec<Group> {
             "Commit the staged changes, from the message box",
         )],
     );
-    vec![window, tabs, lists, repositories, changes]
+    vec![window, tabs, lists, merge, repositories, changes]
 }
 
 #[cfg(test)]

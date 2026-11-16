@@ -259,13 +259,35 @@ pub fn neutral_button(
     enabled: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> gpui::AnyElement {
-    let id = id.into();
     let label = label.into();
+    plain_button(id, label.clone(), label, enabled, on_click)
+}
+
+/// A neutral button whose accessible name says more than its short visible
+/// label — a repeated row action, where "Current" alone is ambiguous.
+pub fn neutral_button_named(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    aria: impl Into<SharedString>,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    plain_button(id, label.into(), aria.into(), enabled, on_click)
+}
+
+fn plain_button(
+    id: impl Into<SharedString>,
+    label: SharedString,
+    aria: SharedString,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    let id = id.into();
     let selector = id.to_string();
     div()
         .id(id)
         .debug_selector(move || selector.clone())
-        .a11y_button(label.clone())
+        .a11y_button(aria)
         .when(enabled, |d| {
             d.cursor_pointer()
                 .hover(|s| s.bg(theme::raised()))

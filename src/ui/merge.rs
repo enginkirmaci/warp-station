@@ -7,10 +7,11 @@
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::{neutral_button, primary_button};
+use crate::ui::{neutral_button, neutral_button_named, primary_button};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, Render, SharedString, Window, div, px, uniform_list,
+    AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Render, SharedString,
+    Window, div, px, uniform_list,
 };
 use gpui_kit::component::input::{Editor, EditorState, RangeDecoration, RangeDecorationCollection};
 use std::path::Path;
@@ -50,6 +51,10 @@ pub struct MergePage {
     result: Option<ResultPane>,
     /// A file switch was refused because the buffer has unsaved edits.
     switch_blocked: bool,
+    /// The conflict strip's keys: Alt+Up/Down walk its blocks.
+    strip_focus: FocusHandle,
+    /// The block the strip highlights and the keys move.
+    active_conflict: usize,
     /// "Take both" writes the current side first while this is true.
     both_current_first: bool,
 }
@@ -96,6 +101,8 @@ impl MergePage {
             shown: None,
             result: None,
             switch_blocked: false,
+            strip_focus: cx.focus_handle(),
+            active_conflict: 0,
             both_current_first: true,
         }
     }
@@ -113,7 +120,43 @@ impl MergePage {
         self.selected = index;
         self.shown = None;
         self.result = None;
+        self.active_conflict = 0;
         cx.notify();
+    }
+
+    /// Alt+Up / Alt+Down walk the conflict strip. The strip is the focused
+    /// pane when these arrive; the Result editor keeps its own keys.
+    fn handle_strip_key(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) -> bool {
+        if !event.keystroke.modifiers.alt || event.keystroke.modifiers.control {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "up" => {
+                self.step_conflict(-1, cx);
+                true
+            }
+            "down" => {
+                self.step_conflict(1, cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn step_conflict(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_ref() else {
+            return;
+        };
+        let count = pane.blocks.len();
+        if count == 0 {
+            return;
+        }
+        let current = self.active_conflict.min(count - 1) as i32;
+        let next = (current + delta).clamp(0, count as i32 - 1) as usize;
+        if next != self.active_conflict {
+            self.active_conflict = next;
+            cx.notify();
+        }
     }
 
     /// Clones the selected file's rows and stage lines once, not per frame.
@@ -235,6 +278,9 @@ impl MergePage {
         pane.stamp = Some(stamp);
         pane.blocks = buffer_conflicts(&text);
         pane.unresolved = unresolved_count(&text);
+        self.active_conflict = self
+            .active_conflict
+            .min(pane.blocks.len().saturating_sub(1));
         if let Some(decorations) = pane.decorations.as_ref() {
             decorations.set(result_decorations(&text), cx);
         }
@@ -254,6 +300,9 @@ impl MergePage {
         pane.blocks = buffer_conflicts(&text);
         pane.unresolved = unresolved_count(&text);
         pane.text = text;
+        self.active_conflict = self
+            .active_conflict
+            .min(pane.blocks.len().saturating_sub(1));
         if let Some(decorations) = pane.decorations.as_ref() {
             decorations.set(result_decorations(&pane.text), cx);
         }
@@ -287,6 +336,9 @@ impl MergePage {
         pane.dirty = next != pane.disk_text;
         pane.blocks = buffer_conflicts(&next);
         pane.unresolved = unresolved_count(&next);
+        self.active_conflict = self
+            .active_conflict
+            .min(pane.blocks.len().saturating_sub(1));
         if let Some(decorations) = pane.decorations.as_ref() {
             decorations.set(result_decorations(&next), cx);
         }
@@ -334,6 +386,9 @@ impl MergePage {
                 pane.external = false;
                 pane.blocks = buffer_conflicts(&text);
                 pane.unresolved = unresolved_count(&text);
+                self.active_conflict = self
+                    .active_conflict
+                    .min(pane.blocks.len().saturating_sub(1));
                 if let Some(decorations) = pane.decorations.as_ref() {
                     decorations.set(result_decorations(&text), cx);
                 }
@@ -389,6 +444,7 @@ impl Render for MergePage {
             self.shown = None;
             self.result = None;
             self.switch_blocked = false;
+            self.active_conflict = 0;
         }
         let Some(target) = target else {
             return div().size_full().into_any_element();
@@ -908,13 +964,35 @@ impl MergePage {
             .max_h(px(STRIP_MAX_H))
             .overflow_y_scroll()
             .border_b_1()
-            .border_color(theme::hairline());
+            .border_color(theme::hairline())
+            .track_focus(&self.strip_focus)
+            .on_key_down(cx.listener(|this, event, _window, cx| {
+                if this.handle_strip_key(event, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.strip_focus.is_focused(window) {
+                        window.focus(&this.strip_focus, cx);
+                    }
+                }),
+            );
         for (index, block) in pane.blocks.iter().enumerate() {
             let ours = cx.entity();
             let theirs = cx.entity();
             let both = cx.entity();
+            let active = index == self.active_conflict;
             rows = rows.child(
                 div()
+                    .debug_selector(move || {
+                        if active {
+                            "merge-conflict-active".to_string()
+                        } else {
+                            "merge-conflict-row".to_string()
+                        }
+                    })
                     .flex()
                     .flex_row()
                     .items_center()
@@ -923,6 +1001,7 @@ impl MergePage {
                     .h(px(30.))
                     .border_b_1()
                     .border_color(theme::hairline())
+                    .when(active, |row| row.bg(theme::tint(theme::accent())))
                     .child(
                         div()
                             .text_size(px(theme::font_micro()))
@@ -934,25 +1013,28 @@ impl MergePage {
                             )),
                     )
                     .child(div().flex_1())
-                    .child(neutral_button(
+                    .child(neutral_button_named(
                         format!("merge-take-ours-{index}"),
                         labels.0,
+                        format!("Take {} for conflict {}", labels.0, index + 1),
                         true,
                         move |_, window, cx| {
                             ours.update(cx, |this, cx| this.take(Take::Ours, index, window, cx))
                         },
                     ))
-                    .child(neutral_button(
+                    .child(neutral_button_named(
                         format!("merge-take-theirs-{index}"),
                         labels.1,
+                        format!("Take {} for conflict {}", labels.1, index + 1),
                         true,
                         move |_, window, cx| {
                             theirs.update(cx, |this, cx| this.take(Take::Theirs, index, window, cx))
                         },
                     ))
-                    .child(neutral_button(
+                    .child(neutral_button_named(
                         format!("merge-take-both-{index}"),
                         "Both",
+                        format!("Take both sides for conflict {}", index + 1),
                         true,
                         move |_, window, cx| {
                             both.update(cx, |this, cx| this.take(Take::Both, index, window, cx))
