@@ -49,12 +49,6 @@ pub enum NetCommand {
         folder: PathBuf,
         action: GitAction,
     },
-    /// One conflicted file's three index stages and marker blocks, for the
-    /// merge editor.
-    LoadMergeConflict {
-        folder: PathBuf,
-        path: String,
-    },
     /// One change row's expandable patch.
     GetChangePatch {
         folder: PathBuf,
@@ -360,64 +354,13 @@ pub enum GitAction {
     Sync,
     /// `git revert --no-edit` on one commit (the drill-down's Revert).
     Revert(String),
-    /// `git merge <source>` into the current branch, from the branch list's
-    /// context menu.
-    Merge {
-        source: String,
-    },
-    /// Commits a stopped merge on its prepared `MERGE_MSG`.
-    MergeContinue,
-    /// `git merge --abort`: restores the pre-merge tree.
-    MergeAbort,
-    /// Writes one conflicted file's resolution and stages it; `None` removes
-    /// the file for the delete/modify side.
-    ResolveConflict {
-        path: String,
-        text: Option<String>,
-    },
-    /// Resolves one side of a conflict the editor cannot show as text
-    /// (binary, delete/modify): that side's stage becomes the worktree.
-    ResolveConflictSide {
-        path: String,
-        side: warp_station_core::git::conflict::ConflictSide,
-    },
-    /// Resolves every block of one file to the same side in one step (the
-    /// conflicted row's menu).
-    ResolveConflictBulk {
-        path: String,
-        side: warp_station_core::git::conflict::ConflictSide,
-    },
 }
 
-/// A merge action's ending, carried apart from the generic git toast: a
-/// stopped merge is a state, not an error, and "already up to date" is a
-/// no-op worth saying without a "failed" wash.
-#[derive(Clone, Debug)]
-pub enum MergeRun {
-    Merged {
-        source: String,
-    },
-    UpToDate {
-        source: String,
-    },
-    Stopped {
-        source: String,
-    },
-    Continued,
-    Aborted,
-    Failed {
-        action: &'static str,
-        error: Option<String>,
-    },
-}
-
-/// One mutation's result, the merge ending included so the store can toast it
-/// without re-reading git.
+/// One mutation's result.
 struct GitRun {
     ok: bool,
     error: Option<String>,
     commit_hash: Option<String>,
-    merge: Option<MergeRun>,
 }
 
 impl GitRun {
@@ -426,24 +369,6 @@ impl GitRun {
             ok,
             error,
             commit_hash,
-            merge: None,
-        }
-    }
-
-    fn merge(run: MergeRun) -> Self {
-        match &run {
-            MergeRun::Failed { error, .. } => Self {
-                ok: false,
-                error: error.clone(),
-                commit_hash: None,
-                merge: Some(run),
-            },
-            _ => Self {
-                ok: true,
-                error: None,
-                commit_hash: None,
-                merge: Some(run),
-            },
         }
     }
 }
@@ -459,10 +384,6 @@ pub fn git_working_word(label: &str) -> &'static str {
         "commit" => "Committing…",
         "checkout" => "Switching…",
         "revert" => "Reverting…",
-        "merge" => "Merging…",
-        "merge continue" => "Committing the merge…",
-        "merge abort" => "Aborting…",
-        "resolve conflict" => "Saving the resolution…",
         _ => "Working…",
     }
 }
@@ -476,8 +397,6 @@ pub fn git_done_word(label: &str) -> &'static str {
         "publish" => "Published",
         "sync" => "Synced",
         "commit" => "Committed",
-        "merge continue" => "Merge committed",
-        "merge abort" => "Aborted",
         _ => "Done",
     }
 }
@@ -502,12 +421,6 @@ impl GitAction {
             GitAction::Publish { .. } => "publish",
             GitAction::Sync => "sync",
             GitAction::Revert(_) => "revert",
-            GitAction::Merge { .. } => "merge",
-            GitAction::MergeContinue => "merge continue",
-            GitAction::MergeAbort => "merge abort",
-            GitAction::ResolveConflict { .. }
-            | GitAction::ResolveConflictBulk { .. }
-            | GitAction::ResolveConflictSide { .. } => "resolve conflict",
         }
     }
 
@@ -519,9 +432,6 @@ impl GitAction {
             GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => {
                 Some(name.clone())
             }
-            GitAction::ResolveConflict { path, .. }
-            | GitAction::ResolveConflictBulk { path, .. }
-            | GitAction::ResolveConflictSide { path, .. } => Some(path.clone()),
             _ => None,
         }
     }
@@ -605,11 +515,6 @@ pub enum UiEvent {
         recent: Vec<warp_station_core::model::GitCommitInfo>,
         unpushed: Option<std::collections::HashSet<String>>,
     },
-    MergeConflictLoaded {
-        folder: String,
-        path: String,
-        file: Option<warp_station_core::git::conflict::GitConflictFile>,
-    },
     GitDone {
         folder: String,
         label: &'static str,
@@ -618,8 +523,6 @@ pub enum UiEvent {
         commit_hash: Option<String>,
         /// The action's branch/commit target, for toast texts.
         detail: Option<String>,
-        /// A merge action's ending; `None` for every other mutation.
-        merge: Option<MergeRun>,
     },
     ChangePatchLoaded {
         folder: String,
@@ -2079,14 +1982,6 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     patch,
                 });
             }
-            NetCommand::LoadMergeConflict { folder, path } => {
-                let file = warp_station_core::git::conflict::conflict_file(&folder, &path);
-                let _ = evt_tx.send_blocking(UiEvent::MergeConflictLoaded {
-                    folder: folder.to_string_lossy().to_string(),
-                    path,
-                    file,
-                });
-            }
             NetCommand::Git { folder, action } => {
                 let run = run_git_action(&folder, &action).await;
                 // a remote pick lands on its local tracking branch; name that
@@ -2106,7 +2001,6 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                     error: if run.ok { None } else { run.error },
                     commit_hash: run.commit_hash,
                     detail,
-                    merge: run.merge,
                 });
                 // every mutation re-checks the repo it touched: the fresh
                 // status and the rebuilt changes snapshot land together, and
@@ -2216,46 +2110,11 @@ where
 }
 
 async fn run_git_action(folder: &Path, action: &GitAction) -> GitRun {
-    use warp_station_core::git::cli;
-    match action {
-        GitAction::Merge { source } => GitRun::merge(match cli::merge(folder, source).await {
-            cli::MergeOutcome::Merged => MergeRun::Merged {
-                source: source.clone(),
-            },
-            cli::MergeOutcome::UpToDate => MergeRun::UpToDate {
-                source: source.clone(),
-            },
-            cli::MergeOutcome::Stopped => MergeRun::Stopped {
-                source: source.clone(),
-            },
-            cli::MergeOutcome::Failed(error) => MergeRun::Failed {
-                action: "Merge",
-                error,
-            },
-        }),
-        GitAction::MergeContinue => GitRun::merge(match cli::merge_continue(folder).await {
-            outcome if outcome.ok => MergeRun::Continued,
-            outcome => MergeRun::Failed {
-                action: "Continue merge",
-                error: outcome.error,
-            },
-        }),
-        GitAction::MergeAbort => GitRun::merge(match cli::merge_abort(folder).await {
-            outcome if outcome.ok => MergeRun::Aborted,
-            outcome => MergeRun::Failed {
-                action: "Abort merge",
-                error: outcome.error,
-            },
-        }),
-        _ => {
-            let (ok, error, commit_hash) = plain_git_action(folder, action).await;
-            GitRun::plain(ok, error, commit_hash)
-        }
-    }
+    let (ok, error, commit_hash) = plain_git_action(folder, action).await;
+    GitRun::plain(ok, error, commit_hash)
 }
 
-/// Every non-merge mutation; merge endings carry their own state and never
-/// reach this table.
+/// Every mutation behind the generic toast.
 async fn plain_git_action(
     folder: &Path,
     action: &GitAction,
@@ -2330,22 +2189,6 @@ async fn plain_git_action(
         GitAction::Revert(hash) => {
             let outcome = cli::revert_commit(folder, hash).await;
             (outcome.ok, outcome.error, None)
-        }
-        GitAction::ResolveConflict { path, text } => {
-            let outcome =
-                warp_station_core::git::conflict::resolve(folder, path, text.as_deref()).await;
-            outcome.into_outcome()
-        }
-        GitAction::ResolveConflictBulk { path, side } => {
-            let outcome = warp_station_core::git::conflict::resolve_all(folder, path, *side).await;
-            outcome.into_outcome()
-        }
-        GitAction::ResolveConflictSide { path, side } => {
-            let outcome = cli::resolve_side(folder, path, *side).await;
-            outcome.into_outcome()
-        }
-        GitAction::Merge { .. } | GitAction::MergeContinue | GitAction::MergeAbort => {
-            unreachable!("merge actions take the merge path")
         }
     }
 }

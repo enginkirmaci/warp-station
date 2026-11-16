@@ -4,9 +4,7 @@
 
 pub mod projection;
 
-use crate::net::{
-    GitAction, MergeRun, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus,
-};
+use crate::net::{GitAction, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus};
 use crate::notices::{self, NoticeAction, Notices};
 use gpui::{App, Context};
 use std::sync::Arc;
@@ -148,13 +146,6 @@ pub struct Store {
     /// against it instead of re-cloning the snapshot each frame.
     changes_generation: u64,
     pub changes_loaded_for: Option<String>,
-    /// The conflicted file the merge editor is showing, fetched on demand.
-    merge_conflict: Option<warp_station_core::git::conflict::GitConflictFile>,
-    /// The path the merge editor asked for, and whether the answer landed. A
-    /// landed `None` means the file has no text surface (binary or a deleted
-    /// side), which the editor resolves with a side button.
-    merge_conflict_path: Option<String>,
-    merge_conflict_loaded: bool,
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
@@ -164,11 +155,6 @@ pub struct Store {
     /// The job that just landed, for the moment its button says so.
     pub git_finished: Option<(String, &'static str)>,
     finished_generation: u64,
-    /// A merge press in flight: the source branch, until its `GitDone` lands.
-    merge_running_source: Option<String>,
-    /// A merge run just stopped; its conflict count arrives with the reload
-    /// that follows, so the toast waits for that snapshot.
-    pending_merge_stop: Option<String>,
     /// Folder names being cloned: each shows as a row at the top of the list.
     pub cloning: Vec<String>,
     /// The star just pressed: (folder, press count). Only that one jumps.
@@ -501,17 +487,12 @@ impl Store {
             changes: None,
             changes_generation: 0,
             changes_loaded_for: None,
-            merge_conflict: None,
-            merge_conflict_path: None,
-            merge_conflict_loaded: false,
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
             git_jobs: std::collections::HashMap::new(),
             git_finished: None,
             finished_generation: 0,
-            merge_running_source: None,
-            pending_merge_stop: None,
             cloning: Vec::new(),
             star_pressed: None,
             change_patch_result: None,
@@ -959,43 +940,13 @@ impl Store {
                 unpushed,
             } => {
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
-                    // a stopped merge's conflict count is only known from the
-                    // reload that follows its `GitDone`, so its toast waits
-                    // for this snapshot
-                    let conflicts = snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.merge.as_ref())
-                        .map_or(0, |merge| merge.conflicted.len());
-                    let stopped_here = self.pending_merge_stop.as_deref() == Some(folder.as_str());
-                    if stopped_here {
-                        self.pending_merge_stop = None;
-                    }
-                    let conflicted: Vec<String> = snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.merge.as_ref())
-                        .map(|merge| merge.conflicted.clone())
-                        .unwrap_or_default();
                     self.set_changes(snapshot);
-                    if self
-                        .merge_conflict
-                        .as_ref()
-                        .is_some_and(|file| !conflicted.contains(&file.path))
-                    {
-                        self.merge_conflict = None;
-                    }
                     self.changes_loaded_for = Some(folder);
                     self.branches = branches;
                     if !recent.is_empty() {
                         self.recent_commits = recent;
                     }
                     self.unpushed = unpushed;
-                    if stopped_here {
-                        self.notify_info(if conflicts == 1 {
-                            "Merge stopped: 1 conflict to resolve".to_string()
-                        } else {
-                            format!("Merge stopped: {conflicts} conflicts to resolve")
-                        });
-                    }
                 }
                 cx.notify();
             }
@@ -1882,36 +1833,15 @@ impl Store {
                 }
                 cx.notify();
             }
-            UiEvent::MergeConflictLoaded { folder, path, file } => {
-                if self.selected_repo.as_deref() == Some(folder.as_str())
-                    && self.merge_conflict_path.as_deref() == Some(path.as_str())
-                {
-                    self.merge_conflict = file.filter(|file| file.path == path);
-                    self.merge_conflict_loaded = true;
-                    cx.notify();
-                }
-            }
             UiEvent::GitDone {
                 folder,
                 label,
                 error,
                 commit_hash,
                 detail,
-                merge,
             } => {
                 self.end_activity(&format!("git:{folder}"));
                 self.git_jobs.remove(&folder);
-                if label == "merge" {
-                    self.merge_running_source = None;
-                }
-                // a merge's endings are states with their own words; the
-                // generic "ok" toast below would call a stopped merge a
-                // success and an up-to-date one a merge
-                if let Some(run) = merge {
-                    self.apply_merge_run(&folder, run);
-                    cx.notify();
-                    return;
-                }
                 // the commit a Generate & Commit run fired, if this is its
                 // answer: its message must not be counted as a typed one
                 let wand_message = if label == "commit" {
@@ -2522,142 +2452,12 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
-        if let GitAction::Merge { source } = &action {
-            self.merge_running_source = Some(source.clone());
-        }
         self.begin_git_job(folder.clone(), action.label());
         let _ = self.net.send_blocking(NetCommand::Git {
             folder: std::path::PathBuf::from(folder),
             action,
         });
         cx.notify();
-    }
-
-    /// One merge action's toast. `Stopped` says nothing here: its conflict
-    /// count arrives with the reload, so [`Self::on_net_event`]'s
-    /// `ChangesLoaded` arm speaks once the snapshot is in.
-    fn apply_merge_run(&mut self, folder: &str, run: MergeRun) {
-        let name = self
-            .repos
-            .iter()
-            .find(|r| r.folder_path.to_string_lossy() == folder)
-            .map(|r| r.name.clone())
-            .unwrap_or_else(|| folder.to_string());
-        let branch = self
-            .repos
-            .iter()
-            .find(|r| r.folder_path.to_string_lossy() == folder)
-            .and_then(|r| r.git_branch_name.clone())
-            .filter(|branch| !branch.is_empty() && branch != "(detached)")
-            .unwrap_or_else(|| "the current branch".to_string());
-        match run {
-            MergeRun::Merged { source } => {
-                self.notify_success(format!("Merged {source} into {branch}"));
-            }
-            MergeRun::UpToDate { source } => {
-                self.notify_info(format!("{source} is already contained in {branch}"));
-            }
-            MergeRun::Stopped { .. } => {
-                self.pending_merge_stop = Some(folder.to_string());
-            }
-            MergeRun::Continued => self.notify_success("Merge committed"),
-            MergeRun::Aborted => self.notify_info("Merge aborted"),
-            MergeRun::Failed { action, error } => {
-                let error = error.unwrap_or_else(|| "git rejected it".into());
-                match blocked_by_local_changes(action, &name, &error) {
-                    Some(message) => self.notify_error(message),
-                    None => self.notify_error(format!("{action} failed for {name}: {error}")),
-                }
-            }
-        }
-    }
-
-    /// The stopped merge on screen, read from the selected repo's snapshot.
-    pub fn merge_state(&self) -> Option<&warp_station_core::model::GitMergeState> {
-        self.changes.as_ref()?.merge.as_ref()
-    }
-
-    /// The branch a merge press is bringing in, while it is on the wire.
-    pub fn merge_running_source(&self) -> Option<&str> {
-        self.merge_running_source.as_deref()
-    }
-
-    /// The conflicted file the merge editor asked for, once the read lands.
-    pub fn merge_conflict(&self) -> Option<&warp_station_core::git::conflict::GitConflictFile> {
-        self.merge_conflict.as_ref()
-    }
-
-    /// Asks for one conflicted file's stages and marker blocks; the old answer
-    /// is dropped so the editor shows its loading state, not another file.
-    pub fn load_merge_conflict(&mut self, path: &str, cx: &mut Context<Self>) {
-        let Some(folder) = self.selected_repo.clone() else {
-            return;
-        };
-        self.merge_conflict = None;
-        self.merge_conflict_path = Some(path.to_string());
-        self.merge_conflict_loaded = false;
-        let _ = self.net.send_blocking(NetCommand::LoadMergeConflict {
-            folder: std::path::PathBuf::from(folder),
-            path: path.to_string(),
-        });
-        cx.notify();
-    }
-
-    /// Whether the merge editor's request for `path` has landed (with data or
-    /// with the "no text surface" answer).
-    pub fn merge_conflict_loaded(&self, path: &str) -> bool {
-        self.merge_conflict_loaded && self.merge_conflict_path.as_deref() == Some(path)
-    }
-
-    /// Resolves one side of a binary or delete/modify conflict: that side's
-    /// stage is written to the worktree and staged, or the file is removed.
-    pub fn resolve_merge_side(
-        &mut self,
-        path: &str,
-        side: warp_station_core::git::conflict::ConflictSide,
-        cx: &mut Context<Self>,
-    ) {
-        self.run_git(
-            GitAction::ResolveConflictSide {
-                path: path.to_string(),
-                side,
-            },
-            cx,
-        );
-    }
-
-    /// Resolves every block of one file to the same side, from the conflicted
-    /// row's menu; the reload clears the row.
-    pub fn bulk_resolve_conflict(
-        &mut self,
-        path: &str,
-        side: warp_station_core::git::conflict::ConflictSide,
-        cx: &mut Context<Self>,
-    ) {
-        self.run_git(
-            GitAction::ResolveConflictBulk {
-                path: path.to_string(),
-                side,
-            },
-            cx,
-        );
-    }
-
-    /// Writes the editor's resolution and stages it; the reload that follows
-    /// clears the row and flips the band.
-    pub fn resolve_merge_conflict(
-        &mut self,
-        path: &str,
-        text: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.run_git(
-            GitAction::ResolveConflict {
-                path: path.to_string(),
-                text,
-            },
-            cx,
-        );
     }
 
     /// The selected repo's running job.
@@ -4362,19 +4162,12 @@ impl Store {
                     .is_some_and(|snapshot| snapshot.available));
         let run = self.flow_run(folder, record, pull.as_ref());
         let gate = record.and_then(|record| record.gate.clone());
-        // a stopped local merge outranks the pull request's own state: the
-        // branch cannot move until it is resolved or aborted
-        let local_merge = self
-            .changes
-            .as_ref()
-            .and_then(|snapshot| snapshot.merge.as_ref())
-            .map(|merge| (merge.source.clone(), merge.conflicted.len()));
-        if !pushed && pull.is_none() && run.is_none() && gate.is_none() && local_merge.is_none() {
+        if !pushed && pull.is_none() && run.is_none() && gate.is_none() {
             return None;
         }
         // a pushed branch with no integration that can open a pull request has
         // no flow to offer; the Changes toolbar is where the push lives
-        if pushed && pull.is_none() && !source_available && local_merge.is_none() {
+        if pushed && pull.is_none() && !source_available {
             return None;
         }
 
@@ -4432,34 +4225,22 @@ impl Store {
         let merge = FlowStepView {
             key: "merge",
             label: "Merge",
-            state: match (&local_merge, pull.as_ref().map(|pull| pull.state)) {
-                (Some(_), _) => FlowStepState::Current,
-                (None, Some(FlowPullState::Merged)) => FlowStepState::Done,
-                (None, Some(FlowPullState::Open)) => FlowStepState::Current,
-                (None, _) => FlowStepState::Blocked,
+            state: match pull.as_ref().map(|pull| pull.state) {
+                Some(FlowPullState::Merged) => FlowStepState::Done,
+                Some(FlowPullState::Open) => FlowStepState::Current,
+                _ => FlowStepState::Blocked,
             },
-            detail: match &local_merge {
-                Some((_, 0)) => "Merge ready to commit · Changes".to_string(),
-                Some((_, conflicts)) => format!(
-                    "Resolve {conflicts} conflict{} in Changes",
-                    if *conflicts == 1 { "" } else { "s" }
-                ),
-                None => match pull.as_ref() {
-                    Some(pull) if pull.state == FlowPullState::Merged => {
-                        format!("Merged into {}", pull.target)
-                    }
-                    Some(pull) if pull.state == FlowPullState::Open => {
-                        format!("{} open · ready to merge", reference(pull))
-                    }
-                    Some(pull) => format!("{} closed", reference(pull)),
-                    None => "No pull request".to_string(),
-                },
+            detail: match pull.as_ref() {
+                Some(pull) if pull.state == FlowPullState::Merged => {
+                    format!("Merged into {}", pull.target)
+                }
+                Some(pull) if pull.state == FlowPullState::Open => {
+                    format!("{} open · ready to merge", reference(pull))
+                }
+                Some(pull) => format!("{} closed", reference(pull)),
+                None => "No pull request".to_string(),
             },
-            action: if local_merge.is_some() {
-                Some(FlowAction::ShowChanges)
-            } else {
-                open_pull.clone()
-            },
+            action: open_pull.clone(),
         };
         let gate_summary = gate.as_ref().map(FlowGate::summary);
         let pipeline = FlowStepView {

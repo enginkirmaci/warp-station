@@ -154,55 +154,6 @@ Keep this order; several steps depend on the previous one:
   the list is in flow under the field, not an overlay. The pipeline toast's
   button opens the run in the app; the desktop notification has no click
   callback on this path.
-- **Local merge.** The branch selector's right-click menu starts a merge
-  (`GitAction::Merge`) into the current branch; the ending is a state read back
-  from the repository, not a session flag: `read::change_snapshot` fills
-  `GitChangeSnapshot::merge` from `MERGE_HEAD`/`MERGE_MSG` and the conflicted
-  status entries, so the band and the conflict list survive a restart.
-  `MergeContinue` runs `git merge --continue` with `GIT_EDITOR=true` (the
-  prepared `MERGE_MSG` stands), `MergeAbort` runs `git merge --abort`. The
-  editor's data is `git::conflict::conflict_file` (index stages plus the
-  worktree marker parse; the parser projects each block's line range, then
-  `map_stage_lines` relocates every section in its own stage because git can
-  hoist resolved lines one stage does not have);
-  `ResolveConflict` writes the worktree file and runs `git add`, which is what
-  clears the unmerged entry. The conflicted row's right-click menu resolves the
-  whole file with `ResolveConflictBulk` (`conflict::resolve_all`). The editor's
-  whole-file view is one base-aligned diff list (`git::merge_diff::align`):
-  every base line is a row, each side's matching or replacement line sits on
-  it, a side's insertions get their own rows and a deleted side is a hatched
-  gap; changed cells carry a faint tint and a change bar, the current block's
-  replaced words a stronger one, and each side's take checkbox sits at that
-  side's first conflicting line (a deleted side's box falls back to the
-  block's first row, in its gap). The two boxes are independent: checking the
-  other side adds it after the checked one, unchecking leaves the other, and
-  both checked compose both sections. The column heads only carry a take when
-  the file has no blocks and the whole file is the conflict. Prev/next and the numbered strip scroll the one list to the
-  block (`UniformListScrollHandle`), the Split/Columns toggle needs a pane
-  wider than 1000 px, and the Base column only appears for
-  `merge.conflictStyle=diff3` (a merge-style file has no base section to map).
-  A file with no text surface (binary, or a side that deleted it) shows a
-  fallback card instead: Take Local / Take Incoming through
-  `cli::resolve_side` (the side's stage is checked out and staged, or `git rm`
-  records the deletion) or keep the working tree and stage it; `conflict_sides`
-  says which stages exist. The Result is a live `EditorState` (the code
-  editor, not the textarea: only the editor mode exposes `RangeDecoration`s,
-  which paint the conflict fills behind the text as it is edited): every user
-  edit is reduced to its smallest changed span
-  (`minimal_edit`) and each block's `result_ranges` entry is remapped through
-  it (`map_range`); a touched block loses its pick and counts as manual. Takes
-  rewrite the block's range in `result` and shift the later ranges; Accept
-  refuses while a conflict marker line remains. `ConflictPick` (the core type)
-  carries Local, Incoming and the two both-side orders; `ConflictSide` stays
-  the whole-file vocabulary. The diff marks the changed middle of a replaced
-  row's two lines. The editable Result's fills come from range decorations
-  (Local red, Incoming green, both split at the side boundary, an unresolved
-  block dim); the Preview toggle swaps it for a stronger read-only composition
-  (marker lines dim), and Ctrl+Enter from inside the editor accepts. The row menu needs
-  `warpui-kit-picker`'s `set_on_secondary` hook, and the suite's `[patch]`
-  table now carries the picker so the linked build uses the local kit — the app
-  repository needs a kit tag/pin bump before it builds standalone. Branch rows
-  no longer carry the delete trash; Delete is the menu's last item.
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
   Changes files, History commits, PR/Issues, Pipelines runs, the PR/Azure
   Files and Commits rails); the window delegates only while it owns the focus

@@ -829,7 +829,6 @@ fn a_generate_and_commit_run_commits_its_repo(cx: &mut TestAppContext) {
                 error: Some("nothing to commit".into()),
                 commit_hash: None,
                 detail: None,
-                merge: None,
             },
             cx,
         );
@@ -870,7 +869,6 @@ fn a_generate_and_commit_run_commits_its_repo(cx: &mut TestAppContext) {
                 error: None,
                 commit_hash: Some("abc1234".into()),
                 detail: None,
-                merge: None,
             },
             cx,
         );
@@ -1004,7 +1002,6 @@ fn the_activity_chip_lists_running_jobs_in_start_order(cx: &mut TestAppContext) 
                 error: None,
                 commit_hash: None,
                 detail: None,
-                merge: None,
             },
             cx,
         );
@@ -1023,7 +1020,6 @@ fn the_activity_chip_lists_running_jobs_in_start_order(cx: &mut TestAppContext) 
                 error: None,
                 commit_hash: None,
                 detail: None,
-                merge: None,
             },
             cx,
         );

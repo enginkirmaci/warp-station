@@ -558,7 +558,6 @@ fn rail_file_rows_render_from_a_snapshot(cx: &mut TestAppContext) {
             unstaged_files: Vec::new(),
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
-            merge: None,
         }));
         store.selected_repo = Some("/probe/alpha".into());
         store.changes_loaded_for = Some("/probe/alpha".into());
@@ -3019,7 +3018,6 @@ fn a_landed_job_says_so_for_a_moment(cx: &mut TestAppContext) {
                 error: None,
                 commit_hash: None,
                 detail: None,
-                merge: None,
             },
             cx,
         );
@@ -3056,7 +3054,6 @@ fn a_failed_job_shows_no_success(cx: &mut TestAppContext) {
                 error: Some("rejected".into()),
                 commit_hash: None,
                 detail: None,
-                merge: None,
             },
             cx,
         );

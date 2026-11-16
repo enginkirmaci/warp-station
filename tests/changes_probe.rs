@@ -409,7 +409,6 @@ fn git_verbs_and_commit_follow_the_repo_state(cx: &mut TestAppContext) {
             unstaged_files,
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
-            merge: None,
         }
     }
 
@@ -922,7 +921,6 @@ fn a_failed_generation_disarms_generate_and_commit(cx: &mut TestAppContext) {
             unstaged_files: Vec::new(),
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
-            merge: None,
         }));
         store
     });
@@ -1582,7 +1580,6 @@ fn a_queued_generation_offers_its_own_cancel(cx: &mut TestAppContext) {
             unstaged_files: Vec::new(),
             worktree_counts: Default::default(),
             cached_counts: Default::default(),
-            merge: None,
         }));
         // beta's run owns the slot; alpha's request is waiting for it
         store.wand_busy = Some(WandKind::Commit);

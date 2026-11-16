@@ -99,7 +99,6 @@ fn changes(paths: &[&str]) -> GitChangeSnapshot {
         unstaged_files: unstaged,
         worktree_counts: Default::default(),
         cached_counts: Default::default(),
-        merge: None,
     }
 }
 

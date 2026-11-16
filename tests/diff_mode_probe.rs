@@ -77,7 +77,6 @@ fn snapshot() -> GitChangeSnapshot {
         unstaged_files: vec![file],
         worktree_counts: Default::default(),
         cached_counts: Default::default(),
-        merge: None,
     }
 }
 

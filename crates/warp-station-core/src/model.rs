@@ -102,18 +102,6 @@ pub struct GitChangeSnapshot {
     pub unstaged_files: Vec<GitChangedFile>,
     pub worktree_counts: std::collections::HashMap<String, (Option<u32>, Option<u32>)>,
     pub cached_counts: std::collections::HashMap<String, (Option<u32>, Option<u32>)>,
-    /// A merge stopped in this repository, with the unmerged paths. Read from
-    /// the repo, so a restart lands on the same band and conflict list.
-    pub merge: Option<GitMergeState>,
-}
-
-/// The stopped merge's state: the source branch git names in `MERGE_MSG`
-/// (empty for a commit-id message), and every path with an unmerged index
-/// entry. An empty `conflicted` is the "ready to commit" phase.
-#[derive(Clone, Debug, Default)]
-pub struct GitMergeState {
-    pub source: String,
-    pub conflicted: Vec<String>,
 }
 
 impl GitChangeSnapshot {
