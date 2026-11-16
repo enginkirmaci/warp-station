@@ -54,9 +54,12 @@ pub struct MainWindow {
     pub store: Entity<Store>,
     section: Section,
     tool: Tool,
-    /// About: which suite member the detail shows. The app you are in until
-    /// the user picks another; the list keeps all four reachable.
+    /// About: which installed member the detail shows. The app you are in
+    /// until the user picks another.
     about_selected: warpui_kit_core::about::AppId,
+    /// The installed members the About list renders; probed on first open and
+    /// refreshed each time About is picked from the rail.
+    about_members: Vec<warpui_kit_core::about::Member>,
     /// The license card is up over the About screen.
     about_license_open: bool,
     /// The license document, built the first time the card opens: a read-only
@@ -162,6 +165,7 @@ impl MainWindow {
             },
             tool: tool.unwrap_or(Tool::Formatters),
             about_selected: warpui_kit_core::about::AppId::Station,
+            about_members: Vec::new(),
             // E2E hook: WARP_STATION_LICENSE=1 opens About with the license
             // card up (a hidden window takes no pointer, so a capture needs
             // the card to open itself).
@@ -1775,6 +1779,9 @@ impl MainWindow {
             .whitespace_nowrap()
             .debug_selector(move || id.into())
             .on_click(cx.listener(move |this, _, _, cx| {
+                if section == Section::About {
+                    this.about_members.clear();
+                }
                 this.section = section;
                 cx.notify();
             }))
@@ -2029,17 +2036,20 @@ impl MainWindow {
 
     // ---- about ---------------------------------------------------------------
 
-    /// The rail's About section: the family in the list, the selected member's
-    /// identity, Build and Legal cards in the detail. The screen is the kit's;
-    /// this holds the one piece of state it needs and the effects behind its
-    /// verbs. It opens on Station, the app you are in.
+    /// The rail's About section: the installed family in the list, the
+    /// selected member's identity, Build and Legal cards in the detail. The
+    /// screen is the kit's; this holds the one piece of state it needs and the
+    /// effects behind its verbs. It opens on Station, the app you are in.
     fn render_about(&mut self, cx: &mut Context<Self>) -> gpui::Div {
         use warpui_kit_core::about::{self, AppId};
 
-        let build = warpui_kit_core::build_info!();
         let width = self.store.read(cx).list_width();
         let selected = self.about_selected;
         let current = AppId::Station;
+        if self.about_members.is_empty() {
+            let build = warpui_kit_core::build_info!();
+            self.about_members = about::detect_installed(current, &build);
+        }
 
         let entity = cx.entity();
         let pick = entity.clone();
@@ -2063,11 +2073,17 @@ impl MainWindow {
         shell::panes()
             .min_w_0()
             .debug_selector(|| "about-page".into())
-            .child(about::list(width, selected, current, &build, on_pick))
+            .child(about::list(
+                width,
+                selected,
+                current,
+                &self.about_members,
+                on_pick,
+            ))
             .child(about::detail(
                 selected,
                 current,
-                &build,
+                &self.about_members,
                 "Open controls",
                 on_action,
                 on_link,
@@ -2110,9 +2126,14 @@ impl MainWindow {
                 cx.notify();
             }
             about::Action::CopyVersion => {
-                let build = warpui_kit_core::build_info!();
-                let line = build.version_line(about::app(self.about_selected));
-                cx.write_to_clipboard(ClipboardItem::new_string(line));
+                let Some(member) = about::selected_member(
+                    &self.about_members,
+                    self.about_selected,
+                    about::AppId::Station,
+                ) else {
+                    return;
+                };
+                cx.write_to_clipboard(ClipboardItem::new_string(member.version_line()));
             }
         }
     }
