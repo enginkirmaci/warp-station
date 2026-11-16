@@ -115,6 +115,10 @@ fn the_merge_page_draws_its_files_and_panes(cx: &mut TestAppContext) {
         cx.debug_bounds("merge-panes").is_some(),
         "the two source panes draw"
     );
+    assert!(
+        cx.debug_bounds("merge-pane-row").is_some(),
+        "the source panes lay rows out instead of collapsing"
+    );
 }
 
 #[gpui_kit::gpui::test]

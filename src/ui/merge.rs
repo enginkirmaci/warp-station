@@ -521,12 +521,16 @@ impl MergePage {
                     .text_color(theme::text())
                     .child("Merge"),
             )
-            .child(
-                div()
-                    .text_size(px(theme::font_meta()))
-                    .text_color(theme::text_dim())
-                    .child(session.operation.title()),
-            )
+            // the page is already named Merge; the chip earns its place only
+            // for the other operations
+            .when(session.operation != MergeOperation::Merge, |row| {
+                row.child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_dim())
+                        .child(session.operation.title()),
+                )
+            })
             .child(
                 div()
                     .text_size(px(theme::font_meta()))
@@ -695,7 +699,9 @@ impl MergePage {
                 .flex_1()
                 .min_w_0()
                 .min_h_0()
-                .child(div().flex_1().min_h_0().child(panes))
+                // the wrapper has to be a flex column or the list inside gets
+                // no bounded height and renders no rows at all
+                .child(div().flex().flex_col().flex_1().min_h_0().child(panes))
                 .child(div().h(px(1.)).flex_none().bg(theme::hairline()))
                 .child(div().flex_1().min_h_0().flex().flex_col().child(result))
                 .into_any_element();
@@ -1061,6 +1067,7 @@ fn pane_head(labels: (&'static str, &'static str), ours: usize, theirs: usize) -
             .child(format!("{label} · {lines} lines"))
     };
     div()
+        .debug_selector(|| "merge-pane-row".into())
         .flex()
         .flex_row()
         .flex_none()
