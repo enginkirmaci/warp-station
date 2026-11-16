@@ -330,6 +330,10 @@ pub enum GitAction {
     UnstageAll,
     Stage(String),
     Unstage(String),
+    /// Stage or unstage a folder's subtree in one process (the Changes tree's
+    /// folder rows).
+    StagePaths(Vec<String>),
+    UnstagePaths(Vec<String>),
     DiscardStaged(Vec<String>),
     DiscardUnstaged(Vec<String>),
     DiscardFile {
@@ -408,6 +412,8 @@ impl GitAction {
             GitAction::UnstageAll => "unstage all",
             GitAction::Stage(_) => "stage",
             GitAction::Unstage(_) => "unstage",
+            GitAction::StagePaths(_) => "stage",
+            GitAction::UnstagePaths(_) => "unstage",
             GitAction::DiscardStaged(_) => "discard staged",
             GitAction::DiscardUnstaged(_) => "discard unstaged",
             GitAction::DiscardFile { .. } => "discard",
@@ -2200,6 +2206,8 @@ async fn plain_git_action(
         GitAction::UnstageAll => cli::unstage_all(folder).await.into_outcome(),
         GitAction::Stage(path) => cli::stage(folder, path).await.into_outcome(),
         GitAction::Unstage(path) => cli::unstage(folder, path).await.into_outcome(),
+        GitAction::StagePaths(paths) => cli::stage_paths(folder, paths).await.into_outcome(),
+        GitAction::UnstagePaths(paths) => cli::unstage_paths(folder, paths).await.into_outcome(),
         GitAction::DiscardStaged(paths) => {
             (cli::discard_paths(folder, paths, true).await, None, None)
         }

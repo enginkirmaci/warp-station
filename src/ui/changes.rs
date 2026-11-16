@@ -713,6 +713,7 @@ impl Render for ChangesView {
             // a new snapshot can add or drop files under an armed discard-all,
             // so the arming never outlives the tree it was given for
             self.discard_all_armed = false;
+            self.discard_armed = None;
             // a new snapshot means the fetched patches may be stale
             self.patches.clear();
             if let Some((path, staged)) = self.selected_file.clone() {
@@ -1229,6 +1230,22 @@ impl ChangesView {
         self.toggle_folder(&folder.path, cx);
     }
 
+    /// The paths a folder row's verbs act on: its subtree in its own section.
+    fn folder_paths(&self, path: &str, staged: bool) -> Vec<String> {
+        let Some(files) = self.groups_cache.as_ref().map(|(_, files)| files.clone()) else {
+            return Vec::new();
+        };
+        let (tree, side) = if staged {
+            (&files.staged_tree, &files.groups.0)
+        } else {
+            (&files.unstaged_tree, &files.groups.1)
+        };
+        tree.files_under(path)
+            .into_iter()
+            .filter_map(|index| side.get(index).map(|file| file.path.clone()))
+            .collect()
+    }
+
     /// Steps the cursor through the visible rows: headers are skipped, and a
     /// folder row takes the cursor without touching the diff.
     fn move_file_selection(&mut self, key: list_nav::ListKey, cx: &mut Context<Self>) {
@@ -1553,11 +1570,36 @@ impl ChangesView {
             if folder.count == 1 { "file" } else { "files" }
         )
         .into();
+        let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
+        let armed =
+            !staged && self.discard_armed.as_ref() == Some(&(folder.path.to_string(), false));
+        let entity = cx.entity();
+        let staging = folder_staging_button(
+            staged,
+            folder.path.as_ref(),
+            folder.label.as_ref(),
+            folder.count,
+            entity.clone(),
+            self.store.clone(),
+            show_tooltips,
+        );
+        let discard = (!staged).then(|| {
+            folder_discard_button(
+                armed,
+                folder.path.as_ref(),
+                folder.label.as_ref(),
+                folder.count,
+                entity,
+                self.store.clone(),
+                show_tooltips,
+            )
+        });
         let click_folder = folder.clone();
         div()
             .id(row_id)
             .debug_selector(move || row_selector.to_string())
             .a11y_tree_item(label, Some(!folded))
+            .group("file-row")
             .cursor_pointer()
             .w_full()
             .h(px(FILE_ROW_H))
@@ -1597,9 +1639,28 @@ impl ChangesView {
             .child(
                 div()
                     .flex_shrink_0()
+                    .min_w(px(ROW_ACTIONS_W))
+                    .flex()
+                    .justify_end()
                     .text_size(px(theme::font_micro()))
                     .text_color(theme::text_muted())
+                    .group_hover("file-row", |s| s.invisible())
                     .child(folder.count.to_string()),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(5.))
+                    .right(px(8.))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_0p5()
+                    .when(!armed, |d| {
+                        d.invisible().group_hover("file-row", |s| s.visible())
+                    })
+                    .children(discard)
+                    .child(staging),
             )
             .into_any_element()
     }
@@ -3637,6 +3698,122 @@ fn row_action_button(
             px(theme::icon_small() - 2.),
             theme::blue_bright(),
         ))
+}
+
+/// A folder row's stage or unstage verb: one git process for the whole
+/// subtree, so a twenty-file folder costs one `git add`, not twenty.
+fn folder_staging_button(
+    staged: bool,
+    path: &str,
+    label: &str,
+    count: usize,
+    this: Entity<ChangesView>,
+    store: Entity<Store>,
+    show_tooltips: bool,
+) -> gpui::AnyElement {
+    let verb = if staged { "Unstage" } else { "Stage" };
+    let name = format!("{verb} {label} ({count} files)");
+    let selector = format!("{}-folder-{path}", if staged { "unstage" } else { "stage" });
+    let path = path.to_string();
+    let button = div()
+        .id(SharedString::from(selector.clone()))
+        .debug_selector(move || selector.clone())
+        .a11y_button(name.clone())
+        .cursor_pointer()
+        .rounded_md()
+        .size(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme::blue_bright())
+        .hover(|s| s.bg(theme::tint(theme::accent())))
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            let paths = this.update(cx, |this, _| this.folder_paths(&path, staged));
+            if paths.is_empty() {
+                return;
+            }
+            let action = if staged {
+                GitAction::UnstagePaths(paths)
+            } else {
+                GitAction::StagePaths(paths)
+            };
+            store.update(cx, |store, cx| store.run_git(action, cx));
+        })
+        .child(icon(
+            if staged {
+                "icons/icon-minus.svg"
+            } else {
+                "icons/icon-plus.svg"
+            },
+            px(theme::icon_small() - 2.),
+            theme::blue_bright(),
+        ));
+    crate::ui::with_tooltip(button, show_tooltips, name).into_any_element()
+}
+
+/// A folder row's discard verb: the same click-twice arm as a file row, and
+/// then one `git restore` for the subtree.
+fn folder_discard_button(
+    armed: bool,
+    path: &str,
+    label: &str,
+    count: usize,
+    this: Entity<ChangesView>,
+    store: Entity<Store>,
+    show_tooltips: bool,
+) -> gpui::AnyElement {
+    let name = if armed {
+        "Confirm discard".to_string()
+    } else {
+        format!("Discard {label} ({count} files)")
+    };
+    let selector = format!("discard-folder-{path}");
+    let path = path.to_string();
+    let button = div()
+        .id(SharedString::from(selector.clone()))
+        .debug_selector(move || selector.clone())
+        .a11y_button(name.clone())
+        .cursor_pointer()
+        .rounded_md()
+        .h(px(24.))
+        .min_w(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|s| s.bg(theme::tint(theme::DANGER)))
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            if armed {
+                this.update(cx, |this, _| this.discard_armed = None);
+                let paths = this.update(cx, |this, _| this.folder_paths(&path, false));
+                if !paths.is_empty() {
+                    store.update(cx, |store, cx| {
+                        store.run_git(GitAction::DiscardUnstaged(paths), cx)
+                    });
+                }
+            } else {
+                this.update(cx, |this, cx| {
+                    this.discard_armed = Some((path.clone(), false));
+                    cx.notify();
+                });
+            }
+        })
+        .when(armed, |d| {
+            d.px_1p5()
+                .text_size(px(theme::font_meta()))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::DANGER)
+                .child("Confirm")
+        })
+        .when(!armed, |d| {
+            d.child(icon(
+                "icons/icon-undo.svg",
+                px(theme::icon_tiny()),
+                theme::text_dim(),
+            ))
+        });
+    crate::ui::with_tooltip(button, show_tooltips, name).into_any_element()
 }
 
 // ---- the branch picker ------------------------------------------------------

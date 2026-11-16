@@ -372,6 +372,26 @@ pub async fn unstage_all(folder: &Path) -> GitOutcome {
     simple(folder, &["reset".into(), "-q".into(), "HEAD".into()]).await
 }
 
+/// Stage several paths in one `git add`: a folder row acts on its whole
+/// subtree without one process per file.
+pub async fn stage_paths(folder: &Path, paths: &[String]) -> GitOutcome {
+    let mut args = vec!["add".to_string(), "--".to_string()];
+    args.extend(paths.iter().cloned());
+    simple(folder, &args).await
+}
+
+/// Unstage several paths in one `git reset`.
+pub async fn unstage_paths(folder: &Path, paths: &[String]) -> GitOutcome {
+    let mut args = vec![
+        "reset".to_string(),
+        "-q".to_string(),
+        "HEAD".to_string(),
+        "--".to_string(),
+    ];
+    args.extend(paths.iter().cloned());
+    simple(folder, &args).await
+}
+
 async fn simple(folder: &Path, args: &[String]) -> GitOutcome {
     match run_git(folder, args, PROCESS_TIMEOUT, None).await {
         Ok(r) => GitOutcome::from(&r),

@@ -85,6 +85,21 @@ impl Tree {
         node.count > 0 && (!node.files.is_empty() || node.folders.len() != 1)
     }
 
+    /// Every file index at or below `path`, in tree order — the files a
+    /// folder row's verbs act on.
+    pub fn files_under(&self, path: &str) -> Vec<usize> {
+        let mut node = &self.root;
+        for segment in path.split('/').filter(|part| !part.is_empty()) {
+            let Some(child) = node.folders.get(segment) else {
+                return Vec::new();
+            };
+            node = child;
+        }
+        let mut files = Vec::with_capacity(node.count);
+        node.collect_files(&mut files);
+        files
+    }
+
     /// The visible rows: each folder, then its files, with a folded folder's
     /// subtree left out. Folders sort before files, both case-insensitively.
     pub fn rows(&self, folded: &HashSet<String>) -> Vec<Row> {
@@ -95,6 +110,15 @@ impl Tree {
 }
 
 impl Node {
+    fn collect_files(&self, out: &mut Vec<usize>) {
+        let mut folders: Vec<&String> = self.folders.keys().collect();
+        folders.sort_by_key(|name| name.to_lowercase());
+        for name in folders {
+            self.folders[name].collect_files(out);
+        }
+        out.extend(self.files.iter().map(|(_, index)| *index));
+    }
+
     fn push_children(
         &self,
         path: &str,
@@ -262,6 +286,18 @@ mod tests {
         assert!(!tree.contains_folder("src"), "a chain root is not a row");
         assert!(!tree.contains_folder("src/ui/a.rs"));
         assert!(!tree.contains_folder(""));
+    }
+
+    #[test]
+    fn files_under_a_folder_row_cover_its_subtree() {
+        let tree = Tree::build(["src/a.rs", "src/ui/b.rs", "top.txt"]);
+        assert_eq!(
+            tree.files_under("src"),
+            vec![1, 0],
+            "the nested folder's file comes before the folder's own"
+        );
+        assert_eq!(tree.files_under("src/ui"), vec![1]);
+        assert!(tree.files_under("nope").is_empty());
     }
 
     #[test]

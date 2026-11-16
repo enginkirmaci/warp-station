@@ -1190,6 +1190,154 @@ fn nested_changes_fold_into_folder_rows(cx: &mut TestAppContext) {
     );
 }
 
+/// A folder row carries its section's verbs: stage sends one command for the
+/// subtree, discard keeps the click-twice arm, and a staged folder offers
+/// unstage only.
+#[gpui_kit::gpui::test]
+fn folder_rows_carry_the_sections_verbs(cx: &mut TestAppContext) {
+    use warp_station::net::{GitAction, NetCommand};
+    use warp_station_core::model::{GitChangeSnapshot, GitChangedFile};
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    fn file(path: &str) -> GitChangedFile {
+        GitChangedFile {
+            path: path.into(),
+            status_code: "M".into(),
+            additions: Some(1),
+            deletions: None,
+        }
+    }
+    fn snapshot(staged: &[&str], unstaged: &[&str]) -> GitChangeSnapshot {
+        let staged_files: Vec<GitChangedFile> = staged.iter().map(|path| file(path)).collect();
+        let unstaged_files: Vec<GitChangedFile> = unstaged.iter().map(|path| file(path)).collect();
+        GitChangeSnapshot {
+            status_files: staged_files
+                .iter()
+                .chain(unstaged_files.iter())
+                .cloned()
+                .collect(),
+            staged_files,
+            unstaged_files,
+            worktree_counts: Default::default(),
+            cached_counts: Default::default(),
+        }
+    }
+
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-folder_rows_carry_the_sections_verbs"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 3,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        store.set_changes(Some(snapshot(
+            &[],
+            &["src/ui/a.rs", "src/ui/b.rs", "top.txt"],
+        )));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // the hover gutter carries both verbs for an unstaged folder
+    hover(cx, "u-folder-src/ui");
+    assert!(
+        cx.debug_bounds("stage-folder-src/ui").is_some(),
+        "an unstaged folder offers stage"
+    );
+    assert!(
+        cx.debug_bounds("discard-folder-src/ui").is_some(),
+        "and discard"
+    );
+
+    // stage is one command for the whole subtree
+    click(cx, "stage-folder-src/ui");
+    let mut staged = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::Git {
+            action: GitAction::StagePaths(paths),
+            ..
+        } = command
+        {
+            staged = Some(paths);
+        }
+    }
+    assert_eq!(
+        staged.as_deref(),
+        Some(["src/ui/a.rs".to_string(), "src/ui/b.rs".to_string()].as_slice()),
+        "one command stages the folder's subtree, and only its files"
+    );
+
+    // discard arms on the first press and acts on the second
+    hover(cx, "u-folder-src/ui");
+    click(cx, "discard-folder-src/ui");
+    assert!(
+        net_rx.try_recv().is_err(),
+        "one press only arms the folder's discard"
+    );
+    hover(cx, "u-folder-src/ui");
+    click(cx, "discard-folder-src/ui");
+    let mut discarded = None;
+    while let Ok(command) = net_rx.try_recv() {
+        if let NetCommand::Git {
+            action: GitAction::DiscardUnstaged(paths),
+            ..
+        } = command
+        {
+            discarded = Some(paths);
+        }
+    }
+    assert_eq!(
+        discarded.as_deref(),
+        Some(["src/ui/a.rs".to_string(), "src/ui/b.rs".to_string()].as_slice()),
+        "the second press discards the folder's subtree"
+    );
+
+    // a staged folder offers unstage, never stage
+    cx.update_entity(&store, |store, _| {
+        store.set_changes(Some(snapshot(&["src/ui/a.rs"], &["top.txt"])));
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    hover(cx, "s-folder-src/ui");
+    assert!(
+        cx.debug_bounds("unstage-folder-src/ui").is_some(),
+        "a staged folder offers unstage"
+    );
+    assert!(
+        cx.debug_bounds("stage-folder-src/ui").is_none(),
+        "and never stage"
+    );
+}
+
 /// Staging the selected file moves it into the staged tree, and the diff
 /// follows the path instead of jumping to the other section's first file.
 #[gpui_kit::gpui::test]
