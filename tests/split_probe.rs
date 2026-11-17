@@ -2174,6 +2174,18 @@ fn the_branch_pills_choose_the_pair(cx: &mut TestAppContext) {
         cx.debug_bounds("new-pull-branch-menu").is_some(),
         "a pill opens its menu"
     );
+    let pill = cx
+        .debug_bounds("new-pull-source")
+        .expect("the source pill draws");
+    let menu = cx
+        .debug_bounds("new-pull-branch-menu")
+        .expect("the menu draws under the pill");
+    assert!(
+        menu.size.width >= pill.size.width,
+        "the menu is at least as wide as its pill (pill {}, menu {})",
+        pill.size.width,
+        menu.size.width
+    );
     assert!(cx.debug_bounds("new-pull-branch-feat/x").is_some());
     click(cx, "new-pull-branch-feat/x");
     assert!(

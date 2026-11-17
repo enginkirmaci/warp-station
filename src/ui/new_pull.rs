@@ -31,6 +31,9 @@ const FORM_WIDTH: f32 = 760.;
 /// One branch pill's width: wide enough for a feature branch, narrow enough
 /// that the pair and the swap fit one row.
 const BRANCH_PILL_W: f32 = 220.;
+/// The shared field picker's narrowest panel. The panel stops shrinking here,
+/// so a row keeps more label room than the pill it hangs under.
+const BRANCH_PANEL_MIN_W: f32 = 260.;
 
 /// The app's icon paths for the shared picker shell.
 const PICKER_ICONS: PickerIcons = PickerIcons {
@@ -1178,7 +1181,11 @@ fn branch_picker_data(
             id: format!("new-pull-branch-{}", branch.name),
             selector: format!("new-pull-branch-{}", branch.name),
             value: branch.name.clone(),
-            label: crate::ui::branch_label(&branch.name, window),
+            label: crate::ui::branch_label(
+                &branch.name,
+                crate::ui::branch_row_label_width(BRANCH_PANEL_MIN_W),
+                window,
+            ),
             selected: branch.name == current,
             muted: is_remote,
             trailing_delete: None,
@@ -1202,7 +1209,11 @@ fn branch_picker_data(
             label: if current.is_empty() {
                 "Select a branch".to_string()
             } else {
-                crate::ui::branch_label(&current, window)
+                crate::ui::branch_label(
+                    &current,
+                    crate::ui::branch_trigger_label_width(BRANCH_PILL_W),
+                    window,
+                )
             },
             badge: None,
         },

@@ -89,57 +89,91 @@ pub fn with_tooltip(
     }
 }
 
-/// Branch labels display at most this many characters before the head is
-/// trimmed; the repos branch column owns the budget, and the branch picker
-/// falls back to it once the full name outgrows the selector.
-pub const BRANCH_LABEL_CHARS: usize = 18;
+/// The label room inside a branch picker trigger `trigger_w` wide: the 1px
+/// border and 8px padding per side, the 8px gap to the chevron, the chevron,
+/// the branch icon and the 8px gap after it, less 4px of slack. The icons are
+/// read at their live size because the text scale moves them.
+pub fn branch_trigger_label_width(trigger_w: f32) -> f32 {
+    trigger_w - 38. - 2. * theme::icon_small()
+}
 
-/// Width the toolbar's selector leaves for its label; the pill's tighter
-/// budget exists to cap the table column and does not apply here.
-const LABEL_MAX_PX: f32 = 190.;
+/// The label room in one branch picker row of a `panel_w`-wide panel: the 4px
+/// panel padding and 8px row padding per side, the check icon and its 4px
+/// gap, less 8px of slack for the selected row's semibold face.
+pub fn branch_row_label_width(panel_w: f32) -> f32 {
+    panel_w - 36. - theme::icon_small()
+}
 
-/// The branch picker's label: the full name while its shaped width fits the
-/// rail, the head-trimmed pill label once it would overflow.
-pub fn branch_label(branch: &str, window: &gpui::Window) -> String {
+/// The branch picker's label: the full name while its shaped width fits
+/// `max_px`, otherwise the longest head-trimmed tail that does. The budget is
+/// a width, never a character count, so a row uses the room it actually has.
+pub fn branch_label(branch: &str, max_px: f32, window: &gpui::Window) -> String {
+    let max = px(max_px.max(0.));
+    trim_branch_label(branch, |candidate| shaped_width(candidate, window) <= max)
+}
+
+/// The shaped width of `text` at the size the picker draws branch labels in.
+fn shaped_width(text: &str, window: &gpui::Window) -> gpui::Pixels {
     let run = gpui::TextRun {
-        len: branch.len(),
+        len: text.len(),
         font: gpui::font(theme::ui_font()),
         color: gpui::Hsla::default(),
         background_color: None,
         underline: None,
         strikethrough: None,
     };
-    let width = window
+    window
         .text_system()
-        .layout_line(branch, px(theme::font_body()), &[run], None)
-        .width;
-    if width <= px(LABEL_MAX_PX) {
-        branch.to_string()
-    } else {
-        trim_branch_label(branch, BRANCH_LABEL_CHARS)
-    }
+        .layout_line(text, px(theme::font_body()), &[run], None)
+        .width
 }
 
-/// Long branch names shed whole leading path segments —
-/// `users/enginkirmaci/test` → `…enginkirmaci/test` — and a name whose last
-/// segment alone exceeds the budget sheds characters, so the tail that
-/// disambiguates the branch stays visible.
-pub fn trim_branch_label(branch: &str, budget: usize) -> String {
-    if branch.chars().count() <= budget {
+/// Characters between the minimal head cut and the next path boundary that a
+/// whole-segment cut may still claim: a short leftover segment is worth
+/// dropping for a clean edge, a long one is not.
+const SLASH_SNAP_CHARS: usize = 4;
+
+/// Long branch names shed their head only as far as the room requires: the
+/// longest tail that fits stays, and the cut snaps forward to a path boundary
+/// when that costs a few characters or fewer (`users/enginkirmaci/test` →
+/// `…enginkirmaci/test`, never `…ne/test`).
+fn trim_branch_label(branch: &str, fits: impl Fn(&str) -> bool) -> String {
+    if fits(branch) {
         return branch.to_string();
     }
-    let mut tail = branch;
-    while let Some((_, rest)) = tail.split_once('/') {
-        tail = rest;
-        if rest.chars().count() < budget {
-            return format!("…{rest}");
+    // a shorter tail only gets easier to fit, so the first cut that fits is
+    // the longest tail the room allows and a binary search finds it
+    let cuts: Vec<usize> = branch.char_indices().skip(1).map(|(ix, _)| ix).collect();
+    let mut lo = 0;
+    let mut hi = cuts.len();
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if fits(&format!("…{}", &branch[cuts[mid]..])) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
         }
     }
-    let keep = budget.saturating_sub(1);
-    let skipped = tail.chars().count() - keep;
-    let mut label: String = tail.chars().skip(skipped).collect();
-    label.insert(0, '…');
-    label
+    let Some(&cut) = cuts.get(lo) else {
+        return "…".to_string();
+    };
+    let mut cut = cut;
+    // never leave a separator dangling after the ellipsis
+    while branch[cut..].starts_with('/') {
+        cut += 1;
+    }
+    // a cut inside a path segment may still snap forward to its boundary when
+    // only a few characters are lost: `…two/three` reads better than
+    // `…ne/two/three`
+    if !branch[..cut].ends_with('/')
+        && let Some(slash) = branch[cut..].find('/')
+    {
+        let after = cut + slash + 1;
+        if branch[cut..after].chars().count() <= SLASH_SNAP_CHARS {
+            cut = after;
+        }
+    }
+    format!("…{}", &branch[cut..])
 }
 
 /// A tool page's title row: its title and a one-line hint.
@@ -351,11 +385,17 @@ pub fn primary_button(
 mod tests {
     use super::*;
 
+    /// A stand-in for the shaped width: `fits` by character count, so the
+    /// trimming rule is testable without a window.
+    fn chars_fit(budget: usize) -> impl Fn(&str) -> bool {
+        move |text: &str| text.chars().count() <= budget
+    }
+
     #[test]
     fn short_branches_pass_through() {
-        assert_eq!(trim_branch_label("main", BRANCH_LABEL_CHARS), "main");
+        assert_eq!(trim_branch_label("main", chars_fit(18)), "main");
         assert_eq!(
-            trim_branch_label("users/enginkirma", BRANCH_LABEL_CHARS),
+            trim_branch_label("users/enginkirma", chars_fit(18)),
             "users/enginkirma"
         );
     }
@@ -363,19 +403,40 @@ mod tests {
     #[test]
     fn long_branches_shed_whole_segments() {
         assert_eq!(
-            trim_branch_label("users/enginkirmaci/test", BRANCH_LABEL_CHARS),
+            trim_branch_label("users/enginkirmaci/test", chars_fit(18)),
             "…enginkirmaci/test"
         );
         assert_eq!(
-            trim_branch_label("feature/one/two/three/four", BRANCH_LABEL_CHARS),
+            trim_branch_label("feature/one/two/three/four", chars_fit(18)),
             "…two/three/four"
+        );
+    }
+
+    #[test]
+    fn segment_shedding_keeps_the_longest_tail_that_fits() {
+        // a fixed character cap used to cut this to `…develop/sonar` even
+        // though the longer tail fitted the room
+        assert_eq!(
+            trim_branch_label("users/enginkirmaci/develop/sonar", chars_fit(30)),
+            "…enginkirmaci/develop/sonar"
+        );
+    }
+
+    #[test]
+    fn a_long_segment_keeps_a_partial_tail_instead_of_dropping_it() {
+        // the cut lands inside `enginkirmaci` and the boundary is too far to
+        // snap to, so the tail stays longer than the old whole-segment rule's
+        // `…develop/sonar`
+        assert_eq!(
+            trim_branch_label("users/enginkirmaci/develop/sonar", chars_fit(22)),
+            "…kirmaci/develop/sonar"
         );
     }
 
     #[test]
     fn oversized_last_segment_sheds_characters() {
         assert_eq!(
-            trim_branch_label("a-very-long-branch-name-without-slashes", 10),
+            trim_branch_label("a-very-long-branch-name-without-slashes", chars_fit(10)),
             "…t-slashes"
         );
     }

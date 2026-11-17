@@ -184,6 +184,10 @@ const TOOLBAR_H: f32 = 52.;
 const LIST_HEAD_H: f32 = 40.;
 /// The branch selector's width.
 const BRANCH_W: f32 = 260.;
+/// How far the shared picker's rail popup insets itself inside the slot the
+/// host mounts it in; the Changes toolbar pays those pixels back so the panel
+/// spans the branch selector exactly.
+const PICKER_PANEL_INSET: f32 = 8.;
 /// The commit box's height: the message over its button.
 const COMMIT_BOX_H: f32 = 190.;
 
@@ -1307,7 +1311,9 @@ impl Render for ChangesView {
                 .into_any_element()
         };
         // the branch popup hangs off the toolbar's own bottom edge: the
-        // toolbar no longer shifts the panel away from its trigger
+        // toolbar no longer shifts the panel away from its trigger, and the
+        // slot gives back the picker's own 8px inset so the panel is exactly
+        // as wide as the selector
         let toolbar_and_popup =
             div()
                 .relative()
@@ -1318,8 +1324,8 @@ impl Render for ChangesView {
                         div()
                             .absolute()
                             .top(px(TOOLBAR_H))
-                            .left(px(8.))
-                            .w(px(BRANCH_W))
+                            .left(px(0.))
+                            .w(px(BRANCH_W + 2. * PICKER_PANEL_INSET))
                             .child(popup),
                     )
                 }));
@@ -4805,8 +4811,12 @@ fn branch_data(
             selector: format!("branch-row-{}", branch.name),
             value: branch.name.clone(),
             // the full name stays the pick payload; the display label sheds
-            // its head only when it would overflow
-            label: crate::ui::branch_label(&branch.name, window),
+            // its head only when it would overflow the row's own room
+            label: crate::ui::branch_label(
+                &branch.name,
+                crate::ui::branch_row_label_width(BRANCH_W),
+                window,
+            ),
             selected: branch.name == current,
             muted: is_remote,
             // the row's verbs (checkout, copy, delete) live in the
@@ -4821,7 +4831,11 @@ fn branch_data(
             label: if current.is_empty() {
                 "—".to_string()
             } else {
-                crate::ui::branch_label(&current, window)
+                crate::ui::branch_label(
+                    &current,
+                    crate::ui::branch_trigger_label_width(BRANCH_W),
+                    window,
+                )
             },
             badge: None,
             value: current,

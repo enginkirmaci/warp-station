@@ -415,6 +415,17 @@ fn a_long_branch_picks_under_its_full_name(cx: &mut TestAppContext) {
         cx.debug_bounds("branch-menu").is_some(),
         "the dropdown opens"
     );
+    let menu = cx
+        .debug_bounds("branch-menu")
+        .expect("the dropdown panel draws");
+    assert_eq!(
+        menu.origin.x, button.origin.x,
+        "the panel starts at the selector's own left edge"
+    );
+    assert_eq!(
+        menu.size.width, button.size.width,
+        "the panel is as wide as the selector above it"
+    );
     let row = cx
         .debug_bounds(ROW)
         .expect("the row renders under its full name");
@@ -436,8 +447,9 @@ fn a_long_branch_picks_under_its_full_name(cx: &mut TestAppContext) {
     );
 }
 
-/// The picker's label budget is the rail's real width, not the pill's column
-/// cap: a name that fits renders whole, an overflowing one sheds its head.
+/// The picker's label budget is the room the control actually has, never a
+/// character count: a name that fits renders whole, an overflowing one sheds
+/// its head only as far as the room requires.
 #[gpui::test]
 fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
@@ -449,18 +461,39 @@ fn picker_label_shows_full_name_while_it_fits(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update(|window, cx| {
         drop(window.draw(cx));
-        // past BRANCH_LABEL_CHARS, but narrow enough to fit the rail
+        // past the old 18-character cap, but narrow enough to fit the trigger
         let fits = "fix/ui/list/title/tilt";
         assert_eq!(
-            warp_station::ui::branch_label(fits, window),
+            warp_station::ui::branch_label(
+                fits,
+                warp_station::ui::branch_trigger_label_width(260.),
+                window,
+            ),
             fits,
             "a name that fits the rail renders whole"
         );
         let long = "users/enginkirmaci/a-branch-name-far-too-long-for-the-rail";
-        let label = warp_station::ui::branch_label(long, window);
+        let label = warp_station::ui::branch_label(
+            long,
+            warp_station::ui::branch_trigger_label_width(260.),
+            window,
+        );
         assert!(
             label.starts_with('…'),
             "an overflowing name sheds its head (got {label:?})"
+        );
+        // a row has more room than the trigger: the old fixed 18-character
+        // cap cut this to `…develop/sonar` although the row could show the
+        // longer tail
+        let tail = "users/enginkirmaci/develop/sonar";
+        let row_label = warp_station::ui::branch_label(
+            tail,
+            warp_station::ui::branch_row_label_width(260.),
+            window,
+        );
+        assert!(
+            row_label.starts_with('…') && row_label.chars().count() > 18,
+            "the row label keeps the tail it has room for (got {row_label:?})"
         );
     });
 }
