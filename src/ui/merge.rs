@@ -144,6 +144,9 @@ struct ShownFile {
     theirs: Rc<Vec<String>>,
     result: Rc<Vec<String>>,
     blocks: Rc<Vec<ConflictBlock>>,
+    /// The widest line either side holds: the aligned columns keep that width
+    /// while only a window of rows is drawn.
+    max_chars: usize,
 }
 
 struct ResultPane {
@@ -206,6 +209,10 @@ impl MergePage {
         self.shown = None;
         self.result = None;
         self.active_conflict = 0;
+        // the new file starts at its own top, not at the old one's offset
+        self.panes_scroll.set_offset(gpui::point(px(0.), px(0.)));
+        self.last_panes_y = 0.;
+        self.last_editor_y = 0.;
         cx.notify();
     }
 
@@ -352,6 +359,13 @@ impl MergePage {
                 theirs: Rc::new(text.theirs.clone()),
                 result: Rc::new(text.result.clone()),
                 blocks: Rc::new(text.blocks.clone()),
+                max_chars: text
+                    .ours
+                    .iter()
+                    .chain(text.theirs.iter())
+                    .map(|line| line.chars().count())
+                    .max()
+                    .unwrap_or(0),
             }),
             _ => None,
         };
@@ -996,7 +1010,15 @@ impl MergePage {
                 )
             }
         };
-        let aligned: Vec<AlignedRow> = rows
+        // only the rows the panes' viewport can show: a 10k-line file draws
+        // a few dozen divs, and the padding keeps the scrollbar honest
+        let (start, end) = visible_window(
+            rows.len(),
+            f32::from(self.panes_scroll.offset().y),
+            f32::from(self.panes_scroll.bounds().size.height),
+            f32::from(row_height(theme::font_mono_meta())),
+        );
+        let aligned: Vec<AlignedRow> = rows[start..end]
             .iter()
             .map(|row| AlignedRow {
                 left: row.ours.and_then(|index| {
@@ -1017,6 +1039,8 @@ impl MergePage {
             AlignedOptions {
                 lead: Some(lead_ref),
                 font_detail: theme::font_mono_meta(),
+                padding: (start, rows.len() - end),
+                max_chars: Some(shown.max_chars),
             },
         );
         div()
@@ -1358,6 +1382,35 @@ fn composed_line(pane: &ResultPane, index: usize) -> usize {
     line
 }
 
+/// How many rows the panes' viewport can show, with a margin either side so a
+/// wheel step never exposes a blank band. The offset and viewport come from
+/// the panes' own scroll handle; a not-yet-laid-out viewport draws a window
+/// of [`VIRTUAL_WINDOW_FALLBACK`] rows.
+fn visible_window(total: usize, offset: f32, viewport: f32, row_h: f32) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
+    }
+    let row_h = row_h.max(1.);
+    let offset = offset.max(0.);
+    let first = (offset / row_h).floor() as usize;
+    let visible = if viewport > 0. {
+        (viewport / row_h).ceil() as usize + 1
+    } else {
+        VIRTUAL_WINDOW_FALLBACK
+    };
+    let start = first.saturating_sub(VIRTUAL_OVERSCAN);
+    let end = first
+        .saturating_add(visible)
+        .saturating_add(VIRTUAL_OVERSCAN)
+        .min(total);
+    (start, end)
+}
+
+/// Rows drawn above and below the viewport's own range.
+const VIRTUAL_OVERSCAN: usize = 8;
+/// The window a first frame draws before the viewport has a height.
+const VIRTUAL_WINDOW_FALLBACK: usize = 200;
+
 /// The pick a line number maps to: the aligned row carries a file line, the
 /// picks are keyed by block and the block's own line index.
 fn map_pick_line(
@@ -1640,4 +1693,25 @@ fn file_stamp(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path)
         .and_then(|meta| meta.modified())
         .ok()
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::visible_window;
+
+    #[test]
+    fn the_window_follows_the_scroll_offset() {
+        assert_eq!(visible_window(0, 0., 210., 21.), (0, 0));
+        assert_eq!(visible_window(1000, 0., 210., 21.), (0, 19));
+        assert_eq!(visible_window(1000, 420., 210., 21.), (12, 39));
+        // near the end the window stays inside the row count
+        assert_eq!(visible_window(1000, 20_000., 210., 21.), (944, 971));
+        assert_eq!(visible_window(1000, 20_000., 210., 21.).1, 971);
+    }
+
+    #[test]
+    fn a_first_frame_before_layout_draws_the_fallback() {
+        assert_eq!(visible_window(1000, 0., 0., 21.), (0, 208));
+        assert_eq!(visible_window(50, 0., 0., 21.), (0, 50));
+    }
 }
