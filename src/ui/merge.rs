@@ -20,6 +20,7 @@ use warp_station_core::git::merge::{
     BufferConflict, ConflictBlock, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession,
     MergeSide, WholeFileReason, align_side_lines, buffer_conflicts,
 };
+use warpui_kit_core::a11y::A11y;
 use warpui_kit_core::controls::icon_button;
 use warpui_kit_core::{motion, shell};
 use warpui_kit_diff::{AlignedOptions, AlignedRow, AlignedSide, render_aligned, row_height};
@@ -129,10 +130,9 @@ pub struct MergePage {
     active_conflict: usize,
     /// The panes' vertical viewport, so conflict navigation can scroll it.
     panes_scroll: ScrollHandle,
-    /// The last offsets seen, so a wheel on one surface can be mirrored to
-    /// the other without the mirror re-triggering itself.
+    /// The panes' last offset, so the Result can follow a wheel on the panes
+    /// without the mirror re-triggering itself.
     last_panes_y: f32,
-    last_editor_y: f32,
 }
 
 struct ShownFile {
@@ -186,7 +186,6 @@ impl MergePage {
             active_conflict: 0,
             panes_scroll: ScrollHandle::new(),
             last_panes_y: 0.,
-            last_editor_y: 0.,
         }
     }
 
@@ -207,12 +206,11 @@ impl MergePage {
         // the new file starts at its own top, not at the old one's offset
         self.panes_scroll.set_offset(gpui::point(px(0.), px(0.)));
         self.last_panes_y = 0.;
-        self.last_editor_y = 0.;
         cx.notify();
     }
 
-    /// Alt+Up / Alt+Down walk the conflict strip. The strip is the focused
-    /// pane when these arrive; the Result editor keeps its own keys.
+    /// Alt+Up / Alt+Down walk the conflicts. The panes are the focused pane
+    /// when these arrive; the Result editor keeps its own keys.
     fn handle_panes_key(
         &mut self,
         event: &gpui::KeyDownEvent,
@@ -274,22 +272,22 @@ impl MergePage {
             .position(|row| row.block == Some(index as u32))
         {
             let x = self.panes_scroll.offset().x;
-            self.panes_scroll
-                .set_offset(gpui::point(x, row_h * row_index as f32));
+            let target = row_h * row_index as f32;
+            self.panes_scroll.set_offset(gpui::point(x, target));
+            self.last_panes_y = f32::from(target);
         }
         let line = composed_line(pane, index);
         let editor = pane.editor.clone();
         let line_h = editor.read(cx).line_height().unwrap_or(row_h);
         editor.update(cx, |state, cx| {
-            state.set_scroll_offset(gpui::point(px(0.), line_h * line as f32), cx);
+            state.set_scroll_offset(gpui::point(px(0.), -(line_h * line as f32)), cx);
         });
     }
 
-    /// Keeps the panes and the Result on the same line: whichever surface
-    /// moved since the last frame takes the other with it, mapped by line
-    /// height so a one-row step is one row everywhere. Render is the only
-    /// clock these two have; each mirror records its target so the next frame
-    /// sees no movement and stops.
+    /// The Result follows the panes: a wheel over the panes moves the editor
+    /// to the same line. The direction is deliberately one-way — the editor
+    /// recentres itself whenever its text is re-composed, and mirroring that
+    /// back would yank the panes to the top on every pick.
     fn sync_scroll(&mut self, cx: &mut Context<Self>) {
         let Some(pane) = self.result.as_ref() else {
             return;
@@ -304,32 +302,41 @@ impl MergePage {
         if row_h <= 0. || line_h <= 0. {
             return;
         }
-        let pane_y = f32::from(self.panes_scroll.offset().y);
-        let editor_y = f32::from(pane.editor.read(cx).scroll_offset().y);
-        let panes_moved = (pane_y - self.last_panes_y).abs() > 0.5;
-        let editor_moved = (editor_y - self.last_editor_y).abs() > 0.5;
-        match (panes_moved, editor_moved) {
-            (true, false) => {
-                let target = (pane_y / row_h) * line_h;
-                let editor = pane.editor.clone();
-                editor.update(cx, |state, cx| {
-                    state.set_scroll_offset(gpui::point(px(0.), px(target)), cx);
-                });
-                self.last_panes_y = pane_y;
-                self.last_editor_y = target;
-            }
-            (false, true) => {
-                let target = (editor_y / line_h) * row_h;
-                let x = self.panes_scroll.offset().x;
-                self.panes_scroll.set_offset(gpui::point(x, px(target)));
-                self.last_editor_y = editor_y;
-                self.last_panes_y = target;
-            }
-            _ => {
-                self.last_panes_y = pane_y;
-                self.last_editor_y = editor_y;
-            }
+        let pane_y = (-f32::from(self.panes_scroll.offset().y)).max(0.);
+        if (pane_y - self.last_panes_y).abs() <= 0.5 {
+            return;
         }
+        let target = (pane_y / row_h) * line_h;
+        let editor = pane.editor.clone();
+        editor.update(cx, |state, cx| {
+            state.set_scroll_offset(gpui::point(px(0.), px(-target)), cx);
+        });
+        self.last_panes_y = pane_y;
+    }
+
+    /// Puts the Result back on the line the panes show after a compose reset
+    /// the editor's own scroll: a pick must not move the reader's place.
+    fn restore_result_scroll(&mut self, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_ref() else {
+            return;
+        };
+        let row_h = f32::from(row_height(theme::font_mono_meta()));
+        let line_h = f32::from(
+            pane.editor
+                .read(cx)
+                .line_height()
+                .unwrap_or_else(|| px(theme::font_mono_meta())),
+        );
+        if row_h <= 0. || line_h <= 0. {
+            return;
+        }
+        let pane_y = (-f32::from(self.panes_scroll.offset().y)).max(0.);
+        let target = (pane_y / row_h) * line_h;
+        let editor = pane.editor.clone();
+        editor.update(cx, |state, cx| {
+            state.set_scroll_offset(gpui::point(px(0.), px(-target)), cx);
+        });
+        self.last_panes_y = pane_y;
     }
 
     /// Clones the selected file's rows and stage lines once, not per frame.
@@ -507,6 +514,7 @@ impl MergePage {
             pane.origin.len()
         };
         self.active_conflict = self.active_conflict.min(count.saturating_sub(1));
+        self.restore_result_scroll(cx);
         cx.notify();
     }
 
@@ -822,8 +830,10 @@ impl MergePage {
             }
             MergeFile::WholeFile(whole) => (whole.reason.label().to_string(), true),
         };
+        let aria = format!("{}, {detail}", file_name(file.path()));
         shell::list_row(SharedString::from(format!("merge-file-{index}")), selected)
             .debug_selector(|| "merge-file-row".into())
+            .a11y_button(aria)
             .flex()
             .flex_col()
             .gap_1()
@@ -1010,9 +1020,12 @@ impl MergePage {
         };
         // only the rows the panes' viewport can show: a 10k-line file draws
         // a few dozen divs, and the padding keeps the scrollbar honest
+        // gpui's offset grows negative as the body scrolls down; the window
+        // wants the scrolled distance
+        let scrolled = (-f32::from(self.panes_scroll.offset().y)).max(0.);
         let (start, end) = visible_window(
             rows.len(),
-            f32::from(self.panes_scroll.offset().y),
+            scrolled,
             f32::from(self.panes_scroll.bounds().size.height),
             f32::from(row_height(theme::font_mono_meta())),
         );
@@ -1051,6 +1064,8 @@ impl MergePage {
                 div()
                     .id("merge-panes-scroll")
                     .debug_selector(|| "merge-panes".into())
+                    .role(gpui::Role::Group)
+                    .aria_label("Merge source panes, Current and Incoming")
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
