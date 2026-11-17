@@ -46,6 +46,16 @@ fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
     draw(cx);
 }
 
+fn right_click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} renders"));
+    let at = bounds.center();
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    draw(cx);
+}
+
 /// A double click: the platform's second press and release carry
 /// `click_count: 2`, so both clicks reach the row.
 fn double_click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
@@ -3554,6 +3564,22 @@ fn two_repos(cx: &mut TestAppContext) -> (gpui::Entity<Store>, &mut gpui::Visual
     (store, cx)
 }
 
+fn three_repos(cx: &mut TestAppContext) -> (gpui::Entity<Store>, &mut gpui::VisualTestContext) {
+    let (store, net_rx) = scratch_store(
+        cx,
+        "repo-tab-menu",
+        vec![
+            entry("alpha", "/probe/alpha"),
+            entry("beta", "/probe/beta"),
+            entry("gamma", "/probe/gamma"),
+        ],
+    );
+    // the channel stays open for the whole probe
+    std::mem::forget(net_rx);
+    let cx = open_window(&store, cx);
+    (store, cx)
+}
+
 fn active_tab(store: &gpui::Entity<Store>, cx: &mut gpui::VisualTestContext) -> Option<String> {
     cx.read_entity(store, |s, _| s.active_repo_tab.clone())
 }
@@ -4211,5 +4237,145 @@ fn the_pane_keys_walk_into_the_pull_request_files_rail(cx: &mut TestAppContext) 
     assert!(
         cx.debug_bounds("pull-diff-src/b.rs").is_some(),
         "→ at the rail never wraps back into the pull request list"
+    );
+}
+
+/// The strip's right-click card: Close (with the window's Ctrl W keycap),
+/// Close other tabs and Close tabs to the right. A press on the scrim or
+/// Escape takes the card down; every row closes the store's tab, so the
+/// strip, the active tab and the persisted arrangement follow one close path.
+#[gpui::test]
+fn the_repo_tab_menu_closes_tabs_from_its_rows(cx: &mut TestAppContext) {
+    let (store, cx) = three_repos(cx);
+    store.update(cx, |s, cx| {
+        s.open_repo_tab("/probe/alpha", cx);
+        s.open_repo_tab("/probe/beta", cx);
+        s.open_repo_tab("/probe/gamma", cx);
+    });
+    draw(cx);
+    assert_eq!(cx.read_entity(&store, |s, _| s.repo_tabs.len()), 3);
+
+    // a right press opens the card at the pointer; Close prints the window's
+    // real Ctrl W
+    right_click(cx, "repo-strip-tab-1");
+    assert!(
+        cx.debug_bounds("repo-tab-menu").is_some(),
+        "the tab card opens"
+    );
+    assert!(
+        cx.debug_bounds("menu-key-Ctrl W").is_some(),
+        "Close prints the target's Ctrl W keycap"
+    );
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/gamma"),
+        "the right press does not activate the tab it opened on"
+    );
+
+    // a press on the scrim, away from the card, takes it down
+    let scrim = cx
+        .debug_bounds("repo-page-menu-catcher")
+        .expect("the card rides a scrim");
+    cx.simulate_click(
+        gpui::point(
+            scrim.origin.x + gpui::px(60.),
+            scrim.origin.y + gpui::px(4.),
+        ),
+        gpui::Modifiers::default(),
+    );
+    draw(cx);
+    assert!(
+        cx.debug_bounds("repo-tab-menu").is_none(),
+        "the scrim closes the card"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.repo_tabs.len()),
+        3,
+        "a dismissal closes no tab"
+    );
+
+    // Escape closes it too
+    right_click(cx, "repo-strip-tab-1");
+    assert!(cx.debug_bounds("repo-tab-menu").is_some());
+    cx.simulate_keystrokes("escape");
+    draw(cx);
+    assert!(
+        cx.debug_bounds("repo-tab-menu").is_none(),
+        "Escape closes the card"
+    );
+
+    // the close button is not the tab: its right press opens no card
+    right_click(cx, "repo-strip-close-2");
+    assert!(
+        cx.debug_bounds("repo-tab-menu").is_none(),
+        "a right press on the close button opens no card"
+    );
+
+    // Close: exactly the tab the card opened on, and the active neighbour
+    // takes over
+    right_click(cx, "repo-strip-tab-1");
+    click(cx, "repo-tab-menu-close");
+    assert_eq!(
+        cx.read_entity(&store, |s, _| {
+            s.repo_tabs
+                .iter()
+                .map(|tab| tab.folder.clone())
+                .collect::<Vec<_>>()
+        }),
+        vec!["/probe/alpha".to_string(), "/probe/gamma".to_string()],
+        "Close closes the tab under the card"
+    );
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/gamma"),
+        "closing a background tab leaves the active tab alone"
+    );
+    assert!(
+        cx.debug_bounds("repo-tab-menu").is_none(),
+        "an action closes the card"
+    );
+
+    // Close other tabs: the card's tab is the one left, and it is on screen
+    right_click(cx, "repo-strip-tab-0");
+    click(cx, "repo-tab-menu-close-others");
+    assert_eq!(
+        cx.read_entity(&store, |s, _| {
+            s.repo_tabs
+                .iter()
+                .map(|tab| tab.folder.clone())
+                .collect::<Vec<_>>()
+        }),
+        vec!["/probe/alpha".to_string()],
+        "Close other tabs keeps the card's tab"
+    );
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "the remaining tab is active"
+    );
+
+    // Close tabs to the right: the strip stops at the card's tab
+    store.update(cx, |s, cx| {
+        s.open_repo_tab("/probe/beta", cx);
+        s.open_repo_tab("/probe/gamma", cx);
+    });
+    draw(cx);
+    assert_eq!(cx.read_entity(&store, |s, _| s.repo_tabs.len()), 3);
+    right_click(cx, "repo-strip-tab-0");
+    click(cx, "repo-tab-menu-close-right");
+    assert_eq!(
+        cx.read_entity(&store, |s, _| {
+            s.repo_tabs
+                .iter()
+                .map(|tab| tab.folder.clone())
+                .collect::<Vec<_>>()
+        }),
+        vec!["/probe/alpha".to_string()],
+        "Close tabs to the right leaves the card's tab and everything left of it"
+    );
+    assert_eq!(
+        active_tab(&store, cx).as_deref(),
+        Some("/probe/alpha"),
+        "the card's tab is active after the run of closes"
     );
 }

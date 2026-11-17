@@ -148,3 +148,30 @@ fn ctrl_c_copies_the_readme_selection(cx: &mut TestAppContext) {
         "Ctrl+C copies the README selection: {copied:?}"
     );
 }
+
+/// The README renders through the markdown engine's read-only editor, whose
+/// menu owns the Copy row: the host's Ctrl+C (the window's handler) is printed
+/// beside it, since the document surface itself takes no focus.
+#[gpui::test]
+fn the_readme_menu_prints_the_copy_key(cx: &mut TestAppContext) {
+    let folder = readme_repo("menu");
+    let store = scratch_store(cx, "menu", vec![entry("alpha", &folder)]);
+    let cx = open_window(&store, cx);
+    draw(cx);
+
+    drag_over_the_readme(cx);
+    let pane = cx
+        .debug_bounds("readme-pane")
+        .expect("the README pane renders");
+    let at = gpui::point(
+        pane.origin.x + gpui::px(120.),
+        pane.origin.y + gpui::px(60.),
+    );
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    draw(cx);
+    assert!(
+        cx.debug_bounds("menu-key-Ctrl C").is_some(),
+        "the read-only editor's Copy row prints the window's Ctrl C"
+    );
+}

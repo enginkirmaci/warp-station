@@ -13,8 +13,8 @@ use crate::ui::icon;
 use crate::ui::overview::RepoMenu;
 use gpui::prelude::*;
 use gpui::{
-    App, Context, DragMoveEvent, Entity, FocusHandle, FontWeight, MouseButton, ScrollHandle,
-    SharedString, Window, div, px,
+    App, Context, DragMoveEvent, Entity, FocusHandle, FontWeight, MouseButton, Pixels, Point,
+    ScrollHandle, SharedString, Window, div, px,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use std::rc::Rc;
@@ -69,6 +69,37 @@ pub struct ReposPage {
     /// registers the list and each view registers its own lists during its
     /// render, so `←`/`→` can only land on a pane that is actually drawn.
     pane_nav: Rc<pane_nav::PaneNav>,
+    /// The page's pointer card: a repo tab's Close/Close others/Close right,
+    /// or a list row's repository verbs. One card at a time, over a scrim.
+    page_menu: Option<PageMenu>,
+    /// The pointer card's keyboard owner; focused while it is up so Escape
+    /// takes it down.
+    menu_focus: FocusHandle,
+}
+
+/// A page-level card opened by a right press, anchored where the pointer was.
+#[derive(Clone)]
+enum PageMenu {
+    /// One opened repository's tab in the strip.
+    RepoTab { folder: String, at: Point<Pixels> },
+    /// One repository's row in the list.
+    RepoRow {
+        folder: String,
+        at: Point<Pixels>,
+        remove_armed: bool,
+    },
+}
+
+/// Whether the card's tab or row is still on screen: a list that changed
+/// under it takes the card down with it.
+fn page_menu_still_there(store: &Store, menu: &PageMenu) -> bool {
+    match menu {
+        PageMenu::RepoTab { folder, .. } => store.repo_tabs.iter().any(|tab| &tab.folder == folder),
+        PageMenu::RepoRow { folder, .. } => store
+            .repos
+            .iter()
+            .any(|repo| repo.folder_path.to_string_lossy() == folder.as_str()),
+    }
 }
 
 impl ReposPage {
@@ -77,6 +108,7 @@ impl ReposPage {
         let views = DetailViews::new(&store, pane_nav.clone(), window, cx);
         let list_version = store.read(cx).list_version;
         let repo_focus = cx.focus_handle();
+        let menu_focus = cx.focus_handle();
         cx.observe(&store, |this, store, cx| {
             // only a list change needs the O(n) ensure pass; a toast or a
             // status probe must not rescan every repo's tabs and paths (C5)
@@ -93,6 +125,15 @@ impl ReposPage {
                 .is_some_and(|menu| Some(&menu.folder) != selected.as_ref())
             {
                 this.close_repo_menu(cx);
+            }
+            // a card belongs to the tab or row that opened it; losing that
+            // tab/row takes the card down with it
+            if this
+                .page_menu
+                .as_ref()
+                .is_some_and(|menu| !page_menu_still_there(store.read(cx), menu))
+            {
+                this.page_menu = None;
             }
             cx.notify();
         })
@@ -117,6 +158,8 @@ impl ReposPage {
             repo_focus,
             repo_scroll: ScrollHandle::new(),
             pane_nav,
+            page_menu: None,
+            menu_focus,
         }
     }
 }
@@ -312,6 +355,49 @@ impl ReposPage {
         }
     }
 
+    /// Opens the page's pointer card at `at`, taking down any other page menu
+    /// first: the strip and the list never stack two cards.
+    fn open_page_menu(&mut self, menu: PageMenu, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_popups(cx);
+        self.page_menu = Some(menu);
+        window.focus(&self.menu_focus, cx);
+        cx.notify();
+    }
+
+    /// A right press on a list row: the row becomes the selection and its card
+    /// opens at the pointer.
+    pub fn open_row_menu(
+        &mut self,
+        folder: &str,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_page_menu(
+            PageMenu::RepoRow {
+                folder: folder.to_string(),
+                at,
+                remove_armed: false,
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// The first press on the row card's Remove; the second one removes.
+    fn arm_repo_row_remove(&mut self, cx: &mut Context<Self>) {
+        if let Some(PageMenu::RepoRow { remove_armed, .. }) = &mut self.page_menu {
+            *remove_armed = true;
+            cx.notify();
+        }
+    }
+
+    fn close_page_menu(&mut self, cx: &mut Context<Self>) {
+        if self.page_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// The first click on the menu's Remove row; the second one removes.
     pub fn arm_repo_remove(&mut self, cx: &mut Context<Self>) {
         if let Some(menu) = &mut self.repo_menu {
@@ -330,7 +416,12 @@ impl ReposPage {
     pub fn close_popups(&mut self, cx: &mut Context<Self>) {
         self.close_repo_menu(cx);
         self.views.close_menus(cx);
-        if self.sort_menu_open || self.tag_menu_open || self.launch_menu_open {
+        if self.page_menu.is_some()
+            || self.sort_menu_open
+            || self.tag_menu_open
+            || self.launch_menu_open
+        {
+            self.page_menu = None;
             self.sort_menu_open = false;
             self.tag_menu_open = false;
             self.launch_menu_open = false;
@@ -338,7 +429,7 @@ impl ReposPage {
         }
         self.views
             .changes
-            .update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu);
+            .update(cx, crate::ui::changes::ChangesView::dismiss_menus);
     }
 
     /// Whether something sits on top of the list right now, so the window's
@@ -346,6 +437,7 @@ impl ReposPage {
     pub fn layer_open(&self) -> bool {
         self.dialog.is_some()
             || self.repo_menu.is_some()
+            || self.page_menu.is_some()
             || self.sort_menu_open
             || self.tag_menu_open
             || self.launch_menu_open
@@ -422,6 +514,10 @@ impl ReposPage {
             cx.notify();
             return true;
         }
+        if self.page_menu.take().is_some() {
+            cx.notify();
+            return true;
+        }
         if self.repo_menu.take().is_some() {
             cx.notify();
             return true;
@@ -441,7 +537,7 @@ impl ReposPage {
         }
         self.views
             .changes
-            .update(cx, crate::ui::changes::ChangesView::dismiss_branch_menu)
+            .update(cx, crate::ui::changes::ChangesView::dismiss_menus)
     }
 
     /// Sends the Add-Repositories dialog's deep scan.
@@ -661,7 +757,7 @@ impl Render for ReposPage {
         let page = cx.entity();
         let list_rows = {
             let store = self.store.read(cx);
-            crate::ui::repos_list::render(store, &self.store, &self.repo_scroll)
+            crate::ui::repos_list::render(store, &self.store, &self.repo_scroll, &page)
         };
         let list = list_visible.then(|| {
             let head = self.render_list_head(window, cx);
@@ -729,6 +825,11 @@ impl Render for ReposPage {
                 .children(list)
                 .child(detail_body),
         );
+        // the page's pointer card: over the strip and the panes, under the
+        // dialogs a blocking action opens
+        if let Some(menu) = self.render_page_menu(cx) {
+            stage = stage.child(menu);
+        }
         // a dialog is a layer over the page
         if let Some(dialog) = &mut self.dialog {
             stage = stage.child(dialog.render(window, cx));
@@ -805,6 +906,7 @@ impl ReposPage {
             let show_target = self.store.clone();
             let close_target = self.store.clone();
             let middle_target = self.store.clone();
+            let menu_folder = tab.folder.clone();
             let show_folder = tab.folder.clone();
             let close_folder = tab.folder.clone();
             let middle_folder = tab.folder.clone();
@@ -826,6 +928,25 @@ impl ReposPage {
                     cx.stop_propagation();
                     middle_target.update(cx, |s, cx| s.close_repo_tab(&middle_folder, cx));
                 })
+                // a right press opens the tab's card; it never activates the
+                // tab (that is the left click's job)
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener({
+                        let folder = menu_folder.clone();
+                        move |this, event: &gpui::MouseDownEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.open_page_menu(
+                                PageMenu::RepoTab {
+                                    folder: folder.clone(),
+                                    at: event.position,
+                                },
+                                window,
+                                cx,
+                            );
+                        }
+                    }),
+                )
                 .when_some(job, |tab, job| {
                     let selector = format!("repo-strip-job-{ix}");
                     tab.debug_selector(move || selector.clone())
@@ -879,6 +1000,9 @@ impl ReposPage {
                             x.invisible().group_hover(group, |s| s.visible())
                         })
                         .hover(|s| s.bg(theme::raised()))
+                        // the close button is not the tab: a right press on it
+                        // opens no card
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
                             close_target.update(cx, |s, cx| s.close_repo_tab(&close_folder, cx));
@@ -892,6 +1016,229 @@ impl ReposPage {
             ));
         }
         strip.into_any_element()
+    }
+
+    /// The page's pointer card over a scrim: a press anywhere else or Escape
+    /// takes it down; a row runs its action and closes it.
+    fn render_page_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let menu = self.page_menu.clone()?;
+        let at = match &menu {
+            PageMenu::RepoTab { at, .. } | PageMenu::RepoRow { at, .. } => *at,
+        };
+        let card = match menu {
+            PageMenu::RepoTab { folder, .. } => self.render_tab_menu(&folder, cx)?,
+            PageMenu::RepoRow {
+                folder,
+                remove_armed,
+                ..
+            } => self.render_repo_row_menu(&folder, remove_armed, cx)?,
+        };
+        let close = {
+            let this = cx.entity();
+            move |_: &gpui::MouseDownEvent, _: &mut Window, cx: &mut gpui::App| {
+                this.update(cx, |page, cx| page.close_page_menu(cx));
+            }
+        };
+        let catcher = div()
+            .id("repo-page-menu-catcher")
+            .debug_selector(|| "repo-page-menu-catcher".into())
+            .absolute()
+            .inset_0()
+            .occlude()
+            .track_focus(&self.menu_focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.close_page_menu(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(MouseButton::Left, close.clone())
+            .on_mouse_down(MouseButton::Right, close)
+            .child(
+                gpui::anchored()
+                    .anchor(gpui::Anchor::TopLeft)
+                    .position(at)
+                    .offset(gpui::point(px(6.), px(6.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(card),
+            );
+        // deferred, after the strip and the panes it hangs over
+        Some(gpui::deferred(catcher).with_priority(1).into_any_element())
+    }
+
+    /// One opened tab's card: Close (Ctrl W), Close other tabs and Close tabs
+    /// to the right. Closing runs the store, so the strip, the active tab and
+    /// the persisted arrangement all follow the ordinary close.
+    fn render_tab_menu(
+        &mut self,
+        folder: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let (ix, count) = {
+            let store = self.store.read(cx);
+            let Some(ix) = store.repo_tabs.iter().position(|tab| tab.folder == folder) else {
+                self.page_menu = None;
+                return None;
+            };
+            (ix, store.repo_tabs.len())
+        };
+        let mut card = crate::ui::pull_request::menu_shell("repo-tab-menu");
+
+        let close_folder = folder.to_string();
+        let close_store = self.store.clone();
+        let close_page = cx.entity();
+        card = card.child(crate::ui::pull_request::menu_item_keyed(
+            "repo-tab-menu-close",
+            "icons/icon-close.svg",
+            "Close",
+            Some("Ctrl W"),
+            true,
+            move |_, _, cx| {
+                close_store.update(cx, |store, cx| store.close_repo_tab(&close_folder, cx));
+                close_page.update(cx, |page, cx| page.close_page_menu(cx));
+            },
+        ));
+
+        // every tab but this one: the card's own tab stays, so it takes the
+        // strip's one remaining place
+        let keep_folder = folder.to_string();
+        let others_store = self.store.clone();
+        let others_page = cx.entity();
+        card = card.child(crate::ui::pull_request::menu_item_keyed(
+            "repo-tab-menu-close-others",
+            "icons/icon-tab.svg",
+            "Close other tabs",
+            None,
+            count > 1,
+            move |_, _, cx| {
+                let others: Vec<String> = {
+                    let store = others_store.read(cx);
+                    store
+                        .repo_tabs
+                        .iter()
+                        .filter(|tab| tab.folder != keep_folder)
+                        .map(|tab| tab.folder.clone())
+                        .collect()
+                };
+                others_store.update(cx, |store, cx| {
+                    for folder in others {
+                        store.close_repo_tab(&folder, cx);
+                    }
+                });
+                others_page.update(cx, |page, cx| page.close_page_menu(cx));
+            },
+        ));
+
+        // highest index first, so each close leaves the remaining indices
+        // valid
+        let right_folder = folder.to_string();
+        let right_store = self.store.clone();
+        let right_page = cx.entity();
+        card = card.child(crate::ui::pull_request::menu_item_keyed(
+            "repo-tab-menu-close-right",
+            "icons/icon-chevron-right.svg",
+            "Close tabs to the right",
+            None,
+            count > ix + 1,
+            move |_, _, cx| {
+                let folders: Vec<String> = {
+                    let store = right_store.read(cx);
+                    match store
+                        .repo_tabs
+                        .iter()
+                        .position(|tab| tab.folder == right_folder)
+                    {
+                        Some(ix) => store
+                            .repo_tabs
+                            .iter()
+                            .skip(ix + 1)
+                            .rev()
+                            .map(|tab| tab.folder.clone())
+                            .collect(),
+                        None => Vec::new(),
+                    }
+                };
+                right_store.update(cx, |store, cx| {
+                    for folder in folders {
+                        store.close_repo_tab(&folder, cx);
+                    }
+                });
+                right_page.update(cx, |page, cx| page.close_page_menu(cx));
+            },
+        ));
+        Some(card.into_any_element())
+    }
+
+    /// One list row's card: the row's verbs, mirroring the header's menu for
+    /// that repository. The row is selected before the card opens, so the
+    /// header's "selected repository" rule holds here too.
+    fn render_repo_row_menu(
+        &mut self,
+        folder: &str,
+        remove_armed: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let (favorite, archived, url) = {
+            let store = self.store.read(cx);
+            let Some(repo) = store
+                .repos
+                .iter()
+                .find(|repo| repo.folder_path.to_string_lossy() == folder)
+            else {
+                self.page_menu = None;
+                return None;
+            };
+            (
+                repo.is_favorite(),
+                repo.is_archived(),
+                crate::ui::overview::repo_web_url(store, repo),
+            )
+        };
+        let mut card = crate::ui::pull_request::menu_shell("repo-row-menu");
+        for verb in [
+            crate::ui::overview::RepoVerb::OpenInTab,
+            crate::ui::overview::RepoVerb::OpenChanges,
+            crate::ui::overview::RepoVerb::Favorite(favorite),
+            crate::ui::overview::RepoVerb::Archive(archived),
+        ] {
+            let page = cx.entity();
+            card = card.child(crate::ui::overview::verb_row(
+                verb,
+                &self.store,
+                &page,
+                folder,
+                ReposPage::close_page_menu,
+            ));
+        }
+        card = card.child(crate::ui::pull_request::menu_divider());
+        let page = cx.entity();
+        card = card.child(crate::ui::overview::verb_row(
+            crate::ui::overview::RepoVerb::CopyFolderPath,
+            &self.store,
+            &page,
+            folder,
+            ReposPage::close_page_menu,
+        ));
+        if let Some(url) = url {
+            let page = cx.entity();
+            card = card.child(crate::ui::overview::verb_row(
+                crate::ui::overview::RepoVerb::OpenGitHub(url),
+                &self.store,
+                &page,
+                folder,
+                ReposPage::close_page_menu,
+            ));
+        }
+        card = card.child(crate::ui::pull_request::menu_divider());
+        let arm_page = cx.entity();
+        let close_page = cx.entity();
+        card = card.child(crate::ui::overview::remove_row_with(
+            remove_armed,
+            &self.store,
+            move |cx| arm_page.update(cx, |page, cx| page.arm_repo_row_remove(cx)),
+            move |cx| close_page.update(cx, |page, cx| page.close_page_menu(cx)),
+        ));
+        Some(card.into_any_element())
     }
 
     /// The list pane's head: totals and the list's actions, the scope, then

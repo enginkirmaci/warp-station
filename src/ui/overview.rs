@@ -358,7 +358,133 @@ fn menu_panel(id: &'static str) -> gpui::Stateful<gpui::Div> {
         .gap(px(2.))
 }
 
-type MenuAction = Box<dyn Fn(&mut App)>;
+/// One repository verb, shared by the head's "⋯" card and the list row's
+/// card so the two surfaces cannot drift. The label, icon and shortcut live
+/// with the action; `keys` is the chord the window's handler and the
+/// shortcut sheet answer, printed at the row's right edge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RepoVerb {
+    Refresh,
+    CopyFolderPath,
+    CopyGitHubUrl(String),
+    OpenGitHub(String),
+    Favorite(bool),
+    Archive(bool),
+    OpenInTab,
+    OpenChanges,
+}
+
+impl RepoVerb {
+    /// The row's stable debug selector.
+    pub(crate) fn id(&self) -> &'static str {
+        match self {
+            Self::Refresh => "insp-menu-refresh",
+            Self::CopyFolderPath => "insp-menu-copy-path",
+            Self::CopyGitHubUrl(_) => "insp-menu-copy-url",
+            Self::OpenGitHub(_) => "insp-menu-github",
+            Self::Favorite(_) => "insp-menu-favorite",
+            Self::Archive(_) => "insp-menu-archive",
+            Self::OpenInTab => "repo-menu-open-tab",
+            Self::OpenChanges => "repo-menu-open-changes",
+        }
+    }
+
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Refresh => "Refresh repository",
+            Self::CopyFolderPath => "Copy folder path",
+            Self::CopyGitHubUrl(_) => "Copy GitHub URL",
+            Self::OpenGitHub(_) => "Open in GitHub",
+            Self::Favorite(true) => "Remove from favorites",
+            Self::Favorite(false) => "Add to favorites",
+            Self::Archive(true) => "Restore",
+            Self::Archive(false) => "Archive",
+            Self::OpenInTab => "Open in tab",
+            Self::OpenChanges => "Open Changes",
+        }
+    }
+
+    pub(crate) fn icon(&self) -> &'static str {
+        match self {
+            Self::Refresh => "icons/icon-refresh.svg",
+            Self::CopyFolderPath | Self::CopyGitHubUrl(_) => "icons/icon-copy.svg",
+            Self::OpenGitHub(_) => "icons/icon-open-in-new.svg",
+            Self::Favorite(_) => "icons/icon-star.svg",
+            Self::Archive(_) => "icons/icon-package.svg",
+            Self::OpenInTab => "icons/icon-tab-plus.svg",
+            Self::OpenChanges => "icons/icon-file-diff.svg",
+        }
+    }
+
+    /// The shortcut this verb answers to, or `None` where the app binds none:
+    /// a row must never print a key that does not exist.
+    pub(crate) fn keys(&self) -> Option<&'static str> {
+        match self {
+            Self::Favorite(_) => Some("Alt F"),
+            Self::Archive(_) => Some("Alt A"),
+            Self::OpenInTab => Some("Enter"),
+            Self::OpenChanges => Some("Alt C"),
+            Self::Refresh | Self::CopyFolderPath | Self::CopyGitHubUrl(_) | Self::OpenGitHub(_) => {
+                None
+            }
+        }
+    }
+
+    /// Runs the verb on `folder`; the store owns every side effect.
+    pub(crate) fn run(&self, entities: &Entity<Store>, folder: &str, cx: &mut gpui::App) {
+        match self {
+            Self::Refresh => entities.update(cx, |s, cx| s.refresh_panel(cx)),
+            Self::CopyFolderPath => {
+                copy_with_toast(folder.to_string(), "Folder path copied", entities, cx)
+            }
+            Self::CopyGitHubUrl(url) => {
+                copy_with_toast(url.clone(), "GitHub URL copied", entities, cx)
+            }
+            Self::OpenGitHub(url) => {
+                if let Err(err) = terminal::open_url(url) {
+                    entities.update(cx, |s, _| s.notify_error(err));
+                }
+            }
+            Self::Favorite(_) => entities.update(cx, |s, cx| s.toggle_favorite(folder, cx)),
+            Self::Archive(_) => entities.update(cx, |s, cx| s.toggle_repo_archived(folder, cx)),
+            Self::OpenInTab => entities.update(cx, |s, cx| s.open_repo_tab(folder, cx)),
+            Self::OpenChanges => entities.update(cx, |s, cx| {
+                s.select_repo(folder, cx);
+                s.open_detail_tab(WorkspaceTab::Changes, cx);
+            }),
+        }
+    }
+}
+
+/// The row for a shared verb. The card that owns it passes the close it wants
+/// behind the action, so the head and the list close their own state.
+pub(crate) fn verb_row(
+    verb: RepoVerb,
+    entities: &Entity<Store>,
+    page: &Entity<ReposPage>,
+    folder: &str,
+    close: fn(&mut ReposPage, &mut gpui::Context<ReposPage>),
+) -> AnyElement {
+    let target = entities.clone();
+    let path = folder.to_string();
+    let card = page.clone();
+    let id = verb.id();
+    let icon_path = verb.icon();
+    let label = verb.label();
+    let keys = verb.keys();
+    crate::ui::pull_request::menu_item_keyed(id, icon_path, label, keys, true, move |_, _, cx| {
+        verb.run(&target, &path, cx);
+        card.update(cx, close);
+    })
+}
+
+/// The web URL a repository's card offers: the scanned entry's, else the live
+/// snapshot's (`gh` names the page once it answers). One rule for both cards.
+pub(crate) fn repo_web_url(store: &Store, repo: &RepoEntry) -> Option<String> {
+    repo.github_web_url
+        .clone()
+        .or_else(|| store.selected_github_url())
+}
 
 /// The header's "⋯" menu: the repo verbs, in a popup hanging from the header.
 pub(crate) fn popup_menu(
@@ -373,122 +499,67 @@ pub(crate) fn popup_menu(
     let favorite = repo.is_favorite();
     let mut menu = menu_panel("insp-repo-menu");
 
-    // every row closes the menu behind its action
-    let item =
-        |id: &'static str, icon_path: &'static str, label: &'static str, action: MenuAction| {
-            let close = page.clone();
-            menu_row(id, icon_path, label).on_click(move |_, _, cx| {
-                action(cx);
-                close.update(cx, |this, cx| this.close_repo_menu(cx));
-            })
-        };
-
-    {
-        let target = entities.clone();
-        menu = menu.child(item(
-            "insp-menu-refresh",
-            "icons/icon-refresh.svg",
-            "Refresh repository",
-            Box::new(move |cx| target.update(cx, |s, cx| s.refresh_panel(cx))),
+    menu = menu.child(verb_row(
+        RepoVerb::Refresh,
+        entities,
+        page,
+        folder,
+        ReposPage::close_repo_menu,
+    ));
+    menu = menu.child(verb_row(
+        RepoVerb::CopyFolderPath,
+        entities,
+        page,
+        folder,
+        ReposPage::close_repo_menu,
+    ));
+    // a GitHub snapshot names the page once `gh` answers; the scanned entry's
+    // own URL fills the gap a repo without `gh` would otherwise fall into
+    if let Some(url) = repo_web_url(store, repo) {
+        menu = menu.child(verb_row(
+            RepoVerb::CopyGitHubUrl(url.clone()),
+            entities,
+            page,
+            folder,
+            ReposPage::close_repo_menu,
         ));
-    }
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        menu = menu.child(item(
-            "insp-menu-copy-path",
-            "icons/icon-copy.svg",
-            "Copy folder path",
-            Box::new(move |cx| copy_with_toast(path.clone(), "Folder path copied", &target, cx)),
-        ));
-    }
-    // a GitHub snapshot names the page once `gh` answers; the probe's own
-    // `remote.origin.url` read fills the gap a repo without `gh` would
-    // otherwise fall into, and it is already on the first frame from the cache
-    if let Some(url) = store
-        .selected_github_url()
-        .or_else(|| repo.github_web_url.clone())
-    {
-        let target = entities.clone();
-        let copy_url = url.clone();
-        menu = menu.child(item(
-            "insp-menu-copy-url",
-            "icons/icon-copy.svg",
-            "Copy GitHub URL",
-            Box::new(move |cx| copy_with_toast(copy_url.clone(), "GitHub URL copied", &target, cx)),
-        ));
-        let target = entities.clone();
-        let page_url = url;
-        menu = menu.child(item(
-            "insp-menu-github",
-            "icons/icon-open-in-new.svg",
-            "Open in GitHub",
-            Box::new(move |cx| {
-                if let Err(err) = terminal::open_url(&page_url) {
-                    target.update(cx, |s, _| s.notify_error(err));
-                }
-            }),
+        menu = menu.child(verb_row(
+            RepoVerb::OpenGitHub(url),
+            entities,
+            page,
+            folder,
+            ReposPage::close_repo_menu,
         ));
     }
     menu = menu.child(div().h(px(1.)).mx(px(4.)).my(px(2.)).bg(theme::hairline()));
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        menu = menu.child(item(
-            "insp-menu-favorite",
-            "icons/icon-star.svg",
-            if favorite {
-                "Remove from favorites"
-            } else {
-                "Add to favorites"
-            },
-            Box::new(move |cx| target.update(cx, |s, cx| s.toggle_favorite(&path, cx))),
-        ));
-    }
-    {
-        let target = entities.clone();
-        let path = folder.to_string();
-        menu = menu.child(item(
-            "insp-menu-archive",
-            "icons/icon-package.svg",
-            if archived { "Restore" } else { "Archive" },
-            Box::new(move |cx| target.update(cx, |s, cx| s.toggle_repo_archived(&path, cx))),
-        ));
-    }
+    menu = menu.child(verb_row(
+        RepoVerb::Favorite(favorite),
+        entities,
+        page,
+        folder,
+        ReposPage::close_repo_menu,
+    ));
+    menu = menu.child(verb_row(
+        RepoVerb::Archive(archived),
+        entities,
+        page,
+        folder,
+        ReposPage::close_repo_menu,
+    ));
     menu.child(remove_row(state.remove_armed, entities, page))
         .into_any_element()
 }
 
-/// One row of the header menu: the design's 16 px leading glyph, then the
-/// label, on the 8 px gap the kit's own menu rows use.
-fn menu_row(
-    id: &'static str,
-    icon_path: &'static str,
-    label: &'static str,
-) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .debug_selector(move || id.into())
-        .a11y_button(label)
-        .cursor_pointer()
-        .rounded(px(6.))
-        .px_2()
-        .h(px(32.))
-        .flex()
-        .items_center()
-        .gap_2()
-        .text_size(px(theme::font_control()))
-        .text_color(theme::text())
-        .hover(|d| d.bg(theme::line_strong()))
-        .child(icon(icon_path, px(theme::icon_small()), theme::text_dim()))
-        .child(label)
-}
-
 /// Destructive, so it takes two clicks: the first arms the row, the second
-/// removes. Closing the menu disarms it, whatever closed it.
-fn remove_row(armed: bool, entities: &Entity<Store>, page: &Entity<ReposPage>) -> AnyElement {
+/// removes. `arm` and `close` are the owning card's own state transitions, so
+/// the head's menu and the list row's card share one row.
+pub(crate) fn remove_row_with(
+    armed: bool,
+    entities: &Entity<Store>,
+    arm: impl Fn(&mut gpui::App) + 'static,
+    close: impl Fn(&mut gpui::App) + 'static,
+) -> AnyElement {
     let target = entities.clone();
-    let menu = page.clone();
     div()
         .id("insp-menu-remove")
         .debug_selector(|| "insp-menu-remove".into())
@@ -514,9 +585,9 @@ fn remove_row(armed: bool, entities: &Entity<Store>, page: &Entity<ReposPage>) -
         .on_click(move |_, _, cx| {
             if armed {
                 target.update(cx, |s, cx| s.remove_from_repositories(cx));
-                menu.update(cx, |this, cx| this.close_repo_menu(cx));
+                close(cx);
             } else {
-                menu.update(cx, |this, cx| this.arm_repo_remove(cx));
+                arm(cx);
             }
         })
         .child(icon(
@@ -543,6 +614,18 @@ fn remove_row(armed: bool, entities: &Entity<Store>, page: &Entity<ReposPage>) -
                 }),
         )
         .into_any_element()
+}
+
+/// The head's card row: remove takes two clicks and closes the head card.
+fn remove_row(armed: bool, entities: &Entity<Store>, page: &Entity<ReposPage>) -> AnyElement {
+    let arm_page = page.clone();
+    let close_page = page.clone();
+    remove_row_with(
+        armed,
+        entities,
+        move |cx| arm_page.update(cx, |this, cx| this.arm_repo_remove(cx)),
+        move |cx| close_page.update(cx, |this, cx| this.close_repo_menu(cx)),
+    )
 }
 
 /// Copies `text` and confirms it with a toast.

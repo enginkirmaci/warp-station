@@ -76,7 +76,13 @@ fn render(editor: &Entity<LiveEditorState>, cx: &gpui::App, in_card: bool) -> An
     let mut element = LiveEditor::new(editor)
         .read_only(true)
         .fit_content(true)
-        .text_size(px(theme::font_name()));
+        .text_size(px(theme::font_name()))
+        // the document takes no focus, so the window's Ctrl+C is the only
+        // keyboard copy; the menu's Copy row prints the key it answers to
+        .menu_keys(warpui_kit_markdown::MenuKeys {
+            copy: Some("Ctrl C".into()),
+            select_all: None,
+        });
     if in_card {
         element = element.unbounded_column().top_margin_em(0.5);
     }

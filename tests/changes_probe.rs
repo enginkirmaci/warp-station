@@ -2207,3 +2207,184 @@ fn a_ten_thousand_file_tree_draws_only_the_viewport(cx: &mut TestAppContext) {
 
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// A read-only diff body opens the kit's Copy menu, and because the window
+/// answers Ctrl+C for the read-only selection the row prints that key.
+#[gpui::test]
+fn the_diff_menu_prints_the_copy_key(cx: &mut TestAppContext) {
+    use warp_station_core::model::{GitChangeSnapshot, GitChangedFile};
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let file = GitChangedFile {
+        path: "src/a.rs".into(),
+        status_code: "M".into(),
+        additions: Some(1),
+        deletions: Some(1),
+    };
+    let snapshot = GitChangeSnapshot {
+        status_files: vec![file.clone()],
+        staged_files: Vec::new(),
+        unstaged_files: vec![file],
+        worktree_counts: Default::default(),
+        cached_counts: Default::default(),
+    };
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-the_diff_menu_prints_the_copy_key"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 1,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.open_detail_tab(WorkspaceTab::Changes, cx);
+        store.changes_loaded_for = Some("/probe/alpha".into());
+        store.set_changes(Some(snapshot));
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    // answer the first frame's patch request the way the net thread would
+    let patch = "diff --git a/src/a.rs b/src/a.rs\nindex 1111111..2222222 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,2 +1,2 @@\n-old line\n+new line\n";
+    cx.update_entity(&store, |store, cx| {
+        store.on_net_event(
+            warp_station::net::UiEvent::ChangePatchLoaded {
+                folder: "/probe/alpha".into(),
+                path: "src/a.rs".into(),
+                staged: false,
+                patch: patch.into(),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    let pane = cx
+        .debug_bounds("changes-diff")
+        .expect("the diff pane renders");
+    let at = point(
+        pane.origin.x + pane.size.width / 2.,
+        pane.origin.y + px(120.),
+    );
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+    assert!(
+        cx.debug_bounds("menu-key-Ctrl C").is_some(),
+        "the read-only Copy row prints the window's Ctrl C"
+    );
+}
+
+/// A history row's right press selects the row and opens its card: Copy SHA
+/// puts the full hash on the clipboard, Copy subject puts the subject there.
+#[gpui::test]
+fn the_history_row_menu_copies_the_sha_and_subject(cx: &mut TestAppContext) {
+    use warp_station_core::model::GitCommitInfo;
+    use warp_station_core::repo_store::RepoEntry;
+
+    cx.update(gpui_kit::init);
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::with_settings(
+            net_tx,
+            scratch_service("changes-the_history_row_menu_copies_the_sha_and_subject"),
+        )
+        .without_flow_cache();
+        store.replace_repos(vec![RepoEntry {
+            name: "alpha".into(),
+            folder_path: std::path::PathBuf::from("/probe/alpha"),
+            solution_path: None,
+            tags: Vec::new(),
+            git_branch_name: Some("main".into()),
+            git_modified_count: 0,
+            git_to_push_count: 0,
+            git_to_pull_count: 0,
+            git_last_commit_at: None,
+            git_last_fetch_at: None,
+            git_has_remote: true,
+            git_branch_published: true,
+            git_status_loaded: true,
+            github_pr_count: 0,
+            github_issue_count: 0,
+            azure_pull_count: 0,
+            github_web_url: None,
+            azure_work_item_count: 0,
+        }]);
+        store.select_repo("/probe/alpha", cx);
+        store.set_history(vec![
+            GitCommitInfo {
+                hash: "aaaaaaa1111".into(),
+                subject: "first commit".into(),
+                author: Some("Probe Author".into()),
+                date: chrono::Local::now(),
+            },
+            GitCommitInfo {
+                hash: "bbbbbbb2222".into(),
+                subject: "second commit".into(),
+                author: Some("Probe Author".into()),
+                date: chrono::Local::now(),
+            },
+        ]);
+        store.open_detail_tab(WorkspaceTab::History, cx);
+        store
+    });
+    let handle = store.clone();
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(handle, window, cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    right_click(cx, "commit-aaaaaaa");
+    assert!(
+        cx.debug_bounds("commit-row-menu").is_some(),
+        "a history row's right press opens its card"
+    );
+    click(cx, "commit-row-menu-copy-sha");
+    let copied = cx.read_from_clipboard().and_then(|item| item.text());
+    assert_eq!(
+        copied.as_deref(),
+        Some("aaaaaaa1111"),
+        "Copy SHA writes the full hash"
+    );
+    assert!(
+        cx.debug_bounds("commit-row-menu").is_none(),
+        "the row's action closes the card"
+    );
+
+    right_click(cx, "commit-bbbbbbb");
+    click(cx, "commit-row-menu-copy-subject");
+    let copied = cx.read_from_clipboard().and_then(|item| item.text());
+    assert_eq!(
+        copied.as_deref(),
+        Some("second commit"),
+        "Copy subject writes the subject"
+    );
+}

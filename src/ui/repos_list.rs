@@ -88,6 +88,7 @@ pub fn render(
     store: &Store,
     store_entity: &Entity<Store>,
     scroll: &ScrollHandle,
+    page: &Entity<crate::ui::repos::ReposPage>,
 ) -> gpui::AnyElement {
     if store.projected.is_empty() {
         return empty_list(store);
@@ -161,7 +162,7 @@ pub fn render(
                             .map(|(_, presses)| *presses),
                         primary: Some(launchers::primary(&settings, repo)),
                     };
-                    list = list.child(repo_row(repo, row_ix, selected, &facts, store_entity));
+                    list = list.child(repo_row(repo, row_ix, selected, &facts, store_entity, page));
                 }
             }
         }
@@ -470,6 +471,7 @@ fn repo_row(
     selected: bool,
     facts: &RowFacts,
     store: &Entity<Store>,
+    page: &Entity<crate::ui::repos::ReposPage>,
 ) -> gpui::AnyElement {
     let favorite = repo.is_favorite();
     let star_press = facts.star_press;
@@ -482,6 +484,9 @@ fn repo_row(
     let folder = repo.folder_path.to_string_lossy().to_string();
     let select_target = store.clone();
     let select_folder = folder.clone();
+    let menu_page = page.clone();
+    let menu_store = store.clone();
+    let menu_folder = folder.clone();
     let star_target = store.clone();
 
     // archived rows carry no star: Restore in the repo menu comes first
@@ -644,6 +649,16 @@ fn repo_row(
                 cx.stop_propagation();
                 store.update(cx, |s, cx| s.open_repo_tab(&folder, cx));
             }
+        })
+        // a right press selects the row, then opens its card at the pointer;
+        // it never runs the row's own left-click action
+        .on_mouse_down(gpui::MouseButton::Right, move |event, window, cx| {
+            cx.stop_propagation();
+            let folder = menu_folder.clone();
+            menu_store.update(cx, |s, cx| s.select_repo(&folder, cx));
+            menu_page.update(cx, |page, cx| {
+                page.open_row_menu(&folder, event.position, window, cx);
+            });
         })
         .flex()
         .items_center()

@@ -3023,6 +3023,7 @@ pub(crate) fn comment_card(
                         SharedString::from(text.to_string()),
                     )),
                     focus,
+                    Some("Ctrl C".into()),
                 )),
         )
         .into_any_element()
@@ -3170,6 +3171,20 @@ pub(crate) fn menu_item(
     enabled: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    menu_item_keyed(id, icon_path, label, None, enabled, on_click)
+}
+
+/// [`menu_item`] with the shortcut the app answers for the row printed at its
+/// right edge as a keycap. `keys` is what the window's handler and the
+/// shortcut sheet say; a row with no binding passes `None` and prints none.
+pub(crate) fn menu_item_keyed(
+    id: &'static str,
+    icon_path: &'static str,
+    label: &'static str,
+    keys: Option<&'static str>,
+    enabled: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     div()
         .id(id)
         .debug_selector(move || id.into())
@@ -3189,7 +3204,15 @@ pub(crate) fn menu_item(
         })
         .when(!enabled, |d| d.opacity(0.45))
         .child(icon(icon_path, px(theme::icon_small()), theme::text_dim()))
-        .child(label)
+        .child(div().flex_1().min_w_0().truncate().child(label))
+        .children(keys.map(|keys| {
+            let selector = format!("menu-key-{keys}");
+            div()
+                .flex_shrink_0()
+                .debug_selector(move || selector.clone())
+                .child(warpui_kit_core::field::kbd(keys))
+                .into_any_element()
+        }))
         .into_any_element()
 }
 

@@ -218,6 +218,8 @@ pub struct ChangesView {
     /// The branch row menu's keyboard owner; focused while the menu is up so
     /// Escape takes it down.
     menu_focus: FocusHandle,
+    /// The history row's pointer card: Copy SHA and Copy subject.
+    commit_menu: Option<CommitMenu>,
     commit_message: Entity<TextareaState>,
     history_open: bool,
     /// Hash of the drilled-in commit (None = the list view).
@@ -327,6 +329,7 @@ impl ChangesView {
             branch_picker,
             branch_ui,
             menu_focus,
+            commit_menu: None,
             commit_message,
             history_open: false,
             drilled_commit: None,
@@ -387,6 +390,7 @@ impl ChangesView {
             .update(cx, |f, cx| f.set_value("", window, cx));
         self.history_open = false;
         self.drilled_commit = None;
+        self.commit_menu = None;
         self.detail_armed = None;
         self.detail_patches.clear();
         self.detail_requests.clear();
@@ -402,6 +406,145 @@ impl ChangesView {
     /// whether it was actually open so the window can stop propagating.
     pub fn dismiss_branch_menu(&mut self, cx: &mut Context<Self>) -> bool {
         self.branch_picker.update(cx, FilteredPicker::dismiss)
+    }
+
+    /// Closes the view's pointer and picker menus; an outside press, Escape
+    /// and the window's own dismissal all land here.
+    pub fn dismiss_menus(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut open = self.dismiss_branch_menu(cx);
+        if self.commit_menu.take().is_some() {
+            open = true;
+            cx.notify();
+        }
+        open
+    }
+
+    fn close_commit_menu(&mut self, cx: &mut Context<Self>) {
+        if self.commit_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// A right press on a history row: the row becomes the list's selection
+    /// (the drill-down the left click runs) and its card opens at the pointer.
+    fn open_commit_menu(
+        &mut self,
+        hash: &str,
+        short: &str,
+        subject: &str,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.drill_commit(hash, cx);
+        self.dismiss_branch_menu(cx);
+        self.commit_menu = Some(CommitMenu {
+            hash: hash.to_string(),
+            short: short.to_string(),
+            subject: subject.to_string(),
+            at,
+        });
+        window.focus(&self.menu_focus, cx);
+        cx.notify();
+    }
+
+    /// The history row's card over a scrim: a press anywhere else or Escape
+    /// takes it down, a row runs its action and closes it. Checkout and Revert
+    /// stay in the detail's two-click verbs: a dismiss-on-click card cannot
+    /// carry an armed action.
+    fn render_commit_menu(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let menu = self.commit_menu.clone()?;
+        // the row left the list under it (a reload, a repo switch): take the
+        // card down instead of acting on a commit that is gone
+        if !self
+            .store
+            .read(cx)
+            .history()
+            .iter()
+            .any(|commit| commit.hash == menu.hash)
+        {
+            self.commit_menu = None;
+            return None;
+        }
+        let mut card = crate::ui::pull_request::menu_shell("commit-row-menu");
+        card = card.child(
+            div()
+                .px_2()
+                .py_1()
+                .truncate()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .child(format!("{} · {}", menu.short, menu.subject)),
+        );
+
+        let sha_hash = menu.hash.clone();
+        let sha_short = menu.short.clone();
+        let sha_store = self.store.clone();
+        let sha_view = cx.entity();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "commit-row-menu-copy-sha",
+            "icons/icon-copy.svg",
+            "Copy SHA",
+            true,
+            move |_, _, cx| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(sha_hash.clone()));
+                sha_store.update(cx, |store, cx| {
+                    store.notify_success(format!("Copied {sha_short} to clipboard"));
+                    cx.notify();
+                });
+                sha_view.update(cx, |view, cx| view.close_commit_menu(cx));
+            },
+        ));
+
+        let subject = menu.subject.clone();
+        let subject_store = self.store.clone();
+        let subject_view = cx.entity();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "commit-row-menu-copy-subject",
+            "icons/icon-copy.svg",
+            "Copy subject",
+            true,
+            move |_, _, cx| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(subject.clone()));
+                subject_store.update(cx, |store, cx| {
+                    store.notify_success("Subject copied");
+                    cx.notify();
+                });
+                subject_view.update(cx, |view, cx| view.close_commit_menu(cx));
+            },
+        ));
+
+        let close = {
+            let this = cx.entity();
+            move |_: &gpui::MouseDownEvent, _: &mut Window, cx: &mut gpui::App| {
+                this.update(cx, |view, cx| view.close_commit_menu(cx));
+            }
+        };
+        let catcher = div()
+            .id("commit-row-menu-catcher")
+            .debug_selector(|| "commit-row-menu-catcher".into())
+            .absolute()
+            .inset_0()
+            .occlude()
+            .track_focus(&self.menu_focus)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.close_commit_menu(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(MouseButton::Left, close.clone())
+            .on_mouse_down(MouseButton::Right, close)
+            .child(
+                gpui::anchored()
+                    .anchor(gpui::Anchor::TopLeft)
+                    .position(menu.at)
+                    .offset(gpui::point(px(6.), px(6.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(card),
+            );
+        // deferred, after the list and the drill-down it hangs over
+        Some(gpui::deferred(catcher).with_priority(1).into_any_element())
     }
 
     /// Folds or unfolds one of the file list's sections.
@@ -972,6 +1115,7 @@ impl Render for ChangesView {
             } else {
                 self.history_open = false;
                 self.drilled_commit = None;
+                self.commit_menu = None;
             }
         }
         // drain freshly loaded patches + the commit wand's draft; patches are
@@ -1066,13 +1210,20 @@ impl Render for ChangesView {
         self.ensure_commit_file_selected(cx);
         if self.history_open {
             self.pane_nav.register(&self.history_focus);
-            return div().size_full().flex().flex_col().min_h_0().child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(self.render_history(window, cx)),
-            );
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .child(self.render_history(window, cx)),
+                )
+                // the row card paints over the list and the drill-down
+                .children(self.render_commit_menu(cx));
         }
 
         let toolbar = self.render_toolbar(busy, cx);
@@ -3798,8 +3949,29 @@ fn history_row_element(
                 .when(!selected, |d| d.hover(|s| s.bg(theme::panel())))
                 .on_click({
                     let hash = row.hash.clone();
+                    let entity = entity.clone();
                     move |_, _, cx| {
                         entity.update(cx, |this, cx| this.drill_commit(&hash, cx));
+                    }
+                })
+                // a right press selects the row and opens its card; it never
+                // runs the row's own drill-down click
+                .on_mouse_down(MouseButton::Right, {
+                    let hash = row.hash.clone();
+                    let short = row.short_hash.clone();
+                    let subject = row.subject.clone();
+                    move |event: &gpui::MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        entity.update(cx, |this, cx| {
+                            this.open_commit_menu(
+                                &hash,
+                                &short,
+                                &subject,
+                                event.position,
+                                window,
+                                cx,
+                            );
+                        });
                     }
                 })
                 .child(
@@ -4435,6 +4607,16 @@ struct BranchMenu {
     is_remote: bool,
     at: gpui::Point<gpui::Pixels>,
     delete_armed: bool,
+}
+
+/// The history row's right-click card: the row's full hash and subject (the
+/// card names what it copies), and the pointer it opened at.
+#[derive(Clone)]
+struct CommitMenu {
+    hash: String,
+    short: String,
+    subject: String,
+    at: gpui::Point<gpui::Pixels>,
 }
 
 /// The branch selector: a pick checks the branch out, a right-click opens the

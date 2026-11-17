@@ -159,7 +159,10 @@ pub fn attach_filling(
         .child(content);
     match focus {
         Some(focus) => wrapper
-            .context_menu(warpui_kit_core::text_menu::menu(focus))
+            .context_menu(warpui_kit_core::text_menu::menu(
+                focus,
+                Some("Ctrl C".into()),
+            ))
             .into_any_element(),
         None => wrapper.into_any_element(),
     }

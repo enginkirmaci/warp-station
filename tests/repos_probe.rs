@@ -3050,3 +3050,174 @@ fn add_dialog_commit_persists_the_checked_repo(cx: &mut TestAppContext) {
 
     let _ = std::fs::remove_file(&scratch);
 }
+
+fn probe_draw(cx: &mut gpui::VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+}
+
+fn probe_click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} renders"));
+    cx.simulate_click(bounds.center(), gpui::Modifiers::default());
+    probe_draw(cx);
+}
+
+fn probe_right_click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
+    let bounds = cx
+        .debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} renders"));
+    let at = bounds.center();
+    cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    cx.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::default());
+    probe_draw(cx);
+}
+
+/// The head's "⋯" card prints the sheet's Alt chords beside the two verbs they
+/// act on; every row without a binding prints no keycap.
+#[gpui::test]
+fn the_repo_head_menu_prints_the_alt_chords(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    probe_draw(cx);
+
+    probe_click(cx, "insp-more");
+    assert!(
+        cx.debug_bounds("insp-repo-menu").is_some(),
+        "the head's card opens"
+    );
+    assert!(
+        cx.debug_bounds("menu-key-Alt F").is_some(),
+        "favorite prints the sheet's Alt F"
+    );
+    assert!(
+        cx.debug_bounds("menu-key-Alt A").is_some(),
+        "archive prints the sheet's Alt A"
+    );
+    assert!(
+        cx.debug_bounds("insp-menu-refresh").is_some(),
+        "a row with no binding still draws"
+    );
+    assert!(
+        cx.debug_bounds("menu-key-Alt C").is_none(),
+        "the head's card has no Changes row, so no Alt C keycap"
+    );
+}
+
+/// A list row's right press selects it and opens the same verbs as the head's
+/// card for that repository, with the keys the sheet binds and the remove's
+/// two-press arm.
+#[gpui::test]
+fn the_repo_row_menu_mirrors_the_head_verbs(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let store = fake_store(cx);
+    store.update(cx, |s, _| {
+        // the row card offers Open in GitHub under the same rule as the head's
+        s.repos[1].github_web_url = Some("https://github.com/probe/beta".into());
+        s.update_settings(|settings| {
+            settings.repos.repo_scan_folders = Some(vec![
+                "/probe/alpha".into(),
+                "/probe/beta".into(),
+                "/probe/gamma".into(),
+            ]);
+        });
+    });
+    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
+    probe_draw(cx);
+
+    probe_right_click(cx, "repo-row-1");
+    assert_eq!(
+        cx.read_entity(&store, |s, _| s.selected_repo.clone())
+            .as_deref(),
+        Some("/probe/beta"),
+        "the right press selects the row"
+    );
+    assert!(
+        cx.debug_bounds("repo-row-menu").is_some(),
+        "the row's card opens at the pointer"
+    );
+    for keys in ["Enter", "Alt C", "Alt F", "Alt A"] {
+        let selector: &'static str = Box::leak(format!("menu-key-{keys}").into_boxed_str());
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "{keys} prints on the row card"
+        );
+    }
+    assert!(
+        cx.debug_bounds("insp-menu-copy-path").is_some(),
+        "Copy folder path is one of the row's verbs"
+    );
+    assert!(
+        cx.debug_bounds("insp-menu-github").is_some(),
+        "Open in GitHub follows the head's web-URL rule"
+    );
+
+    // Escape takes the card down and removes nothing
+    cx.simulate_keystrokes("escape");
+    probe_draw(cx);
+    assert!(
+        cx.debug_bounds("repo-row-menu").is_none(),
+        "Escape closes the row card"
+    );
+
+    // the favorite verb runs the store's toggle and closes the card
+    probe_right_click(cx, "repo-row-1");
+    probe_click(cx, "insp-menu-favorite");
+    assert!(
+        cx.read_entity(&store, |s, _| {
+            s.repos[1]
+                .tags
+                .iter()
+                .any(|tag| tag.eq_ignore_ascii_case("favorites"))
+        }),
+        "the row's favorite verb toggled the repository's tag"
+    );
+    assert!(
+        cx.debug_bounds("repo-row-menu").is_none(),
+        "the action closes the card"
+    );
+
+    // remove takes two presses: the first arms, the second removes
+    probe_right_click(cx, "repo-row-1");
+    probe_click(cx, "insp-menu-remove");
+    assert!(
+        cx.debug_bounds("repo-row-menu").is_some(),
+        "arming keeps the row card open"
+    );
+    assert_eq!(
+        cx.read_entity(&store, |s, _| {
+            s.settings()
+                .repos
+                .repo_scan_folders
+                .clone()
+                .unwrap_or_default()
+        })
+        .len(),
+        3,
+        "the first press removes nothing"
+    );
+    probe_click(cx, "insp-menu-remove");
+    assert_eq!(
+        cx.read_entity(&store, |s, _| {
+            s.settings()
+                .repos
+                .repo_scan_folders
+                .clone()
+                .unwrap_or_default()
+        }),
+        vec!["/probe/alpha".to_string(), "/probe/gamma".to_string()],
+        "the second press removes the repository"
+    );
+    assert!(
+        cx.debug_bounds("repo-row-menu").is_none(),
+        "the removal closes the row card"
+    );
+}
