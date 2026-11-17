@@ -133,6 +133,9 @@ pub struct TextMerge {
     pub blocks: Vec<ConflictBlock>,
     /// The two source panes, one row per aligned line.
     pub rows: Vec<MergeRow>,
+    /// The common-ancestor lines the marker style carried (diff3/zdiff3 base
+    /// sections), for the optional base pane. Empty in the default style.
+    pub base: Vec<String>,
 }
 
 impl TextMerge {
@@ -184,6 +187,10 @@ impl LineSpan {
 pub struct MergeRow {
     pub ours: Option<u32>,
     pub theirs: Option<u32>,
+    /// The common-ancestor line beside this row, an index into
+    /// [`TextMerge::base`]: set only where the marker style carried a base
+    /// section, for the optional base pane.
+    pub base: Option<u32>,
     pub block: Option<u32>,
 }
 
@@ -413,7 +420,7 @@ fn build_file(
     let theirs = lines_of(&theirs_text);
     let result = lines_of(&result_text);
     let blocks = blocks_with_spans(&result, &ours, &theirs);
-    let rows = align_rows(&ours, &theirs, &blocks);
+    let (rows, base) = align_rows(&ours, &theirs, &blocks);
     MergeFile::Text(TextMerge {
         path: path.to_string(),
         ours,
@@ -421,6 +428,7 @@ fn build_file(
         result,
         blocks,
         rows,
+        base,
     })
 }
 
@@ -604,8 +612,15 @@ fn locate(lines: &[String], segment: &[String], cursor: &mut usize) -> Option<Li
 
 /// Aligns the two source panes block by block, so a conflict's rows stay
 /// inside its block instead of matching equal lines elsewhere in the file.
-fn align_rows(ours: &[String], theirs: &[String], blocks: &[ConflictBlock]) -> Vec<MergeRow> {
+/// Returns the rows and the ancestor lines the marker style carried, each row
+/// claiming its own.
+fn align_rows(
+    ours: &[String],
+    theirs: &[String],
+    blocks: &[ConflictBlock],
+) -> (Vec<MergeRow>, Vec<String>) {
     let mut rows = Vec::new();
+    let mut base = Vec::new();
     let mut ours_cursor = 0;
     let mut theirs_cursor = 0;
     for (index, block) in blocks.iter().enumerate() {
@@ -627,6 +642,7 @@ fn align_rows(ours: &[String], theirs: &[String], blocks: &[ConflictBlock]) -> V
         );
         let ours_end = ours_span.end() as usize;
         let theirs_end = theirs_span.end() as usize;
+        let block_rows = rows.len();
         align_segment(
             &ours[ours_start..ours_end],
             &theirs[theirs_start..theirs_end],
@@ -634,6 +650,15 @@ fn align_rows(ours: &[String], theirs: &[String], blocks: &[ConflictBlock]) -> V
             ours_start as u32,
             theirs_start as u32,
             &mut rows,
+        );
+        attach_base(
+            &mut rows,
+            block_rows,
+            &mut base,
+            index as u32,
+            block,
+            ours,
+            theirs,
         );
         ours_cursor = ours_end;
         theirs_cursor = theirs_end;
@@ -646,7 +671,86 @@ fn align_rows(ours: &[String], theirs: &[String], blocks: &[ConflictBlock]) -> V
         theirs_cursor as u32,
         &mut rows,
     );
-    rows
+    (rows, base)
+}
+
+/// Attaches a block's ancestor lines to its rows: each base line goes to the
+/// row its ours line pairs with, else the row its theirs line pairs with, and
+/// an ancestor line no row claims gets a row of its own, so nothing hides.
+/// The block's lines join `base` as one contiguous run.
+fn attach_base(
+    rows: &mut Vec<MergeRow>,
+    block_rows: usize,
+    base: &mut Vec<String>,
+    index: u32,
+    block: &ConflictBlock,
+    ours: &[String],
+    theirs: &[String],
+) {
+    let base_text = &block.base_text;
+    if base_text.is_empty() {
+        return;
+    }
+    let (Some(ours_span), Some(theirs_span)) = (block.ours, block.theirs) else {
+        return;
+    };
+    let (ours_start, theirs_start) = (ours_span.start, theirs_span.start);
+    let ours_seg = &ours[ours_span.start as usize..ours_span.end() as usize];
+    let theirs_seg = &theirs[theirs_span.start as usize..theirs_span.end() as usize];
+    let base_at = base.len() as u32;
+    // Inverse pairings, segment-relative: the first base line a side line
+    // pairs with wins, so a base line is claimed at most once per side.
+    let mut base_of_ours = vec![usize::MAX; ours_seg.len()];
+    for (base_index, ours) in align_side_lines(base_text, ours_seg) {
+        if let (Some(base_index), Some(ours)) = (base_index, ours)
+            && base_of_ours[ours] == usize::MAX
+        {
+            base_of_ours[ours] = base_index;
+        }
+    }
+    let mut base_of_theirs = vec![usize::MAX; theirs_seg.len()];
+    for (base_index, theirs) in align_side_lines(base_text, theirs_seg) {
+        if let (Some(base_index), Some(theirs)) = (base_index, theirs)
+            && base_of_theirs[theirs] == usize::MAX
+        {
+            base_of_theirs[theirs] = base_index;
+        }
+    }
+    let mut used = vec![false; base_text.len()];
+    for row in rows[block_rows..].iter_mut() {
+        let mut claimed = None;
+        if let Some(ours) = row.ours
+            && let Some(index) = base_of_ours
+                .get((ours - ours_start) as usize)
+                .copied()
+                .filter(|index| *index != usize::MAX && !used[*index])
+        {
+            used[index] = true;
+            claimed = Some(base_at + index as u32);
+        }
+        if claimed.is_none()
+            && let Some(theirs) = row.theirs
+            && let Some(index) = base_of_theirs
+                .get((theirs - theirs_start) as usize)
+                .copied()
+                .filter(|index| *index != usize::MAX && !used[*index])
+        {
+            used[index] = true;
+            claimed = Some(base_at + index as u32);
+        }
+        row.base = claimed;
+    }
+    for (line, claimed) in used.iter().enumerate() {
+        if !claimed {
+            rows.push(MergeRow {
+                ours: None,
+                theirs: None,
+                base: Some(base_at + line as u32),
+                block: Some(index),
+            });
+        }
+    }
+    base.extend(base_text.iter().cloned());
 }
 
 fn align_segment(
@@ -674,6 +778,7 @@ fn align_segment(
                     rows.push(MergeRow {
                         ours: Some(ours_base + (old_index + offset) as u32),
                         theirs: Some(theirs_base + (new_index + offset) as u32),
+                        base: None,
                         block,
                     });
                 }
@@ -685,6 +790,7 @@ fn align_segment(
                     rows.push(MergeRow {
                         ours: Some(ours_base + (old_index + offset) as u32),
                         theirs: None,
+                        base: None,
                         block,
                     });
                 }
@@ -696,6 +802,7 @@ fn align_segment(
                     rows.push(MergeRow {
                         ours: None,
                         theirs: Some(theirs_base + (new_index + offset) as u32),
+                        base: None,
                         block,
                     });
                 }
@@ -711,6 +818,7 @@ fn align_segment(
                         ours: (offset < old_len).then(|| ours_base + (old_index + offset) as u32),
                         theirs: (offset < new_len)
                             .then(|| theirs_base + (new_index + offset) as u32),
+                        base: None,
                         block,
                     });
                 }
@@ -751,6 +859,87 @@ mod tests {
         let block = blocks[0];
         assert_eq!(block.base, Some(3));
         assert_eq!(lines[block.base.unwrap() + 1..block.sep], ["base"]);
+    }
+
+    #[test]
+    fn a_diff3_base_line_attaches_to_its_row() {
+        let result = file(
+            "a\n<<<<<<< HEAD\nours\n||||||| merged common\nbase\n=======\ntheirs\n>>>>>>> feature\nb\n",
+        );
+        let ours = file("a\nours\nb\n");
+        let theirs = file("a\ntheirs\nb\n");
+        let blocks = blocks_with_spans(&result, &ours, &theirs);
+        let (rows, base) = align_rows(&ours, &theirs, &blocks);
+        assert_eq!(base, ["base"]);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0],
+            MergeRow {
+                ours: Some(0),
+                theirs: Some(0),
+                base: None,
+                block: None,
+            }
+        );
+        assert_eq!(
+            rows[1],
+            MergeRow {
+                ours: Some(1),
+                theirs: Some(1),
+                base: Some(0),
+                block: Some(0),
+            }
+        );
+        assert_eq!(
+            rows[2],
+            MergeRow {
+                ours: Some(2),
+                theirs: Some(2),
+                base: None,
+                block: None,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unclaimed_base_line_gets_its_own_row() {
+        let result =
+            file("<<<<<<< HEAD\nours\n||||||| base\nbase1\nbase2\n=======\ntheirs\n>>>>>>>\n");
+        let ours = file("ours\n");
+        let theirs = file("theirs\n");
+        let blocks = blocks_with_spans(&result, &ours, &theirs);
+        let (rows, base) = align_rows(&ours, &theirs, &blocks);
+        assert_eq!(base, ["base1", "base2"]);
+        // the ours line claims the first base line; the second hides nowhere
+        assert_eq!(
+            rows[0],
+            MergeRow {
+                ours: Some(0),
+                theirs: Some(0),
+                base: Some(0),
+                block: Some(0),
+            }
+        );
+        assert_eq!(
+            rows.last(),
+            Some(&MergeRow {
+                ours: None,
+                theirs: None,
+                base: Some(1),
+                block: Some(0),
+            })
+        );
+    }
+
+    #[test]
+    fn a_merge_style_conflict_carries_no_base() {
+        let result = file("a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\nb\n");
+        let ours = file("a\nours\nb\n");
+        let theirs = file("a\ntheirs\nb\n");
+        let blocks = blocks_with_spans(&result, &ours, &theirs);
+        let (rows, base) = align_rows(&ours, &theirs, &blocks);
+        assert!(base.is_empty());
+        assert!(rows.iter().all(|row| row.base.is_none()));
     }
 
     #[test]

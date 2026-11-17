@@ -71,8 +71,47 @@ fn session() -> MergeSession {
             rows: vec![MergeRow {
                 ours: Some(0),
                 theirs: Some(0),
+                base: None,
                 block: Some(0),
             }],
+            base: Vec::new(),
+        })],
+    }
+}
+
+/// The same conflict with the base section a diff3 marker style carries: the
+/// ancestor column has something to show, so the page offers its toggle.
+fn diff3_session() -> MergeSession {
+    MergeSession {
+        operation: MergeOperation::Merge,
+        files: vec![MergeFile::Text(TextMerge {
+            path: "a.txt".into(),
+            ours: vec!["main".into()],
+            theirs: vec!["feature".into()],
+            result: vec![
+                "<<<<<<< HEAD".into(),
+                "main".into(),
+                "||||||| merged common".into(),
+                "base".into(),
+                "=======".into(),
+                "feature".into(),
+                ">>>>>>> feature".into(),
+            ],
+            blocks: vec![ConflictBlock {
+                result: LineSpan { start: 0, len: 7 },
+                ours: Some(LineSpan { start: 0, len: 1 }),
+                theirs: Some(LineSpan { start: 0, len: 1 }),
+                ours_text: vec!["main".into()],
+                theirs_text: vec!["feature".into()],
+                base_text: vec!["base".into()],
+            }],
+            rows: vec![MergeRow {
+                ours: Some(0),
+                theirs: Some(0),
+                base: Some(0),
+                block: Some(0),
+            }],
+            base: vec!["base".into()],
         })],
     }
 }
@@ -115,12 +154,16 @@ fn the_merge_page_draws_its_files_and_panes(cx: &mut TestAppContext) {
         "the two source panes draw"
     );
     assert!(
-        cx.debug_bounds("merge-pane-row").is_some(),
-        "the source pane heads draw"
+        cx.debug_bounds("aligned-head").is_some(),
+        "the kit's pane head draws the column labels"
     );
     assert!(
         cx.debug_bounds("aligned-panes").is_some(),
         "the diff kit's aligned body draws the rows"
+    );
+    assert!(
+        cx.debug_bounds("merge-base").is_none(),
+        "a default-style conflict has no ancestor to show"
     );
 }
 
@@ -223,6 +266,43 @@ fn picking_lines_composes_the_result_and_saves(cx: &mut TestAppContext) {
     let saved = std::fs::read_to_string(&worktree).expect("the result writes");
     assert_eq!(saved, "feature\n");
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+#[gpui_kit::gpui::test]
+fn the_base_column_toggles_behind_its_button(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    scratch_home();
+    cx.update(warp_station::theme::apply_kit_theme);
+
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("base")));
+    cx.update_entity(&store, |store: &mut Store, cx| {
+        let folder = "/tmp/merge-probe-base".to_string();
+        store
+            .merge_ops
+            .insert(folder.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder.clone());
+        store.merge = Some(diff3_session());
+        store.merge_loaded_for = Some(folder);
+        store.merge_generation = 1;
+        cx.notify();
+    });
+
+    let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
+    draw(cx);
+    assert!(
+        cx.debug_bounds("aligned-base").is_none(),
+        "the ancestor column stays hidden until it is asked for"
+    );
+    assert!(
+        cx.debug_bounds("merge-base").is_some(),
+        "a file with base sections offers the toggle"
+    );
+    click(cx, "merge-base");
+    assert!(
+        cx.debug_bounds("aligned-base").is_some(),
+        "the toggle draws the ancestor column beside the sides"
+    );
 }
 
 #[gpui_kit::gpui::test]

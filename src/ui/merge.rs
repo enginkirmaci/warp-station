@@ -23,7 +23,10 @@ use warp_station_core::git::merge::{
 use warpui_kit_core::a11y::A11y;
 use warpui_kit_core::controls::icon_button;
 use warpui_kit_core::{motion, shell};
-use warpui_kit_diff::{AlignedOptions, AlignedRow, AlignedSide, render_aligned, row_height};
+use warpui_kit_diff::{
+    AlignedOptions, AlignedRow, AlignedSide, aligned_pane_head, aligned_pick_box, lang_from_path,
+    render_aligned, row_height, visible_window,
+};
 
 /// The pick box's cell, left of each gutter in both panes; it matches the
 /// kit's aligned view leading cell.
@@ -133,6 +136,9 @@ pub struct MergePage {
     /// The panes' last offset, so the Result can follow a wheel on the panes
     /// without the mirror re-triggering itself.
     last_panes_y: f32,
+    /// The optional base column: the ancestor lines a diff3/zdiff3 marker
+    /// style carried, beside the two sides.
+    show_base: bool,
 }
 
 struct ShownFile {
@@ -142,6 +148,7 @@ struct ShownFile {
     theirs: Rc<Vec<String>>,
     result: Rc<Vec<String>>,
     blocks: Rc<Vec<ConflictBlock>>,
+    base: Rc<Vec<String>>,
 }
 
 struct ResultPane {
@@ -186,6 +193,7 @@ impl MergePage {
             active_conflict: 0,
             panes_scroll: ScrollHandle::new(),
             last_panes_y: 0.,
+            show_base: false,
         }
     }
 
@@ -227,6 +235,11 @@ impl MergePage {
             }
             "down" => {
                 self.step_conflict(1, window, cx);
+                true
+            }
+            "b" => {
+                self.show_base = !self.show_base;
+                cx.notify();
                 true
             }
             _ => false,
@@ -361,6 +374,7 @@ impl MergePage {
                 theirs: Rc::new(text.theirs.clone()),
                 result: Rc::new(text.result.clone()),
                 blocks: Rc::new(text.blocks.clone()),
+                base: Rc::new(text.base.clone()),
             }),
             _ => None,
         };
@@ -872,7 +886,7 @@ impl MergePage {
             self.ensure_result(target, &path, fallback, window, cx);
             self.check_external(window, cx);
             self.sync_scroll(cx);
-            let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, cx);
+            let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, window, cx);
             let result = self.result_section(cx);
             return div()
                 .flex()
@@ -959,9 +973,10 @@ impl MergePage {
     fn source_panes(
         &mut self,
         labels: (&'static str, &'static str),
-        _path: &str,
+        path: &str,
         ours_lines: usize,
         theirs_lines: usize,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(shown) = self.shown.as_ref() else {
@@ -970,6 +985,7 @@ impl MergePage {
         let rows = shown.rows.clone();
         let ours = shown.ours.clone();
         let theirs = shown.theirs.clone();
+        let base_lines = shown.base.clone();
         let blocks = shown.blocks.clone();
         let picks = self
             .result
@@ -995,11 +1011,21 @@ impl MergePage {
                     Side::Theirs => "theirs",
                 };
                 let selector = format!("merge-pick-{block}-{side_name}-{local}");
+                let label = format!(
+                    "Take {} line {} for conflict {}",
+                    match pick_side {
+                        Side::Ours => "Current",
+                        Side::Theirs => "Incoming",
+                    },
+                    line.unwrap_or(local as u32 + 1),
+                    block + 1
+                );
                 let pick_entity = entity.clone();
                 Some(
                     div()
                         .id(SharedString::from(selector.clone()))
                         .debug_selector(move || selector.clone())
+                        .a11y_toggle(label, checked)
                         .w(px(PICK_W))
                         .h_full()
                         .flex()
@@ -1013,7 +1039,7 @@ impl MergePage {
                                 });
                             },
                         )
-                        .child(pick_box(checked))
+                        .child(aligned_pick_box(checked))
                         .into_any_element(),
                 )
             }
@@ -1041,25 +1067,35 @@ impl MergePage {
                         .get(index as usize)
                         .map(|text| (index + 1, text.as_str()))
                 }),
+                base: row.base.and_then(|index| {
+                    base_lines
+                        .get(index as usize)
+                        .map(|text| (index + 1, text.as_str()))
+                }),
                 changed: row.block.is_some(),
             })
             .collect();
         let lead_ref: &mut dyn FnMut(AlignedSide, Option<u32>) -> Option<AnyElement> = &mut lead;
-        let body = render_aligned(
-            &aligned,
-            AlignedOptions {
-                lead: Some(lead_ref),
-                font_detail: theme::font_mono_meta(),
-                padding: (start, rows.len() - end),
-            },
-        );
+        // token colors and the ancestor column are this screen's opt-ins on
+        // the kit's toggles; every other diff surface keeps the plain view
+        let mut options = AlignedOptions::new(theme::font_mono_meta());
+        options.lead = Some(lead_ref);
+        options.padding = (start, rows.len() - end);
+        options.syntax = lang_from_path(path);
+        options.base = self.show_base;
+        let body = render_aligned(&aligned, options, window, cx);
+        let mut head = vec![(labels.0, ours_lines)];
+        if self.show_base {
+            head.push(("Base", base_lines.len()));
+        }
+        head.push((labels.1, theirs_lines));
         div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(pane_head(labels, ours_lines, theirs_lines))
+            .child(aligned_pane_head(&head, true))
             .child(
                 div()
                     .id("merge-panes-scroll")
@@ -1154,10 +1190,52 @@ impl MergePage {
                     .child("Changed on disk — Reload to take it"),
             );
         }
+        // the keys row: `?` opens the sheet that lists them all
+        bar = bar.child(
+            div()
+                .text_size(px(theme::font_micro()))
+                .text_color(theme::text_dim())
+                .child("Alt+↑/↓ conflicts · Alt+B base column · ? all keys"),
+        );
+        let has_base = self
+            .shown
+            .as_ref()
+            .is_some_and(|shown| !shown.base.is_empty());
         let prev_entity = entity.clone();
         let next_entity = entity.clone();
+        bar = bar.child(div().flex_1());
+        // the ancestor column only exists where the marker style carried one
+        if has_base {
+            let base_entity = entity.clone();
+            let base_on = self.show_base;
+            bar = bar.child(
+                icon_button(
+                    "merge-base",
+                    if base_on {
+                        "Hide the base column"
+                    } else {
+                        "Show the base column"
+                    },
+                )
+                .debug_selector(|| "merge-base".into())
+                .on_click(move |_, _, cx| {
+                    base_entity.update(cx, |this, cx| {
+                        this.show_base = !this.show_base;
+                        cx.notify();
+                    });
+                })
+                .child(icon(
+                    "icons/icon-diff-split.svg",
+                    px(theme::icon_small()),
+                    if base_on {
+                        theme::accent()
+                    } else {
+                        theme::text_dim()
+                    },
+                )),
+            );
+        }
         bar = bar
-            .child(div().flex_1())
             .child(
                 icon_button("merge-prev", "Previous conflict")
                     .debug_selector(|| "merge-prev".into())
@@ -1246,37 +1324,6 @@ impl MergePage {
     }
 }
 
-/// The pick a line number maps to: the aligned row carries a file line, the
-/// picks are keyed by block and the block's own line index.
-/// How many rows the panes' viewport can show, with a margin either side so a
-/// wheel step never exposes a blank band. The offset and viewport come from
-/// the panes' own scroll handle; a not-yet-laid-out viewport draws a window
-/// of [`VIRTUAL_WINDOW_FALLBACK`] rows.
-fn visible_window(total: usize, offset: f32, viewport: f32, row_h: f32) -> (usize, usize) {
-    if total == 0 {
-        return (0, 0);
-    }
-    let row_h = row_h.max(1.);
-    let offset = offset.max(0.);
-    let first = (offset / row_h).floor() as usize;
-    let visible = if viewport > 0. {
-        (viewport / row_h).ceil() as usize + 1
-    } else {
-        VIRTUAL_WINDOW_FALLBACK
-    };
-    let start = first.saturating_sub(VIRTUAL_OVERSCAN);
-    let end = first
-        .saturating_add(visible)
-        .saturating_add(VIRTUAL_OVERSCAN)
-        .min(total);
-    (start, end)
-}
-
-/// Rows drawn above and below the viewport's own range.
-const VIRTUAL_OVERSCAN: usize = 8;
-/// The window a first frame draws before the viewport has a height.
-const VIRTUAL_WINDOW_FALLBACK: usize = 200;
-
 /// The line one conflict starts at in the composed text: the block's own
 /// start, shifted by the lines the earlier blocks gave back or took.
 fn composed_line(pane: &ResultPane, index: usize) -> usize {
@@ -1321,8 +1368,8 @@ fn result_decorations(
                 },
             ) {
                 let color = match side {
-                    Side::Ours => theme::DIFF_DEL_BG,
-                    Side::Theirs => theme::DIFF_ADD_BG,
+                    Side::Ours => AlignedSide::Left.wash(),
+                    Side::Theirs => AlignedSide::Right.wash(),
                 };
                 bands.push(RangeDecoration::new(range).with_color(color));
             }
@@ -1357,6 +1404,8 @@ fn line_byte_range(text: &str, span: LineSpan) -> Option<std::ops::Range<usize>>
     (end > start).then_some(start..end)
 }
 
+/// The pick a line number maps to: the aligned row carries a file line, the
+/// picks are keyed by block and the block's own line index.
 fn map_pick_line(
     blocks: &[ConflictBlock],
     side: AlignedSide,
@@ -1381,66 +1430,6 @@ fn map_pick_line(
         }
     }
     None
-}
-
-fn pane_head(labels: (&'static str, &'static str), ours: usize, theirs: usize) -> AnyElement {
-    let half = |label: &'static str, lines: usize| {
-        div()
-            .flex()
-            .items_center()
-            .flex_1()
-            .min_w_0()
-            .px_2()
-            .h_full()
-            .text_size(px(theme::font_micro()))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme::text_muted())
-            .child(format!("{label} · {lines} lines"))
-    };
-    div()
-        .debug_selector(|| "merge-pane-row".into())
-        .flex()
-        .flex_row()
-        .flex_none()
-        .h(px(28.))
-        .items_center()
-        .border_b_1()
-        .border_color(theme::hairline())
-        .child(div().w(px(PICK_W)).flex_none())
-        .child(half(labels.0, ours))
-        .child(div().w(px(1.)).h_full().bg(theme::hairline()))
-        .child(div().w(px(PICK_W)).flex_none())
-        .child(half(labels.1, theirs))
-        .into_any_element()
-}
-
-/// The 14-square pick box; the app's check glyph when the line is taken.
-fn pick_box(checked: bool) -> AnyElement {
-    let frame = div()
-        .w(px(14.))
-        .h(px(14.))
-        .rounded(px(3.))
-        .border_1()
-        .border_color(if checked {
-            theme::accent()
-        } else {
-            theme::text_muted()
-        })
-        .when(checked, |frame| frame.bg(theme::accent()))
-        .flex()
-        .items_center()
-        .justify_center();
-    if checked {
-        frame
-            .child(crate::ui::icon(
-                "icons/icon-check.svg",
-                px(10.),
-                theme::on_accent(),
-            ))
-            .into_any_element()
-    } else {
-        frame.into_any_element()
-    }
 }
 
 /// Rebuilds a pane's picks from a new marker text: the picks, the composed

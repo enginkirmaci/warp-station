@@ -85,8 +85,11 @@ pub fn groups(settings: &AppSettings, repo: Option<&RepoEntry>) -> Vec<Group> {
         ],
     );
     let merge = Group::new(
-        "Merge (conflict strip)",
-        vec![row("Alt ↑ / Alt ↓", "Previous / next conflict")],
+        "Merge editor",
+        vec![
+            row("Alt ↑ / Alt ↓", "Previous / next conflict"),
+            row("Alt B", "Show or hide the base column"),
+        ],
     );
     let mut repository_rows = vec![
         row("Enter", "Open the selected repository in a tab"),
