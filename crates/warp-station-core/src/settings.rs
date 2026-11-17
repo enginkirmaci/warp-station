@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use warpui_kit_platform::config::{Store, rename_legacy_keys};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case")]
 pub struct AppSettings {
     #[serde(default)]
     pub nuget_local: NugetLocalSettings,
@@ -49,7 +49,7 @@ pub struct AppSettings {
 /// screen on their own. The two step switches are true by default so flipping
 /// the master on does what its label says without a second visit here.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct WorkflowSettings {
     /// After a push or publish, open the Create pull request step; after a
     /// merge, open the Pipelines watch. Never creates or merges anything.
@@ -84,7 +84,7 @@ impl Default for WorkflowSettings {
 /// as every default: mirroring toasts while Warp Station is unfocused, with
 /// errors, action confirmations and the retired fetch summaries allowed.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct NotificationsSettings {
     /// The master switch: off silences the desktop channel entirely (the
     /// in-app toasts are unaffected).
@@ -119,7 +119,7 @@ impl Default for NotificationsSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct NugetLocalSettings {
     pub enable_nuget: bool,
     pub watch_folder: Option<String>,
@@ -141,7 +141,7 @@ impl Default for NugetLocalSettings {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct ReposSettings {
     pub repo_scan_folders: Option<Vec<String>>,
     /// User tags keyed by repo folder. The cache never carries them, so a
@@ -222,7 +222,7 @@ pub struct ReposSettings {
 /// detail tab it was left on. `tab` carries the WorkspaceTab label so the
 /// file stays readable.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case")]
 pub struct RepoTabView {
     pub folder: String,
     pub tab: String,
@@ -335,7 +335,7 @@ fn default_harness() -> String {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 #[derive(Default)]
 pub struct OpencodeSettings {
     pub enable_opencode: bool,
@@ -349,7 +349,7 @@ pub struct OpencodeSettings {
 /// The DeepSeek CLI quick-launch: only arms the repo row's launch button —
 /// the runs themselves happen in warp-agent, never in the dsh binary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 #[derive(Default)]
 pub struct DeepseekSettings {
     pub enable_deepseek: bool,
@@ -358,7 +358,7 @@ pub struct DeepseekSettings {
 /// The warp-agent integration: Warp Station' AI surface runs in warp-agent over
 /// its door, so these toggle the whole AI feature set and name its binary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct WarpAgentSettings {
     pub enable_warp_agent: bool,
     pub executable: String,
@@ -398,7 +398,7 @@ impl Default for WarpAgentSettings {
 /// over the shared ~/notes store, so these toggle the feature set and
 /// name its binary.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct WarpNotesSettings {
     pub enable_warp_notes: bool,
     pub executable: String,
@@ -419,7 +419,7 @@ impl Default for WarpNotesSettings {
 /// auto-start and notifications are warp-pomodoro's own settings, never
 /// mirrored here.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct PomodoroSettings {
     pub enable_pomodoro: bool,
     pub executable: String,
@@ -435,7 +435,7 @@ impl Default for PomodoroSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 #[derive(Default)]
 pub struct ClipboardPasswordSettings {
     pub encrypted_password: Option<String>,
@@ -443,7 +443,7 @@ pub struct ClipboardPasswordSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 #[derive(Default)]
 pub struct SnapitSettings {
     /// Spawns the SnapIt companion at app launch.
@@ -455,7 +455,7 @@ pub struct SnapitSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 #[derive(Default)]
 pub struct KeepAwakeSettings {
     /// Restores the keep-awake execution state at app launch.
@@ -463,7 +463,7 @@ pub struct KeepAwakeSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct GeneralSettings {
     pub start_minimized: bool,
     pub start_at_boot: bool,
@@ -491,7 +491,7 @@ impl Default for GeneralSettings {
 /// The Changes pane's view state that outlives one window — today only the
 /// diff layout. The section is additive: an absent key reads unified.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct ChangesSettings {
     pub diff_view: DiffViewMode,
     /// Wrap long diff rows instead of scrolling horizontally.
@@ -510,7 +510,7 @@ impl Default for ChangesSettings {
 /// How the file lists lay their rows out. The section is additive: an absent
 /// section reads the tree on, and every list follows the one switch.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", default, deny_unknown_fields)]
+#[serde(rename_all = "snake_case", default)]
 pub struct FilesSettings {
     /// Group changed files under their folders; off is the flat list.
     pub tree_view: bool,
@@ -544,7 +544,9 @@ impl<'de> Deserialize<'de> for DiffViewMode {
 
 /// Single owner of the settings graph: reads hand out full clones, writes are
 /// serialized and persisted atomically. An unreadable file falls back to
-/// defaults instead of failing startup.
+/// defaults instead of failing startup, and a file a newer build wrote stays
+/// readable: the sections this build does not know are carried through the
+/// next save instead of being dropped.
 pub struct SettingsService {
     store: Store<AppSettings>,
     state: Mutex<AppSettings>,
@@ -587,7 +589,7 @@ impl SettingsService {
     }
 
     fn load(path: PathBuf, persist_import: bool) -> Self {
-        let store = Store::<AppSettings>::new(path.clone());
+        let store = Store::<AppSettings>::new(path.clone()).preserving_unknown();
         let settings = match store.load() {
             Ok(settings) => settings,
             Err(err) if err.needs_import() => {
@@ -629,8 +631,8 @@ impl SettingsService {
 }
 
 /// The pre-versioning file: PascalCase keys, the old per-tool toggles, and a
-/// few fields the app has since retired. Translate once; the live type is
-/// strict.
+/// few fields the app has since retired. Translate once; the live type reads
+/// only the keys it knows and carries the rest.
 fn import_legacy(path: &Path) -> Option<AppSettings> {
     import_legacy_json(&std::fs::read_to_string(path).ok()?)
 }
@@ -1174,6 +1176,50 @@ mod tests {
             !SettingsService::at(path.clone()).get().files.tree_view,
             "the flat choice round-trips"
         );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_newer_settings_file_loads_and_keeps_its_unknown_keys() {
+        // written by a build that knows more sections than this one: the
+        // keys this build shares load, and its next save carries the rest
+        // instead of dropping to defaults and overwriting the file
+        let path = scratch("newer-build");
+        std::fs::write(
+            &path,
+            r#"{
+                "schema_version": 1,
+                "repos": {
+                    "repo_scan_folders": ["/a"],
+                    "merge_max_kb": 4096,
+                    "later_flag": true
+                },
+                "general": {"text_size": "large"},
+                "workflow": {"auto_advance": true, "later_step": "x"}
+            }"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::at(path.clone());
+        assert_eq!(
+            service.get().repos.repo_scan_folders.as_deref(),
+            Some(&["/a".to_string()][..]),
+            "the shared keys still read"
+        );
+        assert_eq!(service.get().general.text_size.as_deref(), Some("large"));
+
+        service
+            .update(|settings| settings.files.tree_view = false)
+            .expect("save a key this build knows");
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["repos"]["merge_max_kb"], 4096);
+        assert_eq!(saved["repos"]["later_flag"], true);
+        assert_eq!(saved["workflow"]["later_step"], "x");
+        assert_eq!(saved["repos"]["repo_scan_folders"][0], "/a");
+        assert_eq!(saved["files"]["tree_view"], false);
+        assert_eq!(saved["schema_version"], 1);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }
