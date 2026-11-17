@@ -16,8 +16,10 @@ use std::time::Duration;
 use warp_station_core::pomodoro::{self, PomodoroAnswer, PomodoroCommand, PomodoroStatus};
 use warpui_kit_core::shell;
 
-/// How often the live snapshot is read while the section is on screen. The
-/// app rewrites `state.json` at least once a second, so this is the same beat.
+/// How often the live snapshot is read while the section is on screen. One lap
+/// is one door call (about a millisecond), or one `state.json` read for a
+/// closed app, which rewrites that file only on its own edges — so this beat is
+/// the page's, not the writer's.
 const POLL: Duration = Duration::from_secs(1);
 
 /// The timer card's reading width: the family's `.measure` for running
