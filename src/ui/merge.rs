@@ -13,7 +13,7 @@ use gpui::{
     AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Render, ScrollHandle,
     SharedString, Window, div, px,
 };
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::input::{Editor, EditorState, RangeDecoration, RangeDecorationCollection};
 use std::path::Path;
 use std::rc::Rc;
 use warp_station_core::git::merge::{
@@ -76,6 +76,21 @@ impl BlockPick {
         self.ours.iter().filter(|on| **on).count() + self.theirs.iter().filter(|on| **on).count()
     }
 
+    /// The sides of the picked lines, in the same order [`Self::chosen`]
+    /// returns them: the Result's decoration bands follow this.
+    fn chosen_sides(&self, block: &BufferConflict) -> Vec<Side> {
+        let mut sides = Vec::new();
+        for (ours, theirs) in align_side_lines(&block.ours_text, &block.theirs_text) {
+            if ours.is_some_and(|index| self.picked(Side::Ours, index)) {
+                sides.push(Side::Ours);
+            }
+            if theirs.is_some_and(|index| self.picked(Side::Theirs, index)) {
+                sides.push(Side::Theirs);
+            }
+        }
+        sides
+    }
+
     /// The block's lines in visual row order: each row's picked Current line
     /// first, then its picked Incoming line.
     fn chosen(&self, block: &BufferConflict) -> Vec<String> {
@@ -116,6 +131,10 @@ pub struct MergePage {
     active_conflict: usize,
     /// The panes' vertical viewport, so conflict navigation can scroll it.
     panes_scroll: ScrollHandle,
+    /// The last offsets seen, so a wheel on one surface can be mirrored to
+    /// the other without the mirror re-triggering itself.
+    last_panes_y: f32,
+    last_editor_y: f32,
 }
 
 struct ShownFile {
@@ -140,6 +159,9 @@ struct ResultPane {
     text: String,
     /// The last composed text that was saved; dirty is a comparison.
     saved: String,
+    /// One band per picked line in the Result, colored by the side it came
+    /// from; re-set after every compose.
+    decorations: Option<RangeDecorationCollection>,
     dirty: bool,
     unresolved: usize,
     error: Option<String>,
@@ -165,6 +187,8 @@ impl MergePage {
             strip_focus: cx.focus_handle(),
             active_conflict: 0,
             panes_scroll: ScrollHandle::new(),
+            last_panes_y: 0.,
+            last_editor_y: 0.,
         }
     }
 
@@ -259,6 +283,53 @@ impl MergePage {
         });
     }
 
+    /// Keeps the panes and the Result on the same line: whichever surface
+    /// moved since the last frame takes the other with it, mapped by line
+    /// height so a one-row step is one row everywhere. Render is the only
+    /// clock these two have; each mirror records its target so the next frame
+    /// sees no movement and stops.
+    fn sync_scroll(&mut self, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_ref() else {
+            return;
+        };
+        let row_h = f32::from(row_height(theme::font_mono_meta()));
+        let line_h = f32::from(
+            pane.editor
+                .read(cx)
+                .line_height()
+                .unwrap_or_else(|| px(theme::font_mono_meta())),
+        );
+        if row_h <= 0. || line_h <= 0. {
+            return;
+        }
+        let pane_y = f32::from(self.panes_scroll.offset().y);
+        let editor_y = f32::from(pane.editor.read(cx).scroll_offset().y);
+        let panes_moved = (pane_y - self.last_panes_y).abs() > 0.5;
+        let editor_moved = (editor_y - self.last_editor_y).abs() > 0.5;
+        match (panes_moved, editor_moved) {
+            (true, false) => {
+                let target = (pane_y / row_h) * line_h;
+                let editor = pane.editor.clone();
+                editor.update(cx, |state, cx| {
+                    state.set_scroll_offset(gpui::point(px(0.), px(target)), cx);
+                });
+                self.last_panes_y = pane_y;
+                self.last_editor_y = target;
+            }
+            (false, true) => {
+                let target = (editor_y / line_h) * row_h;
+                let x = self.panes_scroll.offset().x;
+                self.panes_scroll.set_offset(gpui::point(x, px(target)));
+                self.last_editor_y = editor_y;
+                self.last_panes_y = target;
+            }
+            _ => {
+                self.last_panes_y = pane_y;
+                self.last_editor_y = editor_y;
+            }
+        }
+    }
+
     /// Clones the selected file's rows and stage lines once, not per frame.
     fn sync_shown(&mut self) {
         let file = self
@@ -323,6 +394,10 @@ impl MergePage {
                 .smart_indent(false)
         });
         editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+        let decorations = editor.update(cx, |state, cx| {
+            state
+                .create_range_decorations_collection(result_decorations(&text, &origin, &picks), cx)
+        });
         cx.observe(&editor, move |this, editor, cx| {
             let value = editor.read(cx).value().to_string();
             this.buffer_edited(value, cx);
@@ -340,6 +415,7 @@ impl MergePage {
             saved: text,
             dirty: false,
             unresolved,
+            decorations: Some(decorations),
             error: None,
             stamp: file_stamp(&Path::new(folder).join(path)),
             checked_at: std::time::Instant::now(),
@@ -391,6 +467,9 @@ impl MergePage {
         }
         pane.dirty = text != pane.saved;
         pane.text = text;
+        if let Some(decorations) = pane.decorations.as_ref() {
+            decorations.set(Vec::new(), cx);
+        }
         cx.notify();
     }
 
@@ -417,6 +496,9 @@ impl MergePage {
             let editor = pane.editor.clone();
             let unresolved = count_unresolved(&pane.origin, &pane.picks);
             editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+            if let Some(decorations) = pane.decorations.as_ref() {
+                decorations.set(result_decorations(&text, &pane.origin, &pane.picks), cx);
+            }
             pane.text = text.clone();
             pane.dirty = text != saved;
             pane.unresolved = unresolved;
@@ -777,6 +859,7 @@ impl MergePage {
                 .unwrap_or_default();
             self.ensure_result(target, &path, fallback, window, cx);
             self.check_external(window, cx);
+            self.sync_scroll(cx);
             let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, cx);
             let result = self.result_section(cx);
             return div()
@@ -1195,6 +1278,65 @@ impl MergePage {
     }
 }
 
+/// One band per picked line in the composed text, in the side's color: the
+/// Result shows where every line it holds came from, like the panes.
+fn result_decorations(
+    text: &str,
+    origin: &[BufferConflict],
+    picks: &[BlockPick],
+) -> Vec<RangeDecoration> {
+    let mut bands = Vec::new();
+    let mut cursor = 0usize;
+    let mut line = 0usize;
+    for (block, pick) in origin.iter().zip(picks) {
+        let start = block.result.start as usize;
+        line += start.saturating_sub(cursor);
+        cursor = start + block.result.len as usize;
+        for side in pick.chosen_sides(block) {
+            if let Some(range) = line_byte_range(
+                text,
+                LineSpan {
+                    start: line as u32,
+                    len: 1,
+                },
+            ) {
+                let color = match side {
+                    Side::Ours => theme::DIFF_DEL_BG,
+                    Side::Theirs => theme::DIFF_ADD_BG,
+                };
+                bands.push(RangeDecoration::new(range).with_color(color));
+            }
+            line += 1;
+        }
+    }
+    bands
+}
+
+/// The byte range one line span covers, its newlines included.
+fn line_byte_range(text: &str, span: LineSpan) -> Option<std::ops::Range<usize>> {
+    let mut ends = Vec::new();
+    let mut at = 0;
+    for piece in text.split_inclusive('\n') {
+        at += piece.len();
+        ends.push(at);
+    }
+    let start_line = span.start as usize;
+    if ends.is_empty() || start_line >= ends.len() {
+        return None;
+    }
+    let start = if start_line == 0 {
+        0
+    } else {
+        ends[start_line - 1]
+    };
+    let end_line = (start_line + span.len as usize).min(ends.len());
+    if end_line == 0 {
+        return None;
+    }
+    let end = ends[end_line - 1];
+    (end > start).then_some(start..end)
+}
+
 /// The line one conflict starts at in the composed text: the block's own
 /// start, shifted by the lines the earlier blocks gave back or took.
 fn composed_line(pane: &ResultPane, index: usize) -> usize {
@@ -1312,6 +1454,9 @@ fn seed_pane(pane: &mut ResultPane, base: String, window: &mut Window, cx: &mut 
     let text = compose(&base, &origin, &picks);
     let editor = pane.editor.clone();
     editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+    if let Some(decorations) = pane.decorations.as_ref() {
+        decorations.set(result_decorations(&text, &origin, &picks), cx);
+    }
     pane.base = base;
     pane.origin = origin;
     pane.picks = picks;
