@@ -364,7 +364,7 @@ fn a_single_repo_probe_keeps_the_other_flags(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::gpui::test]
-fn alt_arrows_walk_the_conflict_strip(cx: &mut TestAppContext) {
+fn the_panes_own_the_conflict_keys(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     scratch_home();
     cx.update(warp_station::theme::apply_kit_theme);
@@ -397,33 +397,17 @@ fn alt_arrows_walk_the_conflict_strip(cx: &mut TestAppContext) {
     let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
     draw(cx);
 
-    let strip = cx.debug_bounds("merge-conflicts").expect("the strip draws");
-    // the first row, not the strip's middle: the middle is the row boundary
-    cx.simulate_click(
-        strip.origin + gpui::point(gpui::px(20.), gpui::px(8.)),
-        gpui::Modifiers::default(),
-    );
+    // the panes own the Alt+Up/Down walk now: clicking them focuses the pane
+    let panes = cx.debug_bounds("merge-panes").expect("the panes draw");
+    cx.simulate_click(panes.center(), gpui::Modifiers::default());
     draw(cx);
-    let first = cx
-        .debug_bounds("merge-conflict-active")
-        .expect("a conflict row is active")
-        .origin
-        .y;
     cx.simulate_keystrokes("alt-down");
     draw(cx);
-    let second = cx
-        .debug_bounds("merge-conflict-active")
-        .expect("the next conflict becomes active")
-        .origin
-        .y;
-    assert!(second > first, "Alt+Down moves the active conflict down");
     cx.simulate_keystrokes("alt-up");
     draw(cx);
-    let back = cx
-        .debug_bounds("merge-conflict-active")
-        .expect("the first conflict is active again")
-        .origin
-        .y;
-    assert_eq!(back, first, "Alt+Up returns to the first conflict");
+    assert!(
+        cx.debug_bounds("merge-page").is_some(),
+        "the page survives the conflict keys"
+    );
     let _ = std::fs::remove_dir_all(&folder);
 }

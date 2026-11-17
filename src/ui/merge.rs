@@ -27,8 +27,6 @@ use warpui_kit_diff::{AlignedOptions, AlignedRow, AlignedSide, render_aligned, r
 /// The pick box's cell, left of each gutter in both panes; it matches the
 /// kit's aligned view leading cell.
 const PICK_W: f32 = 22.0;
-/// The conflict strip above the Result scrolls past this height.
-const STRIP_MAX_H: f32 = 96.0;
 
 /// Which pane a pick box belongs to.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,7 +124,7 @@ pub struct MergePage {
     /// A file switch was refused because the buffer has unsaved edits.
     switch_blocked: bool,
     /// The conflict strip's keys: Alt+Up/Down walk its blocks.
-    strip_focus: FocusHandle,
+    panes_focus: FocusHandle,
     /// The block the strip highlights and the keys move.
     active_conflict: usize,
     /// The panes' vertical viewport, so conflict navigation can scroll it.
@@ -144,9 +142,6 @@ struct ShownFile {
     theirs: Rc<Vec<String>>,
     result: Rc<Vec<String>>,
     blocks: Rc<Vec<ConflictBlock>>,
-    /// The widest line either side holds: the aligned columns keep that width
-    /// while only a window of rows is drawn.
-    max_chars: usize,
 }
 
 struct ResultPane {
@@ -187,7 +182,7 @@ impl MergePage {
             shown: None,
             result: None,
             switch_blocked: false,
-            strip_focus: cx.focus_handle(),
+            panes_focus: cx.focus_handle(),
             active_conflict: 0,
             panes_scroll: ScrollHandle::new(),
             last_panes_y: 0.,
@@ -218,7 +213,7 @@ impl MergePage {
 
     /// Alt+Up / Alt+Down walk the conflict strip. The strip is the focused
     /// pane when these arrive; the Result editor keeps its own keys.
-    fn handle_strip_key(
+    fn handle_panes_key(
         &mut self,
         event: &gpui::KeyDownEvent,
         window: &mut Window,
@@ -359,13 +354,6 @@ impl MergePage {
                 theirs: Rc::new(text.theirs.clone()),
                 result: Rc::new(text.result.clone()),
                 blocks: Rc::new(text.blocks.clone()),
-                max_chars: text
-                    .ours
-                    .iter()
-                    .chain(text.theirs.iter())
-                    .map(|line| line.chars().count())
-                    .max()
-                    .unwrap_or(0),
             }),
             _ => None,
         };
@@ -980,8 +968,13 @@ impl MergePage {
             .unwrap_or_default();
         // the kit draws the aligned columns; the pick boxes are its opt-in
         // leading cells, so nothing else in the kit grows a control column
+        // the lead cells are built by the kit after this call returns nothing,
+        // so the closure owns what it needs and reaches the page through its
+        // entity rather than borrowing the render context
+        let entity = cx.entity();
         let mut lead = {
             let blocks = blocks.clone();
+            let picks = picks.clone();
             move |side: AlignedSide, line: Option<u32>| -> Option<AnyElement> {
                 let (block, pick_side, local) = map_pick_line(&blocks, side, line?)?;
                 let checked = picks
@@ -992,6 +985,7 @@ impl MergePage {
                     Side::Theirs => "theirs",
                 };
                 let selector = format!("merge-pick-{block}-{side_name}-{local}");
+                let pick_entity = entity.clone();
                 Some(
                     div()
                         .id(SharedString::from(selector.clone()))
@@ -1002,9 +996,13 @@ impl MergePage {
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.toggle_line(block, pick_side, local, window, cx)
-                        }))
+                        .on_click(
+                            move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
+                                pick_entity.update(cx, |this, cx| {
+                                    this.toggle_line(block, pick_side, local, window, cx)
+                                });
+                            },
+                        )
                         .child(pick_box(checked))
                         .into_any_element(),
                 )
@@ -1040,7 +1038,6 @@ impl MergePage {
                 lead: Some(lead_ref),
                 font_detail: theme::font_mono_meta(),
                 padding: (start, rows.len() - end),
-                max_chars: Some(shown.max_chars),
             },
         );
         div()
@@ -1056,16 +1053,28 @@ impl MergePage {
                     .debug_selector(|| "merge-panes".into())
                     .flex_1()
                     .min_h_0()
-                    .overflow_scroll()
+                    .overflow_y_scroll()
                     .track_scroll(&self.panes_scroll)
+                    .track_focus(&self.panes_focus)
+                    .on_key_down(cx.listener(|this, event, window, cx| {
+                        if this.handle_panes_key(event, window, cx) {
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            if !this.panes_focus.is_focused(window) {
+                                window.focus(&this.panes_focus, cx);
+                            }
+                        }),
+                    )
                     .child(body),
             )
             .into_any_element()
     }
 
     fn result_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        // built before the pane borrow: the strip reads the picks itself
-        let strip = self.conflict_strip(cx);
         let Some(pane) = self.result.as_ref() else {
             return empty_detail("Reading the result…");
         };
@@ -1073,7 +1082,6 @@ impl MergePage {
         let save_entity = entity.clone();
         let reload_entity = entity.clone();
         let unresolved = pane.unresolved;
-        let has_conflicts = !pane.origin.is_empty();
 
         let mut bar = div()
             .flex()
@@ -1212,94 +1220,67 @@ impl MergePage {
             .aria_label("Merge result")
             .font_family(SharedString::from(theme::code_font()))
             .text_size(px(theme::font_mono_meta()));
-        let mut section = div().flex().flex_col().flex_1().min_h_0().child(bar);
-        if has_conflicts {
-            section = section.child(strip);
-        }
-        section
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .child(bar)
             .child(div().flex_1().min_h_0().child(editor))
             .into_any_element()
     }
+}
 
-    fn conflict_strip(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(pane) = self.result.as_ref() else {
-            return div().into_any_element();
-        };
-        let mut rows = div()
-            .id("merge-conflicts")
-            .debug_selector(|| "merge-conflicts".into())
-            .flex()
-            .flex_col()
-            .flex_none()
-            .max_h(px(STRIP_MAX_H))
-            .overflow_y_scroll()
-            .border_b_1()
-            .border_color(theme::hairline())
-            .track_focus(&self.strip_focus)
-            .on_key_down(cx.listener(|this, event, window, cx| {
-                if this.handle_strip_key(event, window, cx) {
-                    cx.stop_propagation();
-                }
-            }))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    if !this.strip_focus.is_focused(window) {
-                        window.focus(&this.strip_focus, cx);
-                    }
-                }),
-            );
-        for (index, block) in pane.origin.iter().enumerate() {
-            let picked = pane.picks.get(index).map(BlockPick::count).unwrap_or(0);
-            let total = block.ours_text.len() + block.theirs_text.len();
-            let active = index == self.active_conflict;
-            rows = rows.child(
-                div()
-                    .id(SharedString::from(format!("merge-conflict-{index}")))
-                    .debug_selector(move || {
-                        if active {
-                            "merge-conflict-active".to_string()
-                        } else {
-                            "merge-conflict-row".to_string()
-                        }
-                    })
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .h(px(30.))
-                    .border_b_1()
-                    .border_color(theme::hairline())
-                    .when(active, |row| row.bg(theme::tint(theme::accent())))
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.active_conflict = index;
-                        this.scroll_to_conflict(window, cx);
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(theme::font_micro()))
-                            .text_color(theme::text_muted())
-                            .child(format!(
-                                "Conflict {} · line {}",
-                                index + 1,
-                                block.result.start + 1
-                            )),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(px(theme::font_micro()))
-                            .when(picked == 0, |label| label.text_color(theme::WARN))
-                            .when(picked > 0, |label| label.text_color(theme::text_muted()))
-                            .child(format!("{picked} of {total} lines picked")),
-                    ),
-            );
-        }
-        rows.into_any_element()
+/// The pick a line number maps to: the aligned row carries a file line, the
+/// picks are keyed by block and the block's own line index.
+/// How many rows the panes' viewport can show, with a margin either side so a
+/// wheel step never exposes a blank band. The offset and viewport come from
+/// the panes' own scroll handle; a not-yet-laid-out viewport draws a window
+/// of [`VIRTUAL_WINDOW_FALLBACK`] rows.
+fn visible_window(total: usize, offset: f32, viewport: f32, row_h: f32) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
     }
+    let row_h = row_h.max(1.);
+    let offset = offset.max(0.);
+    let first = (offset / row_h).floor() as usize;
+    let visible = if viewport > 0. {
+        (viewport / row_h).ceil() as usize + 1
+    } else {
+        VIRTUAL_WINDOW_FALLBACK
+    };
+    let start = first.saturating_sub(VIRTUAL_OVERSCAN);
+    let end = first
+        .saturating_add(visible)
+        .saturating_add(VIRTUAL_OVERSCAN)
+        .min(total);
+    (start, end)
+}
+
+/// Rows drawn above and below the viewport's own range.
+const VIRTUAL_OVERSCAN: usize = 8;
+/// The window a first frame draws before the viewport has a height.
+const VIRTUAL_WINDOW_FALLBACK: usize = 200;
+
+/// The line one conflict starts at in the composed text: the block's own
+/// start, shifted by the lines the earlier blocks gave back or took.
+fn composed_line(pane: &ResultPane, index: usize) -> usize {
+    let mut cursor = 0usize;
+    let mut line = 0usize;
+    for (block_index, block) in pane.origin.iter().enumerate() {
+        let start = block.result.start as usize;
+        line += start.saturating_sub(cursor);
+        cursor = start + block.result.len as usize;
+        if block_index == index {
+            return line;
+        }
+        line += pane
+            .picks
+            .get(block_index)
+            .map(BlockPick::count)
+            .unwrap_or(0);
+    }
+    line
 }
 
 /// One band per picked line in the composed text, in the side's color: the
@@ -1361,58 +1342,6 @@ fn line_byte_range(text: &str, span: LineSpan) -> Option<std::ops::Range<usize>>
     (end > start).then_some(start..end)
 }
 
-/// The line one conflict starts at in the composed text: the block's own
-/// start, shifted by the lines the earlier blocks gave back or took.
-fn composed_line(pane: &ResultPane, index: usize) -> usize {
-    let mut cursor = 0usize;
-    let mut line = 0usize;
-    for (block_index, block) in pane.origin.iter().enumerate() {
-        let start = block.result.start as usize;
-        line += start.saturating_sub(cursor);
-        cursor = start + block.result.len as usize;
-        if block_index == index {
-            return line;
-        }
-        line += pane
-            .picks
-            .get(block_index)
-            .map(BlockPick::count)
-            .unwrap_or(0);
-    }
-    line
-}
-
-/// How many rows the panes' viewport can show, with a margin either side so a
-/// wheel step never exposes a blank band. The offset and viewport come from
-/// the panes' own scroll handle; a not-yet-laid-out viewport draws a window
-/// of [`VIRTUAL_WINDOW_FALLBACK`] rows.
-fn visible_window(total: usize, offset: f32, viewport: f32, row_h: f32) -> (usize, usize) {
-    if total == 0 {
-        return (0, 0);
-    }
-    let row_h = row_h.max(1.);
-    let offset = offset.max(0.);
-    let first = (offset / row_h).floor() as usize;
-    let visible = if viewport > 0. {
-        (viewport / row_h).ceil() as usize + 1
-    } else {
-        VIRTUAL_WINDOW_FALLBACK
-    };
-    let start = first.saturating_sub(VIRTUAL_OVERSCAN);
-    let end = first
-        .saturating_add(visible)
-        .saturating_add(VIRTUAL_OVERSCAN)
-        .min(total);
-    (start, end)
-}
-
-/// Rows drawn above and below the viewport's own range.
-const VIRTUAL_OVERSCAN: usize = 8;
-/// The window a first frame draws before the viewport has a height.
-const VIRTUAL_WINDOW_FALLBACK: usize = 200;
-
-/// The pick a line number maps to: the aligned row carries a file line, the
-/// picks are keyed by block and the block's own line index.
 fn map_pick_line(
     blocks: &[ConflictBlock],
     side: AlignedSide,
