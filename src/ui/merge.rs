@@ -1032,7 +1032,7 @@ impl MergePage {
                     .debug_selector(|| "merge-panes".into())
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
+                    .overflow_scroll()
                     .track_scroll(&self.panes_scroll)
                     .child(body),
             )
