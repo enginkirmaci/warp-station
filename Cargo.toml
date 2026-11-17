@@ -1,6 +1,6 @@
 [package]
 name = "warp-station"
-version = "0.1.67"
+version = "0.1.68"
 edition = "2024"
 description = "Warp Station — repository workbench"
 license = "GPL-3.0"
@@ -13,11 +13,11 @@ publish = false
 [dependencies]
 warp-station-core = { path = "crates/warp-station-core" }
 # kit line: pinned by tag, patched to kits/ by warp-suite's local build
-warpui-kit-core = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-core" }
-warpui-kit-platform = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-platform" }
-warpui-kit-diff = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-diff", features = ["all-languages"] }
-warpui-kit-markdown = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-markdown" }
-warpui-kit-picker = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-picker" }
+warpui-kit-core = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-core" }
+warpui-kit-platform = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-platform" }
+warpui-kit-diff = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-diff", features = ["all-languages"] }
+warpui-kit-markdown = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-markdown" }
+warpui-kit-picker = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-picker" }
 
 # the gpui stack, pinned here because the app builds standalone
 gpui = { package = "gpui-pre", version = "=0.3.11" }
@@ -47,7 +47,7 @@ gpui-kit = { version = "0.9", features = ["test-support"] }
 tempfile = "3"
 
 [build-dependencies]
-warpui-kit-build = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.49", package = "warpui-kit-build" }
+warpui-kit-build = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.59", package = "warpui-kit-build" }
 
 # Release profile, shared with the suite (warp-suite's root manifest carries the
 # same three keys): thin LTO, one codegen unit and no symbol table. Measured on

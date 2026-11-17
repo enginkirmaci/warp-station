@@ -9,6 +9,7 @@ use crate::ui::azure_tab::AzureView;
 use crate::ui::changes::ChangesView;
 use crate::ui::issue_detail::IssueDetailView;
 use crate::ui::launchers;
+use crate::ui::merge::MergePage;
 use crate::ui::new_pull::NewPullView;
 use crate::ui::overview::{self, HeadState, RepoMenu};
 use crate::ui::pr_issues::ItemListView;
@@ -30,6 +31,9 @@ pub struct DetailViews {
     pipelines: Entity<AzureView>,
     /// The Overview's README card.
     readme: Entity<ReadmeView>,
+    /// The merge editor, shown over the body while a stopped operation is
+    /// being resolved.
+    pub merge: Entity<MergePage>,
 }
 
 impl DetailViews {
@@ -75,6 +79,7 @@ impl DetailViews {
             }),
             pipelines: cx.new(|cx| AzureView::new(store.clone(), pane_nav.clone(), cx)),
             readme: cx.new(|cx| ReadmeView::new(store.clone(), cx)),
+            merge: cx.new(|cx| MergePage::new(store.clone(), cx)),
         }
     }
 
@@ -212,21 +217,29 @@ pub fn render(
             head.child(motion::progress_line("detail-progress", theme::accent()))
         });
 
+    // the merge editor is a mode of the detail, not a tab: it opens from the
+    // conflict banner and leaves when a tab is picked
+    let merge_open =
+        store.merge_editor_open && store.merge_target().as_deref() == Some(folder.as_str());
     let body = div()
         .debug_selector(move || format!("{}-panel", active.selector()))
         .flex_1()
         .min_h_0()
-        .child(match views.panel(active) {
-            Some(panel) => panel,
-            None => overview::render(
-                store,
-                entities,
-                page,
-                props.tag_draft,
-                &views.readme,
-                window,
-                cx,
-            ),
+        .child(if merge_open {
+            views.merge.clone().into_any_element()
+        } else {
+            match views.panel(active) {
+                Some(panel) => panel,
+                None => overview::render(
+                    store,
+                    entities,
+                    page,
+                    props.tag_draft,
+                    &views.readme,
+                    window,
+                    cx,
+                ),
+            }
         });
     // keyed on what is shown, so a redraw never replays it
     let view = SharedString::from(format!("detail-enter-{folder}-{}", active.selector()));

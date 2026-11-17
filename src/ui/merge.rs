@@ -1,40 +1,99 @@
-//! The Merge section: one stopped operation at a time — its unmerged files on
-//! the left, the Incoming and Current panes over the editable Result. The
-//! session comes from `warp_station_core::git::merge`; the page seeds the
-//! Result from the worktree file, writes it back on Save, and re-parses the
-//! buffer after every edit so Save and the staging gate follow the text, not
-//! the file it started from.
+//! The merge editor inside the repository detail: one stopped operation at a
+//! time — its unmerged files on the left, the Incoming and Current panes over
+//! the Result. Each conflict line carries a pick box; the Result is composed
+//! from the picks over the file's original marker text, so a pick never
+//! depends on what the buffer already says. Save writes the composed text, and
+//! the staging gate counts the conflicts nothing was picked for.
 
 use crate::store::Store;
 use crate::theme;
-use crate::ui::{neutral_button, neutral_button_named, primary_button};
+use crate::ui::{icon, neutral_button, primary_button};
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Render, SharedString,
-    Window, div, px, uniform_list,
+    AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Render, ScrollHandle,
+    SharedString, Window, div, px,
 };
-use gpui_kit::component::input::{Editor, EditorState, RangeDecoration, RangeDecorationCollection};
+use gpui_kit::component::input::{Editor, EditorState};
 use std::path::Path;
 use std::rc::Rc;
 use warp_station_core::git::merge::{
-    BufferConflict, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, MergeSide,
-    WholeFileReason, buffer_conflicts, unresolved_count,
+    BufferConflict, ConflictBlock, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession,
+    MergeSide, WholeFileReason, align_side_lines, buffer_conflicts,
 };
+use warpui_kit_core::controls::icon_button;
 use warpui_kit_core::{motion, shell};
+use warpui_kit_diff::{AlignedOptions, AlignedRow, AlignedSide, render_aligned, row_height};
 
-/// One source-pane row: the diff's mono line height.
-const LINE_H: f32 = 21.0;
-/// The line-number gutter's width.
-const GUTTER_W: f32 = 46.0;
+/// The pick box's cell, left of each gutter in both panes; it matches the
+/// kit's aligned view leading cell.
+const PICK_W: f32 = 22.0;
 /// The conflict strip above the Result scrolls past this height.
 const STRIP_MAX_H: f32 = 96.0;
 
-/// Which side a block take writes into the buffer.
-#[derive(Clone, Copy)]
-enum Take {
+/// Which pane a pick box belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
     Ours,
     Theirs,
-    Both,
+}
+
+/// One conflict's picks: a flag per line of each side. The Result is built
+/// from them row by row, so both sides can contribute to one block.
+#[derive(Clone)]
+struct BlockPick {
+    ours: Vec<bool>,
+    theirs: Vec<bool>,
+}
+
+impl BlockPick {
+    /// A fresh pick keeps the Current side: the branch's own lines are the
+    /// starting point, and Incoming lines are what the user reaches for.
+    fn fresh(block: &BufferConflict) -> Self {
+        Self {
+            ours: vec![true; block.ours_text.len()],
+            theirs: vec![false; block.theirs_text.len()],
+        }
+    }
+
+    fn flip(&mut self, side: Side, index: usize) {
+        let list = match side {
+            Side::Ours => &mut self.ours,
+            Side::Theirs => &mut self.theirs,
+        };
+        if let Some(flag) = list.get_mut(index) {
+            *flag = !*flag;
+        }
+    }
+
+    fn picked(&self, side: Side, index: usize) -> bool {
+        match side {
+            Side::Ours => self.ours.get(index).copied().unwrap_or(false),
+            Side::Theirs => self.theirs.get(index).copied().unwrap_or(false),
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.ours.iter().filter(|on| **on).count() + self.theirs.iter().filter(|on| **on).count()
+    }
+
+    /// The block's lines in visual row order: each row's picked Current line
+    /// first, then its picked Incoming line.
+    fn chosen(&self, block: &BufferConflict) -> Vec<String> {
+        let mut lines = Vec::new();
+        for (ours, theirs) in align_side_lines(&block.ours_text, &block.theirs_text) {
+            if let Some(index) = ours.filter(|index| self.picked(Side::Ours, *index))
+                && let Some(line) = block.ours_text.get(index)
+            {
+                lines.push(line.clone());
+            }
+            if let Some(index) = theirs.filter(|index| self.picked(Side::Theirs, *index))
+                && let Some(line) = block.theirs_text.get(index)
+            {
+                lines.push(line.clone());
+            }
+        }
+        lines
+    }
 }
 
 pub struct MergePage {
@@ -47,7 +106,7 @@ pub struct MergePage {
     selected: usize,
     /// The selected file's rows and stage lines, cloned once per pick.
     shown: Option<ShownFile>,
-    /// The editable Result for the selected file.
+    /// The Result for the selected file.
     result: Option<ResultPane>,
     /// A file switch was refused because the buffer has unsaved edits.
     switch_blocked: bool,
@@ -55,8 +114,8 @@ pub struct MergePage {
     strip_focus: FocusHandle,
     /// The block the strip highlights and the keys move.
     active_conflict: usize,
-    /// "Take both" writes the current side first while this is true.
-    both_current_first: bool,
+    /// The panes' vertical viewport, so conflict navigation can scroll it.
+    panes_scroll: ScrollHandle,
 }
 
 struct ShownFile {
@@ -65,23 +124,25 @@ struct ShownFile {
     ours: Rc<Vec<String>>,
     theirs: Rc<Vec<String>>,
     result: Rc<Vec<String>>,
+    blocks: Rc<Vec<ConflictBlock>>,
 }
 
 struct ResultPane {
     folder: String,
     path: String,
     editor: Entity<EditorState>,
-    /// The buffer as last read from the editor.
+    /// The worktree text the picks are applied to: the file with its markers.
+    base: String,
+    /// The conflicts `base` holds, in file order; the picks follow them.
+    origin: Vec<BufferConflict>,
+    picks: Vec<BlockPick>,
+    /// The composed buffer as last read from the editor.
     text: String,
-    /// The worktree text the buffer was seeded from: dirty is a comparison.
-    disk_text: String,
+    /// The last composed text that was saved; dirty is a comparison.
+    saved: String,
     dirty: bool,
-    blocks: Vec<BufferConflict>,
     unresolved: usize,
     error: Option<String>,
-    /// The Result editor's conflict tints; the collection tracks edits, but
-    /// the page re-sets it after every re-parse.
-    decorations: Option<RangeDecorationCollection>,
     /// The worktree file's stamp when the buffer last synced with it.
     stamp: Option<std::time::SystemTime>,
     /// When the page last looked for an outside edit.
@@ -103,7 +164,7 @@ impl MergePage {
             switch_blocked: false,
             strip_focus: cx.focus_handle(),
             active_conflict: 0,
-            both_current_first: true,
+            panes_scroll: ScrollHandle::new(),
         }
     }
 
@@ -126,28 +187,33 @@ impl MergePage {
 
     /// Alt+Up / Alt+Down walk the conflict strip. The strip is the focused
     /// pane when these arrive; the Result editor keeps its own keys.
-    fn handle_strip_key(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) -> bool {
+    fn handle_strip_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !event.keystroke.modifiers.alt || event.keystroke.modifiers.control {
             return false;
         }
         match event.keystroke.key.as_str() {
             "up" => {
-                self.step_conflict(-1, cx);
+                self.step_conflict(-1, window, cx);
                 true
             }
             "down" => {
-                self.step_conflict(1, cx);
+                self.step_conflict(1, window, cx);
                 true
             }
             _ => false,
         }
     }
 
-    fn step_conflict(&mut self, delta: i32, cx: &mut Context<Self>) {
+    fn step_conflict(&mut self, delta: i32, window: &mut Window, cx: &mut Context<Self>) {
         let Some(pane) = self.result.as_ref() else {
             return;
         };
-        let count = pane.blocks.len();
+        let count = pane.origin.len();
         if count == 0 {
             return;
         }
@@ -155,8 +221,42 @@ impl MergePage {
         let next = (current + delta).clamp(0, count as i32 - 1) as usize;
         if next != self.active_conflict {
             self.active_conflict = next;
-            cx.notify();
         }
+        self.scroll_to_conflict(window, cx);
+        cx.notify();
+    }
+
+    /// Brings the active conflict into view on both scroll surfaces: the
+    /// aligned panes to the block's first row, the Result to the block's line
+    /// in the composed text. The three surfaces share one position because
+    /// this is the only place that moves them.
+    fn scroll_to_conflict(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.result.as_ref() else {
+            return;
+        };
+        let Some(shown) = self.shown.as_ref() else {
+            return;
+        };
+        let index = self.active_conflict;
+        if pane.origin.get(index).is_none() {
+            return;
+        }
+        let row_h = row_height(theme::font_mono_meta());
+        if let Some(row_index) = shown
+            .rows
+            .iter()
+            .position(|row| row.block == Some(index as u32))
+        {
+            let x = self.panes_scroll.offset().x;
+            self.panes_scroll
+                .set_offset(gpui::point(x, row_h * row_index as f32));
+        }
+        let line = composed_line(pane, index);
+        let editor = pane.editor.clone();
+        let line_h = editor.read(cx).line_height().unwrap_or(row_h);
+        editor.update(cx, |state, cx| {
+            state.set_scroll_offset(gpui::point(px(0.), line_h * line as f32), cx);
+        });
     }
 
     /// Clones the selected file's rows and stage lines once, not per frame.
@@ -180,12 +280,14 @@ impl MergePage {
                 ours: Rc::new(text.ours.clone()),
                 theirs: Rc::new(text.theirs.clone()),
                 result: Rc::new(text.result.clone()),
+                blocks: Rc::new(text.blocks.clone()),
             }),
             _ => None,
         };
     }
 
-    /// Seeds the Result editor from the worktree file, once per selected file.
+    /// Seeds the Result from the worktree file, once per selected file. The
+    /// picks start on the Current side and the composed text follows them.
     /// The session's result lines are the fallback when the file cannot be
     /// read (it was deleted under us mid-merge).
     fn ensure_result(
@@ -203,13 +305,16 @@ impl MergePage {
         {
             return;
         }
-        let text = std::fs::read_to_string(Path::new(folder).join(path)).unwrap_or_else(|_| {
+        let base = std::fs::read_to_string(Path::new(folder).join(path)).unwrap_or_else(|_| {
             let mut text = fallback.join("\n");
             if !text.is_empty() {
                 text.push('\n');
             }
             text
         });
+        let origin = buffer_conflicts(&base);
+        let picks: Vec<BlockPick> = origin.iter().map(BlockPick::fresh).collect();
+        let text = compose(&base, &origin, &picks);
         let editor = cx.new(|cx| {
             EditorState::new(window, cx)
                 .line_number(true)
@@ -218,25 +323,24 @@ impl MergePage {
                 .smart_indent(false)
         });
         editor.update(cx, |state, cx| state.set_value(&text, window, cx));
-        let decorations = editor.update(cx, |state, cx| {
-            state.create_range_decorations_collection(result_decorations(&text), cx)
-        });
         cx.observe(&editor, move |this, editor, cx| {
-            let text = editor.read(cx).value().to_string();
-            this.buffer_edited(text, cx);
+            let value = editor.read(cx).value().to_string();
+            this.buffer_edited(value, cx);
         })
         .detach();
+        let unresolved = count_unresolved(&origin, &picks);
         self.result = Some(ResultPane {
             folder: folder.to_string(),
             path: path.to_string(),
             editor,
-            disk_text: text.clone(),
+            base,
+            origin,
+            picks,
             text: text.clone(),
+            saved: text,
             dirty: false,
-            blocks: buffer_conflicts(&text),
-            unresolved: unresolved_count(&text),
+            unresolved,
             error: None,
-            decorations: Some(decorations),
             stamp: file_stamp(&Path::new(folder).join(path)),
             checked_at: std::time::Instant::now(),
             external: false,
@@ -266,29 +370,18 @@ impl MergePage {
             cx.notify();
             return;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        let Ok(base) = std::fs::read_to_string(&path) else {
             return;
         };
-        let editor = pane.editor.clone();
-        editor.update(cx, |state, cx| state.set_value(&text, window, cx));
-        pane.text = text.clone();
-        pane.disk_text = text.clone();
-        pane.dirty = false;
-        pane.external = false;
-        pane.stamp = Some(stamp);
-        pane.blocks = buffer_conflicts(&text);
-        pane.unresolved = unresolved_count(&text);
+        seed_pane(pane, base, window, cx);
         self.active_conflict = self
             .active_conflict
-            .min(pane.blocks.len().saturating_sub(1));
-        if let Some(decorations) = pane.decorations.as_ref() {
-            decorations.set(result_decorations(&text), cx);
-        }
+            .min(pane.origin.len().saturating_sub(1));
         cx.notify();
     }
 
-    /// Re-parses the buffer after an edit; this is what the count and the
-    /// staging gate read.
+    /// Follows the editor: typing makes the buffer dirty; the picks stay as
+    /// the strip shows them until the user turns one.
     fn buffer_edited(&mut self, text: String, cx: &mut Context<Self>) {
         let Some(pane) = self.result.as_mut() else {
             return;
@@ -296,52 +389,40 @@ impl MergePage {
         if text == pane.text {
             return;
         }
-        pane.dirty = text != pane.disk_text;
-        pane.blocks = buffer_conflicts(&text);
-        pane.unresolved = unresolved_count(&text);
+        pane.dirty = text != pane.saved;
         pane.text = text;
-        self.active_conflict = self
-            .active_conflict
-            .min(pane.blocks.len().saturating_sub(1));
-        if let Some(decorations) = pane.decorations.as_ref() {
-            decorations.set(result_decorations(&pane.text), cx);
-        }
         cx.notify();
     }
 
-    /// Rewrites one conflict block with the chosen side and re-parses.
-    fn take(&mut self, take: Take, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(pane) = self.result.as_mut() else {
-            return;
+    /// Turns one line's pick and recomposes the Result from the picks. This is
+    /// the only way a conflict is resolved: no side is written wholesale.
+    fn toggle_line(
+        &mut self,
+        block: usize,
+        side: Side,
+        local: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let count = {
+            let Some(pane) = self.result.as_mut() else {
+                return;
+            };
+            let Some(pick) = pane.picks.get_mut(block) else {
+                return;
+            };
+            pick.flip(side, local);
+            let text = compose(&pane.base, &pane.origin, &pane.picks);
+            let saved = pane.saved.clone();
+            let editor = pane.editor.clone();
+            let unresolved = count_unresolved(&pane.origin, &pane.picks);
+            editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+            pane.text = text.clone();
+            pane.dirty = text != saved;
+            pane.unresolved = unresolved;
+            pane.origin.len()
         };
-        let Some(block) = pane.blocks.get(index).cloned() else {
-            return;
-        };
-        let replacement: Vec<String> = match take {
-            Take::Ours => block.ours_text.clone(),
-            Take::Theirs => block.theirs_text.clone(),
-            Take::Both => {
-                let (first, second) = if self.both_current_first {
-                    (&block.ours_text, &block.theirs_text)
-                } else {
-                    (&block.theirs_text, &block.ours_text)
-                };
-                first.iter().chain(second.iter()).cloned().collect()
-            }
-        };
-        let next = splice_lines(&pane.text, block.result, &replacement);
-        let editor = pane.editor.clone();
-        editor.update(cx, |state, cx| state.set_value(&next, window, cx));
-        pane.text = next.clone();
-        pane.dirty = next != pane.disk_text;
-        pane.blocks = buffer_conflicts(&next);
-        pane.unresolved = unresolved_count(&next);
-        self.active_conflict = self
-            .active_conflict
-            .min(pane.blocks.len().saturating_sub(1));
-        if let Some(decorations) = pane.decorations.as_ref() {
-            decorations.set(result_decorations(&next), cx);
-        }
+        self.active_conflict = self.active_conflict.min(count.saturating_sub(1));
         cx.notify();
     }
 
@@ -352,7 +433,7 @@ impl MergePage {
         let path = Path::new(&pane.folder).join(&pane.path);
         match std::fs::write(&path, pane.text.as_bytes()) {
             Ok(()) => {
-                pane.disk_text = pane.text.clone();
+                pane.saved = pane.text.clone();
                 pane.dirty = false;
                 pane.error = None;
                 pane.stamp = file_stamp(&path);
@@ -375,23 +456,11 @@ impl MergePage {
         };
         let path = Path::new(&pane.folder).join(&pane.path);
         match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                let editor = pane.editor.clone();
-                editor.update(cx, |state, cx| state.set_value(&text, window, cx));
-                pane.text = text.clone();
-                pane.disk_text = text.clone();
-                pane.dirty = false;
-                pane.error = None;
-                pane.stamp = file_stamp(&path);
-                pane.external = false;
-                pane.blocks = buffer_conflicts(&text);
-                pane.unresolved = unresolved_count(&text);
+            Ok(base) => {
+                seed_pane(pane, base, window, cx);
                 self.active_conflict = self
                     .active_conflict
-                    .min(pane.blocks.len().saturating_sub(1));
-                if let Some(decorations) = pane.decorations.as_ref() {
-                    decorations.set(result_decorations(&text), cx);
-                }
+                    .min(pane.origin.len().saturating_sub(1));
                 self.switch_blocked = false;
             }
             Err(error) => pane.error = Some(format!("Could not reload: {error}")),
@@ -399,8 +468,8 @@ impl MergePage {
         cx.notify();
     }
 
-    /// The session's count with the selected file's buffer count swapped in,
-    /// so the header and the list follow the edits.
+    /// The session's count with the selected file's picks swapped in, so the
+    /// header and the list follow the choices.
     fn unresolved_total(&self, session: &MergeSession) -> usize {
         let disk = session
             .files
@@ -465,9 +534,6 @@ impl Render for MergePage {
             return loading(&target).into_any_element();
         };
 
-        let unresolved = self.unresolved_total(session);
-        let header = self.header(&target, &repos, session, unresolved, cx);
-        let list = self.file_list(session, cx);
         let labels = session.operation.side_labels();
         let text_file = match session.files.get(self.selected) {
             Some(MergeFile::Text(text)) => {
@@ -480,6 +546,14 @@ impl Render for MergePage {
             _ => None,
         };
         let detail = self.detail(&target, labels, text_file, whole, window, cx);
+        // after the detail seeded the pane: its picks decide the counts the
+        // header and the file list show on this same frame
+        let Some(session) = self.session.as_ref() else {
+            return empty_detail("Reading the conflict…");
+        };
+        let unresolved = self.unresolved_total(session);
+        let header = self.header(&target, &repos, session, unresolved, cx);
+        let list = self.file_list(session, cx);
         div()
             .id("merge-page")
             .debug_selector(|| "merge-page".into())
@@ -592,6 +666,18 @@ impl MergePage {
                 );
             }
         }
+        let close_entity = cx.entity();
+        row = row.child(neutral_button(
+            "merge-close",
+            "Close",
+            true,
+            move |_, _, cx| {
+                close_entity.update(cx, |this, cx| {
+                    this.store
+                        .update(cx, |store, cx| store.close_merge_editor(cx));
+                });
+            },
+        ));
         row.into_any_element()
     }
 
@@ -692,7 +778,7 @@ impl MergePage {
             self.ensure_result(target, &path, fallback, window, cx);
             self.check_external(window, cx);
             let panes = self.source_panes(labels, &path, ours_lines, theirs_lines, cx);
-            let result = self.result_section(labels, cx);
+            let result = self.result_section(cx);
             return div()
                 .flex()
                 .flex_col()
@@ -776,9 +862,9 @@ impl MergePage {
     }
 
     fn source_panes(
-        &self,
+        &mut self,
         labels: (&'static str, &'static str),
-        path: &str,
+        _path: &str,
         ours_lines: usize,
         theirs_lines: usize,
         cx: &mut Context<Self>,
@@ -786,18 +872,69 @@ impl MergePage {
         let Some(shown) = self.shown.as_ref() else {
             return empty_detail("Reading the conflict…");
         };
+        let rows = shown.rows.clone();
         let ours = shown.ours.clone();
         let theirs = shown.theirs.clone();
-        let rows = shown.rows.clone();
-        let id = SharedString::from(format!("merge-panes-{path}-{}", rows.len()));
-        let list = uniform_list(
-            id,
-            rows.len(),
-            cx.processor(move |_this, range: std::ops::Range<usize>, _window, _cx| {
-                range
-                    .map(|index| pane_row(index, &rows, &ours, &theirs))
-                    .collect::<Vec<_>>()
-            }),
+        let blocks = shown.blocks.clone();
+        let picks = self
+            .result
+            .as_ref()
+            .map(|pane| pane.picks.clone())
+            .unwrap_or_default();
+        // the kit draws the aligned columns; the pick boxes are its opt-in
+        // leading cells, so nothing else in the kit grows a control column
+        let mut lead = {
+            let blocks = blocks.clone();
+            move |side: AlignedSide, line: Option<u32>| -> Option<AnyElement> {
+                let (block, pick_side, local) = map_pick_line(&blocks, side, line?)?;
+                let checked = picks
+                    .get(block)
+                    .is_some_and(|pick| pick.picked(pick_side, local));
+                let side_name = match pick_side {
+                    Side::Ours => "ours",
+                    Side::Theirs => "theirs",
+                };
+                let selector = format!("merge-pick-{block}-{side_name}-{local}");
+                Some(
+                    div()
+                        .id(SharedString::from(selector.clone()))
+                        .debug_selector(move || selector.clone())
+                        .w(px(PICK_W))
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.toggle_line(block, pick_side, local, window, cx)
+                        }))
+                        .child(pick_box(checked))
+                        .into_any_element(),
+                )
+            }
+        };
+        let aligned: Vec<AlignedRow> = rows
+            .iter()
+            .map(|row| AlignedRow {
+                left: row.ours.and_then(|index| {
+                    ours.get(index as usize)
+                        .map(|text| (index + 1, text.as_str()))
+                }),
+                right: row.theirs.and_then(|index| {
+                    theirs
+                        .get(index as usize)
+                        .map(|text| (index + 1, text.as_str()))
+                }),
+                changed: row.block.is_some(),
+            })
+            .collect();
+        let lead_ref: &mut dyn FnMut(AlignedSide, Option<u32>) -> Option<AnyElement> = &mut lead;
+        let body = render_aligned(
+            &aligned,
+            AlignedOptions {
+                lead: Some(lead_ref),
+                font_detail: theme::font_mono_meta(),
+            },
         );
         div()
             .flex()
@@ -808,30 +945,28 @@ impl MergePage {
             .child(pane_head(labels, ours_lines, theirs_lines))
             .child(
                 div()
+                    .id("merge-panes-scroll")
                     .debug_selector(|| "merge-panes".into())
                     .flex_1()
                     .min_h_0()
-                    .font_family(theme::code_font())
-                    .text_size(px(theme::font_mono_meta()))
-                    .child(list.size_full()),
+                    .overflow_y_scroll()
+                    .track_scroll(&self.panes_scroll)
+                    .child(body),
             )
             .into_any_element()
     }
 
-    fn result_section(
-        &self,
-        labels: (&'static str, &'static str),
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn result_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        // built before the pane borrow: the strip reads the picks itself
+        let strip = self.conflict_strip(cx);
         let Some(pane) = self.result.as_ref() else {
             return empty_detail("Reading the result…");
         };
         let entity = cx.entity();
         let save_entity = entity.clone();
         let reload_entity = entity.clone();
-        let order_entity = entity.clone();
-        let dirty = pane.dirty;
         let unresolved = pane.unresolved;
+        let has_conflicts = !pane.origin.is_empty();
 
         let mut bar = div()
             .flex()
@@ -889,33 +1024,60 @@ impl MergePage {
                     .child("Changed on disk — Reload to take it"),
             );
         }
-        bar = bar.child(div().flex_1()).child(neutral_button(
-            "merge-order",
-            format!("Both: {} first", labels.0),
-            true,
-            move |_, _, cx| {
-                order_entity.update(cx, |this, cx| {
-                    this.both_current_first = !this.both_current_first;
-                    cx.notify();
-                })
-            },
-        ));
-        bar = bar.child(neutral_button(
-            "merge-reload",
-            "Reload",
-            true,
-            move |_, window, cx| reload_entity.update(cx, |this, cx| this.reload(window, cx)),
-        ));
-        bar = bar.child(neutral_button(
-            "merge-save",
-            "Save",
-            dirty,
-            move |_, _, cx| {
-                save_entity.update(cx, |this, cx| {
-                    this.save(cx);
-                });
-            },
-        ));
+        let prev_entity = entity.clone();
+        let next_entity = entity.clone();
+        bar = bar
+            .child(div().flex_1())
+            .child(
+                icon_button("merge-prev", "Previous conflict")
+                    .debug_selector(|| "merge-prev".into())
+                    .on_click(move |_, window, cx| {
+                        prev_entity.update(cx, |this, cx| this.step_conflict(-1, window, cx));
+                    })
+                    .child(icon(
+                        "icons/icon-arrow-up.svg",
+                        px(theme::icon_small()),
+                        theme::text_dim(),
+                    )),
+            )
+            .child(
+                icon_button("merge-next", "Next conflict")
+                    .debug_selector(|| "merge-next".into())
+                    .on_click(move |_, window, cx| {
+                        next_entity.update(cx, |this, cx| this.step_conflict(1, window, cx));
+                    })
+                    .child(icon(
+                        "icons/icon-arrow-down.svg",
+                        px(theme::icon_small()),
+                        theme::text_dim(),
+                    )),
+            )
+            .child(
+                icon_button("merge-reload", "Reload the worktree file")
+                    .debug_selector(|| "merge-reload".into())
+                    .on_click(move |_, window, cx| {
+                        reload_entity.update(cx, |this, cx| this.reload(window, cx))
+                    })
+                    .child(icon(
+                        "icons/icon-refresh.svg",
+                        px(theme::icon_small()),
+                        theme::text_dim(),
+                    )),
+            )
+            .child(
+                icon_button("merge-save", "Save the result")
+                    .debug_selector(|| "merge-save".into())
+                    .on_click(move |_, _, cx| {
+                        save_entity.update(cx, |this, cx| {
+                            this.save(cx);
+                        });
+                    })
+                    .child(icon(
+                        "icons/icon-save.svg",
+                        px(theme::icon_small()),
+                        theme::text_dim(),
+                    )),
+            );
         let stage_entity = entity.clone();
         let stage_folder = pane.folder.clone();
         let stage_path = pane.path.clone();
@@ -936,7 +1098,6 @@ impl MergePage {
             },
         ));
 
-        let strip = self.conflict_strip(labels, cx);
         let editor = Editor::new(&pane.editor)
             .bordered(false)
             .appearance(false)
@@ -945,7 +1106,7 @@ impl MergePage {
             .font_family(SharedString::from(theme::code_font()))
             .text_size(px(theme::font_mono_meta()));
         let mut section = div().flex().flex_col().flex_1().min_h_0().child(bar);
-        if !pane.blocks.is_empty() {
+        if has_conflicts {
             section = section.child(strip);
         }
         section
@@ -953,11 +1114,7 @@ impl MergePage {
             .into_any_element()
     }
 
-    fn conflict_strip(
-        &self,
-        labels: (&'static str, &'static str),
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn conflict_strip(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(pane) = self.result.as_ref() else {
             return div().into_any_element();
         };
@@ -972,8 +1129,8 @@ impl MergePage {
             .border_b_1()
             .border_color(theme::hairline())
             .track_focus(&self.strip_focus)
-            .on_key_down(cx.listener(|this, event, _window, cx| {
-                if this.handle_strip_key(event, cx) {
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_strip_key(event, window, cx) {
                     cx.stop_propagation();
                 }
             }))
@@ -985,13 +1142,13 @@ impl MergePage {
                     }
                 }),
             );
-        for (index, block) in pane.blocks.iter().enumerate() {
-            let ours = cx.entity();
-            let theirs = cx.entity();
-            let both = cx.entity();
+        for (index, block) in pane.origin.iter().enumerate() {
+            let picked = pane.picks.get(index).map(BlockPick::count).unwrap_or(0);
+            let total = block.ours_text.len() + block.theirs_text.len();
             let active = index == self.active_conflict;
             rows = rows.child(
                 div()
+                    .id(SharedString::from(format!("merge-conflict-{index}")))
                     .debug_selector(move || {
                         if active {
                             "merge-conflict-active".to_string()
@@ -1008,6 +1165,12 @@ impl MergePage {
                     .border_b_1()
                     .border_color(theme::hairline())
                     .when(active, |row| row.bg(theme::tint(theme::accent())))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.active_conflict = index;
+                        this.scroll_to_conflict(window, cx);
+                        cx.notify();
+                    }))
                     .child(
                         div()
                             .text_size(px(theme::font_micro()))
@@ -1019,37 +1182,66 @@ impl MergePage {
                             )),
                     )
                     .child(div().flex_1())
-                    .child(neutral_button_named(
-                        format!("merge-take-ours-{index}"),
-                        labels.0,
-                        format!("Take {} for conflict {}", labels.0, index + 1),
-                        true,
-                        move |_, window, cx| {
-                            ours.update(cx, |this, cx| this.take(Take::Ours, index, window, cx))
-                        },
-                    ))
-                    .child(neutral_button_named(
-                        format!("merge-take-theirs-{index}"),
-                        labels.1,
-                        format!("Take {} for conflict {}", labels.1, index + 1),
-                        true,
-                        move |_, window, cx| {
-                            theirs.update(cx, |this, cx| this.take(Take::Theirs, index, window, cx))
-                        },
-                    ))
-                    .child(neutral_button_named(
-                        format!("merge-take-both-{index}"),
-                        "Both",
-                        format!("Take both sides for conflict {}", index + 1),
-                        true,
-                        move |_, window, cx| {
-                            both.update(cx, |this, cx| this.take(Take::Both, index, window, cx))
-                        },
-                    )),
+                    .child(
+                        div()
+                            .text_size(px(theme::font_micro()))
+                            .when(picked == 0, |label| label.text_color(theme::WARN))
+                            .when(picked > 0, |label| label.text_color(theme::text_muted()))
+                            .child(format!("{picked} of {total} lines picked")),
+                    ),
             );
         }
         rows.into_any_element()
     }
+}
+
+/// The line one conflict starts at in the composed text: the block's own
+/// start, shifted by the lines the earlier blocks gave back or took.
+fn composed_line(pane: &ResultPane, index: usize) -> usize {
+    let mut cursor = 0usize;
+    let mut line = 0usize;
+    for (block_index, block) in pane.origin.iter().enumerate() {
+        let start = block.result.start as usize;
+        line += start.saturating_sub(cursor);
+        cursor = start + block.result.len as usize;
+        if block_index == index {
+            return line;
+        }
+        line += pane
+            .picks
+            .get(block_index)
+            .map(BlockPick::count)
+            .unwrap_or(0);
+    }
+    line
+}
+
+/// The pick a line number maps to: the aligned row carries a file line, the
+/// picks are keyed by block and the block's own line index.
+fn map_pick_line(
+    blocks: &[ConflictBlock],
+    side: AlignedSide,
+    line: u32,
+) -> Option<(usize, Side, usize)> {
+    let zero = line.saturating_sub(1) as usize;
+    for (index, block) in blocks.iter().enumerate() {
+        let span = match side {
+            AlignedSide::Left => block.ours,
+            AlignedSide::Right => block.theirs,
+        };
+        let Some(span) = span else {
+            continue;
+        };
+        let start = span.start as usize;
+        if zero >= start && zero < start + span.len as usize {
+            let pick_side = match side {
+                AlignedSide::Left => Side::Ours,
+                AlignedSide::Right => Side::Theirs,
+            };
+            return Some((index, pick_side, zero - start));
+        }
+    }
+    None
 }
 
 fn pane_head(labels: (&'static str, &'static str), ours: usize, theirs: usize) -> AnyElement {
@@ -1075,65 +1267,81 @@ fn pane_head(labels: (&'static str, &'static str), ours: usize, theirs: usize) -
         .items_center()
         .border_b_1()
         .border_color(theme::hairline())
+        .child(div().w(px(PICK_W)).flex_none())
         .child(half(labels.0, ours))
         .child(div().w(px(1.)).h_full().bg(theme::hairline()))
+        .child(div().w(px(PICK_W)).flex_none())
         .child(half(labels.1, theirs))
         .into_any_element()
 }
 
-fn pane_row(index: usize, rows: &[MergeRow], ours: &[String], theirs: &[String]) -> AnyElement {
-    let Some(row) = rows.get(index).copied() else {
-        return div().into_any_element();
-    };
-    let ours_text = row
-        .ours
-        .and_then(|line| ours.get(line as usize))
-        .map(String::as_str)
-        .unwrap_or("");
-    let theirs_text = row
-        .theirs
-        .and_then(|line| theirs.get(line as usize))
-        .map(String::as_str)
-        .unwrap_or("");
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .h(px(LINE_H))
-        .w_full()
-        .when(row.block.is_some(), |line| {
-            line.bg(theme::tint(theme::WARN))
+/// The 14-square pick box; the app's check glyph when the line is taken.
+fn pick_box(checked: bool) -> AnyElement {
+    let frame = div()
+        .w(px(14.))
+        .h(px(14.))
+        .rounded(px(3.))
+        .border_1()
+        .border_color(if checked {
+            theme::accent()
+        } else {
+            theme::text_muted()
         })
-        .child(gutter(row.ours))
-        .child(code_cell(ours_text))
-        .child(div().w(px(1.)).h_full().bg(theme::hairline()))
-        .child(gutter(row.theirs))
-        .child(code_cell(theirs_text))
-        .into_any_element()
-}
-
-fn gutter(line: Option<u32>) -> AnyElement {
-    div()
-        .w(px(GUTTER_W))
-        .flex_none()
+        .when(checked, |frame| frame.bg(theme::accent()))
         .flex()
-        .justify_end()
-        .pr_2()
-        .text_color(theme::text_muted())
-        .child(line.map(|line| format!("{}", line + 1)).unwrap_or_default())
-        .into_any_element()
+        .items_center()
+        .justify_center();
+    if checked {
+        frame
+            .child(crate::ui::icon(
+                "icons/icon-check.svg",
+                px(10.),
+                theme::on_accent(),
+            ))
+            .into_any_element()
+    } else {
+        frame.into_any_element()
+    }
 }
 
-fn code_cell(text: &str) -> AnyElement {
-    div()
-        .flex_1()
-        .min_w_0()
-        .px_2()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_color(theme::text())
-        .child(text.to_string())
-        .into_any_element()
+/// Rebuilds a pane's picks from a new marker text: the picks, the composed
+/// buffer and the editor all follow it.
+fn seed_pane(pane: &mut ResultPane, base: String, window: &mut Window, cx: &mut gpui::App) {
+    let origin = buffer_conflicts(&base);
+    let picks: Vec<BlockPick> = origin.iter().map(BlockPick::fresh).collect();
+    let text = compose(&base, &origin, &picks);
+    let editor = pane.editor.clone();
+    editor.update(cx, |state, cx| state.set_value(&text, window, cx));
+    pane.base = base;
+    pane.origin = origin;
+    pane.picks = picks;
+    pane.text = text.clone();
+    pane.saved = text;
+    pane.dirty = false;
+    pane.unresolved = count_unresolved(&pane.origin, &pane.picks);
+    pane.error = None;
+    pane.stamp = file_stamp(&Path::new(&pane.folder).join(&pane.path));
+    pane.checked_at = std::time::Instant::now();
+    pane.external = false;
+}
+
+/// The composed text: each conflict block replaced by its picked lines, from
+/// the end so the earlier spans stay valid.
+fn compose(base: &str, origin: &[BufferConflict], picks: &[BlockPick]) -> String {
+    let mut out = base.to_string();
+    for (block, pick) in origin.iter().zip(picks.iter()).rev() {
+        out = splice_lines(&out, block.result, &pick.chosen(block));
+    }
+    out
+}
+
+/// How many conflicts have no picked line at all: the staging gate.
+fn count_unresolved(origin: &[BufferConflict], picks: &[BlockPick]) -> usize {
+    origin
+        .iter()
+        .zip(picks)
+        .filter(|(_, pick)| pick.count() == 0)
+        .count()
 }
 
 /// Replaces one line span in a text with the given lines, keeping the file's
@@ -1150,42 +1358,6 @@ fn splice_lines(text: &str, span: LineSpan, replacement: &[String]) -> String {
         next.push_str(eol);
     }
     next
-}
-
-/// The Result editor's conflict tints, one per complete block still in the
-/// buffer.
-fn result_decorations(text: &str) -> Vec<RangeDecoration> {
-    buffer_conflicts(text)
-        .into_iter()
-        .filter_map(|block| line_byte_range(text, block.result))
-        .map(|range| RangeDecoration::new(range).with_color(theme::tint(theme::WARN)))
-        .collect()
-}
-
-/// The byte range one line span covers, its newlines included. Ranges are the
-/// decoration collection's UTF-8 offsets.
-fn line_byte_range(text: &str, span: LineSpan) -> Option<std::ops::Range<usize>> {
-    let mut ends = Vec::new();
-    let mut at = 0;
-    for piece in text.split_inclusive('\n') {
-        at += piece.len();
-        ends.push(at);
-    }
-    let start_line = span.start as usize;
-    if ends.is_empty() || start_line >= ends.len() {
-        return None;
-    }
-    let start = if start_line == 0 {
-        0
-    } else {
-        ends[start_line - 1]
-    };
-    let end_line = (start_line + span.len as usize).min(ends.len());
-    if end_line == 0 {
-        return None;
-    }
-    let end = ends[end_line - 1];
-    (end > start).then_some(start..end)
 }
 
 fn loading(target: &str) -> AnyElement {
@@ -1242,8 +1414,8 @@ fn loading(target: &str) -> AnyElement {
         .into_any_element()
 }
 
-/// The stop between the last staged file and the rail item leaving: the index
-/// is clean, the probe has not answered yet.
+/// The stop between the last staged file and the editor leaving: the index is
+/// clean, the probe has not answered yet.
 fn resolved(target: &str) -> AnyElement {
     div()
         .id("merge-page")

@@ -163,6 +163,11 @@ pub struct Store {
     /// A session load is in flight; the page draws its loading state rather
     /// than the resolved one until the answer lands.
     pub merge_loading: bool,
+    /// The merge editor is open in the repository detail pane (session-only).
+    pub merge_editor_open: bool,
+    /// A Merge action asked for the editor: the probe that follows decides
+    /// whether there is a stopped operation to open it on.
+    merge_after: Option<String>,
     pub branches: Vec<warp_station_core::model::GitBranchRef>,
     pub recent_commits: Vec<warp_station_core::model::GitCommitInfo>,
     pub unpushed: Option<std::collections::HashSet<String>>,
@@ -512,6 +517,8 @@ impl Store {
             merge_loaded_for: None,
             merge_generation: 0,
             merge_loading: false,
+            merge_editor_open: false,
+            merge_after: None,
             branches: Vec::new(),
             recent_commits: Vec::new(),
             unpushed: None,
@@ -945,6 +952,17 @@ impl Store {
                 // keep a rail item alive
                 self.merge_ops
                     .retain(|folder, _| by_folder.contains_key(folder));
+                // a Merge action that stopped on the answer opens the editor
+                if let Some(folder) = self.merge_after.clone()
+                    && probes.iter().any(|probe| probe.folder_path == folder)
+                {
+                    self.merge_after = None;
+                    if self.selected_repo.as_deref() == Some(folder.as_str())
+                        && self.merge_ops.contains_key(&folder)
+                    {
+                        self.open_merge_editor(cx);
+                    }
+                }
                 // drop a loaded session whose operation ended (or vanished)
                 if let Some(folder) = self.merge_loaded_for.clone()
                     && !self.merge_ops.contains_key(&folder)
@@ -953,6 +971,7 @@ impl Store {
                     self.merge_loaded_for = None;
                     self.merge_folder = None;
                     self.merge_loading = false;
+                    self.merge_editor_open = false;
                     self.merge_generation = self.merge_generation.wrapping_add(1);
                 }
                 let mut applied = false;
@@ -2530,6 +2549,10 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
+        if matches!(action, GitAction::Merge(_)) {
+            // the editor opens on the probe that reports the stop, if any
+            self.merge_after = Some(folder.clone());
+        }
         self.begin_git_job(folder.clone(), action.label());
         let _ = self.net.send_blocking(NetCommand::Git {
             folder: std::path::PathBuf::from(folder),
@@ -3083,6 +3106,8 @@ impl Store {
     /// Shows `tab` in the detail pane, and records it as the current tab's
     /// resting view so a restart opens the pane where the user left it.
     pub fn open_detail_tab(&mut self, tab: WorkspaceTab, cx: &mut Context<Self>) {
+        // picking a tab leaves the merge editor, which is not a tab
+        self.merge_editor_open = false;
         self.detail_tab = tab;
         match &self.active_repo_tab {
             Some(folder) => {
@@ -6175,8 +6200,10 @@ impl Store {
         self.merge_loaded_for = Some(folder.clone());
         self.merge = None;
         self.merge_loading = true;
+        let cap = (self.settings().repos.merge_max_kb as usize).max(64) * 1024;
         let _ = self.net.send_blocking(NetCommand::LoadMerge {
             folder: folder.into(),
+            max_bytes: cap,
         });
         cx.notify();
     }
@@ -6232,8 +6259,10 @@ impl Store {
                 self.merge_loaded_for = Some(folder.clone());
                 self.merge_loading = true;
                 self.merge_generation = self.merge_generation.wrapping_add(1);
+                let cap = (self.settings().repos.merge_max_kb as usize).max(64) * 1024;
                 let _ = self.net.send_blocking(NetCommand::LoadMerge {
                     folder: folder.clone().into(),
+                    max_bytes: cap,
                 });
                 let _ = self.net.send_blocking(NetCommand::ProbeAll {
                     folders: vec![folder.into()],
@@ -6241,6 +6270,37 @@ impl Store {
             }
         }
         cx.notify();
+    }
+
+    /// Opens the merge editor over the repository detail; the session loads
+    /// for the selected repository and Changes draws its conflict banner from
+    /// the same load.
+    pub fn open_merge_editor(&mut self, cx: &mut Context<Self>) {
+        self.merge_editor_open = true;
+        self.ensure_merge_loaded(cx);
+        cx.notify();
+    }
+
+    pub fn close_merge_editor(&mut self, cx: &mut Context<Self>) {
+        if self.merge_editor_open {
+            self.merge_editor_open = false;
+            cx.notify();
+        }
+    }
+
+    /// The stopped operation's entry for `path`, when the selected repository
+    /// is the one loaded: Changes uses it to tell a conflict from an
+    /// untracked file.
+    pub fn merge_file_for(&self, path: &str) -> Option<&warp_station_core::git::merge::MergeFile> {
+        let folder = self.selected_repo.as_deref()?;
+        if self.merge_loaded_for.as_deref() != Some(folder) {
+            return None;
+        }
+        self.merge
+            .as_ref()?
+            .files
+            .iter()
+            .find(|file| file.path() == path)
     }
 
     pub fn selected_entry(&self) -> Option<&RepoEntry> {

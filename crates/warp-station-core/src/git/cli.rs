@@ -315,6 +315,41 @@ pub async fn push(folder: &Path) -> GitOutcome {
     sync(folder, &["push".into()]).await
 }
 
+/// Whether the worktree is mid merge after a command that may have stopped
+/// one: the state, not the exit line, decides.
+fn merge_stopped(folder: &Path) -> bool {
+    git2::Repository::open(folder)
+        .ok()
+        .and_then(|repo| crate::git::merge::MergeOperation::of_state(repo.state()))
+        .is_some()
+}
+
+/// `git merge --no-edit <branch>` into the checked-out branch. A merge that
+/// stops on conflicts is a state, not a failure: the index carries them and
+/// the merge editor takes over, so the outcome is ok either way, and only a
+/// refused merge (unknown branch, unrelated histories) reports git's line.
+pub async fn merge_branch(folder: &Path, branch: &str) -> GitOutcome {
+    let args = ["merge".into(), "--no-edit".into(), branch.into()];
+    match run_git(folder, &args, SYNC_TIMEOUT, None).await {
+        Ok(result) => {
+            // the command reports a stopped merge through a non-zero exit;
+            // ask the repository, not git's wording, whether it stopped
+            if result.succeeded() || result.truncated || merge_stopped(folder) {
+                GitOutcome {
+                    ok: true,
+                    error: None,
+                }
+            } else {
+                GitOutcome::from(&result)
+            }
+        }
+        Err(err) => GitOutcome {
+            ok: false,
+            error: Some(err.to_string()),
+        },
+    }
+}
+
 pub async fn publish_branch(folder: &Path, branch: &str) -> GitSyncResult {
     let Some(remote) = read::default_remote_name(folder) else {
         return GitSyncResult::err(Some("no remote configured".into()));

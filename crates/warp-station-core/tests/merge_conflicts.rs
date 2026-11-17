@@ -443,3 +443,48 @@ fn a_large_conflict_file_is_read() {
     println!("10k-line merge read in {elapsed:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn merging_a_branch_through_the_cli_stops_on_conflicts() {
+    if !git_available() {
+        return;
+    }
+    let dir = scratch("cli-merge");
+    write(&dir, "a.txt", "base\n");
+    git_ok(&dir, &["add", "a.txt"]);
+    git_ok(&dir, &["commit", "-qm", "base"]);
+    git_ok(&dir, &["checkout", "-q", "-b", "feature"]);
+    write(&dir, "a.txt", "feature\n");
+    git_ok(&dir, &["commit", "-qam", "feature side"]);
+    git_ok(&dir, &["checkout", "-q", "main"]);
+    write(&dir, "a.txt", "main\n");
+    git_ok(&dir, &["commit", "-qam", "main side"]);
+
+    let runtime = tokio::runtime::Runtime::new().expect("the test runtime builds");
+    let outcome = runtime.block_on(cli::merge_branch(&dir, "feature"));
+    assert!(
+        outcome.ok,
+        "a conflicting merge is a stopped state, not a failure: {:?}",
+        outcome.error
+    );
+    let session = merge::session(&dir).expect("the merge is stopped");
+    assert_eq!(session.operation, MergeOperation::Merge);
+    assert_eq!(session.files.len(), 1);
+}
+
+#[test]
+fn a_tight_cap_turns_the_file_whole() {
+    if !git_available() {
+        return;
+    }
+    let dir = merge_conflict("cap", None, None);
+    let session = merge::session_with_cap(&dir, 1).expect("a stopped merge");
+    let MergeFile::WholeFile(file) = &session.files[0] else {
+        panic!("a one-byte cap leaves no text merge");
+    };
+    assert_eq!(file.reason, WholeFileReason::TooLarge);
+    // the default cap still opens it as text
+    let open = merge::session(&dir).expect("a stopped merge");
+    assert!(matches!(open.files[0], MergeFile::Text(_)));
+    let _ = std::fs::remove_dir_all(&dir);
+}

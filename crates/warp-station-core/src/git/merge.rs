@@ -256,6 +256,57 @@ pub fn unresolved_count(text: &str) -> usize {
     blocks.len() + fragments
 }
 
+/// One conflict's two sides paired row for row — the line picker's mapping
+/// from a visible row to each side's own line index. A side that has no line
+/// on a row yields `None`.
+pub fn align_side_lines(ours: &[String], theirs: &[String]) -> Vec<(Option<usize>, Option<usize>)> {
+    let ours_text = ours.join("\n");
+    let theirs_text = theirs.join("\n");
+    let diff = TextDiff::from_lines(ours_text.as_str(), theirs_text.as_str());
+    let mut rows = Vec::new();
+    for op in diff.ops() {
+        match *op {
+            DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => {
+                for offset in 0..len {
+                    rows.push((Some(old_index + offset), Some(new_index + offset)));
+                }
+            }
+            DiffOp::Delete {
+                old_index, old_len, ..
+            } => {
+                for offset in 0..old_len {
+                    rows.push((Some(old_index + offset), None));
+                }
+            }
+            DiffOp::Insert {
+                new_index, new_len, ..
+            } => {
+                for offset in 0..new_len {
+                    rows.push((None, Some(new_index + offset)));
+                }
+            }
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                for offset in 0..old_len.max(new_len) {
+                    rows.push((
+                        (offset < old_len).then_some(old_index + offset),
+                        (offset < new_len).then_some(new_index + offset),
+                    ));
+                }
+            }
+        }
+    }
+    rows
+}
+
 fn marker_fragment(line: &str) -> bool {
     ['<', '|', '=', '>'].into_iter().any(|ch| {
         let rest = line.trim_start_matches(ch);
@@ -280,6 +331,13 @@ impl WholeFileReason {
 /// Reads the stopped operation at `folder`, or `None` when nothing is stopped
 /// or the index has no unmerged paths left.
 pub fn session(folder: &Path) -> Option<MergeSession> {
+    session_with_cap(folder, MAX_MERGE_FILE_BYTES)
+}
+
+/// [`session`] with the caller's own per-file cap: a file larger than
+/// `max_bytes` on either side becomes a whole-file entry instead of a text
+/// merge. The settings' `repos.merge_max_kb` reaches here through the store.
+pub fn session_with_cap(folder: &Path, max_bytes: usize) -> Option<MergeSession> {
     let repo = Repository::discover(folder).ok()?;
     let operation = MergeOperation::of_state(repo.state())?;
     let index = repo.index().ok()?;
@@ -288,7 +346,7 @@ pub fn session(folder: &Path) -> Option<MergeSession> {
     let mut files = Vec::new();
     for conflict in conflicts.flatten() {
         let path = conflict_path(&conflict);
-        files.push(build_file(&repo, folder, &conflict, &path));
+        files.push(build_file(&repo, folder, &conflict, &path, max_bytes));
     }
     if files.is_empty() {
         return None;
@@ -307,7 +365,13 @@ fn conflict_path(conflict: &IndexConflict) -> String {
         .unwrap_or_default()
 }
 
-fn build_file(repo: &Repository, folder: &Path, conflict: &IndexConflict, path: &str) -> MergeFile {
+fn build_file(
+    repo: &Repository,
+    folder: &Path,
+    conflict: &IndexConflict,
+    path: &str,
+    max_bytes: usize,
+) -> MergeFile {
     let (ours, theirs) = (conflict.our.as_ref(), conflict.their.as_ref());
     let (Some(ours), Some(theirs)) = (ours, theirs) else {
         return whole(
@@ -325,7 +389,7 @@ fn build_file(repo: &Repository, folder: &Path, conflict: &IndexConflict, path: 
     else {
         return whole(path, WholeFileReason::Unreadable, true, true);
     };
-    if ours_bytes.len() > MAX_MERGE_FILE_BYTES || theirs_bytes.len() > MAX_MERGE_FILE_BYTES {
+    if ours_bytes.len() > max_bytes || theirs_bytes.len() > max_bytes {
         return whole(path, WholeFileReason::TooLarge, true, true);
     }
 
@@ -333,7 +397,7 @@ fn build_file(repo: &Repository, folder: &Path, conflict: &IndexConflict, path: 
         Ok(bytes) => bytes,
         Err(_) => return whole(path, WholeFileReason::MissingResult, true, true),
     };
-    if result_bytes.len() > MAX_MERGE_FILE_BYTES {
+    if result_bytes.len() > max_bytes {
         return whole(path, WholeFileReason::TooLarge, true, true);
     }
 
@@ -750,6 +814,22 @@ mod tests {
         assert_eq!(
             unresolved_count("a\n<<<<<<< HEAD\nours\n=======\ntheirs\n"),
             2
+        );
+    }
+
+    #[test]
+    fn side_lines_pair_by_their_diff() {
+        let ours = file("a\nb\nc\n");
+        let theirs = file("a\nB\nc\nd\n");
+        let rows = align_side_lines(&ours, &theirs);
+        assert_eq!(
+            rows,
+            vec![
+                (Some(0), Some(0)),
+                (Some(1), Some(1)),
+                (Some(2), Some(2)),
+                (None, Some(3)),
+            ]
         );
     }
 }

@@ -183,6 +183,9 @@ pub struct ReposSettings {
     /// Minutes between automatic scans while the window is focused; None = 0
     /// = off. Absence-meaningful like sort_ascending.
     pub auto_refresh_minutes: Option<u32>,
+    /// Largest side (or result) a merge editor opens as a text merge; a
+    /// bigger file stays a whole-file conflict. 2048 KiB by default.
+    pub merge_max_kb: u32,
     /// Collapsed group keys (folder paths, or "other"); None = all
     /// expanded. Absence-meaningful like sort_ascending.
     pub collapsed_groups: Option<Vec<String>>,
@@ -254,6 +257,7 @@ impl Default for ReposSettings {
             group_root_depth: None,
             auto_refresh_on_focus: true,
             auto_refresh_minutes: None,
+            merge_max_kb: 2048,
             collapsed_groups: None,
             enable_code_search: None,
             code_search_executable: None,

@@ -10,7 +10,6 @@ use crate::ui::A11y;
 use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
 use crate::ui::formatters::FormattersDrawer;
 use crate::ui::icon;
-use crate::ui::merge::MergePage;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::pomodoro::PomodoroPage;
 use crate::ui::summary::SummaryPage;
@@ -29,7 +28,6 @@ use warpui_kit_core::{motion, shell};
 enum Section {
     Repos,
     Summary,
-    Merge,
     Pomodoro,
     Tools,
     About,
@@ -79,7 +77,6 @@ pub struct MainWindow {
     repos_page: Entity<crate::ui::repos::ReposPage>,
     settings_page: Entity<crate::ui::settings::SettingsPage>,
     summary_page: Entity<SummaryPage>,
-    merge_page: Entity<MergePage>,
     pomodoro_page: Entity<PomodoroPage>,
     global_search: Entity<InputState>,
     /// The tools' pages, built the first time each opens.
@@ -122,7 +119,6 @@ impl MainWindow {
         let settings_page =
             cx.new(|cx| crate::ui::settings::SettingsPage::new(store.clone(), window, cx));
         let summary_page = cx.new(|cx| SummaryPage::new(store.clone(), cx));
-        let merge_page = cx.new(|cx| MergePage::new(store.clone(), cx));
         let pomodoro_page = cx.new(|cx| PomodoroPage::new(store.clone(), cx));
         let global_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search repos, notes, code…"));
@@ -171,7 +167,6 @@ impl MainWindow {
                 _ if tool.is_some() => Section::Tools,
                 Ok("settings") => Section::Settings,
                 Ok("summary") => Section::Summary,
-                Ok("merge") => Section::Merge,
                 Ok("pomodoro") => Section::Pomodoro,
                 Ok("tools") => Section::Tools,
                 Ok("about") => Section::About,
@@ -195,7 +190,6 @@ impl MainWindow {
             repos_page,
             settings_page,
             summary_page,
-            merge_page,
             pomodoro_page,
             global_search,
             formatters: None,
@@ -1863,17 +1857,6 @@ impl MainWindow {
                 "Summary",
                 cx,
             ));
-        // the Merge section exists only while a repository is stopped mid
-        // operation; the probes carry the flag, so the rail follows them
-        if !self.store.read(cx).merge_repos().is_empty() {
-            rail = rail.child(self.rail_item(
-                Section::Merge,
-                "rail-merge",
-                "icons/icon-merge.svg",
-                "Merge",
-                cx,
-            ));
-        }
         if pomodoro_enabled {
             rail = rail.child(self.rail_item(
                 Section::Pomodoro,
@@ -1911,9 +1894,6 @@ impl MainWindow {
     fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         // a saved-off Pomodoro section falls back to Repos, like a tool whose
         // switch turned off; the page parks its poll whenever it leaves screen
-        if self.section == Section::Merge && self.store.read(cx).merge_target().is_none() {
-            self.section = Section::Repos;
-        }
         if self.section == Section::Pomodoro
             && !self.store.read(cx).settings().pomodoro.enable_pomodoro
         {
@@ -1927,7 +1907,6 @@ impl MainWindow {
         match self.section {
             Section::Repos => body.child(self.repos_page.clone()).into_any_element(),
             Section::Summary => body.child(self.summary_page.clone()).into_any_element(),
-            Section::Merge => body.child(self.merge_page.clone()).into_any_element(),
             Section::Pomodoro => body.child(self.pomodoro_page.clone()).into_any_element(),
             Section::Tools => body.child(self.render_tools(window, cx)).into_any_element(),
             Section::About => body.child(self.render_about(cx)).into_any_element(),

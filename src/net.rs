@@ -56,6 +56,8 @@ pub enum NetCommand {
     /// unmerged paths and each text conflict's three sides.
     LoadMerge {
         folder: PathBuf,
+        /// The largest side the merge editor opens as a text merge.
+        max_bytes: usize,
     },
     /// One Merge page mutation: stage a resolved file, or take a side of a
     /// whole-file conflict. The index is the answer, so the caller reloads.
@@ -379,6 +381,9 @@ pub enum GitAction {
     Sync,
     /// `git revert --no-edit` on one commit (the drill-down's Revert).
     Revert(String),
+    /// `git merge --no-edit <branch>` into the checked-out branch; conflicts
+    /// leave the operation stopped and open the merge editor.
+    Merge(String),
 }
 
 /// One mutation's result.
@@ -448,13 +453,16 @@ impl GitAction {
             GitAction::Publish { .. } => "publish",
             GitAction::Sync => "sync",
             GitAction::Revert(_) => "revert",
+            GitAction::Merge(_) => "merge",
         }
     }
 
     /// The action's target (branch name) for toast texts.
     pub fn detail(&self) -> Option<String> {
         match self {
-            GitAction::Checkout(target) | GitAction::Revert(target) => Some(target.clone()),
+            GitAction::Checkout(target) | GitAction::Revert(target) | GitAction::Merge(target) => {
+                Some(target.clone())
+            }
             GitAction::DeleteBranch(name) => Some(name.clone()),
             GitAction::CreateBranch { name, .. } | GitAction::Publish { branch: name } => {
                 Some(name.clone())
@@ -2004,10 +2012,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
             | NetCommand::AzureUsers { .. }
             | NetCommand::GithubAssignees { .. }
             | NetCommand::LoadChanges { .. } => {}
-            NetCommand::LoadMerge { folder } => {
+            NetCommand::LoadMerge { folder, max_bytes } => {
                 let path = folder.clone();
                 let session = tokio::task::spawn_blocking(move || {
-                    warp_station_core::git::merge::session(&path)
+                    warp_station_core::git::merge::session_with_cap(&path, max_bytes)
                 })
                 .await
                 .ok()
@@ -2309,6 +2317,10 @@ async fn plain_git_action(
         GitAction::DeleteBranch(name) => {
             let result = cli::delete_branch(folder, name).await;
             (result.success, result.error, None)
+        }
+        GitAction::Merge(branch) => {
+            let outcome = cli::merge_branch(folder, branch).await;
+            (outcome.ok, outcome.error, None)
         }
         GitAction::Fetch => {
             let outcome = cli::fetch(folder).await;

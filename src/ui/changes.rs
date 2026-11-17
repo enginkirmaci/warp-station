@@ -952,6 +952,10 @@ impl ChangesView {
 impl Render for ChangesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_repo_reset(window, cx);
+        // the stopped operation's session feeds both the conflict banner and
+        // the merge editor; loading it here keeps them on one answer
+        self.store
+            .update(cx, |store, cx| store.ensure_merge_loaded(cx));
         // the switch is app-wide: a change from the head must reach the rows on
         // this same draw
         let tree_view = self.store.read(cx).tree_view();
@@ -1222,35 +1226,41 @@ impl ChangesView {
     ) -> gpui::AnyElement {
         let split = self.diff_view == DiffViewMode::Split;
         let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
+        // a conflicted path has no index-vs-worktree patch, so the frame's
+        // "No textual changes" would be a dead end: offer the editor instead
+        let merge_file = self.store.read(cx).merge_file_for(path).cloned();
         // an empty patch is a state, not a one-row diff: a binary file or a
         // mode-only change has nothing textual to draw
-        let has_patch = matches!(patch, Some(patch) if !patch.is_empty());
-        let body: gpui::AnyElement = match patch {
-            Some(patch) if !patch.is_empty() => div()
-                .id(SharedString::from(format!("{pane_selector}-scroll")))
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(diff_controls::attach_filling(
-                    gpui::ElementId::Name(menu_name.into()),
-                    render_diff_with_scroll(
-                        patch,
-                        None,
-                        warpui_kit_diff::DiffOptions {
-                            mode: diff_controls::kit_mode(self.diff_view),
-                            wrap: self.diff_wrap,
-                        },
-                        &self.diff_scroll,
-                        theme::font_mono_meta(),
-                        window,
-                        cx,
-                    ),
-                    warpui_kit_core::text_menu::focus(cx),
-                ))
-                .into_any_element(),
-            Some(_) => diff_controls::state("No textual changes"),
-            None => diff_controls::state("Loading patch…"),
+        let has_patch = merge_file.is_none() && matches!(patch, Some(patch) if !patch.is_empty());
+        let body: gpui::AnyElement = match merge_file.as_ref() {
+            Some(file) => merge_conflict_state(file, self.store.clone()),
+            None => match patch {
+                Some(patch) if !patch.is_empty() => div()
+                    .id(SharedString::from(format!("{pane_selector}-scroll")))
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(diff_controls::attach_filling(
+                        gpui::ElementId::Name(menu_name.into()),
+                        render_diff_with_scroll(
+                            patch,
+                            None,
+                            warpui_kit_diff::DiffOptions {
+                                mode: diff_controls::kit_mode(self.diff_view),
+                                wrap: self.diff_wrap,
+                            },
+                            &self.diff_scroll,
+                            theme::font_mono_meta(),
+                            window,
+                            cx,
+                        ),
+                        warpui_kit_core::text_menu::focus(cx),
+                    ))
+                    .into_any_element(),
+                Some(_) => diff_controls::state("No textual changes"),
+                None => diff_controls::state("Loading patch…"),
+            },
         };
         let wrap_view = cx.entity();
         let layout_view = wrap_view.clone();
@@ -3606,6 +3616,24 @@ impl ChangesView {
             },
         ));
 
+        // merging is the branch row's second verb: the selected branch into
+        // the checked-out one, which stops on conflicts and opens the editor
+        let merge_name = branch.clone();
+        let merge_close = close.clone();
+        let merge_store = self.store.clone();
+        card = card.child(crate::ui::pull_request::menu_item(
+            "branch-menu-merge",
+            "icons/icon-merge.svg",
+            "Merge into current",
+            !is_current && !busy,
+            move |_, _, cx| {
+                merge_store.update(cx, |store, cx| {
+                    store.run_git(GitAction::Merge(merge_name.clone()), cx);
+                });
+                merge_close(cx);
+            },
+        ));
+
         let copy_name = branch.clone();
         let copy_close = close.clone();
         card = card.child(crate::ui::pull_request::menu_item(
@@ -4761,5 +4789,48 @@ fn new_branch_form(
                         .child("Create"),
                 ),
         )
+        .into_any_element()
+}
+
+/// A conflicted path in place of an empty diff: the merge editor is the only
+/// way to see and resolve it, so the frame offers that door directly.
+fn merge_conflict_state(
+    file: &warp_station_core::git::merge::MergeFile,
+    store: Entity<Store>,
+) -> gpui::AnyElement {
+    use warp_station_core::git::merge::MergeFile;
+    let detail = match file {
+        MergeFile::Text(text) => format!("{} conflict block(s)", text.blocks.len()),
+        MergeFile::WholeFile(whole) => whole.reason.label().to_string(),
+    };
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .child(
+            div()
+                .text_size(px(theme::font_heading()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::text())
+                .child("Merge conflict"),
+        )
+        .child(
+            div()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .child(format!("{} — {detail}", file.path())),
+        )
+        .child(crate::ui::primary_button(
+            "changes-open-merge",
+            "Open merge editor",
+            true,
+            move |_, _, cx| {
+                store.update(cx, |store, cx| store.open_merge_editor(cx));
+            },
+        ))
         .into_any_element()
 }

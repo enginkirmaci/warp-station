@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use warp_station::net::UiEvent;
 use warp_station::store::Store;
 use warp_station::ui::merge::MergePage;
-use warp_station::ui::window::MainWindow;
 use warp_station_core::git::merge::{
     ConflictBlock, LineSpan, MergeFile, MergeOperation, MergeRow, MergeSession, TextMerge,
     WholeFileConflict, WholeFileReason,
@@ -117,59 +116,50 @@ fn the_merge_page_draws_its_files_and_panes(cx: &mut TestAppContext) {
     );
     assert!(
         cx.debug_bounds("merge-pane-row").is_some(),
-        "the source panes lay rows out instead of collapsing"
+        "the source pane heads draw"
+    );
+    assert!(
+        cx.debug_bounds("aligned-panes").is_some(),
+        "the diff kit's aligned body draws the rows"
     );
 }
 
 #[gpui_kit::gpui::test]
-fn the_rail_item_follows_the_stopped_operation(cx: &mut TestAppContext) {
+fn opening_the_editor_claims_the_detail(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     scratch_home();
     cx.update(warp_station::theme::apply_kit_theme);
 
     let (net_tx, _net_rx) = async_channel::unbounded();
-    let store = cx.new(|cx| Store::new(cx, net_tx));
+    let store = cx.new(|_cx| Store::with_settings(net_tx, scratch_service("open")));
     cx.update_entity(&store, |store: &mut Store, cx| {
+        let folder = "/probe/alpha".to_string();
         store
             .merge_ops
-            .insert("/probe/alpha".to_string(), MergeOperation::Merge);
+            .insert(folder.clone(), MergeOperation::Merge);
+        store.selected_repo = Some(folder.clone());
+        store.merge = Some(session());
+        store.merge_loaded_for = Some(folder);
+        store.merge_generation = 1;
         cx.notify();
     });
-
-    let (_window, cx) = cx.add_window_view(|window, cx| MainWindow::new(store.clone(), window, cx));
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
-    cx.update(|window, cx| drop(window.draw(cx)));
-
-    let rail = cx
-        .debug_bounds("rail-merge")
-        .expect("the rail item exists while an operation is stopped");
-    cx.simulate_click(rail.center(), gpui::Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
     assert!(
-        cx.debug_bounds("merge-page").is_some(),
-        "the Merge page opens from the rail item"
+        cx.update_entity(&store, |store: &mut Store, cx| {
+            store.open_merge_editor(cx);
+            store.merge_editor_open
+        }),
+        "the detail switcher opens the merge editor"
     );
     assert!(
-        cx.debug_bounds("merge-loading").is_some(),
-        "the page says it is reading the operation"
+        cx.update_entity(&store, |store: &mut Store, _| {
+            store.merge_file_for("a.txt").is_some()
+        }),
+        "Changes can tell a conflicted path from an untracked one"
     );
-
-    // the operation ends elsewhere: the next status pass drops the flag
-    cx.update_entity(&store, |store: &mut Store, cx| {
-        store.merge_ops.clear();
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.update(|window, cx| drop(window.draw(cx)));
+    cx.update_entity(&store, |store: &mut Store, cx| store.close_merge_editor(cx));
     assert!(
-        cx.debug_bounds("rail-merge").is_none(),
-        "the rail item leaves when nothing is stopped"
-    );
-    assert!(
-        cx.debug_bounds("merge-page").is_none(),
-        "and the section falls back to Repos"
+        !cx.update_entity(&store, |store: &mut Store, _| store.merge_editor_open),
+        "Close leaves the editor"
     );
 }
 
@@ -187,7 +177,7 @@ fn click(cx: &mut gpui::VisualTestContext, selector: &'static str) {
 }
 
 #[gpui_kit::gpui::test]
-fn taking_a_side_rewrites_the_buffer_and_saves(cx: &mut TestAppContext) {
+fn picking_lines_composes_the_result_and_saves(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     scratch_home();
     cx.update(warp_station::theme::apply_kit_theme);
@@ -221,18 +211,17 @@ fn taking_a_side_rewrites_the_buffer_and_saves(cx: &mut TestAppContext) {
 
     let (_window, cx) = cx.add_window_view(|_window, cx| MergePage::new(store.clone(), cx));
     draw(cx);
-    click(cx, "merge-take-ours-0");
-    assert!(
-        cx.debug_bounds("merge-take-ours-0").is_none(),
-        "the block leaves the strip once it is taken"
-    );
+    // the Current line starts picked: adding Incoming composes both, in row
+    // order, with Current first
+    click(cx, "merge-pick-0-theirs-0");
     click(cx, "merge-save");
     let saved = std::fs::read_to_string(&worktree).expect("the result writes");
-    assert!(
-        !saved.contains("<<<<<<<"),
-        "the markers are gone: {saved:?}"
-    );
-    assert_eq!(saved, "main\n");
+    assert_eq!(saved, "main\nfeature\n");
+    // dropping the Current pick leaves only the Incoming line
+    click(cx, "merge-pick-0-ours-0");
+    click(cx, "merge-save");
+    let saved = std::fs::read_to_string(&worktree).expect("the result writes");
+    assert_eq!(saved, "feature\n");
     let _ = std::fs::remove_dir_all(&folder);
 }
 
@@ -409,7 +398,11 @@ fn alt_arrows_walk_the_conflict_strip(cx: &mut TestAppContext) {
     draw(cx);
 
     let strip = cx.debug_bounds("merge-conflicts").expect("the strip draws");
-    cx.simulate_click(strip.center(), gpui::Modifiers::default());
+    // the first row, not the strip's middle: the middle is the row boundary
+    cx.simulate_click(
+        strip.origin + gpui::point(gpui::px(20.), gpui::px(8.)),
+        gpui::Modifiers::default(),
+    );
     draw(cx);
     let first = cx
         .debug_bounds("merge-conflict-active")
