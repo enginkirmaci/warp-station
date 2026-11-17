@@ -336,6 +336,12 @@ pub struct Store {
     pub warp_connected: bool,
     /// Live warp-agent status per workspace folder (running chat titles).
     pub warp_running: std::collections::HashMap<String, WarpWorkspaceStatus>,
+    /// The Worktrees tab's rows per repository: loaded on open, kept until
+    /// the tab asks again.
+    worktrees: std::collections::HashMap<String, WorktreeLoad>,
+    /// The row that could not be removed and why: the view turns it into the
+    /// explicit force confirm.
+    worktree_removal: Option<(String, String)>,
     /// The notification service: the toast stack (newest last, capped; the
     /// window overlay renders it and the per-second tick expires it) plus the
     /// desktop-mirror routing. `notify_*` calls into it.
@@ -585,6 +591,8 @@ impl Store {
             summary_busy: false,
             warp_connected: false,
             warp_running: std::collections::HashMap::new(),
+            worktrees: std::collections::HashMap::new(),
+            worktree_removal: None,
             notices: Notices::default(),
             global_search: Vec::new(),
             // E2E hook: WARP_STATION_NOTES=1 opens Notes (warp-notes) on launch
@@ -1834,6 +1842,86 @@ impl Store {
                 self.warp_running = workspaces.into_iter().collect();
                 cx.notify();
             }
+            UiEvent::WorktreesLoaded { folder, result } => {
+                let load = self.worktrees.entry(folder).or_default();
+                load.loading = false;
+                match result {
+                    Ok(rows) => {
+                        load.rows = rows;
+                        load.error = None;
+                    }
+                    Err(err) => {
+                        load.rows.clear();
+                        load.error = Some(err);
+                    }
+                }
+                cx.notify();
+            }
+            UiEvent::WarpChatStarted { folder, error } => {
+                match error {
+                    Some(err) => {
+                        tracing::warn!("warp-agent chat failed for {folder}: {err}");
+                        self.notify_error(format!("warp-agent: {err}"));
+                    }
+                    None => {
+                        let name = std::path::Path::new(&folder)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| folder.clone());
+                        self.notify_success(format!("Chat started in {name}"));
+                    }
+                }
+                cx.notify();
+            }
+            UiEvent::FolderOpened { path, error } => {
+                if let Some(err) = error {
+                    self.notify_error(format!("Could not open {path}: {err}"));
+                    cx.notify();
+                }
+            }
+            UiEvent::WorktreeRemoved {
+                folder,
+                path,
+                force,
+                result,
+            } => {
+                match result {
+                    Ok(()) => {
+                        self.worktree_removal = None;
+                        let name = path
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or(path.as_str())
+                            .to_string();
+                        self.notify_success(format!("Removed worktree {name}"));
+                        if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                            self.load_worktrees(cx);
+                        }
+                    }
+                    // a refused dirty checkout parks the confirm on its row;
+                    // a forced attempt that still failed only reports
+                    Err(err) if force => {
+                        self.worktree_removal = Some((path, err.clone()));
+                        self.notify_error(format!("Could not remove the worktree: {err}"));
+                    }
+                    Err(err) => self.worktree_removal = Some((path, err)),
+                }
+                cx.notify();
+            }
+            UiEvent::WorktreesPruned { folder, result } => {
+                match result {
+                    Ok(0) => self.notify_success("Nothing to prune".to_string()),
+                    Ok(1) => self.notify_success("Pruned 1 worktree entry".to_string()),
+                    Ok(count) => self.notify_success(format!("Pruned {count} worktree entries")),
+                    Err(err) => self.notify_error(format!("Could not prune: {err}")),
+                }
+                if self.selected_repo.as_deref() == Some(folder.as_str()) {
+                    self.load_worktrees(cx);
+                } else if let Some(load) = self.worktrees.get_mut(&folder) {
+                    load.rows.clear();
+                }
+                cx.notify();
+            }
             UiEvent::WarpOpened { folder, error } => {
                 match error {
                     Some(err) => {
@@ -2530,6 +2618,90 @@ impl Store {
     }
 
     /// Opens a repo as a warp-agent workspace (added there when missing).
+    /// The Worktrees tab's state for a repository.
+    pub fn worktree_load(&self, folder: &str) -> Option<&WorktreeLoad> {
+        self.worktrees.get(folder)
+    }
+
+    /// Asks the net thread for the selected repository's worktrees: once per
+    /// open press, and never while a listing is already in flight.
+    pub fn load_worktrees(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let load = self.worktrees.entry(folder.clone()).or_default();
+        if load.loading {
+            return;
+        }
+        load.loading = true;
+        load.error = None;
+        let _ = self.net.send_blocking(NetCommand::Worktrees {
+            folder: std::path::PathBuf::from(&folder),
+        });
+        cx.notify();
+    }
+
+    /// Starts a chat inside a worktree through warp-agent's door, which opens
+    /// that checkout as a workspace and creates the chat there.
+    pub fn worktree_new_chat(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(exe) = self.warp_ready() else {
+            self.notify_error("warp-agent is not available");
+            cx.notify();
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::WorktreeNewChat {
+            folder: path,
+            warp_exe: exe.to_string_lossy().to_string(),
+        });
+        cx.notify();
+    }
+
+    /// Hands a worktree's folder to the desktop file manager.
+    pub fn worktree_open_folder(&mut self, path: String, cx: &mut Context<Self>) {
+        let _ = self.net.send_blocking(NetCommand::OpenFolder { path });
+        cx.notify();
+    }
+
+    /// Removes one worktree's folder and entry. The net thread runs the git
+    /// call; a dirty checkout comes back as an error the row turns into the
+    /// explicit force confirm.
+    pub fn remove_worktree(&mut self, path: String, force: bool, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::WorktreeRemove {
+            folder: std::path::PathBuf::from(folder),
+            path,
+            force,
+        });
+        cx.notify();
+    }
+
+    /// Why a row could not be removed, while it is that row.
+    pub fn worktree_removal_error(&self, path: &str) -> Option<&str> {
+        self.worktree_removal
+            .as_ref()
+            .filter(|(removing, _)| removing == path)
+            .map(|(_, error)| error.as_str())
+    }
+
+    /// Drops the row's confirm without removing anything.
+    pub fn dismiss_worktree_removal(&mut self, cx: &mut Context<Self>) {
+        self.worktree_removal = None;
+        cx.notify();
+    }
+
+    /// Clears the entries whose folders are gone.
+    pub fn prune_worktrees(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.selected_repo.clone() else {
+            return;
+        };
+        let _ = self.net.send_blocking(NetCommand::WorktreePrune {
+            folder: std::path::PathBuf::from(folder),
+        });
+        cx.notify();
+    }
+
     pub fn open_in_warp(&mut self, folder: String, cx: &mut Context<Self>) {
         let Some(exe) = self.warp_ready() else {
             self.notify_error("warp-agent is not available");
@@ -2908,6 +3080,7 @@ impl Store {
             folder: path.clone(),
         });
         match self.detail_tab {
+            WorkspaceTab::Worktrees => self.load_worktrees(cx),
             WorkspaceTab::History => {
                 if !self.history.is_empty() {
                     self.start_history_pass();
@@ -3109,6 +3282,9 @@ impl Store {
         // picking a tab leaves the merge editor, which is not a tab
         self.merge_editor_open = false;
         self.detail_tab = tab;
+        if tab == WorkspaceTab::Worktrees {
+            self.load_worktrees(cx);
+        }
         match &self.active_repo_tab {
             Some(folder) => {
                 if let Some(entry) = self.repo_tabs.iter_mut().find(|t| &t.folder == folder) {
@@ -5761,6 +5937,7 @@ impl Store {
                 WorkspaceTab::Overview
                 | WorkspaceTab::Changes
                 | WorkspaceTab::History
+                | WorkspaceTab::Worktrees
                 | WorkspaceTab::Pipelines => true,
             })
             .collect()
@@ -6945,6 +7122,7 @@ pub enum WorkspaceTab {
     Overview,
     Changes,
     History,
+    Worktrees,
     PullRequests,
     Issues,
     Pipelines,
@@ -7240,11 +7418,21 @@ pub struct RepoTab {
     pub tab: WorkspaceTab,
 }
 
+/// One repository's Worktrees tab: what the net thread answered, and whether
+/// another answer is on its way.
+#[derive(Clone, Debug, Default)]
+pub struct WorktreeLoad {
+    pub rows: Vec<warp_station_core::model::WorktreeRow>,
+    pub error: Option<String>,
+    pub loading: bool,
+}
+
 impl WorkspaceTab {
-    pub const ALL: [WorkspaceTab; 6] = [
+    pub const ALL: [WorkspaceTab; 7] = [
         WorkspaceTab::Overview,
         WorkspaceTab::Changes,
         WorkspaceTab::History,
+        WorkspaceTab::Worktrees,
         WorkspaceTab::PullRequests,
         WorkspaceTab::Issues,
         WorkspaceTab::Pipelines,
@@ -7255,6 +7443,7 @@ impl WorkspaceTab {
             WorkspaceTab::Overview => "Overview",
             WorkspaceTab::Changes => "Changes",
             WorkspaceTab::History => "History",
+            WorkspaceTab::Worktrees => "Worktrees",
             WorkspaceTab::PullRequests => "Pull requests",
             WorkspaceTab::Issues => "Issues",
             WorkspaceTab::Pipelines => "Pipelines",
@@ -7267,6 +7456,7 @@ impl WorkspaceTab {
             WorkspaceTab::Overview => "detail-tab-overview",
             WorkspaceTab::Changes => "detail-tab-changes",
             WorkspaceTab::History => "detail-tab-history",
+            WorkspaceTab::Worktrees => "detail-tab-worktrees",
             WorkspaceTab::PullRequests => "detail-tab-pulls",
             WorkspaceTab::Issues => "detail-tab-issues",
             WorkspaceTab::Pipelines => "detail-tab-pipelines",

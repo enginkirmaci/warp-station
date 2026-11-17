@@ -27,6 +27,7 @@ pub mod settings;
 pub mod summary;
 pub mod window;
 pub mod windows_tools;
+pub mod worktrees;
 
 pub use warpui_kit_core::{A11y, icon};
 
@@ -35,6 +36,37 @@ use gpui::{
     AnyView, Context, FontWeight, IntoElement, Render, SharedString, Stateful, Styled, Window, div,
     px,
 };
+
+/// The destructive action: `danger` fill with `on-danger` text, so it never
+/// reads as the surface's ordinary primary. `id` is the element id and the
+/// probe selector.
+pub fn danger_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> gpui::AnyElement {
+    let id = id.into();
+    let label = label.into();
+    let selector = id.to_string();
+    div()
+        .id(id)
+        .debug_selector(move || selector.clone())
+        .a11y_button(label.clone())
+        .cursor_pointer()
+        .rounded(px(6.))
+        .h(warpui_kit_core::shell::control_height())
+        .px(px(12.))
+        .flex()
+        .items_center()
+        .text_size(px(theme::font_control()))
+        .font_weight(FontWeight::MEDIUM)
+        .bg(theme::DANGER)
+        .text_color(theme::ON_DANGER)
+        .hover(|s| s.opacity(0.9))
+        .on_click(on_click)
+        .child(label)
+        .into_any_element()
+}
 
 use crate::theme;
 

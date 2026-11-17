@@ -57,6 +57,12 @@ asks are answered in warp-agent's own UI. Settings picks the harness (the
 door reports the options), one model and that model's variant; commit-message
 generation uses the same selection as every other wand.
 
+A repository's `Worktrees` tab lists the linked checkouts of that repository —
+their branch, path, uncommitted count and distance from upstream — and starts a
+chat inside one with a single door call, opens its folder, or removes it (a
+dirty checkout asks first). Worktrees belong to their repository, so Station
+never lists one as a repository of its own.
+
 The switches are independent: **Enable warp-agent** arms the whole AI
 surface (wands, summary, the catalog), while **Enable OpenCode** and
 **Enable DeepSeek** only show the repo rows' CLI buttons, which launch the

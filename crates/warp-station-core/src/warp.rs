@@ -196,6 +196,14 @@ impl Client {
             .map(|_| ())
     }
 
+    /// Asks for a new chat inside `folder`: the door opens that folder as a
+    /// workspace and creates the chat there, so a worktree chat needs one call.
+    pub async fn new_chat(&mut self, folder: &str) -> Result<()> {
+        self.request(cmd::NEW_CHAT, json!({ "workspace": folder }))
+            .await
+            .map(|_| ())
+    }
+
     /// The harness's model catalog with the variants each model offers. The
     /// door starts that harness when it has no catalog yet, so this can take
     /// as long as a server boot.

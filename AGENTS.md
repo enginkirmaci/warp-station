@@ -63,6 +63,12 @@ Keep this order; several steps depend on the previous one:
   warp-agent binary disables the AI features; a closed one is launched on
   demand. Wand runs are real warp-agent chats in the repo workspace; the daily
   summary runs in the General workspace.
+- **Worktrees.** The repo workspace's `Worktrees` tab lists the repository's
+  linked checkouts (branch, path, uncommitted count, distance from upstream)
+  through `warpui-kit-worktree` on the net thread; "Chat here" sends the door's
+  `new-chat` with the checkout's folder, and removal/prune run the kit's git
+  calls. A worktree is never a repo of its own: no row, tab or flow key, and
+  Station's own Changes/History stay on the parent checkout.
 - **Notes.** The notes surfaces launch warp-notes with `--store` (the resolved
   `notes_store_path`) and an explicit scope: the titlebar, the summary and the
   global-search note hits ask for `--root` (the whole store, never the

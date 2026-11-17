@@ -301,6 +301,31 @@ pub enum NetCommand {
         folder: PathBuf,
         warp_exe: String,
     },
+    /// One repository's worktrees for the Worktrees tab: the kit's listing and
+    /// a git probe per checkout.
+    Worktrees {
+        folder: PathBuf,
+    },
+    /// A new chat inside a worktree through the warp-agent door.
+    WorktreeNewChat {
+        folder: String,
+        warp_exe: String,
+    },
+    /// Removes one worktree's folder and entry; `force` overrides a dirty
+    /// checkout.
+    WorktreeRemove {
+        folder: PathBuf,
+        path: String,
+        force: bool,
+    },
+    /// Drops the worktree entries whose folders are gone.
+    WorktreePrune {
+        folder: PathBuf,
+    },
+    /// Hands a folder (or any path) to the desktop file manager.
+    OpenFolder {
+        path: String,
+    },
     /// NuGet Local watch controls; the config is captured from settings at
     /// press time (the service holds no settings handle).
     NugetStart {
@@ -774,6 +799,34 @@ pub enum UiEvent {
     /// A warp-agent open/handoff settled; the error toasts on failure.
     WarpOpened {
         folder: String,
+        error: Option<String>,
+    },
+    /// A repository's worktrees, probed per checkout.
+    WorktreesLoaded {
+        folder: String,
+        result: Result<Vec<warp_station_core::model::WorktreeRow>, String>,
+    },
+    /// A worktree chat the door started, or the reason it could not.
+    WarpChatStarted {
+        folder: String,
+        error: Option<String>,
+    },
+    /// A worktree removal settled; the error is what the row shows before it
+    /// offers the force confirm.
+    WorktreeRemoved {
+        folder: String,
+        path: String,
+        force: bool,
+        result: Result<(), String>,
+    },
+    /// A prune settled, with the number of entries it dropped.
+    WorktreesPruned {
+        folder: String,
+        result: Result<usize, String>,
+    },
+    /// A path handed to the desktop file manager.
+    FolderOpened {
+        path: String,
         error: Option<String>,
     },
     /// A NuGet watch service state change (full snapshot).
@@ -1965,6 +2018,78 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                 if let Some(kill) = wands.lock().await.get(&id) {
                     let _ = kill.send(()).await;
                 }
+            }
+            NetCommand::Worktrees { folder } => {
+                let evt_tx = evt_tx.clone();
+                // the kit shells out to git and the probe reads in-process:
+                // both are blocking work, never this lane's business
+                tokio::task::spawn_blocking(move || {
+                    let result = warp_station_core::worktree::rows(&folder);
+                    let _ = evt_tx.send_blocking(UiEvent::WorktreesLoaded {
+                        folder: folder.to_string_lossy().to_string(),
+                        result,
+                    });
+                });
+            }
+            NetCommand::WorktreeRemove {
+                folder,
+                path,
+                force,
+            } => {
+                let evt_tx = evt_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = warp_station_core::worktree::remove(
+                        &folder,
+                        std::path::Path::new(&path),
+                        force,
+                    );
+                    let _ = evt_tx.send_blocking(UiEvent::WorktreeRemoved {
+                        folder: folder.to_string_lossy().to_string(),
+                        path,
+                        force,
+                        result,
+                    });
+                });
+            }
+            NetCommand::WorktreePrune { folder } => {
+                let evt_tx = evt_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = warp_station_core::worktree::prune(&folder);
+                    let _ = evt_tx.send_blocking(UiEvent::WorktreesPruned {
+                        folder: folder.to_string_lossy().to_string(),
+                        result,
+                    });
+                });
+            }
+            NetCommand::WorktreeNewChat { folder, warp_exe } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let result = match warp_station_core::warp::connect_or_launch(
+                        std::path::Path::new(&warp_exe),
+                        Some(std::path::Path::new(&folder)),
+                    )
+                    .await
+                    {
+                        Ok(mut client) => client
+                            .new_chat(&folder)
+                            .await
+                            .map_err(|err| format!("{err:#}")),
+                        Err(err) => Err(format!("{err:#}")),
+                    };
+                    let _ = evt_tx
+                        .send(UiEvent::WarpChatStarted {
+                            folder,
+                            error: result.err(),
+                        })
+                        .await;
+                });
+            }
+            NetCommand::OpenFolder { path } => {
+                let evt_tx = evt_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let error = warp_station_core::terminal::open_folder(&path).err();
+                    let _ = evt_tx.send_blocking(UiEvent::FolderOpened { path, error });
+                });
             }
             NetCommand::WarpOpen { folder, warp_exe } => {
                 let evt_tx = evt_tx.clone();

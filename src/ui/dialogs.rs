@@ -1015,7 +1015,11 @@ pub fn abandon_pull(
     .child(
         dialog_footer()
             .child(ghost_button("Cancel", true, cancel))
-            .child(danger_button("Abandon pull request", confirm)),
+            .child(crate::ui::danger_button(
+                "btn-danger-Abandon pull request",
+                "Abandon pull request",
+                confirm,
+            )),
     );
     overlay_shell("abandon-dialog", cx, card)
 }
@@ -1078,36 +1082,13 @@ pub fn abandon_azure_pull(
     .child(
         dialog_footer()
             .child(ghost_button("Cancel", true, cancel))
-            .child(danger_button("Abandon pull request", confirm)),
+            .child(crate::ui::danger_button(
+                "btn-danger-Abandon pull request",
+                "Abandon pull request",
+                confirm,
+            )),
     );
     overlay_shell("abandon-azure-dialog", cx, card)
-}
-
-/// The destructive action: `danger` fill with `on-danger` text, so it never
-/// reads as the card's ordinary primary.
-fn danger_button(
-    label: &str,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> gpui::AnyElement {
-    let id = format!("btn-danger-{label}");
-    div()
-        .id(SharedString::from(id.clone()))
-        .debug_selector(move || id.clone())
-        .a11y_button(label.to_string())
-        .cursor_pointer()
-        .rounded(px(6.))
-        .h(warpui_kit_core::shell::control_height())
-        .px(px(12.))
-        .flex()
-        .items_center()
-        .text_size(px(theme::font_control()))
-        .font_weight(FontWeight::MEDIUM)
-        .bg(theme::DANGER)
-        .text_color(theme::ON_DANGER)
-        .hover(|s| s.opacity(0.9))
-        .on_click(on_click)
-        .child(label.to_string())
-        .into_any_element()
 }
 
 #[cfg(test)]

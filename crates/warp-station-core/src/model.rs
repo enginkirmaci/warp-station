@@ -243,6 +243,21 @@ impl ComparePreview {
     }
 }
 
+/// One worktree of a repository, as the Worktrees tab lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorktreeRow {
+    /// The worktree's own folder.
+    pub path: String,
+    /// The branch it is checked out on, or its folder name when detached.
+    pub branch: String,
+    /// Uncommitted files in that checkout.
+    pub dirty: u32,
+    /// Commits ahead of and behind its upstream, from the same probe the
+    /// repository row uses.
+    pub ahead: u32,
+    pub behind: u32,
+}
+
 /// Outcome of one sync command: success, the actionable stderr line on
 /// failure, or a user abort (neither success nor a git error).
 #[derive(Clone, Debug)]

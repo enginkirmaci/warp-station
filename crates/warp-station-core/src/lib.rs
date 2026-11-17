@@ -32,6 +32,7 @@ pub mod snapit;
 pub mod terminal;
 pub mod warp;
 pub mod warp_notes;
+pub mod worktree;
 
 /// Unit tests that mutate the process-global HOME (or read it) share this
 /// lock: the harness runs them in parallel threads, so a scratch HOME left

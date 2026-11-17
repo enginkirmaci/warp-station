@@ -1,6 +1,6 @@
 [package]
 name = "warp-station-core"
-version = "0.1.77"
+version = "0.1.78"
 edition = "2024"
 description = "Headless Warp Station services — no gpui dependencies"
 license = "GPL-3.0"
@@ -11,6 +11,7 @@ publish = false
 # io/logging halves only — default-features keeps gpui out of this crate's
 # "testable without a display" graph
 warpui-kit-platform = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.1.11", package = "warpui-kit-platform", default-features = false }
+warpui-kit-worktree = { git = "https://github.com/enginkirmaci/warp-suite", tag = "kits-v0.2.74", package = "warpui-kit-worktree" }
 
 # third-party
 anyhow = "1"

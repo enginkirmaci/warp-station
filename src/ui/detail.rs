@@ -16,6 +16,7 @@ use crate::ui::pr_issues::ItemListView;
 use crate::ui::pull_request::PullRequestView;
 use crate::ui::readme::ReadmeView;
 use crate::ui::repos::ReposPage;
+use crate::ui::worktrees::WorktreesView;
 use gpui::prelude::*;
 use gpui::{AnyElement, App, Context, Entity, FontWeight, SharedString, Window, div, px};
 use gpui_kit::component::input::InputState;
@@ -34,6 +35,8 @@ pub struct DetailViews {
     /// The merge editor, shown over the body while a stopped operation is
     /// being resolved.
     pub merge: Entity<MergePage>,
+    /// The repository's linked checkouts.
+    worktrees: Entity<WorktreesView>,
 }
 
 impl DetailViews {
@@ -80,6 +83,7 @@ impl DetailViews {
             pipelines: cx.new(|cx| AzureView::new(store.clone(), pane_nav.clone(), cx)),
             readme: cx.new(|cx| ReadmeView::new(store.clone(), cx)),
             merge: cx.new(|cx| MergePage::new(store.clone(), cx)),
+            worktrees: cx.new(|cx| WorktreesView::new(store.clone(), cx)),
         }
     }
 
@@ -109,6 +113,7 @@ impl DetailViews {
             WorkspaceTab::PullRequests => self.pulls.clone().into_any_element(),
             WorkspaceTab::Issues => self.issues.clone().into_any_element(),
             WorkspaceTab::Pipelines => self.pipelines.clone().into_any_element(),
+            WorkspaceTab::Worktrees => self.worktrees.clone().into_any_element(),
         })
     }
 }
@@ -150,7 +155,9 @@ pub fn render(
             .map(|(_, presses)| *presses),
     };
 
-    let mut strip = div().flex().flex_row().mt_3().ml(px(-12.));
+    // a narrow pane wraps the strip instead of pushing its last tabs past the
+    // window edge, where they would stop being clickable
+    let mut strip = div().flex().flex_row().flex_wrap().mt_3().ml(px(-12.));
     for tab in store.detail_tabs() {
         let count = match tab {
             WorkspaceTab::Changes => Some(repo.git_modified_count),
