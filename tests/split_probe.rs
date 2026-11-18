@@ -2064,6 +2064,18 @@ fn the_new_pull_request_form_opens_in_the_pane(cx: &mut TestAppContext) {
     ] {
         assert!(cx.debug_bounds(field).is_some(), "{field} draws");
     }
+    let base = cx
+        .debug_bounds("new-pull-base")
+        .expect("the base picker draws");
+    let swap = cx.debug_bounds("new-pull-swap").expect("the swap draws");
+    assert!(
+        swap.left() >= base.right(),
+        "the swap sits after the base branch: base {base:?}, swap {swap:?}"
+    );
+    assert!(
+        f32::from(swap.left() - base.right()) <= 24.,
+        "the swap sits beside the pair, not at the pane's far edge: base {base:?}, swap {swap:?}"
+    );
     assert!(
         cx.debug_bounds("new-pull-back").is_none(),
         "Back belongs to the narrow pane"
@@ -2077,8 +2089,8 @@ fn the_new_pull_request_form_opens_in_the_pane(cx: &mut TestAppContext) {
         .debug_bounds("new-pull-description")
         .expect("the description draws");
     assert!(
-        f32::from(description.size.height) >= 120.,
-        "the description is a message box, not a line"
+        (f32::from(description.size.height) - 120.).abs() <= 1.,
+        "the description is a pinned four-line message box: {description:?}"
     );
 
     // the branch dropdowns hang under their triggers too
@@ -3393,8 +3405,8 @@ fn a_failed_azure_run_opens_its_pipelines(cx: &mut TestAppContext) {
         "the Pipelines tab lists the recent runs"
     );
     assert!(
-        cx.debug_bounds("azure-refresh").is_some(),
-        "and carries the refresh for its pass"
+        cx.debug_bounds("detail-refresh").is_some(),
+        "the head above the tab carries the one refresh"
     );
 }
 
@@ -4389,5 +4401,65 @@ fn the_repo_tab_menu_closes_tabs_from_its_rows(cx: &mut TestAppContext) {
         active_tab(&store, cx).as_deref(),
         Some("/probe/alpha"),
         "the card's tab is active after the run of closes"
+    );
+}
+
+/// The head's refresh button turns while the reads it started are out: the
+/// workspace read settles the first half, the activity pass the second, and
+/// only then does the icon come back. It is the panel's one refresh: the
+/// Pull requests and Pipelines toolbars no longer carry their own.
+#[gpui::test]
+fn the_refresh_button_spins_until_its_reads_settle(cx: &mut TestAppContext) {
+    let (store, _net_rx) = scratch_store(cx, "refresh-spin", vec![entry("alpha", "/probe/alpha")]);
+    seed_github(&store, "/probe/alpha", 1, 0, cx);
+    use_a_located_gh(&store, cx);
+    let cx = open_window(&store, cx);
+    draw(cx);
+    click(cx, "detail-tab-pulls");
+    assert!(
+        cx.debug_bounds("detail-refresh-busy").is_none(),
+        "the idle button draws its icon"
+    );
+
+    click(cx, "detail-refresh");
+    assert!(
+        cx.debug_bounds("detail-refresh-busy").is_some(),
+        "the button turns into its busy state"
+    );
+
+    // the workspace read lands; the activity pass is still out
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::ChangesLoaded {
+                folder: "/probe/alpha".into(),
+                snapshot: None,
+                branches: Vec::new(),
+                recent: Vec::new(),
+                unpushed: None,
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("detail-refresh-busy").is_some(),
+        "the activity pass still holds the spinner"
+    );
+
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::GitHubSettled {
+                items: vec![(
+                    "/probe/alpha".into(),
+                    warp_station_core::github::GitHubSnapshot::default(),
+                )],
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        cx.debug_bounds("detail-refresh-busy").is_none(),
+        "both reads settled, so the icon is back"
     );
 }

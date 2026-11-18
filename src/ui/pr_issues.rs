@@ -194,7 +194,6 @@ impl ItemListView {
         } else {
             ("issue-state-open", "issue-state-closed")
         };
-        let store = self.store.clone();
         div()
             .flex_shrink_0()
             .h(px(52.))
@@ -270,26 +269,6 @@ impl ItemListView {
                 )
             })
             .child(div().flex_1())
-            .child(
-                div()
-                    .id("pr-refresh")
-                    .a11y_button("Refresh panel")
-                    .cursor_pointer()
-                    .rounded(px(6.))
-                    .size(px(shell::CONTROL_HEIGHT))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .hover(|s| s.bg(theme::raised()))
-                    .on_click(move |_, _, cx| {
-                        store.update(cx, |s, cx| s.refresh_panel(cx));
-                    })
-                    .child(icon(
-                        "icons/icon-refresh.svg",
-                        px(theme::icon_small()),
-                        theme::text_muted(),
-                    )),
-            )
             .when_some(new_target, |bar, target| {
                 // the workbench's detail owns the one filled primary, so the
                 // list's New stays a plain button — and a pull request is

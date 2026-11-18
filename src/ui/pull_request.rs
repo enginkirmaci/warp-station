@@ -976,6 +976,7 @@ impl PullRequestView {
             .a11y_button(entry.path.clone())
             .cursor_pointer()
             .flex()
+            .flex_shrink_0()
             .items_center()
             .gap_2()
             .h(px(34.))
@@ -1086,6 +1087,7 @@ impl PullRequestView {
             .a11y_tree_item(a11y, Some(!folded))
             .cursor_pointer()
             .flex()
+            .flex_shrink_0()
             .items_center()
             .gap_2()
             .h(px(34.))
@@ -1191,6 +1193,8 @@ impl PullRequestView {
         let mut rail = div()
             .flex()
             .flex_col()
+            .h_full()
+            .min_h_0()
             .track_focus(&self.files_focus)
             .on_key_down(cx.listener(|this, event, window, cx| {
                 if this.handle_files_key(event, window, cx) {
@@ -1683,7 +1687,7 @@ impl PullRequestView {
                 .into_any_element();
         }
 
-        let mut rail = div().flex().flex_col().child(
+        let mut rail = div().flex().flex_col().h_full().min_h_0().child(
             div()
                 .flex()
                 .items_center()
@@ -1722,6 +1726,7 @@ impl PullRequestView {
                     .a11y_button(entry.path.clone())
                     .cursor_pointer()
                     .flex()
+                    .flex_shrink_0()
                     .items_center()
                     .gap_2()
                     .h(px(30.))

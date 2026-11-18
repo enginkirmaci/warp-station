@@ -134,6 +134,11 @@ pub struct Store {
     /// Folder path of the repo the rail and the workspace sheet describe.
     pub selected_repo: Option<String>,
     pub scanning: bool,
+    /// The panel refresh the selected repo's refresh buttons are waiting on:
+    /// the folder, and how many reads it kicked (the workspace read, plus an
+    /// activity pass per enabled platform). The spinner drops when it reaches
+    /// zero, so the buttons turn only while work they started is still out.
+    panel_refresh: Option<(String, u8)>,
     /// Dialog-bound net results, drained by the page's render pass.
     pub deep_scan_result: Option<Vec<warp_station_core::scan::ScannedRepo>>,
     pub clone_result: Option<(String, String, warp_station_core::model::GitSyncResult)>,
@@ -511,6 +516,7 @@ impl Store {
             projected: Vec::new(),
             selected_repo: None,
             scanning: false,
+            panel_refresh: None,
             deep_scan_result: None,
             clone_result: None,
             folder_pick_result: None,
@@ -1030,6 +1036,7 @@ impl Store {
                 recent,
                 unpushed,
             } => {
+                self.settle_panel_refresh(&folder);
                 if self.selected_repo.as_deref() == Some(folder.as_str()) {
                     self.set_changes(snapshot);
                     self.changes_loaded_for = Some(folder);
@@ -1076,6 +1083,7 @@ impl Store {
                 cx.notify();
             }
             UiEvent::AzureSettled { items } => {
+                self.settle_panel_refresh_for(&items);
                 let by_folder = self.repo_index_by_folder();
                 let mut counts_changed = false;
                 for (folder, snapshot) in items {
@@ -1106,6 +1114,7 @@ impl Store {
                 cx.notify();
             }
             UiEvent::GitHubSettled { items } => {
+                self.settle_panel_refresh_for(&items);
                 let by_folder = self.repo_index_by_folder();
                 let mut counts_changed = false;
                 for (folder, snapshot) in items {
@@ -2131,11 +2140,13 @@ impl Store {
     }
 
     /// Fires the GitHub activity pass when the column is enabled and gh
-    /// resolves; a disabled column spawns no processes at all.
-    pub fn kick_github_pass(&mut self, folders: &[std::path::PathBuf]) {
+    /// resolves; a disabled column spawns no processes at all. Answers whether
+    /// the pass was sent: the refresh buttons count only passes that will
+    /// report back.
+    pub fn kick_github_pass(&mut self, folders: &[std::path::PathBuf]) -> bool {
         let settings = self.settings();
         if !settings.repos.enable_github || folders.is_empty() {
-            return;
+            return false;
         }
         let Some(gh_path) = warp_station_core::exe::locate(&settings.repos.github_executable)
         else {
@@ -2143,33 +2154,35 @@ impl Store {
                 "GitHub column enabled but the gh CLI could not be located ({})",
                 settings.repos.github_executable
             );
-            return;
+            return false;
         };
         let _ = self.net.send_blocking(NetCommand::GitHubPass {
             folders: folders.to_vec(),
             gh_exe: gh_path.to_string_lossy().to_string(),
         });
+        true
     }
 
     /// Fires the Azure DevOps pass when the column is enabled and a PAT
     /// resolves (settings or the environment fallbacks).
-    pub fn kick_azure_pass(&mut self, folders: &[std::path::PathBuf]) {
+    pub fn kick_azure_pass(&mut self, folders: &[std::path::PathBuf]) -> bool {
         let settings = self.settings();
         if !settings.repos.enable_azure_devops || folders.is_empty() {
-            return;
+            return false;
         }
         let Some(pat) = warp_station_core::azure::resolve_pat(&settings.repos.azure_devops_pat)
         else {
             tracing::warn!(
                 "Azure DevOps column enabled but no personal access token is configured; set one in Repos settings (or the AZURE_DEVOPS_PAT environment variable)"
             );
-            return;
+            return false;
         };
         let _ = self.net.send_blocking(NetCommand::AzurePass {
             folders: folders.to_vec(),
             pat,
             custom_base: settings.repos.azure_devops_url.clone(),
         });
+        true
     }
 
     /// The eager GitHub/Azure set of a refresh: favorites and the selected
@@ -5784,8 +5797,9 @@ impl Store {
             .and_then(|(_, preview)| preview.as_ref())
     }
 
-    /// Create, or Create as draft. What the form refuses it says itself; what
-    /// `gh` refuses comes back in the form.
+    /// Create, or Create as draft. What the form refuses it says itself — the
+    /// required fields, and Azure's own title/description caps — and what the
+    /// platform refuses comes back in the form.
     pub fn create_pull(
         &mut self,
         title: String,
@@ -5812,6 +5826,16 @@ impl Store {
         if let Some(problem) = request.problem() {
             if let Some(form) = self.new_pull.as_mut() {
                 form.error = Some(problem.to_string());
+            }
+            cx.notify();
+            return;
+        }
+        if source == warp_station_core::activity::ActivitySource::Azure
+            && let Some(problem) =
+                warp_station_core::azure::pull_text_problem(&request.title, &request.body)
+        {
+            if let Some(form) = self.new_pull.as_mut() {
+                form.error = Some(problem);
             }
             cx.notify();
             return;
@@ -6291,6 +6315,9 @@ impl Store {
     }
 
     fn reset_repo_workspace(&mut self) {
+        // a refresh belongs to the repo that asked for it; a selection change
+        // drops the buttons' pending state with the reads it was waiting on
+        self.panel_refresh = None;
         self.set_changes(None);
         self.changes_loaded_for = None;
         self.branches.clear();
@@ -6688,6 +6715,9 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
+        // the workspace read always answers; each activity pass that was
+        // actually kicked answers too, and the buttons spin until all do
+        let mut pending = 1u8;
         let path = std::path::PathBuf::from(&folder);
         let _ = self.net.send_blocking(NetCommand::ProbeAll {
             folders: vec![path.clone()],
@@ -6698,7 +6728,12 @@ impl Store {
         self.closed_requested.retain(|(key, _, _)| key != &folder);
         self.closed_failed.retain(|(key, _, _)| key != &folder);
         self.closed.retain(|(key, _, _), _| key != &folder);
-        self.kick_github_pass(std::slice::from_ref(&path));
+        if self.kick_github_pass(std::slice::from_ref(&path)) {
+            pending += 1;
+        }
+        if self.kick_azure_pass(std::slice::from_ref(&path)) {
+            pending += 1;
+        }
         self.reload_open_pull();
         // the open run's read is part of the panel's refresh, and the follow
         // clock restarts with it
@@ -6712,7 +6747,44 @@ impl Store {
                 .net
                 .send_blocking(NetCommand::LoadHistory { folder: path });
         }
+        self.panel_refresh = Some((folder, pending));
         cx.notify();
+    }
+
+    /// Whether the selected repo's refresh buttons should spin: the panel
+    /// refresh they started is still waiting on at least one read.
+    pub fn panel_refreshing(&self) -> bool {
+        self.panel_refresh
+            .as_ref()
+            .is_some_and(|(folder, _)| self.selected_repo.as_deref() == Some(folder.as_str()))
+    }
+
+    /// One of the refresh's reads settled. The last one drops the busies, so
+    /// the buttons turn only while work they started is still out.
+    fn settle_panel_refresh(&mut self, folder: &str) {
+        let Some((refreshing, pending)) = self.panel_refresh.as_mut() else {
+            return;
+        };
+        if refreshing != folder {
+            return;
+        }
+        *pending = pending.saturating_sub(1);
+        if *pending == 0 {
+            self.panel_refresh = None;
+        }
+    }
+
+    /// The same, for an activity pass that settles one folder per row.
+    fn settle_panel_refresh_for<T>(&mut self, items: &[(String, T)]) {
+        let refreshed = items.iter().find_map(|(folder, _)| {
+            self.panel_refresh
+                .as_ref()
+                .is_some_and(|(refreshing, _)| refreshing == folder)
+                .then(|| folder.clone())
+        });
+        if let Some(folder) = refreshed {
+            self.settle_panel_refresh(&folder);
+        }
     }
 
     /// The bar kebab's "Remove from repositories": drops the repo's folder

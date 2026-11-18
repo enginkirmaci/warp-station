@@ -18,6 +18,7 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, Entity, FontWeight, MouseButton, SharedString, Window, div, px};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use warp_station_core::activity::ActivitySource;
+use warp_station_core::azure::{PULL_DESCRIPTION_MAX_CHARS, PULL_TITLE_MAX_CHARS};
 use warp_station_core::model::ComparePreview;
 use warpui_kit_core::{field, motion, shell};
 use warpui_kit_picker::{
@@ -111,6 +112,12 @@ impl NewPullView {
             cx.new(|cx| TextareaState::new(window, cx).placeholder("Describe the change…"));
         let reviewer =
             cx.new(|cx| InputState::new(window, cx).placeholder("Reviewer login, name or email"));
+        // the Azure character counters and the Create state are read in this
+        // view's render, so a keystroke in either field has to re-render it
+        cx.subscribe(&title, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
+        cx.subscribe(&description, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
         cx.subscribe(&reviewer, |this, _, event: &InputEvent, cx| match event {
             InputEvent::Change => {
                 this.reviewer_open = true;
@@ -255,11 +262,23 @@ impl Render for NewPullView {
         let creating = form.creating;
         let error = form.error.clone();
         let source = form.source;
+        // Azure DevOps caps a pull request's title and description; the form
+        // counts as the create body would see the values and says the limit
+        // beside each field, so the failure is named before the call.
+        let limits = (source == ActivitySource::Azure).then(|| {
+            (
+                self.title.read(cx).value().trim().chars().count(),
+                self.description.read(cx).value().chars().count(),
+            )
+        });
+        let over_limits = limits.is_some_and(|(title, description)| {
+            title > PULL_TITLE_MAX_CHARS || description > PULL_DESCRIPTION_MAX_CHARS
+        });
         let files = preview.counts().0;
         let commits = preview.counts().1;
 
         let body = match self.tab {
-            NewPullTab::Overview => self.overview(&error, window, cx),
+            NewPullTab::Overview => self.overview(&error, limits, window, cx),
             NewPullTab::Files => preview_body(
                 "new-pull-files",
                 &preview,
@@ -291,9 +310,12 @@ impl Render for NewPullView {
             .child(self.branch_row(cx))
             .child(self.tab_strip(files, commits, &this))
             .child(body)
-            .child(self.footer(creating, &this));
-        pane.children(self.primary_menu.then(|| self.create_menu(creating, &this)))
-            .into_any_element()
+            .child(self.footer(creating, over_limits, &this));
+        pane.children(
+            self.primary_menu
+                .then(|| self.create_menu(creating, over_limits, &this)),
+        )
+        .into_any_element()
     }
 }
 
@@ -392,7 +414,8 @@ impl NewPullView {
                     .child("into"),
             )
             .child(div().w(px(BRANCH_PILL_W)).child(self.base_picker.clone()))
-            .child(div().flex_1())
+            // the swap belongs to the pair it swaps: right after the base
+            // picker, not pushed to the pane's far edge
             .child(
                 div()
                     .id("new-pull-swap")
@@ -465,6 +488,7 @@ impl NewPullView {
     fn overview(
         &mut self,
         error: &Option<String>,
+        limits: Option<(usize, usize)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -489,16 +513,32 @@ impl NewPullView {
             }))
             .child(labeled_field(
                 "Title (required)",
+                limits.map(|(title, _)| {
+                    limit_note("new-pull-title-limit", title, PULL_TITLE_MAX_CHARS)
+                }),
                 field::text("new-pull-title", &self.title, window, cx),
             ))
             .child(labeled_field(
                 "Description",
-                // the design's message box: a four-line floor, then the
-                // textarea grows (and the Overview scrolls) with the text
-                field::area("new-pull-description", &self.description, window, cx).min_h(px(120.)),
+                limits.map(|(_, description)| {
+                    limit_note(
+                        "new-pull-description-limit",
+                        description,
+                        PULL_DESCRIPTION_MAX_CHARS,
+                    )
+                }),
+                // the design's four-line message box, pinned: the area's own
+                // auto-height resolves its `h_full` editor to one row, which
+                // showed the first line and left the rest empty. A definite
+                // height gives the editor all four rows; a longer value
+                // scrolls inside the box and the Overview scrolls as a whole.
+                field::area("new-pull-description", &self.description, window, cx)
+                    .h(px(120.))
+                    .min_h(px(0.)),
             ))
             .child(labeled_field(
                 "Reviewer (optional)",
+                None,
                 self.reviewer_field(window, cx),
             ));
         div()
@@ -658,7 +698,7 @@ impl NewPullView {
 
     // ---- footer -----------------------------------------------------------
 
-    fn footer(&self, creating: bool, this: &Entity<Self>) -> AnyElement {
+    fn footer(&self, creating: bool, over_limits: bool, this: &Entity<Self>) -> AnyElement {
         let cancel = {
             let store = self.store.clone();
             let this = this.clone();
@@ -717,7 +757,7 @@ impl NewPullView {
                 .child(label)
                 .into_any_element()
         } else {
-            primary_button_in("new-pull-create", label, true, Shape::Left, create)
+            primary_button_in("new-pull-create", label, !over_limits, Shape::Left, create)
         };
 
         div()
@@ -743,7 +783,7 @@ impl NewPullView {
             .into_any_element()
     }
 
-    fn create_menu(&self, creating: bool, this: &Entity<Self>) -> AnyElement {
+    fn create_menu(&self, creating: bool, over_limits: bool, this: &Entity<Self>) -> AnyElement {
         let mut menu = crate::ui::pull_request::menu_shell("new-pull-menu");
         let create = {
             let this = this.clone();
@@ -762,14 +802,14 @@ impl NewPullView {
                 "new-pull-menu-create",
                 "icons/icon-git-pull-request.svg",
                 "Create pull request",
-                !creating,
+                !creating && !over_limits,
                 create,
             ))
             .child(crate::ui::pull_request::menu_item(
                 "new-pull-menu-draft",
                 "icons/icon-text.svg",
                 "Create as draft",
-                !creating,
+                !creating && !over_limits,
                 draft,
             ));
         // the form's head sits at the pane's top; the menu hangs under it
@@ -784,8 +824,13 @@ impl NewPullView {
     }
 }
 
-/// A labelled box: the design's `label > span` pair above a field.
-fn labeled_field(label: &'static str, field: gpui::Stateful<gpui::Div>) -> AnyElement {
+/// A labelled box: the design's `label > span` pair above a field. `note` sits
+/// at the label's right edge — the Azure character count, when there is one.
+fn labeled_field(
+    label: &'static str,
+    note: Option<AnyElement>,
+    field: gpui::Stateful<gpui::Div>,
+) -> AnyElement {
     div()
         .flex_1()
         .min_w_0()
@@ -794,11 +839,37 @@ fn labeled_field(label: &'static str, field: gpui::Stateful<gpui::Div>) -> AnyEl
         .gap(px(5.))
         .child(
             div()
-                .text_size(px(theme::font_meta()))
-                .text_color(theme::text_dim())
-                .child(label),
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(theme::font_meta()))
+                        .text_color(theme::text_dim())
+                        .child(label),
+                )
+                .child(div().flex_1())
+                .children(note),
         )
         .child(field)
+        .into_any_element()
+}
+
+/// The Azure limit beside a field's label: the count and the cap, in the
+/// danger ink once the value is past it.
+fn limit_note(selector: &'static str, count: usize, max: usize) -> AnyElement {
+    let over = count > max;
+    div()
+        .debug_selector(move || selector.into())
+        .text_size(px(theme::font_meta()))
+        .font_family(SharedString::from(theme::code_font()))
+        .text_color(if over {
+            theme::DANGER
+        } else {
+            theme::text_faint()
+        })
+        .child(format!("{count} / {max} characters"))
         .into_any_element()
 }
 

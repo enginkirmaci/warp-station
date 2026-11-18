@@ -724,8 +724,12 @@ fn the_azure_pull_detail_draws_its_head_and_overview(cx: &mut TestAppContext) {
     assert!(cx.debug_bounds("azure-pull-reviewers-card").is_some());
     assert!(cx.debug_bounds("azure-approve").is_some(), "the vote");
     assert!(
-        cx.debug_bounds("azure-complete").is_some(),
-        "ready, so the primary completes"
+        cx.debug_bounds("azure-autocomplete").is_some(),
+        "ready, so the primary arms auto-complete"
+    );
+    assert!(
+        cx.debug_bounds("azure-complete").is_none(),
+        "Complete is not the default verb"
     );
     assert!(cx.debug_bounds("azure-open").is_some());
     assert!(
@@ -1125,9 +1129,10 @@ fn the_azure_verbs_send_one_request_each(cx: &mut TestAppContext) {
     assert_eq!(actions(&net_rx), [AzurePullAction::Abandon]);
 }
 
-/// Completing arms on the first press and sends on the second, like Merge.
+/// Azure's default verb is auto-complete: a ready pull request's primary sets
+/// it, and Complete lives in the split's menu, still armed on the first press.
 #[gpui::test]
-fn completing_takes_two_presses(cx: &mut TestAppContext) {
+fn a_ready_pull_request_defaults_to_auto_complete(cx: &mut TestAppContext) {
     use warp_station_core::azure::AzurePullAction;
 
     let (store, net_rx) = scratch_store(cx, "azure-complete");
@@ -1152,31 +1157,73 @@ fn completing_takes_two_presses(cx: &mut TestAppContext) {
     enable_azure(&store, cx);
     while net_rx.try_recv().is_ok() {}
 
-    let completions = |rx: &async_channel::Receiver<NetCommand>| {
+    let actions = |rx: &async_channel::Receiver<NetCommand>| -> Vec<AzurePullAction> {
         std::iter::from_fn(|| rx.try_recv().ok())
-            .filter(|command| {
-                matches!(
-                    command,
-                    NetCommand::AzurePullAction {
-                        action: AzurePullAction::Complete,
-                        ..
-                    }
-                )
+            .filter_map(|command| match command {
+                NetCommand::AzurePullAction { action, .. } => Some(action),
+                _ => None,
             })
-            .count()
+            .collect()
     };
+    // a verb's answer reloads the record, so the pane needs its detail again
+    let answer =
+        |store: &gpui::Entity<Store>, action: AzurePullAction, cx: &mut gpui::VisualTestContext| {
+            cx.update_entity(store, |s: &mut Store, cx| {
+                s.on_net_event(
+                    UiEvent::AzurePullActed {
+                        folder: "/probe/alpha".into(),
+                        number: 214,
+                        action,
+                        result: Ok(()),
+                    },
+                    cx,
+                );
+            });
+            draw(cx);
+            seed_pull(store, cx, Vec::new());
+        };
 
-    click(cx, "azure-complete");
-    assert_eq!(completions(&net_rx), 0, "the first press only arms");
+    assert!(
+        cx.debug_bounds("azure-complete").is_none(),
+        "Complete is not the primary even when the pull request is ready"
+    );
+    click(cx, "azure-autocomplete");
+    assert_eq!(
+        actions(&net_rx),
+        [AzurePullAction::SetAutoComplete {
+            reviewer: "me-1".into()
+        }],
+        "the primary arms the merge"
+    );
+    answer(
+        &store,
+        AzurePullAction::SetAutoComplete {
+            reviewer: "me-1".into(),
+        },
+        cx,
+    );
+
+    // Complete stays in the menu, and the card stays up after the arm press
+    click(cx, "azure-primary-menu");
+    click(cx, "azure-menu-complete");
+    assert!(actions(&net_rx).is_empty(), "the first press only arms");
     assert!(
         store.read_with(cx, |s, _| s
             .open_azure_pull
             .as_ref()
             .is_some_and(|open| open.armed_complete)),
-        "the primary armed"
+        "the menu row armed"
     );
-    click(cx, "azure-complete");
-    assert_eq!(completions(&net_rx), 1);
+    assert!(
+        cx.debug_bounds("azure-primary-card").is_some(),
+        "the card stays up for the confirmation"
+    );
+    click(cx, "azure-menu-complete");
+    assert_eq!(actions(&net_rx), [AzurePullAction::Complete]);
+    assert!(
+        cx.debug_bounds("azure-primary-card").is_none(),
+        "the confirmed press closes the menu"
+    );
 }
 
 /// Below 900 px of pane the run detail takes it whole, and Back returns.
@@ -1261,4 +1308,68 @@ fn the_pane_keys_walk_from_the_repo_list_into_the_runs(cx: &mut TestAppContext) 
         Some(7),
         "the cursor clamps at the end and never wraps"
     );
+}
+
+/// Azure's title and description caps are counted beside the form's fields,
+/// and Create stays dead while either value is past its cap: the create never
+/// reaches the net thread to be refused by Azure.
+#[gpui::test]
+fn the_azure_new_pull_form_keeps_the_platform_caps_visible(cx: &mut TestAppContext) {
+    use warp_station_core::azure::{PULL_DESCRIPTION_MAX_CHARS, PULL_TITLE_MAX_CHARS};
+
+    let (store, net_rx) = scratch_store(cx, "azure-new-pull-limits");
+    let cx = open_window(&store, cx);
+    seed_azure(
+        &store,
+        AzureSnapshot {
+            available: true,
+            url: Some("https://dev.azure.com/o/p/_git/r".into()),
+            ..Default::default()
+        },
+        cx,
+    );
+    enable_azure(&store, cx);
+    click(cx, "detail-tab-pulls");
+    click(cx, "list-new");
+    assert!(cx.debug_bounds("new-pull").is_some(), "the form draws");
+    assert!(
+        cx.debug_bounds("new-pull-title-limit").is_some(),
+        "the title shows its Azure cap"
+    );
+    assert!(
+        cx.debug_bounds("new-pull-description-limit").is_some(),
+        "the description shows its Azure cap"
+    );
+
+    // the prefill can be over either cap: seed one with both, the way a long
+    // commit body arrives
+    let seq = store
+        .read_with(cx, |s, _| s.new_pull.as_ref().map(|form| form.seq))
+        .expect("the form is open");
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::TipMessageLoaded {
+                folder: "/probe/alpha".into(),
+                seq,
+                subject: "t".repeat(PULL_TITLE_MAX_CHARS + 1),
+                body: "d".repeat(PULL_DESCRIPTION_MAX_CHARS + 1),
+            },
+            cx,
+        );
+    });
+    draw(cx);
+    assert!(
+        store.read_with(cx, |s, _| s
+            .new_pull
+            .as_ref()
+            .is_some_and(|form| form.error.is_none())),
+        "the counter is the form's own answer, not an error banner"
+    );
+
+    while net_rx.try_recv().is_ok() {}
+    click(cx, "new-pull-create");
+    let creates = std::iter::from_fn(|| net_rx.try_recv().ok())
+        .filter(|command| matches!(command, NetCommand::AzurePullCreate { .. }))
+        .count();
+    assert_eq!(creates, 0, "Create is dead while a field is over its cap");
 }

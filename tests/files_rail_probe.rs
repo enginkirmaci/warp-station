@@ -1,9 +1,12 @@
 //! The pull request's Files rail: the changed files as a tree. A folder folds
-//! with the mouse and the keys, and folding never moves the file whose diff
-//! the pane shows.
+//! with the mouse and the keys, folding never moves the file whose diff the
+//! pane shows, and the rows scroll when the tree is taller than the rail.
 
 use gpui::prelude::*;
-use gpui::{Context, Entity, Modifiers, Render, TestAppContext, VisualTestContext, Window, div};
+use gpui::{
+    Context, Entity, Modifiers, Pixels, Point, Render, ScrollDelta, ScrollEvent, ScrollSource,
+    TestAppContext, TouchPhase, VisualTestContext, Window, div, point, px,
+};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -42,7 +45,9 @@ struct Host {
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().child(self.view.clone())
+        // the view's pane is `flex_1`: without a flex parent it would size to
+        // its content and no rail could ever be taller than its scroller
+        div().size_full().flex().flex_col().child(self.view.clone())
     }
 }
 
@@ -59,12 +64,27 @@ fn click(vcx: &mut VisualTestContext, selector: &'static str) {
     draw(vcx);
 }
 
-#[gpui_kit::gpui::test]
-fn the_files_rail_folds_its_tree(cx: &mut TestAppContext) {
+fn wheel(vcx: &mut VisualTestContext, at: Point<Pixels>, delta: ScrollDelta) {
+    vcx.simulate_event(ScrollEvent {
+        position: at,
+        delta,
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+        source: ScrollSource::Pointer,
+    });
+    draw(vcx);
+}
+
+/// The view on pull request #7 with `files` changed, its Files tab picked.
+fn open_files_view<'a>(
+    cx: &'a mut TestAppContext,
+    name: &str,
+    files: Vec<GitHubFilePatch>,
+) -> &'a mut VisualTestContext {
     cx.update(gpui_kit::init);
     cx.update(warp_station::theme::apply_kit_theme);
 
-    let settings = scratch("tree");
+    let settings = scratch(name);
     let (net_tx, _net_rx) = async_channel::unbounded();
     let store = cx.new(|cx| {
         let mut store = Store::with_settings(net_tx, Arc::new(SettingsService::at(settings)));
@@ -91,7 +111,6 @@ fn the_files_rail_folds_its_tree(cx: &mut TestAppContext) {
         store.select_repo("/probe/alpha", cx);
         store
     });
-    let files = vec![patch("src/a.rs"), patch("src/ui/b.rs"), patch("Cargo.toml")];
     store.update(cx, |store, _| {
         store.open_pull = Some(OpenPull {
             folder: "/probe/alpha".into(),
@@ -121,6 +140,16 @@ fn the_files_rail_folds_its_tree(cx: &mut TestAppContext) {
     });
     draw(vcx);
     click(vcx, "pull-tab-files");
+    vcx
+}
+
+#[gpui_kit::gpui::test]
+fn the_files_rail_folds_its_tree(cx: &mut TestAppContext) {
+    let vcx = open_files_view(
+        cx,
+        "tree",
+        vec![patch("src/a.rs"), patch("src/ui/b.rs"), patch("Cargo.toml")],
+    );
 
     // the rail draws the tree, and the selected file's diff is beside it
     assert!(
@@ -157,5 +186,53 @@ fn the_files_rail_folds_its_tree(cx: &mut TestAppContext) {
     assert!(
         vcx.debug_bounds("pull-file-0").is_some(),
         "the unfold brings the files back"
+    );
+}
+
+/// A tree taller than the rail scrolls its rows: the scroller takes the rail's
+/// height instead of growing past it and being clipped at the tab's edge.
+#[gpui_kit::gpui::test]
+fn the_files_rail_scrolls_to_its_last_file(cx: &mut TestAppContext) {
+    let files: Vec<GitHubFilePatch> = (0..40)
+        .map(|index| patch(&format!("src/file_{index:02}.rs")))
+        .collect();
+    let vcx = open_files_view(cx, "scroll", files);
+
+    let rows = vcx
+        .debug_bounds("pull-files")
+        .expect("the rail's rows draw");
+    let first = vcx
+        .debug_bounds("pull-file-0")
+        .expect("the first file row draws");
+    let last = vcx
+        .debug_bounds("pull-file-39")
+        .expect("the last file row is built");
+    assert!(
+        f32::from(rows.size.height) < f32::from(last.origin.y + last.size.height - rows.origin.y),
+        "the rows are taller than the rail: rows {rows:?}, last {last:?}"
+    );
+    assert!(
+        first.origin.y >= rows.origin.y,
+        "the first row starts inside the rail"
+    );
+
+    wheel(
+        vcx,
+        rows.center(),
+        ScrollDelta::Pixels(point(px(0.), px(-1200.))),
+    );
+    let last = vcx
+        .debug_bounds("pull-file-39")
+        .expect("the last file row stays built");
+    assert!(
+        last.origin.y < rows.bottom(),
+        "the wheel brings the last file into the rail: rows {rows:?}, last {last:?}"
+    );
+    let first = vcx
+        .debug_bounds("pull-file-0")
+        .expect("the first row stays built");
+    assert!(
+        first.origin.y < rows.origin.y,
+        "the first row scrolled above the rail: {first:?}"
     );
 }

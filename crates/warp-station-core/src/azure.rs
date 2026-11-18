@@ -1138,6 +1138,32 @@ fn short_ref(reference: &str) -> String {
         .to_string()
 }
 
+/// Azure DevOps' own limits on a pull request's words: the web form accepts a
+/// title of up to 400 characters, and the update API documents the description
+/// as "up to 4000 characters". The create call is refused past either, so the
+/// form checks before it sends.
+pub const PULL_TITLE_MAX_CHARS: usize = 400;
+pub const PULL_DESCRIPTION_MAX_CHARS: usize = 4000;
+
+/// What Azure DevOps would refuse in a pull request's title or description,
+/// with the count so the form can say what to trim. The title is counted the
+/// way the create body trims it; the description is sent as typed.
+pub fn pull_text_problem(title: &str, description: &str) -> Option<String> {
+    let title_chars = title.trim().chars().count();
+    if title_chars > PULL_TITLE_MAX_CHARS {
+        return Some(format!(
+            "Azure DevOps titles are limited to {PULL_TITLE_MAX_CHARS} characters; this one is {title_chars}."
+        ));
+    }
+    let description_chars = description.chars().count();
+    if description_chars > PULL_DESCRIPTION_MAX_CHARS {
+        return Some(format!(
+            "Azure DevOps descriptions are limited to {PULL_DESCRIPTION_MAX_CHARS} characters; this one is {description_chars}."
+        ));
+    }
+    None
+}
+
 /// Opens a pull request through the REST API. The repository name the remote
 /// carries is enough; no id lookup is needed. An optional reviewer name is
 /// resolved against the organization's people to the identity GUID the create
@@ -3029,7 +3055,9 @@ mod follow_tests {
 
 #[cfg(test)]
 mod create_tests {
-    use super::create_pull_body;
+    use super::{
+        PULL_DESCRIPTION_MAX_CHARS, PULL_TITLE_MAX_CHARS, create_pull_body, pull_text_problem,
+    };
     use crate::github::NewPullRequest;
 
     #[test]
@@ -3056,6 +3084,36 @@ mod create_tests {
         assert_eq!(
             body["reviewers"][0]["id"],
             "11111111-2222-3333-4444-555555555555"
+        );
+    }
+
+    #[test]
+    fn a_pull_request_past_azure_limits_says_which_cap_it_broke() {
+        assert_eq!(
+            pull_text_problem(&"t".repeat(PULL_TITLE_MAX_CHARS), ""),
+            None,
+            "the cap itself is allowed"
+        );
+        let problem = pull_text_problem(&"t".repeat(PULL_TITLE_MAX_CHARS + 1), "")
+            .expect("a title past the cap is refused");
+        assert!(
+            problem.contains(&PULL_TITLE_MAX_CHARS.to_string()),
+            "the error names the cap: {problem}"
+        );
+        assert_eq!(
+            pull_text_problem("Land it", &"d".repeat(PULL_DESCRIPTION_MAX_CHARS)),
+            None
+        );
+        let problem = pull_text_problem("Land it", &"d".repeat(PULL_DESCRIPTION_MAX_CHARS + 1))
+            .expect("a description past the cap is refused");
+        assert!(
+            problem.contains(&PULL_DESCRIPTION_MAX_CHARS.to_string()),
+            "the error names the cap: {problem}"
+        );
+        assert_eq!(
+            pull_text_problem(&"é".repeat(PULL_TITLE_MAX_CHARS), ""),
+            None,
+            "the cap counts characters, not bytes"
         );
     }
 }

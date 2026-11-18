@@ -130,6 +130,7 @@ pub(crate) fn header(
     entities: &Entity<Store>,
     page: &Entity<ReposPage>,
     folder: &str,
+    refreshing: bool,
 ) -> AnyElement {
     let favorite = repo.is_favorite();
     let star_press = state.star_press;
@@ -198,18 +199,49 @@ pub(crate) fn header(
                 .child(repo.name.clone()),
         )
         .child(
-            head_icon("detail-refresh", "Refresh repository")
-                .on_click({
-                    let target = entities.clone();
-                    move |_, _, cx| {
-                        target.update(cx, |s, cx| s.refresh_panel(cx));
-                    }
-                })
-                .child(icon(
+            head_icon(
+                "detail-refresh",
+                if refreshing {
+                    "Refreshing"
+                } else {
+                    "Refresh repository"
+                },
+            )
+            .on_click({
+                let target = entities.clone();
+                move |_, _, cx| {
+                    target.update(cx, |s, cx| s.refresh_panel(cx));
+                }
+            })
+            .when(refreshing, |button| button.w_auto().px_2())
+            .when(refreshing, |button| {
+                button.child(
+                    div()
+                        .debug_selector(|| "detail-refresh-busy".into())
+                        .flex()
+                        .items_center()
+                        .gap_1p5()
+                        .child(motion::spinner(
+                            "detail-refresh-spin",
+                            "icons/icon-refresh.svg",
+                            px(theme::icon_small()),
+                            theme::text_dim(),
+                        ))
+                        .child(
+                            div()
+                                .text_size(px(theme::font_control()))
+                                .text_color(theme::text_dim())
+                                .child("Refreshing"),
+                        ),
+                )
+            })
+            .when(!refreshing, |button| {
+                button.child(icon(
                     "icons/icon-refresh.svg",
                     px(theme::icon_small()),
                     theme::text_dim(),
-                )),
+                ))
+            }),
         )
         .children(
             launchers

@@ -2929,6 +2929,7 @@ impl ChangesView {
         // clone the whole file list on every repaint. The tree's folders fold;
         // the selection stays the file whose diff is shown.
         self.pane_nav.register(&self.commit_rail_focus);
+        let rail_focused = self.commit_rail_focus.is_focused(window);
         let rail_items = self.commit_rail_items(&details);
         let rail_files = details.clone();
         let rows = uniform_list(
@@ -2979,27 +2980,14 @@ impl ChangesView {
                     }
                 }),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .h(px(COMMIT_RAIL_ROW_H))
-                    .pl_4()
-                    .pr_3()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .text_size(px(theme::font_meta()))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::text_dim())
-                    .child("Files")
-                    .child(
-                        div()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::text_muted())
-                            .child(file_count.to_string()),
-                    ),
-            )
+            .child(Self::list_head(
+                "Files",
+                file_count,
+                rail_focused,
+                "commit-files-head-focused",
+                "commit-files-head-idle",
+                None,
+            ))
             .child(rows);
 
         // the selected file's diff, through the Changes tab's own pane

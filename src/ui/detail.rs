@@ -217,6 +217,7 @@ pub fn render(
             entities,
             page,
             &folder,
+            store.panel_refreshing(),
         ))
         .child(sub)
         .child(strip)

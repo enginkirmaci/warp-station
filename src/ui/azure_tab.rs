@@ -167,7 +167,7 @@ impl Render for AzureView {
 
 impl AzureView {
     /// The latest run's state of either source, where the other tabs put their
-    /// toolbar, plus a refresh for the pass that filled it.
+    /// toolbar. The refresh itself lives once in the head above every tab.
     fn render_toolbar(&self, latest: Option<&ActivityRun>, cx: &mut Context<Self>) -> AnyElement {
         let focus = self.store.read(cx).pipeline_branch.clone();
         let waiting = self.store.read(cx).pipeline_watch_active();
@@ -218,7 +218,6 @@ impl AzureView {
                 false,
             ),
         };
-        let store = self.store.clone();
         let source = latest.map(|run| run.source);
         let busy_label = if latest.is_none() && waiting {
             word.clone()
@@ -306,27 +305,6 @@ impl AzureView {
                 )
             })
             .children(source.map(|source| source_tag(source.label())))
-            .child(
-                div()
-                    .id("azure-refresh")
-                    .debug_selector(|| "azure-refresh".into())
-                    .a11y_button("Refresh pipeline panel")
-                    .cursor_pointer()
-                    .size(px(shell::CONTROL_HEIGHT))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .hover(|s| s.bg(theme::raised()))
-                    .on_click(move |_, _, cx| {
-                        store.update(cx, |s, cx| s.refresh_panel(cx));
-                    })
-                    .child(icon(
-                        "icons/icon-refresh.svg",
-                        px(theme::icon_small()),
-                        theme::text_muted(),
-                    )),
-            )
             .into_any_element()
     }
 

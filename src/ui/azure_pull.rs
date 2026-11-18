@@ -389,8 +389,9 @@ impl Render for AzurePullView {
             .child(self.tab_strip(pull, &open, &this))
             .child(body);
         pane.children(
-            self.primary_menu
-                .then(|| self.primary_menu_card(pull, policies, acting, &this)),
+            self.primary_menu.then(|| {
+                self.primary_menu_card(pull, policies, acting, open.armed_complete, &this)
+            }),
         )
         .children(
             self.review_menu
@@ -542,7 +543,10 @@ impl AzurePullView {
                         });
                     },
                 )
-            } else if pull.ready_to_complete(policies) {
+            } else if pull.ready_to_complete(policies) && pull.me.is_none() {
+                // Azure did not name the signed-in user, so auto-complete has
+                // no identity to arm with; a ready pull request keeps Complete
+                // as its one verb.
                 let store_click = self.store.clone();
                 let armed = open.armed_complete;
                 let label = if acting {
@@ -594,6 +598,9 @@ impl AzurePullView {
                     .child(label)
                     .into_any_element()
             } else {
+                // The default verb is auto-complete, not Complete: the merge
+                // arms itself when the policies clear, and Complete stays in
+                // the split's menu.
                 let store_click = self.store.clone();
                 let reviewer = pull.me.clone();
                 primary_button_in(
@@ -1144,6 +1151,8 @@ impl AzurePullView {
         let mut rail = div()
             .flex()
             .flex_col()
+            .h_full()
+            .min_h_0()
             .track_focus(&self.files_focus)
             .on_key_down(cx.listener(|this, event, window, cx| {
                 if this.handle_files_key(event, window, cx) {
@@ -1451,61 +1460,46 @@ impl AzurePullView {
         pull: Option<&AzurePull>,
         policies: &[AzurePolicy],
         acting: bool,
+        armed: bool,
         this: &Entity<Self>,
     ) -> AnyElement {
         let mut menu = menu_shell("azure-primary-card");
         if let Some(pull) = pull {
             let active = pull.is_active();
-            if active && pull.ready_to_complete(policies) && !pull.auto_complete {
+            // The primary owns auto-complete in every live state, so the menu
+            // is the deliberate verbs: Complete (when the policies clear) and
+            // Abandon. Complete arms first, as the primary did: the card stays
+            // up and its row turns into the confirmation.
+            if active
+                && pull.me.is_some()
+                && pull.ready_to_complete(policies)
+                && !pull.auto_complete
+            {
                 let this_click = this.clone();
                 let store_click = self.store.clone();
                 menu = menu.child(menu_item(
                     "azure-menu-complete",
                     "icons/icon-check.svg",
-                    "Complete",
+                    if armed {
+                        "Confirm complete"
+                    } else {
+                        "Complete"
+                    },
                     !acting,
                     move |_, _, cx| {
                         store_click.update(cx, |store, cx| {
                             store.act_on_azure_pull(AzurePullAction::Complete, cx);
                         });
                         this_click.update(cx, |view, cx| {
-                            view.primary_menu = false;
+                            if armed {
+                                view.primary_menu = false;
+                            }
                             cx.notify();
                         });
                     },
                 ));
             }
             if active {
-                let reviewer = pull.me.clone();
-                let this_click = this.clone();
-                let store_click = self.store.clone();
-                let armed = pull.auto_complete;
-                menu = menu.child(menu_item(
-                    "azure-menu-autocomplete",
-                    "icons/icon-clock.svg",
-                    if armed {
-                        "Cancel auto-complete"
-                    } else {
-                        "Set auto-complete"
-                    },
-                    !acting && reviewer.is_some(),
-                    move |_, _, cx| {
-                        let action = if armed {
-                            AzurePullAction::CancelAutoComplete
-                        } else if let Some(reviewer) = reviewer.clone() {
-                            AzurePullAction::SetAutoComplete { reviewer }
-                        } else {
-                            return;
-                        };
-                        store_click.update(cx, |store, cx| {
-                            store.act_on_azure_pull(action, cx);
-                        });
-                        this_click.update(cx, |view, cx| {
-                            view.primary_menu = false;
-                            cx.notify();
-                        });
-                    },
-                ));
                 let this_click = this.clone();
                 let store_click = self.store.clone();
                 menu = menu.child(menu_divider()).child(menu_item(
@@ -2136,6 +2130,7 @@ impl AzurePullView {
             .a11y_button(path.clone())
             .cursor_pointer()
             .flex()
+            .flex_shrink_0()
             .items_center()
             .gap_2()
             .h(px(34.))
@@ -2231,6 +2226,7 @@ impl AzurePullView {
             .a11y_tree_item(a11y, Some(!folded))
             .cursor_pointer()
             .flex()
+            .flex_shrink_0()
             .items_center()
             .gap_2()
             .h(px(34.))

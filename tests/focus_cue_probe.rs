@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use warp_station::store::Store;
 use warp_station::ui::window::MainWindow;
 use warp_station_core::github::{GitHubItem, GitHubSnapshot};
-use warp_station_core::model::{GitChangeSnapshot, GitChangedFile, GitCommitInfo};
+use warp_station_core::model::{
+    GitChangeSnapshot, GitChangedFile, GitCommitDetails, GitCommitInfo,
+};
 use warp_station_core::repo_store::RepoEntry;
 
 fn entry(name: &str, path: &str) -> RepoEntry {
@@ -273,6 +275,24 @@ fn history_list_head_cue_follows_the_focus(cx: &mut TestAppContext) {
         ]);
         store.select_repo("/probe/alpha", cx);
         store.set_history(history());
+        store.commit_details = Some(std::sync::Arc::new(GitCommitDetails {
+            hash: "aaaaaaa".into(),
+            files: vec![
+                GitChangedFile {
+                    path: "a.txt".into(),
+                    status_code: "M".into(),
+                    additions: Some(1),
+                    deletions: Some(0),
+                },
+                GitChangedFile {
+                    path: "b.txt".into(),
+                    status_code: "M".into(),
+                    additions: Some(1),
+                    deletions: Some(1),
+                },
+            ],
+            body: None,
+        }));
         store.open_detail_tab(warp_station::store::WorkspaceTab::History, cx);
         store
     });
@@ -297,6 +317,38 @@ fn history_list_head_cue_follows_the_focus(cx: &mut TestAppContext) {
         "a press on a commit row gives the commit list the keys",
     );
 
+    click(cx, "commit-file-0");
+    assert_head(
+        cx,
+        "commit-files-head-focused",
+        "commit-files-head-idle",
+        true,
+        "a press on a commit file gives the files rail the keys",
+    );
+    assert_head(
+        cx,
+        "history-head-focused",
+        "history-head-idle",
+        false,
+        "and the commit list gives the cue up",
+    );
+
+    click(cx, "commit-aaaaaaa");
+    assert_head(
+        cx,
+        "history-head-focused",
+        "history-head-idle",
+        true,
+        "a press on a commit row takes the keys back",
+    );
+    assert_head(
+        cx,
+        "commit-files-head-focused",
+        "commit-files-head-idle",
+        false,
+        "the files rail is idle again",
+    );
+
     click(cx, "repo-row-0");
     assert_head(
         cx,
@@ -304,6 +356,13 @@ fn history_list_head_cue_follows_the_focus(cx: &mut TestAppContext) {
         "history-head-idle",
         false,
         "the repo list takes the keys back",
+    );
+    assert_head(
+        cx,
+        "commit-files-head-focused",
+        "commit-files-head-idle",
+        false,
+        "and the files rail stays idle",
     );
 }
 
